@@ -1,0 +1,99 @@
+name: marine_survey_app
+description: Marine Survey Platform — Oceanomatics Pty Ltd
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Backend
+  supabase_flutter: ^2.5.0
+
+  # State management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Navigation
+  go_router: ^13.2.0
+
+  # Offline / local storage
+  sqflite: ^2.3.3
+  path_provider: ^2.1.3
+  shared_preferences: ^2.2.3
+
+  # Camera & media
+  image_picker: ^1.1.2
+  camera: ^0.11.0+2
+  photo_view: ^0.15.0
+  flutter_image_compress: ^2.3.0
+
+  # Audio recording & playback
+  record: ^5.1.2
+  just_audio: ^0.9.40
+  audio_waveforms: ^1.0.5
+
+  # File handling
+  file_picker: ^8.0.6
+  open_filex: ^4.4.0
+  path: ^1.9.0
+  mime: ^1.0.5
+
+  # Drawing / stylus (freehand notes)
+  perfect_freehand: ^2.0.3
+
+  # Network
+  dio: ^5.4.3+1
+  connectivity_plus: ^6.0.3
+
+  # UI components
+  flutter_svg: ^2.0.10+1
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  badges: ^3.1.2
+  fl_chart: ^0.68.0
+  intl: ^0.19.0
+  timeago: ^3.6.1
+
+  # Utilities
+  uuid: ^4.4.0
+  json_annotation: ^4.9.0
+  freezed_annotation: ^2.4.1
+  logger: ^2.4.0
+  permission_handler: ^11.3.1
+  device_info_plus: ^10.1.0
+  package_info_plus: ^8.0.0
+
+  # Document export
+  docx_template: ^0.4.1
+
+  # Icons
+  cupertino_icons: ^1.0.8
+  flutter_phosphor_icons: ^1.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.11
+  riverpod_generator: ^2.4.0
+  freezed: ^2.5.2
+  json_serializable: ^6.8.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

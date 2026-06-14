@@ -1,0 +1,35 @@
+// lib/main.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/api/supabase_client.dart';
+import 'core/config/app_router.dart';
+import 'shared/theme/app_theme.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise Supabase
+  await SupabaseService.initialize();
+
+  runApp(
+    // Riverpod scope wraps the entire app
+    const ProviderScope(
+      child: MarineSurveyApp(),
+    ),
+  );
+}
+
+class MarineSurveyApp extends StatelessWidget {
+  const MarineSurveyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      title: 'Marine Survey',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      routerConfig: appRouter,
+    );
+  }
+}
