@@ -20,7 +20,7 @@ import '../../core/api/supabase_client.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/cases',
-  redirect: (context, state) {
+  redirect: (BuildContext context, GoRouterState state) {
     final isLoggedIn = SupabaseService.currentUser != null;
     final isLoginPage = state.matchedLocation == '/login';
     if (!isLoggedIn && !isLoginPage) return '/login';
@@ -32,8 +32,6 @@ final appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
-
-    // ── Cases ──────────────────────────────────────────────────────────────
     GoRoute(
       path: '/cases',
       builder: (context, state) => const CasesListScreen(),
@@ -44,89 +42,61 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: ':caseId',
-          builder: (context, state) {
-            final caseId = state.pathParameters['caseId']!;
-            return CaseHomeScreen(caseId: caseId);
-          },
+          builder: (context, state) =>
+              CaseHomeScreen(caseId: state.pathParameters['caseId']!),
           routes: [
-            // Vessel particulars
             GoRoute(
               path: 'vessel',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return VesselParticularsScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  VesselParticularsScreen(caseId: state.pathParameters['caseId']!),
             ),
-            // Damage register
             GoRoute(
               path: 'damage',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return DamageRegisterScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  DamageRegisterScreen(caseId: state.pathParameters['caseId']!),
             ),
-            // Camera
             GoRoute(
               path: 'camera',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                final section = state.uri.queryParameters['section'];
-                return CameraScreen(caseId: caseId, reportSection: section);
-              },
+              builder: (context, state) => CameraScreen(
+                caseId: state.pathParameters['caseId']!,
+                reportSection: state.uri.queryParameters['section'],
+              ),
             ),
-            // Voice notes
             GoRoute(
               path: 'voice',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return VoiceNoteScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  VoiceNoteScreen(caseId: state.pathParameters['caseId']!),
             ),
-            // Quick capture inbox
             GoRoute(
               path: 'capture',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return QuickCaptureScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  QuickCaptureScreen(caseId: state.pathParameters['caseId']!),
             ),
-            // Document vault
             GoRoute(
               path: 'documents',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return DocumentVaultScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  DocumentVaultScreen(caseId: state.pathParameters['caseId']!),
             ),
-            // Checklist
             GoRoute(
               path: 'checklist',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                final stage = state.uri.queryParameters['stage'];
-                return ChecklistScreen(caseId: caseId, stage: stage);
-              },
+              builder: (context, state) => ChecklistScreen(
+                caseId: state.pathParameters['caseId']!,
+                stage: state.uri.queryParameters['stage'],
+              ),
             ),
-            // Report builder
             GoRoute(
               path: 'reports',
-              builder: (context, state) {
-                final caseId = state.pathParameters['caseId']!;
-                return ReportBuilderScreen(caseId: caseId);
-              },
+              builder: (context, state) =>
+                  ReportBuilderScreen(caseId: state.pathParameters['caseId']!),
             ),
           ],
         ),
       ],
     ),
-
-    // ── Correspondence (global inbox) ──────────────────────────────────────
     GoRoute(
       path: '/inbox',
       builder: (context, state) => const InboxScreen(),
     ),
-
-    // ── Timesheet ──────────────────────────────────────────────────────────
     GoRoute(
       path: '/timesheet',
       builder: (context, state) => const TimesheetScreen(),

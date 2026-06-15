@@ -32,12 +32,12 @@ dependencies:
   flutter_image_compress: ^2.3.0
 
   # Audio recording & playback
-  record: ^5.1.2
+  record: ^7.1.0
   just_audio: ^0.9.40
   audio_waveforms: ^1.0.5
 
   # File handling
-  file_picker: ^8.0.6
+  file_picker: ^8.3.7
   open_filex: ^4.4.0
   path: ^1.9.0
   mime: ^1.0.5
@@ -68,11 +68,11 @@ dependencies:
   package_info_plus: ^8.0.0
 
   # Document export
-  docx_template: ^0.4.1
+  docx_template: ^0.4.0
 
   # Icons
   cupertino_icons: ^1.0.8
-  flutter_phosphor_icons: ^1.0.1
+  flutter_phosphor_icons: ^0.0.1
 
 dev_dependencies:
   flutter_test:

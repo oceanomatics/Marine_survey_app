@@ -175,7 +175,7 @@ Dates in ISO format. Return null for missing fields.''',
           'content':
               '''You are a marine surveyor drafting a Hull & Machinery survey report section in the $reportFormat format.
 
-Draft the BACKGROUND / OCCURRENCE section (the owners\' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. 
+Draft the BACKGROUND / OCCURRENCE section (the owners' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. 
 
 VESSEL: $vesselName
 DATE: $occurrenceDate

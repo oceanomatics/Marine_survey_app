@@ -1,12 +1,11 @@
 // lib/features/capture/screens/camera_screen.dart
-// Full implementation coming next session
-// This stub satisfies the router and case_home_screen imports
 
 import 'package:flutter/material.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class CameraScreen extends StatelessWidget {
-  const CameraScreen({super.key, required this.caseId, this.reportSection, this.stage});
+  const CameraScreen(
+      {super.key, required this.caseId, this.reportSection, this.stage});
   final String caseId;
   final String? reportSection;
   final String? stage;
@@ -15,12 +14,19 @@ class CameraScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Camera')),
-      body: const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.camera_alt_outlined, size: 64, color: AppColors.textTertiary),
-        SizedBox(height: 12),
-        Text('Camera — coming next session',
-            style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-      ])),
+      body: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.camera_alt_outlined,
+                size: 64, color: AppColors.textTertiary),
+            SizedBox(height: 12),
+            Text('Camera — coming next session',
+                style:
+                    TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -50,9 +56,9 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             decoration: BoxDecoration(
               color: AppColors.border,
               borderRadius: BorderRadius.circular(2),
@@ -60,39 +66,45 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           ),
           const SizedBox(height: 16),
           const Text('Quick Capture',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600,
+              style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
                   color: AppColors.textPrimary)),
           const SizedBox(height: 4),
           const Text('Capture it now — sort it later',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              style:
+                  TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           const SizedBox(height: 16),
           TextField(
             controller: _ctrl,
             autofocus: true,
             maxLines: 4,
             decoration: const InputDecoration(
-              hintText:
-                  'e.g. "Check run hours on port thruster"\n'
+              hintText: 'e.g. "Check run hours on port thruster"\n'
                   '"Ask chief about lube oil analysis date"\n'
                   '"Photo of crankcase door needed"',
             ),
           ),
           const SizedBox(height: 14),
-          // Quick category buttons
-          Row(children: [
-            _QuickTag('📋 Checklist', AppColors.green),
-            const SizedBox(width: 8),
-            _QuickTag('📄 Document', AppColors.amber),
-            const SizedBox(width: 8),
-            _QuickTag('🔧 Damage', AppColors.coral),
-          ]),
+          // Tag row — NOT const because _QuickTag has GestureDetector onTap
+          Row(
+            children: [
+              _QuickTag('📋 Checklist', AppColors.green),
+              const SizedBox(width: 8),
+              _QuickTag('📄 Document', AppColors.amber),
+              const SizedBox(width: 8),
+              _QuickTag('🔧 Damage', AppColors.coral),
+            ],
+          ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
               child: _saving
-                  ? const SizedBox(width: 18, height: 18,
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(
                           color: Colors.white, strokeWidth: 2))
                   : const Text('Save to Inbox'),
@@ -107,13 +119,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     if (_ctrl.text.trim().isEmpty) return;
     setState(() => _saving = true);
     try {
-      // TODO: save to quick_captures table
-      // await SupabaseService.client.from('quick_captures').insert({
-      //   'case_id':     widget.caseId,
-      //   'content':     _ctrl.text.trim(),
-      //   'capture_type':'text',
-      //   'status':      'pending',
-      // });
+      // Will be wired to Supabase in next session
       await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) Navigator.pop(context);
     } finally {
@@ -134,9 +140,9 @@ class _QuickTag extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Text(label,
             style: TextStyle(

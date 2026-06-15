@@ -1,5 +1,6 @@
 // lib/core/api/supabase_client.dart
 
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/app_config.dart';
 
@@ -32,6 +33,11 @@ class SupabaseService {
     return client.auth.signInWithPassword(email: email, password: password);
   }
 
+  /// Register a new account with email and password
+  static Future<AuthResponse> signUp(String email, String password) async {
+    return client.auth.signUp(email: email, password: password);
+  }
+
   /// Sign out
   static Future<void> signOut() async {
     await client.auth.signOut();
@@ -46,18 +52,17 @@ class SupabaseService {
     required String mimeType,
   }) async {
     await client.storage.from(bucket).uploadBinary(
-      path,
-      Uint8List.fromList(bytes),
-      fileOptions: FileOptions(contentType: mimeType, upsert: true),
-    );
+          path,
+          Uint8List.fromList(bytes),
+          fileOptions: FileOptions(contentType: mimeType, upsert: true),
+        );
     return path;
   }
 
   /// Get a signed URL for a private file (1 hour expiry)
   static Future<String> getSignedUrl(String bucket, String path) async {
-    final response = await client.storage
-        .from(bucket)
-        .createSignedUrl(path, 3600);
+    final response =
+        await client.storage.from(bucket).createSignedUrl(path, 3600);
     return response;
   }
 }

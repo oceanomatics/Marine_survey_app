@@ -36,7 +36,7 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
                   hintText: 'e.g. GARD-2025O123456')),
           const SizedBox(height: 16),
           DropdownButtonFormField<CaseType>(
-            value: _type,
+            initialValue: _type,
             decoration: const InputDecoration(labelText: 'Survey Type'),
             items: CaseType.values.map((t) =>
                 DropdownMenuItem(value: t, child: Text(t.label))).toList(),
@@ -44,7 +44,7 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<OutputFormat>(
-            value: _fmt,
+            initialValue: _fmt,
             decoration: const InputDecoration(labelText: 'Report Format'),
             items: OutputFormat.values.map((f) =>
                 DropdownMenuItem(value: f, child: Text(f.label))).toList(),
