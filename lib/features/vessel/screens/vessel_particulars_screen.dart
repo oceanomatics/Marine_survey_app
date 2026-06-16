@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/vessel_provider.dart';
 import '../../cases/models/case_model.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../widgets/machinery_card.dart';
@@ -127,6 +128,11 @@ class _VesselParticularsScreenState
           .read(vesselForCaseProvider(widget.caseId).notifier)
           .saveVessel(vesselId: vesselId, fields: _collectFields());
       setState(() => _hasChanges = false);
+
+      // Refresh case providers so vessel name shows everywhere immediately
+      ref.invalidate(caseProvider(widget.caseId));
+      ref.invalidate(casesProvider);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -158,6 +164,20 @@ class _VesselParticularsScreenState
           .read(vesselForCaseProvider(widget.caseId).notifier)
           .saveVessel(vesselId: vessel.vesselId, fields: _collectFields());
       setState(() { _vesselId = vessel.vesselId; _hasChanges = false; });
+
+      // Refresh case providers so vessel name shows everywhere immediately
+      ref.invalidate(caseProvider(widget.caseId));
+      ref.invalidate(casesProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vessel particulars saved'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -667,18 +687,18 @@ class _MachineryEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.settings_outlined,
+        Icon(Icons.settings_outlined,
             size: 56, color: AppColors.textTertiary),
-        const SizedBox(height: 14),
-        const Text('No machinery recorded',
+        SizedBox(height: 14),
+        Text('No machinery recorded',
             style: TextStyle(
                 fontSize: 15,
                 color: AppColors.textSecondary,
                 fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        const Text('Add main engines, generators,\nthrusters and other equipment',
+        SizedBox(height: 6),
+        Text('Add main engines, generators,\nthrusters and other equipment',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
       ]),

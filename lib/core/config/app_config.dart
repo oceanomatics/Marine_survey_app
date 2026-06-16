@@ -10,12 +10,12 @@ class AppConfig {
   // Find these in: Supabase Dashboard → Project Settings → API
   static const supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://YOUR_PROJECT_REF.supabase.co',
+    defaultValue: 'https://mgftoofmcnxfshtailgn.supabase.co',
   );
 
   static const supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'YOUR_SUPABASE_ANON_KEY',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nZnRvb2ZtY254ZnNodGFpbGduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MTI2MjUsImV4cCI6MjA5Njk4ODYyNX0.jEcRP0Zh9xVTlD6eVpfgcrhJLCKcIpZtSOydtyOF6YQ',
   );
 
   // ── Anthropic (Claude API) ─────────────────

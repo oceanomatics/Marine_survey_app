@@ -1,6 +1,10 @@
 // lib/features/capture/screens/camera_screen.dart
+// Camera screen stub — full implementation in next session
+// QuickCaptureSheet is now fully wired to Supabase
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/quick_capture_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class CameraScreen extends StatelessWidget {
@@ -15,34 +19,40 @@ class CameraScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Camera')),
       body: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.camera_alt_outlined,
-                size: 64, color: AppColors.textTertiary),
-            SizedBox(height: 12),
-            Text('Camera — coming next session',
-                style:
-                    TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.camera_alt_outlined,
+              size: 64, color: AppColors.textTertiary),
+          SizedBox(height: 12),
+          Text('Camera — coming next session',
+              style:
+                  TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+        ]),
       ),
     );
   }
 }
 
-/// Quick capture bottom sheet — always accessible from Case Home
-class QuickCaptureSheet extends StatefulWidget {
+// ── Quick Capture Sheet ────────────────────────────────────────────────────
+// Used from Case Home FAB — now saves to Supabase via provider
+
+class QuickCaptureSheet extends ConsumerStatefulWidget {
   const QuickCaptureSheet({super.key, required this.caseId});
   final String caseId;
 
   @override
-  State<QuickCaptureSheet> createState() => _QuickCaptureSheetState();
+  ConsumerState<QuickCaptureSheet> createState() =>
+      _QuickCaptureSheetState();
 }
 
-class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
+class _QuickCaptureSheetState extends ConsumerState<QuickCaptureSheet> {
   final _ctrl = TextEditingController();
   bool _saving = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +82,8 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
                   color: AppColors.textPrimary)),
           const SizedBox(height: 4),
           const Text('Capture it now — sort it later',
-              style:
-                  TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(
+                  fontSize: 12, color: AppColors.textSecondary)),
           const SizedBox(height: 16),
           TextField(
             controller: _ctrl,
@@ -86,16 +96,14 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
             ),
           ),
           const SizedBox(height: 14),
-          // Tag row — NOT const because _QuickTag has GestureDetector onTap
-          Row(
-            children: [
-              _QuickTag('📋 Checklist', AppColors.green),
-              const SizedBox(width: 8),
-              _QuickTag('📄 Document', AppColors.amber),
-              const SizedBox(width: 8),
-              _QuickTag('🔧 Damage', AppColors.coral),
-            ],
-          ),
+          // Quick category hint tags (visual only — routing done in inbox)
+          const Row(children: [
+            _QuickTag('🔧 Damage', AppColors.coral),
+            SizedBox(width: 8),
+            _QuickTag('📋 Checklist', AppColors.green),
+            SizedBox(width: 8),
+            _QuickTag('📄 Document', AppColors.amber),
+          ]),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
@@ -116,11 +124,13 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   }
 
   Future<void> _save() async {
-    if (_ctrl.text.trim().isEmpty) return;
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
     setState(() => _saving = true);
     try {
-      // Will be wired to Supabase in next session
-      await Future.delayed(const Duration(milliseconds: 300));
+      await ref
+          .read(quickCaptureProvider(widget.caseId).notifier)
+          .addCapture(caseId: widget.caseId, content: text);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -135,19 +145,18 @@ class _QuickTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {},
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                color: color, fontSize: 11, fontWeight: FontWeight.w500)),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
+      child: Text(label,
+          style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w500)),
     );
   }
 }

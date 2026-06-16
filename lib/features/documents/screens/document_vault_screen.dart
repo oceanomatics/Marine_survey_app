@@ -122,7 +122,7 @@ class DocumentVaultScreen extends ConsumerWidget {
 
   Future<void> _importFromFile(
       BuildContext context, WidgetRef ref) async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
       withData: true,

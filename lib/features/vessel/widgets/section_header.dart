@@ -1,7 +1,6 @@
 // lib/features/vessel/widgets/section_header.dart
 
 import 'package:flutter/material.dart';
-import '../../../shared/theme/app_theme.dart';
 
 class VesselSectionHeader extends StatelessWidget {
   const VesselSectionHeader({

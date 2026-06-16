@@ -365,15 +365,19 @@ class ExtractionNotifier extends StateNotifier<ExtractionState> {
       certFields['cert_type'] = _mapCertType(raw['document_type'] as String);
       certFields['cert_name'] = raw['document_type'];
     }
-    if (raw['issuing_authority'] != null)
+    if (raw['issuing_authority'] != null) {
       certFields['issuing_authority'] = raw['issuing_authority'];
+    }
     if (raw['issue_date'] != null) certFields['issue_date'] = raw['issue_date'];
-    if (raw['expiry_date'] != null)
+    if (raw['expiry_date'] != null) {
       certFields['expiry_date'] = raw['expiry_date'];
-    if (raw['annual_survey_date'] != null)
+    }
+    if (raw['annual_survey_date'] != null) {
       certFields['annual_survey_date'] = raw['annual_survey_date'];
-    if (raw['cert_number'] != null)
+    }
+    if (raw['cert_number'] != null) {
       certFields['cert_number'] = raw['cert_number'];
+    }
 
     return ExtractionResult(
       docId: docId,

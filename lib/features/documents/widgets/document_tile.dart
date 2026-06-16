@@ -93,16 +93,18 @@ class DocumentTile extends ConsumerWidget {
   IconData _icon(DocumentModel doc) {
     if (doc.isPdf) return Icons.picture_as_pdf_outlined;
     if (doc.isImage) return Icons.image_outlined;
-    if (doc.availability == DocAvailability.requested)
+    if (doc.availability == DocAvailability.requested) {
       return Icons.hourglass_empty_outlined;
+    }
     return Icons.description_outlined;
   }
 
   Color _iconBg(DocumentModel doc) {
     if (doc.isPdf) return AppColors.lightCoral;
     if (doc.isImage) return AppColors.lightBlue;
-    if (doc.availability == DocAvailability.requested)
+    if (doc.availability == DocAvailability.requested) {
       return AppColors.lightAmber;
+    }
     return AppColors.lightAmber;
   }
 

@@ -11,7 +11,6 @@ import '../models/case_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
-import '../../capture/screens/quick_capture_screen.dart';
 import '../../capture/screens/camera_screen.dart';
 
 class CaseHomeScreen extends ConsumerWidget {

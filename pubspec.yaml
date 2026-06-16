@@ -37,7 +37,7 @@ dependencies:
   audio_waveforms: ^1.0.5
 
   # File handling
-  file_picker: ^8.3.7
+  file_picker: ^11.0.2
   open_filex: ^4.4.0
   path: ^1.9.0
   mime: ^1.0.5

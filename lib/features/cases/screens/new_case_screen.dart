@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/cases_provider.dart';
 import '../models/case_model.dart';
-import '../../../shared/theme/app_theme.dart';
 
 class NewCaseScreen extends ConsumerStatefulWidget {
   const NewCaseScreen({super.key});

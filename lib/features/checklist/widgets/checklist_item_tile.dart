@@ -316,6 +316,6 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
     final m = dt.minute.toString().padLeft(2, '0');
     final day = dt.day.toString().padLeft(2, '0');
     final mon = dt.month.toString().padLeft(2, '0');
-    return '$day/$mon ${h}:$m';
+    return '$day/$mon $h:$m';
   }
 }

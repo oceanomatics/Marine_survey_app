@@ -166,7 +166,7 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
                     color: AppColors.textSecondary)),
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
-              value: _role,
+              initialValue: _role,
               decoration: InputDecoration(
                 filled: true,
                 fillColor: Colors.white,
