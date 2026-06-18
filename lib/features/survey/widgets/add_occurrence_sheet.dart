@@ -39,6 +39,7 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
       initialDate: _dateTime ?? DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime.now(),
+      locale: const Locale('en', 'AU'),
     );
     if (date == null) return;
     if (!mounted) return;

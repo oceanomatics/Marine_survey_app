@@ -64,6 +64,7 @@ class CaseModel {
     this.clientId,
     this.vesselId,
     this.instructionDate,
+    this.title,
     this.claimReference,
     this.principalId,
     this.assignedSurveyor,
@@ -86,6 +87,7 @@ class CaseModel {
   final String? clientId;
   final String? vesselId;
   final DateTime? instructionDate;
+  final String? title;
   final String? claimReference;
   final String? principalId;
   final String? assignedSurveyor;
@@ -114,6 +116,7 @@ class CaseModel {
       instructionDate: json['instruction_date'] != null
           ? DateTime.tryParse(json['instruction_date'] as String)
           : null,
+      title:          json['title'] as String?,
       claimReference: json['claim_reference'] as String?,
       principalId: json['principal_id'] as String?,
       assignedSurveyor: json['assigned_surveyor'] as String?,
@@ -138,6 +141,7 @@ class CaseModel {
     if (vesselId != null)     'vessel_id':     vesselId,
     if (instructionDate != null)
       'instruction_date': instructionDate!.toIso8601String().split('T').first,
+    if (title != null)             'title':               title,
     if (claimReference != null)    'claim_reference':     claimReference,
     if (principalId != null)       'principal_id':        principalId,
     if (assignedSurveyor != null)  'assigned_surveyor':   assignedSurveyor,
@@ -154,6 +158,7 @@ class CaseModel {
     String? clientId,
     String? vesselId,
     DateTime? instructionDate,
+    String? title,
     String? claimReference,
     String? notes,
     String? vesselName,
@@ -168,6 +173,7 @@ class CaseModel {
       clientId:        clientId        ?? this.clientId,
       vesselId:        vesselId        ?? this.vesselId,
       instructionDate: instructionDate ?? this.instructionDate,
+      title:           title           ?? this.title,
       claimReference:  claimReference  ?? this.claimReference,
       principalId:     principalId,
       assignedSurveyor: assignedSurveyor,

@@ -6,6 +6,22 @@ import '../../../core/api/supabase_client.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
+enum DamageCategory {
+  structuralExternal('structural_external', 'Structural — External'),
+  structuralInternal('structural_internal', 'Structural — Internal'),
+  mechanical('mechanical', 'Mechanical'),
+  electricalElectronics('electrical_electronics', 'Electrical / Electronics'),
+  other('other', 'Other');
+
+  const DamageCategory(this.value, this.label);
+  final String value;
+  final String label;
+
+  static DamageCategory fromValue(String v) =>
+      values.firstWhere((e) => e.value == v,
+          orElse: () => DamageCategory.other);
+}
+
 enum RepairType {
   temporary('temporary', 'Temporary'),
   permanent('permanent', 'Permanent'),
@@ -18,7 +34,7 @@ enum RepairType {
 
   static RepairType fromValue(String v) =>
       values.firstWhere((e) => e.value == v,
-          orElse: () => RepairType.permanent);
+          orElse: () => RepairType.temporary);
 }
 
 enum RepairStatus {
@@ -71,21 +87,21 @@ class OccurrenceModel {
   final DateTime? createdAt;
 
   factory OccurrenceModel.fromJson(Map<String, dynamic> j) => OccurrenceModel(
-        occurrenceId:      j['occurrence_id'] as String,
-        caseId:            j['case_id'] as String,
-        occurrenceNo:      j['occurrence_no'] as int? ?? 1,
-        dateTime:          j['date_time'] != null
+        occurrenceId:        j['occurrence_id'] as String,
+        caseId:              j['case_id'] as String,
+        occurrenceNo:        j['occurrence_no'] as int? ?? 1,
+        dateTime:            j['date_time'] != null
             ? DateTime.tryParse(j['date_time'] as String)
             : null,
-        location:          j['location'] as String?,
-        title:             j['title'] as String?,
-        briefDescription:  j['brief_description'] as String?,
+        location:            j['location'] as String?,
+        title:               j['title'] as String?,
+        briefDescription:    j['brief_description'] as String?,
         backgroundNarrative: j['background_narrative'] as String?,
-        chronology:        j['chronology'] as String?,
-        allegationType:    j['allegation_type'] as String?,
-        causeNarrative:    j['cause_narrative'] as String?,
-        ismReported:       j['ism_reported'] as bool?,
-        createdAt:         j['created_at'] != null
+        chronology:          j['chronology'] as String?,
+        allegationType:      j['allegation_type'] as String?,
+        causeNarrative:      j['cause_narrative'] as String?,
+        ismReported:         j['ism_reported'] as bool?,
+        createdAt:           j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
       );
@@ -115,6 +131,7 @@ class DamageItemModel {
     required this.occurrenceId,
     required this.caseId,
     required this.componentName,
+    this.damageCategory = DamageCategory.other,
     this.machineryId,
     this.locationOnVessel,
     this.damageDescription,
@@ -132,6 +149,7 @@ class DamageItemModel {
   final String occurrenceId;
   final String caseId;
   final String componentName;
+  final DamageCategory damageCategory;
   final String? machineryId;
   final String? locationOnVessel;
   final String? damageDescription;
@@ -149,6 +167,8 @@ class DamageItemModel {
         occurrenceId:      j['occurrence_id'] as String,
         caseId:            j['case_id'] as String,
         componentName:     j['component_name'] as String,
+        damageCategory:    DamageCategory.fromValue(
+            j['damage_category'] as String? ?? 'other'),
         machineryId:       j['machinery_id'] as String?,
         locationOnVessel:  j['location_on_vessel'] as String?,
         damageDescription: j['damage_description'] as String?,
@@ -170,6 +190,7 @@ class DamageItemModel {
         'occurrence_id':   occurrenceId,
         'case_id':         caseId,
         'component_name':  componentName,
+        'damage_category': damageCategory.value,
         if (machineryId != null)       'machinery_id':        machineryId,
         if (locationOnVessel != null)  'location_on_vessel':  locationOnVessel,
         if (damageDescription != null) 'damage_description':  damageDescription,
@@ -183,6 +204,7 @@ class DamageItemModel {
 
   DamageItemModel copyWith({
     String? componentName,
+    DamageCategory? damageCategory,
     String? machineryId,
     String? locationOnVessel,
     String? damageDescription,
@@ -197,6 +219,7 @@ class DamageItemModel {
         occurrenceId:      occurrenceId,
         caseId:            caseId,
         componentName:     componentName     ?? this.componentName,
+        damageCategory:    damageCategory    ?? this.damageCategory,
         machineryId:       machineryId       ?? this.machineryId,
         locationOnVessel:  locationOnVessel  ?? this.locationOnVessel,
         damageDescription: damageDescription ?? this.damageDescription,
@@ -211,6 +234,81 @@ class DamageItemModel {
       );
 }
 
+// ── Repair model ───────────────────────────────────────────────────────────
+
+@immutable
+class RepairModel {
+  const RepairModel({
+    required this.repairId,
+    required this.occurrenceId,
+    required this.caseId,
+    required this.repairType,
+    required this.repairStatus,
+    this.description,
+    this.estimatedCost,
+    this.actualCost,
+    this.completionDate,
+    this.notes,
+    this.linkedDamageIds = const [],
+    this.sequenceNo = 1,
+    this.createdAt,
+  });
+
+  final String repairId;
+  final String occurrenceId;
+  final String caseId;
+  final RepairType repairType;
+  final RepairStatus repairStatus;
+  final String? description;
+  final double? estimatedCost;
+  final double? actualCost;
+  final DateTime? completionDate;
+  final String? notes;
+  final List<String> linkedDamageIds;
+  final int sequenceNo;
+  final DateTime? createdAt;
+
+  factory RepairModel.fromJson(
+    Map<String, dynamic> j, {
+    List<String> linkedDamageIds = const [],
+  }) =>
+      RepairModel(
+        repairId:       j['repair_id'] as String,
+        occurrenceId:   j['occurrence_id'] as String,
+        caseId:         j['case_id'] as String,
+        repairType:     RepairType.fromValue(
+            j['repair_type'] as String? ?? 'temporary'),
+        repairStatus:   RepairStatus.fromValue(
+            j['repair_status'] as String? ?? 'not_started'),
+        description:    j['description'] as String?,
+        estimatedCost:  (j['estimated_cost'] as num?)?.toDouble(),
+        actualCost:     (j['actual_cost'] as num?)?.toDouble(),
+        completionDate: j['completion_date'] != null
+            ? DateTime.tryParse(j['completion_date'] as String)
+            : null,
+        notes:          j['notes'] as String?,
+        linkedDamageIds: linkedDamageIds,
+        sequenceNo:     j['sequence_no'] as int? ?? 1,
+        createdAt:      j['created_at'] != null
+            ? DateTime.tryParse(j['created_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toInsertJson() => {
+        'occurrence_id': occurrenceId,
+        'case_id':       caseId,
+        'repair_type':   repairType.value,
+        'repair_status': repairStatus.value,
+        if (description != null)    'description':     description,
+        if (estimatedCost != null)  'estimated_cost':  estimatedCost,
+        if (actualCost != null)     'actual_cost':     actualCost,
+        if (completionDate != null)
+          'completion_date': completionDate!.toIso8601String().split('T').first,
+        if (notes != null) 'notes': notes,
+        'sequence_no':   sequenceNo,
+      };
+}
+
 // ── Combined state ─────────────────────────────────────────────────────────
 
 @immutable
@@ -218,14 +316,30 @@ class DamageState {
   const DamageState({
     required this.occurrences,
     required this.damageItems,
+    this.repairs = const [],
   });
 
   final List<OccurrenceModel> occurrences;
   final List<DamageItemModel> damageItems;
+  final List<RepairModel> repairs;
 
   List<DamageItemModel> itemsForOccurrence(String occurrenceId) =>
       damageItems
           .where((d) => d.occurrenceId == occurrenceId)
+          .toList()
+        ..sort((a, b) => a.sequenceNo.compareTo(b.sequenceNo));
+
+  List<DamageItemModel> itemsForOccurrenceAndCategory(
+          String occurrenceId, DamageCategory cat) =>
+      damageItems
+          .where((d) =>
+              d.occurrenceId == occurrenceId && d.damageCategory == cat)
+          .toList()
+        ..sort((a, b) => a.sequenceNo.compareTo(b.sequenceNo));
+
+  List<RepairModel> repairsForOccurrence(String occurrenceId) =>
+      repairs
+          .where((r) => r.occurrenceId == occurrenceId)
           .toList()
         ..sort((a, b) => a.sequenceNo.compareTo(b.sequenceNo));
 
@@ -254,23 +368,69 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .eq('case_id', caseId)
         .order('occurrence_no');
 
-    final occurrences =
-        (occData as List).map((e) => OccurrenceModel.fromJson(e as Map<String, dynamic>)).toList();
+    final occurrences = (occData as List)
+        .map((e) => OccurrenceModel.fromJson(e as Map<String, dynamic>))
+        .toList();
 
     List<DamageItemModel> damageItems = [];
+    List<RepairModel> repairs = [];
+
     if (occurrences.isNotEmpty) {
       final occIds = occurrences.map((o) => o.occurrenceId).toList();
+
       final dmgData = await SupabaseService.client
           .from('damage_items')
           .select()
           .inFilter('occurrence_id', occIds)
           .order('sequence_no');
-      damageItems =
-          (dmgData as List).map((e) => DamageItemModel.fromJson(e as Map<String, dynamic>)).toList();
+      damageItems = (dmgData as List)
+          .map((e) => DamageItemModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+
+      // Load repairs — wrapped so app doesn't crash before migrations run
+      try {
+        final repairRaw = await SupabaseService.client
+            .from('repairs')
+            .select()
+            .eq('case_id', caseId)
+            .order('sequence_no');
+        final repairList = repairRaw as List;
+
+        if (repairList.isNotEmpty) {
+          final repairIds = repairList
+              .map((r) => (r as Map<String, dynamic>)['repair_id'] as String)
+              .toList();
+
+          final linkRaw = await SupabaseService.client
+              .from('repair_damage_links')
+              .select()
+              .inFilter('repair_id', repairIds);
+
+          final linkMap = <String, List<String>>{};
+          for (final link in linkRaw as List) {
+            final m = link as Map<String, dynamic>;
+            linkMap
+                .putIfAbsent(m['repair_id'] as String, () => [])
+                .add(m['damage_id'] as String);
+          }
+
+          repairs = repairList.map((e) {
+            final row = e as Map<String, dynamic>;
+            final rid = row['repair_id'] as String;
+            return RepairModel.fromJson(row,
+                linkedDamageIds: linkMap[rid] ?? []);
+          }).toList();
+        }
+      } catch (e) {
+        debugPrint('[DamageNotifier] repairs fetch skipped: $e');
+      }
     }
 
     return DamageState(
-        occurrences: occurrences, damageItems: damageItems);
+      occurrences: occurrences,
+      damageItems: damageItems,
+      repairs: repairs,
+    );
   }
 
   // ── Occurrences ──────────────────────────────────────────────────────────
@@ -290,12 +450,11 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     final data = await SupabaseService.client
         .from('occurrences')
         .insert({
-          'case_id':           caseId,
-          'occurrence_no':     nextNo,
-          'title':             title,
-          if (dateTime != null)
-            'date_time': dateTime.toIso8601String(),
-          if (location != null)          'location':          location,
+          'case_id':        caseId,
+          'occurrence_no':  nextNo,
+          'title':          title,
+          if (dateTime != null) 'date_time': dateTime.toIso8601String(),
+          if (location != null)          'location':         location,
           if (briefDescription != null)
             'brief_description': briefDescription,
           'allegation_type': 'tbc',
@@ -307,6 +466,7 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     state = AsyncData(DamageState(
       occurrences: [...current.occurrences, occ],
       damageItems: current.damageItems,
+      repairs: current.repairs,
     ));
     return occ;
   }
@@ -339,6 +499,7 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     state = AsyncData(DamageState(
       occurrences: current.occurrences,
       damageItems: [...current.damageItems, created],
+      repairs: current.repairs,
     ));
     return created;
   }
@@ -355,6 +516,7 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
       damageItems: current.damageItems
           .map((d) => d.damageId == item.damageId ? item : d)
           .toList(),
+      repairs: current.repairs,
     ));
   }
 
@@ -367,9 +529,91 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     final current = state.value!;
     state = AsyncData(DamageState(
       occurrences: current.occurrences,
-      damageItems: current.damageItems
-          .where((d) => d.damageId != damageId)
+      damageItems:
+          current.damageItems.where((d) => d.damageId != damageId).toList(),
+      repairs: current.repairs,
+    ));
+  }
+
+  // ── Repairs ──────────────────────────────────────────────────────────────
+
+  Future<RepairModel> addRepair(RepairModel repair) async {
+    final current = state.value!;
+    final existing = current.repairsForOccurrence(repair.occurrenceId);
+    final nextSeq =
+        existing.isEmpty ? 1 : existing.last.sequenceNo + 1;
+
+    final insertData = repair.toInsertJson();
+    insertData['sequence_no'] = nextSeq;
+
+    final data = await SupabaseService.client
+        .from('repairs')
+        .insert(insertData)
+        .select()
+        .single();
+
+    final repairId = data['repair_id'] as String;
+
+    if (repair.linkedDamageIds.isNotEmpty) {
+      await SupabaseService.client.from('repair_damage_links').insert(
+        repair.linkedDamageIds
+            .map((id) => {'repair_id': repairId, 'damage_id': id})
+            .toList(),
+      );
+    }
+
+    final created = RepairModel.fromJson(data,
+        linkedDamageIds: repair.linkedDamageIds);
+    state = AsyncData(DamageState(
+      occurrences: current.occurrences,
+      damageItems: current.damageItems,
+      repairs: [...current.repairs, created],
+    ));
+    return created;
+  }
+
+  Future<void> updateRepair(RepairModel repair) async {
+    await SupabaseService.client
+        .from('repairs')
+        .update(repair.toInsertJson())
+        .eq('repair_id', repair.repairId);
+
+    await SupabaseService.client
+        .from('repair_damage_links')
+        .delete()
+        .eq('repair_id', repair.repairId);
+
+    if (repair.linkedDamageIds.isNotEmpty) {
+      await SupabaseService.client.from('repair_damage_links').insert(
+        repair.linkedDamageIds
+            .map((id) =>
+                {'repair_id': repair.repairId, 'damage_id': id})
+            .toList(),
+      );
+    }
+
+    final current = state.value!;
+    state = AsyncData(DamageState(
+      occurrences: current.occurrences,
+      damageItems: current.damageItems,
+      repairs: current.repairs
+          .map((r) => r.repairId == repair.repairId ? repair : r)
           .toList(),
+    ));
+  }
+
+  Future<void> deleteRepair(String repairId) async {
+    await SupabaseService.client
+        .from('repairs')
+        .delete()
+        .eq('repair_id', repairId);
+
+    final current = state.value!;
+    state = AsyncData(DamageState(
+      occurrences: current.occurrences,
+      damageItems: current.damageItems,
+      repairs:
+          current.repairs.where((r) => r.repairId != repairId).toList(),
     ));
   }
 

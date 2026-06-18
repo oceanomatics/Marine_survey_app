@@ -25,6 +25,16 @@ class AppConfig {
     defaultValue: 'YOUR_ANTHROPIC_API_KEY',
   );
 
+  // True when a real key was injected via --dart-define at build time.
+  static bool get isAnthropicKeySet =>
+      anthropicApiKey.isNotEmpty &&
+      anthropicApiKey != 'YOUR_ANTHROPIC_API_KEY';
+
+  // Last 6 chars for display — enough to confirm which key is active.
+  static String get anthropicKeyHint => isAnthropicKeySet
+      ? '…${anthropicApiKey.substring(anthropicApiKey.length - 6)}'
+      : 'not set';
+
   static const claudeModel = 'claude-sonnet-4-6';
   static const claudeMaxTokens = 4096;
 

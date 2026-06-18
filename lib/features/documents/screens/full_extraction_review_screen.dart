@@ -5,10 +5,16 @@
 // before applying to the case.
 
 import 'dart:convert';
-import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../documents/providers/document_provider.dart';
+import '../../cases/providers/cases_provider.dart';
+import '../../survey/providers/damage_provider.dart';
+import '../../survey/providers/attendees_provider.dart';
+import '../../vessel/providers/vessel_provider.dart';
+import '../../vessel/providers/certificates_provider.dart';
 import '../../../core/api/report_extraction.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -20,12 +26,14 @@ class FullExtractionReviewScreen extends ConsumerStatefulWidget {
     required this.doc,
     required this.bytes,
     required this.mimeType,
+    this.contextNotes,
   });
 
   final String caseId;
   final DocumentModel doc;
   final Uint8List bytes;
   final String mimeType;
+  final String? contextNotes;
 
   @override
   ConsumerState<FullExtractionReviewScreen> createState() =>
@@ -38,17 +46,21 @@ class _FullExtractionReviewScreenState
   bool _applying   = false;
   FullReportExtraction? _result;
   String? _error;
+  // occurrence_nos already in DB for this case — used to skip duplicates.
+  Set<int> _existingOccNos = {};
 
   // Which sections to apply
   final Set<String> _approved = {
     'vessel', 'machinery', 'occurrences',
-    'damage_items', 'attendees', 'certificates',
+    'damage_items', 'repairs_performed', 'attendees', 'certificates',
   };
 
   @override
   void initState() {
     super.initState();
-    _runExtraction();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _runExtraction();
+    });
   }
 
   Future<void> _runExtraction() async {
@@ -59,11 +71,55 @@ class _FullExtractionReviewScreenState
         base64Content: base64,
         mediaType: widget.mimeType,
         documentHint: 'marine survey report',
+        caseId: widget.caseId,
+        contextNotes: widget.contextNotes,
       );
-      setState(() { _result = result; _extracting = false; });
+      // Check for existing occurrences so we can warn the user.
+      // Failure here is non-fatal — we just won't show the warning.
+      Set<int> existingNos = {};
+      try {
+        final existing = await SupabaseService.client
+            .from('occurrences')
+            .select('occurrence_no')
+            .eq('case_id', widget.caseId);
+        existingNos = (existing as List)
+            .map((o) => (o['occurrence_no'] as num?)?.toInt())
+            .whereType<int>()
+            .toSet();
+      } catch (_) {}
+      setState(() {
+        _result = result;
+        _existingOccNos = existingNos;
+        _extracting = false;
+      });
     } catch (e) {
-      setState(() { _error = e.toString(); _extracting = false; });
+      setState(() { _error = _formatApiError(e); _extracting = false; });
     }
+  }
+
+  /// Unpacks DioException into a human-readable string that includes the
+  /// HTTP status code and the Anthropic error message from the response body.
+  static String _formatApiError(Object e) {
+    if (e is DioException) {
+      final code = e.response?.statusCode;
+      final data = e.response?.data;
+      final sb = StringBuffer();
+      if (code != null) sb.write('HTTP $code');
+      String? msg;
+      if (data is Map) {
+        msg = (data['error'] as Map?)?['message'] as String?
+            ?? data['message'] as String?;
+      } else if (data is String && data.isNotEmpty) {
+        msg = data.length > 400 ? '${data.substring(0, 400)}…' : data;
+      }
+      if (msg != null && msg.isNotEmpty) {
+        sb.write(code != null ? ' — $msg' : msg);
+      } else if (sb.isEmpty) {
+        sb.write(e.message ?? e.type.name);
+      }
+      return sb.toString();
+    }
+    return e.toString();
   }
 
   Future<void> _applyToCase() async {
@@ -72,18 +128,22 @@ class _FullExtractionReviewScreenState
     setState(() => _applying = true);
 
     try {
+      // Fetch current case data upfront — needed for vessel_id, job_number,
+      // case_type (used when building the display title at the end).
+      final caseRow = await SupabaseService.client
+          .from('cases')
+          .select('vessel_id, job_number, case_type')
+          .eq('case_id', widget.caseId)
+          .single();
+      String? vesselId = caseRow['vessel_id'] as String?;
+      final jobNumber  = caseRow['job_number']  as String? ?? '';
+      final caseType   = caseRow['case_type']   as String? ?? '';
+
       // ── Vessel particulars ──────────────────────────────────────
       if (_approved.contains('vessel') && result.hasVesselData) {
-        // Get or create vessel
-        final caseData = await SupabaseService.client
-            .from('cases')
-            .select('vessel_id')
-            .eq('case_id', widget.caseId)
-            .single();
-        String? vesselId = caseData['vessel_id'] as String?;
 
         final vesselFields = <String, dynamic>{};
-        final fieldMap = {
+        const fieldMap = {
           'name': 'name', 'imo_number': 'imo_number',
           'vessel_type': 'vessel_type', 'flag': 'flag',
           'port_of_registry': 'port_of_registry',
@@ -104,12 +164,33 @@ class _FullExtractionReviewScreenState
 
         if (vesselFields.isNotEmpty) {
           if (vesselId == null) {
-            final vData = await SupabaseService.client
-                .from('vessels')
-                .insert(vesselFields)
-                .select()
-                .single();
-            vesselId = vData['vessel_id'] as String;
+            // Look for an existing vessel by IMO to avoid unique-constraint
+            // violations on duplicate imports.
+            final imoNumber =
+                (vesselFields['imo_number'] as String? ?? '').trim();
+            if (imoNumber.isNotEmpty) {
+              final existing = await SupabaseService.client
+                  .from('vessels')
+                  .select('vessel_id')
+                  .eq('imo_number', imoNumber)
+                  .maybeSingle();
+              vesselId = existing?['vessel_id'] as String?;
+            }
+            if (vesselId != null) {
+              // Update the found vessel with any new fields.
+              await SupabaseService.client
+                  .from('vessels')
+                  .update(vesselFields)
+                  .eq('vessel_id', vesselId);
+            } else {
+              // No existing vessel — create one.
+              final vData = await SupabaseService.client
+                  .from('vessels')
+                  .insert(vesselFields)
+                  .select()
+                  .single();
+              vesselId = vData['vessel_id'] as String;
+            }
             await SupabaseService.client
                 .from('cases')
                 .update({'vessel_id': vesselId})
@@ -121,139 +202,236 @@ class _FullExtractionReviewScreenState
                 .eq('vessel_id', vesselId);
           }
         }
+      }
 
-        // ── Machinery ─────────────────────────────────────────────
-        if (_approved.contains('machinery') &&
-            result.hasMachinery && vesselId != null) {
-          for (final m in result.machinery) {
-            await SupabaseService.client.from('machinery').insert({
-              'vessel_id':    vesselId,
-              'machinery_type': m['role'] ?? 'other',
-              'role':           m['role'],
-              if (m['make'] != null && m['make'] != '')
-                'make': m['make'],
-              if (m['model'] != null && m['model'] != '')
-                'model': m['model'],
-              if (m['quantity'] != null) 'quantity': m['quantity'],
-              if (m['mcr_kw'] != null)   'mcr_kw':  m['mcr_kw'],
-              if (m['mcr_rpm'] != null)  'mcr_rpm': m['mcr_rpm'],
-              if (m['fuel_type'] != null && m['fuel_type'] != '')
-                'fuel_type': m['fuel_type'],
-              if (m['cylinder_count'] != null)
-                'cylinder_count': m['cylinder_count'],
-              if (m['configuration'] != null && m['configuration'] != '')
-                'configuration': m['configuration'],
-              if (m['serial_number'] != null && m['serial_number'] != '')
-                'serial_number': m['serial_number'],
-            });
+      // ── Machinery ────────────────────────────────────────────────
+      if (_approved.contains('machinery') &&
+          result.hasMachinery && vesselId != null) {
+        for (final m in result.machinery) {
+          await SupabaseService.client.from('machinery').insert({
+            'vessel_id':      vesselId,
+            'machinery_type': m['role'] ?? 'other',
+            'role':           m['role'],
+            if (m['make'] != null && m['make'] != '')
+              'make': m['make'],
+            if (m['model'] != null && m['model'] != '')
+              'model': m['model'],
+            if (m['quantity'] != null) 'quantity': m['quantity'],
+            if (m['mcr_kw'] != null)   'mcr_kw':  m['mcr_kw'],
+            if (m['mcr_rpm'] != null)  'mcr_rpm': m['mcr_rpm'],
+            if (m['fuel_type'] != null && m['fuel_type'] != '')
+              'fuel_type': m['fuel_type'],
+            if (m['cylinder_count'] != null)
+              'cylinder_count': m['cylinder_count'],
+            if (m['configuration'] != null && m['configuration'] != '')
+              'configuration': m['configuration'],
+            if (m['serial_number'] != null && m['serial_number'] != '')
+              'serial_number': m['serial_number'],
+          });
+        }
+      }
+
+      // itemNoToId tracks item_no → damage_item_id for wiring repairs later.
+      final itemNoToId = <int, String>{};
+
+      // ── Occurrences + Damage items ────────────────────────────────
+      if (_approved.contains('occurrences') && result.hasOccurrences) {
+        for (final o in result.occurrences) {
+          final occNo = (o['occurrence_no'] as num?)?.toInt() ?? 1;
+
+          final occData = await SupabaseService.client
+              .from('occurrences')
+              .insert({
+                'case_id':       widget.caseId,
+                'occurrence_no': o['occurrence_no'] ?? 1,
+                if (o['title'] != null && o['title'] != '')
+                  'title': o['title'],
+                if (o['date_time'] != null && o['date_time'] != '')
+                  'date_time': o['date_time'],
+                if (o['location'] != null && o['location'] != '')
+                  'location': o['location'],
+                if (o['brief_description'] != null &&
+                    o['brief_description'] != '')
+                  'brief_description': o['brief_description'],
+                if (o['background_narrative'] != null &&
+                    o['background_narrative'] != '')
+                  'background_narrative': o['background_narrative'],
+                'allegation_type': result.allegationType,
+                if (result.causeNarrative.isNotEmpty)
+                  'cause_narrative': result.causeNarrative,
+              })
+              .select()
+              .single();
+
+          if (_approved.contains('damage_items') && result.hasDamageItems) {
+            final occId = occData['occurrence_id'] as String;
+            final items = result.damageItems.where((d) {
+              final dn = (d['occurrence_no'] as num?)?.toInt();
+              return dn == null || dn == occNo;
+            }).toList();
+            for (int i = 0; i < items.length; i++) {
+              final d = items[i];
+              final dmgData = await SupabaseService.client
+                  .from('damage_items')
+                  .insert({
+                    'occurrence_id':  occId,
+                    'case_id':        widget.caseId,
+                    'component_name': d['component_name'] ?? 'TBC',
+                    'sequence_no':    i + 1,
+                    if (d['item_no'] != null) 'item_no': d['item_no'],
+                    if (d['location_on_vessel'] != null &&
+                        d['location_on_vessel'] != '')
+                      'location_on_vessel': d['location_on_vessel'],
+                    if (d['damage_description'] != null &&
+                        d['damage_description'] != '')
+                      'damage_description': d['damage_description'],
+                    if (d['condition_found'] != null &&
+                        d['condition_found'] != '')
+                      'condition_found': d['condition_found'],
+                    'repair_status': _mapRepairStatus(d['repair_status']),
+                    'is_concerning_average': d['is_concerning_average'] ?? true,
+                  })
+                  .select()
+                  .single();
+              // Record item_no → UUID for repair wiring.
+              final itemNo = (d['item_no'] as num?)?.toInt() ?? (i + 1);
+              itemNoToId[itemNo] = dmgData['damage_id'] as String;
+            }
           }
         }
+      }
 
-        // ── Occurrences ──────────────────────────────────────────
-        if (_approved.contains('occurrences') && result.hasOccurrences) {
-          for (final o in result.occurrences) {
-            final occData = await SupabaseService.client
-                .from('occurrences')
-                .insert({
-                  'case_id':       widget.caseId,
-                  'occurrence_no': o['occurrence_no'] ?? 1,
-                  if (o['title'] != null && o['title'] != '')
-                    'title': o['title'],
-                  if (o['date_time'] != null && o['date_time'] != '')
-                    'date_time': o['date_time'],
-                  if (o['location'] != null && o['location'] != '')
-                    'location': o['location'],
-                  if (o['brief_description'] != null &&
-                      o['brief_description'] != '')
-                    'brief_description': o['brief_description'],
-                  if (o['background_narrative'] != null &&
-                      o['background_narrative'] != '')
-                    'background_narrative': o['background_narrative'],
-                  'allegation_type': result.allegationType,
-                  if (result.causeNarrative.isNotEmpty)
-                    'cause_narrative': result.causeNarrative,
-                })
-                .select()
-                .single();
+      // ── Repairs performed ─────────────────────────────────────────
+      if (_approved.contains('repairs_performed') &&
+          result.hasRepairsPerformed) {
+        for (final r in result.repairsPerformed) {
+          final repairData = await SupabaseService.client
+              .from('repairs')
+              .insert({
+                'case_id':    widget.caseId,
+                if (r['repair_no'] != null) 'repair_no': r['repair_no'],
+                'repair_type': r['repair_type'] ?? 'permanent',
+                if (r['description'] != null && r['description'] != '')
+                  'description': r['description'],
+                if (r['contractor'] != null && r['contractor'] != '')
+                  'contractor': r['contractor'],
+                if (r['location'] != null && r['location'] != '')
+                  'location': r['location'],
+                if (r['date_completed'] != null && r['date_completed'] != '')
+                  'date_completed': r['date_completed'],
+                'status': r['status'] ?? 'completed',
+              })
+              .select()
+              .single();
+          final repairId = repairData['repair_id'] as String;
 
-            // ── Damage items linked to this occurrence ─────────────
-            if (_approved.contains('damage_items') &&
-                result.hasDamageItems) {
-              final occId = occData['occurrence_id'] as String;
-              for (int i = 0; i < result.damageItems.length; i++) {
-                final d = result.damageItems[i];
+          // Wire repair → damage items via junction table.
+          final rawNos = r['item_nos'];
+          if (rawNos is List) {
+            for (final n in rawNos) {
+              final itemId = itemNoToId[(n as num).toInt()];
+              if (itemId != null) {
                 await SupabaseService.client
-                    .from('damage_items')
+                    .from('repair_damage_items')
                     .insert({
-                      'occurrence_id':  occId,
-                      'case_id':        widget.caseId,
-                      'component_name': d['component_name'] ?? 'TBC',
-                      'sequence_no':    i + 1,
-                      if (d['location_on_vessel'] != null &&
-                          d['location_on_vessel'] != '')
-                        'location_on_vessel': d['location_on_vessel'],
-                      if (d['damage_description'] != null &&
-                          d['damage_description'] != '')
-                        'damage_description': d['damage_description'],
-                      if (d['condition_found'] != null &&
-                          d['condition_found'] != '')
-                        'condition_found': d['condition_found'],
-                      if (d['repair_type'] != null)
-                        'repair_type': d['repair_type'],
-                      'repair_status':
-                          d['repair_status'] ?? 'not_started',
-                      'is_concerning_average':
-                          d['is_concerning_average'] ?? true,
-                    });
+                  'repair_id': repairId,
+                  'damage_id': itemId,
+                });
               }
             }
           }
         }
+      }
 
-        // ── Attendees ────────────────────────────────────────────
-        if (_approved.contains('attendees') && result.hasAttendees) {
-          for (final a in result.attendees) {
-            if (a['full_name'] == null || a['full_name'] == '') continue;
-            await SupabaseService.client.from('attendees').insert({
-              'case_id':   widget.caseId,
-              'full_name': a['full_name'],
-              if (a['rank_position'] != null && a['rank_position'] != '')
-                'rank_position': a['rank_position'],
-              if (a['company'] != null && a['company'] != '')
-                'company': a['company'],
-              if (a['representing'] != null && a['representing'] != '')
-                'representing': a['representing'],
-              if (a['role_type'] != null)
-                'role_type': a['role_type'],
-            });
-          }
-        }
-
-        // ── Certificates ─────────────────────────────────────────
-        if (_approved.contains('certificates') && result.hasCertificates) {
-          for (final c in result.certificates) {
-            await SupabaseService.client.from('certificates').insert({
-              'case_id':  widget.caseId,
-              if (vesselId != null) 'vessel_id': vesselId,
-              'cert_type': c['cert_type'] ?? 'other',
-              if (c['cert_name'] != null && c['cert_name'] != '')
-                'cert_name': c['cert_name'],
-              if (c['issuing_authority'] != null &&
-                  c['issuing_authority'] != '')
-                'issuing_authority': c['issuing_authority'],
-              if (c['issue_date'] != null && c['issue_date'] != '')
-                'issue_date': c['issue_date'],
-              if (c['expiry_date'] != null && c['expiry_date'] != '')
-                'expiry_date': c['expiry_date'],
-              if (c['cert_number'] != null && c['cert_number'] != '')
-                'cert_number': c['cert_number'],
-              'status':         'valid',
-              'extracted_auto': true,
-              'source_doc_id':  widget.doc.docId,
-            });
-          }
+      // ── Attendees ─────────────────────────────────────────────────
+      if (_approved.contains('attendees') && result.hasAttendees) {
+        for (final a in result.attendees) {
+          if (a['full_name'] == null || a['full_name'] == '') continue;
+          await SupabaseService.client.from('attendees').insert({
+            'case_id':   widget.caseId,
+            'full_name': a['full_name'],
+            if (a['rank_position'] != null && a['rank_position'] != '')
+              'rank_position': a['rank_position'],
+            if (a['company'] != null && a['company'] != '')
+              'company': a['company'],
+            if (a['representing'] != null && a['representing'] != '')
+              'representing': a['representing'],
+            if (a['role_type'] != null)
+              'role_type': a['role_type'],
+          });
         }
       }
+
+      // ── Certificates ──────────────────────────────────────────────
+      if (_approved.contains('certificates') && result.hasCertificates) {
+        for (final c in result.certificates) {
+          await SupabaseService.client.from('certificates').insert({
+            'case_id':   widget.caseId,
+            if (vesselId != null) 'vessel_id': vesselId,
+            'cert_type': c['cert_type'] ?? 'other',
+            if (c['cert_name'] != null && c['cert_name'] != '')
+              'cert_name': c['cert_name'],
+            if (c['issuing_authority'] != null &&
+                c['issuing_authority'] != '')
+              'issuing_authority': c['issuing_authority'],
+            if (c['issue_date'] != null && c['issue_date'] != '')
+              'issue_date': c['issue_date'],
+            if (c['expiry_date'] != null && c['expiry_date'] != '')
+              'expiry_date': c['expiry_date'],
+            if (c['cert_number'] != null && c['cert_number'] != '')
+              'cert_number': c['cert_number'],
+            'status':         'valid',
+            'extracted_auto': true,
+            'source_doc_id':  widget.doc.docId,
+          });
+        }
+      }
+
+      // ── Case title + claim reference ──────────────────────────────
+      {
+        final caseUpdate = <String, dynamic>{};
+
+        // Claim reference from report meta (e.g. UCR / QBE reference).
+        final claimRef =
+            (result.reportMeta['claim_reference'] as String? ?? '').trim();
+        if (claimRef.isNotEmpty) caseUpdate['claim_reference'] = claimRef;
+
+        // Build display title: JOB NO – VESSEL – CASE TYPE – OCCURRENCE
+        final vName   = (result.vessel['name'] as String? ?? '').trim();
+        final typeLabel = _caseTypeLabel(caseType);
+        final occTitle = result.occurrences.isNotEmpty
+            ? (result.occurrences.first['title'] as String? ?? '').trim()
+            : '';
+        final parts = [
+          if (jobNumber.isNotEmpty) jobNumber,
+          if (vName.isNotEmpty)     vName,
+          if (typeLabel.isNotEmpty) typeLabel,
+          if (occTitle.isNotEmpty)  occTitle,
+        ];
+        if (parts.isNotEmpty) caseUpdate['title'] = parts.join(' – ');
+
+        if (caseUpdate.isNotEmpty) {
+          await SupabaseService.client
+              .from('cases')
+              .update(caseUpdate)
+              .eq('case_id', widget.caseId);
+        }
+      }
+
+      await SupabaseService.client.from('documents').update({
+        'ai_extracted': true,
+        'extraction_status': 'completed',
+      }).eq('doc_id', widget.doc.docId);
+
+      // Invalidate every provider that caches data we just wrote so the UI
+      // reflects the changes immediately without requiring an app restart.
+      ref.invalidate(caseProvider(widget.caseId));
+      ref.invalidate(casesProvider);
+      ref.invalidate(damageProvider(widget.caseId));
+      ref.invalidate(attendeesProvider(widget.caseId));
+      ref.invalidate(vesselForCaseProvider(widget.caseId));
+      ref.invalidate(certificatesProvider(widget.caseId));
+      ref.invalidate(documentProvider(widget.caseId));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -318,6 +496,61 @@ class _FullExtractionReviewScreenState
 
   Widget _buildReview() {
     final r = _result!;
+
+    // Safety net: if the AI returned nothing parseable, show diagnostics.
+    if (r.totalFields == 0) {
+      final snippet = r.rawText.isEmpty
+          ? '(empty response)'
+          : r.rawText.substring(0, r.rawText.length.clamp(0, 800));
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          const SizedBox(height: 16),
+          const Center(child: Icon(Icons.search_off_outlined,
+              color: AppColors.textTertiary, size: 48)),
+          const SizedBox(height: 12),
+          const Center(child: Text('No data extracted',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary))),
+          const SizedBox(height: 8),
+          const Center(child: Text(
+            'Claude returned a response but no structured data was found. '
+            'The raw response is shown below — share it to diagnose the issue.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.5),
+          )),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: SelectableText(
+              snippet,
+              style: const TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: AppColors.textSecondary,
+                  height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Center(child: ElevatedButton.icon(
+            onPressed: _runExtraction,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Try again'),
+          )),
+        ]),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -326,6 +559,12 @@ class _FullExtractionReviewScreenState
           // Summary banner
           _SummaryBanner(result: r, doc: widget.doc),
           const SizedBox(height: 16),
+
+          // Duplicate warning
+          if (_existingOccNos.isNotEmpty) ...[
+            _DupeWarning(existingCount: _existingOccNos.length),
+            const SizedBox(height: 8),
+          ],
 
           // Instructions
           const _InfoBox(
@@ -405,6 +644,30 @@ class _FullExtractionReviewScreenState
                   .join('\n'),
             ),
 
+          if (r.hasRepairsPerformed)
+            _SectionToggle(
+              key: const ValueKey('repairs_performed'),
+              icon: Icons.handyman_outlined,
+              color: AppColors.amber,
+              title: 'Repairs Performed',
+              count: r.repairsPerformed.length,
+              unit: 'repair${r.repairsPerformed.length == 1 ? '' : 's'}',
+              approved: _approved.contains('repairs_performed'),
+              onToggle: (v) => setState(() => v
+                  ? _approved.add('repairs_performed')
+                  : _approved.remove('repairs_performed')),
+              preview: r.repairsPerformed
+                  .take(3)
+                  .map((rep) {
+                    final type = rep['repair_type'] as String? ?? '';
+                    final desc = rep['description'] as String? ?? '';
+                    final nos  = (rep['item_nos'] as List?)?.join(', ') ?? '';
+                    return '• [${type.toUpperCase()}] $desc'
+                        '${nos.isNotEmpty ? ' (items $nos)' : ''}';
+                  })
+                  .join('\n'),
+            ),
+
           if (r.hasAttendees)
             _SectionToggle(
               key: const ValueKey('attendees'),
@@ -468,6 +731,23 @@ class _FullExtractionReviewScreenState
       ),
     );
   }
+
+  static String _mapRepairStatus(dynamic raw) => const {
+        'not_repaired':        'not_started',
+        'temporary_repair':    'in_progress',
+        'permanently_repaired':'completed',
+        'deferred':            'deferred',
+        // pass-through values already in DB format
+        'not_started':  'not_started',
+        'in_progress':  'in_progress',
+        'completed':    'completed',
+      }[raw as String? ?? ''] ?? 'not_started';
+
+  static String _caseTypeLabel(String value) => const {
+        'hm': 'H&M', 'pi': 'P&I', 'cs': 'C&S',
+        'dp_trials': 'DP Trials', 'deficiency': 'Deficiency',
+        'consulting': 'Consulting',
+      }[value] ?? value.toUpperCase();
 
   String _vesselPreview(Map<String, dynamic> vessel) {
     final parts = <String>[];
@@ -649,6 +929,40 @@ class _SectionToggle extends StatelessWidget {
   }
 }
 
+class _DupeWarning extends StatelessWidget {
+  const _DupeWarning({required this.existingCount});
+  final int existingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.shade300),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Colors.orange, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This case already has $existingCount occurrence'
+              '${existingCount == 1 ? '' : 's'} recorded. '
+              'Deselect Occurrences, Damage and Repairs below if you do not '
+              'want to add duplicate records.',
+              style: const TextStyle(fontSize: 11, height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _InfoBox extends StatelessWidget {
   const _InfoBox(this.text);
   final String text;
@@ -718,28 +1032,115 @@ class _Error extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline,
-                color: AppColors.error, size: 48),
-            const SizedBox(height: 16),
-            const Text('Extraction failed',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(error,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try again'),
-            ),
-          ]),
+  Widget build(BuildContext context) {
+    final isAuthError = error.contains('401') || error.contains('authentication');
+    final isKeyMissing = error.contains('YOUR_ANTHROPIC_API_KEY');
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 16),
+        Icon(
+          isAuthError ? Icons.key_off_outlined : Icons.error_outline,
+          color: AppColors.error,
+          size: 48,
         ),
-      );
+        const SizedBox(height: 12),
+        const Text('Extraction failed',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 16),
+
+        // Error detail box
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.lightCoral,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.bug_report_outlined,
+                    size: 13, color: AppColors.error),
+                const SizedBox(width: 6),
+                const Text('Error detail',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.error)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: error));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Copied to clipboard'),
+                          duration: Duration(seconds: 2)),
+                    );
+                  },
+                  child: const Row(children: [
+                    Icon(Icons.copy_outlined,
+                        size: 12, color: AppColors.textSecondary),
+                    SizedBox(width: 4),
+                    Text('Copy',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.textSecondary)),
+                  ]),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              SelectableText(
+                error,
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: AppColors.textPrimary,
+                    height: 1.5),
+              ),
+            ],
+          ),
+        ),
+
+        // Contextual hint for 401 / missing key
+        if (isAuthError || isKeyMissing) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF8E1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.amber),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'A 401 means the Anthropic API key was rejected. '
+                    'Check the Usage screen — it shows the last 6 characters '
+                    'of the active key. Re-run from VS Code using the Android '
+                    'launch config (not a hot restart) to pick up a new key.',
+                    style: TextStyle(fontSize: 11, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 20),
+        ElevatedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Try again'),
+        ),
+      ]),
+    );
+  }
 }

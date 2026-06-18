@@ -80,6 +80,7 @@ class _AddCertificateSheetState extends State<AddCertificateSheet> {
       initialDate: initial,
       firstDate: DateTime(2000),
       lastDate: DateTime(2035),
+      locale: const Locale('en', 'AU'),
     );
     if (picked == null) return;
     setState(() {

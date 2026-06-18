@@ -50,7 +50,10 @@ class _ExtractionReviewScreenState
   @override
   void initState() {
     super.initState();
-    _runExtraction();
+    // Defer until after the first frame so Riverpod notifiers are safe to read.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _runExtraction();
+    });
   }
 
   @override
@@ -221,6 +224,23 @@ class _ExtractionReviewScreenState
         }
 
         await SupabaseService.client.from('certificates').insert(certFields);
+      }
+
+      // Auto-rename the document with a meaningful title derived from the
+      // extracted cert name and vessel name (e.g. "Class Certificate — MV Test").
+      final certName   = _certCtrls['cert_name']?.text.trim() ?? '';
+      final vesselName = _vesselCtrls['name']?.text.trim() ?? '';
+      final autoTitle  = [
+        if (certName.isNotEmpty)   certName,
+        if (vesselName.isNotEmpty) vesselName,
+      ].join(' — ');
+      if (autoTitle.isNotEmpty && autoTitle != widget.doc.title) {
+        try {
+          await SupabaseService.client
+              .from('documents')
+              .update({'title': autoTitle})
+              .eq('doc_id', widget.doc.docId);
+        } catch (_) {}
       }
 
       if (mounted) {

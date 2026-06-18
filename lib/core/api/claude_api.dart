@@ -3,18 +3,47 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
+import 'usage_tracker.dart';
 
 class ClaudeApi {
-  static final _dio = Dio(BaseOptions(
-    baseUrl: 'https://api.anthropic.com/v1',
-    headers: {
-      'x-api-key': AppConfig.anthropicApiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(seconds: 120),
-  ));
+  static final _dio = () {
+    final dio = Dio(BaseOptions(
+      baseUrl: 'https://api.anthropic.com/v1',
+      headers: {
+        'x-api-key': AppConfig.anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 120),
+    ));
+    dio.interceptors.add(InterceptorsWrapper(
+      onResponse: (response, handler) {
+        try {
+          final data = response.data as Map<String, dynamic>?;
+          final usage = data?['usage'] as Map<String, dynamic>?;
+          if (usage != null) {
+            final feature =
+                response.requestOptions.extra['feature'] as String? ??
+                    'api_call';
+            final model =
+                data?['model'] as String? ?? AppConfig.claudeModel;
+            // ignore: discarded_futures
+            UsageTracker.log(
+              feature: feature,
+              model: model,
+              inputTokens:
+                  (usage['input_tokens'] as num?)?.toInt() ?? 0,
+              outputTokens:
+                  (usage['output_tokens'] as num?)?.toInt() ?? 0,
+            );
+          }
+        } catch (_) {}
+        handler.next(response);
+      },
+    ));
+    return dio;
+  }();
 
   // ── Document / Certificate Extraction ─────────────────────────────────────
 
@@ -28,7 +57,9 @@ class ClaudeApi {
         ? 'This appears to be a $documentHint. '
         : '';
 
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'certificate_extraction'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
       'messages': [
@@ -61,6 +92,7 @@ class ClaudeApi {
   "draft": null,
   "year_built": null,
   "build_yard": "",
+  "build_country": "",
   "owners": "",
   "operators": "",
   "class_society": "",
@@ -75,7 +107,8 @@ class ClaudeApi {
   "additional_fields": {}
 }
 
-Return null for fields not found. Dates in ISO format YYYY-MM-DD.''',
+Return null for fields not found. Dates in ISO format YYYY-MM-DD.
+If build_country is not explicitly stated, infer it from the build_yard address (e.g. "Hyundai, Ulsan, South Korea" → build_country = "South Korea").''',
             },
           ],
         },
@@ -91,7 +124,9 @@ Return null for fields not found. Dates in ISO format YYYY-MM-DD.''',
   /// Extract vessel particulars from a class society or DNV PDF report
   static Future<Map<String, dynamic>> extractVesselParticulars(
       String pdfText) async {
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'vessel_particulars'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
       'messages': [
@@ -165,7 +200,9 @@ Dates in ISO format. Return null for missing fields.''',
         ? '\n\nINTERVIEW TRANSCRIPT EXTRACT:\n$interviewTranscript'
         : '';
 
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'occurrence_narrative'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 1500,
       'messages': [
@@ -204,7 +241,9 @@ Draft the background narrative paragraph now:''',
         ? '\n\nSERVICE ENGINEER / TECHNICAL FINDINGS:\n$serviceEngineerFindings'
         : '';
 
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'cause_consideration'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 1000,
       'messages': [
@@ -233,7 +272,9 @@ Draft the cause consideration now:''',
     required String base64Content,
     required String mediaType,
   }) async {
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'invoice_extraction'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
       'messages': [
@@ -291,7 +332,9 @@ Dates in ISO format. Return null for missing fields.''',
   }) async {
     final ctx = context != null ? ' Context: $context.' : '';
 
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'photo_classification'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 500,
       'messages': [
@@ -335,7 +378,9 @@ Dates in ISO format. Return null for missing fields.''',
   /// Classify a transcribed voice note and suggest where to route it
   static Future<Map<String, dynamic>> routeVoiceNote(
       String transcript) async {
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'voice_routing'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 300,
       'messages': [
@@ -366,7 +411,9 @@ Dates in ISO format. Return null for missing fields.''',
     required String subject,
     required String bodyText,
   }) async {
-    final response = await _dio.post('/messages', data: {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'email_classification'}),
+      data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 300,
       'messages': [
@@ -407,11 +454,15 @@ Return empty string if field not found.''',
 
   static Map<String, dynamic> _parseJson(String text) {
     try {
-      // Strip markdown code fences if present
       var clean = text
           .replaceAll(RegExp(r'```json\s*'), '')
           .replaceAll(RegExp(r'```\s*'), '')
           .trim();
+      final start = clean.indexOf('{');
+      final end   = clean.lastIndexOf('}');
+      if (start != -1 && end != -1 && end > start) {
+        clean = clean.substring(start, end + 1);
+      }
       return jsonDecode(clean) as Map<String, dynamic>;
     } catch (e) {
       return {'error': 'Failed to parse response', 'raw': text};

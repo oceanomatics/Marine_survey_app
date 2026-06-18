@@ -28,6 +28,11 @@ class CasesListScreen extends ConsumerWidget {
             onPressed: () => context.go('/timesheet'),
             tooltip: 'Timesheet',
           ),
+          IconButton(
+            icon: const Icon(Icons.bar_chart_outlined, color: Colors.white),
+            onPressed: () => context.go('/usage'),
+            tooltip: 'API usage',
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -84,7 +89,7 @@ class _CaseCard extends StatelessWidget {
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(survey.vesselName ?? 'Vessel TBC',
+                Text(survey.title ?? survey.vesselName ?? 'Vessel TBC',
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 14)),
                 const SizedBox(height: 2),

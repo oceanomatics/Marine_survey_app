@@ -1,0 +1,101 @@
+// lib/features/parties/providers/parties_provider.dart
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/party_model.dart';
+import '../../../core/api/supabase_client.dart';
+
+// ── Case Parties (single record per case) ─────────────────────────────────
+
+final partiesProvider =
+    AsyncNotifierProviderFamily<PartiesNotifier, CasePartiesModel?, String>(
+  PartiesNotifier.new,
+);
+
+class PartiesNotifier extends FamilyAsyncNotifier<CasePartiesModel?, String> {
+  @override
+  Future<CasePartiesModel?> build(String arg) => _fetch();
+
+  Future<CasePartiesModel?> _fetch() async {
+    final data = await SupabaseService.client
+        .from('case_parties')
+        .select()
+        .eq('case_id', arg)
+        .maybeSingle();
+    if (data == null) return null;
+    return CasePartiesModel.fromJson(data);
+  }
+
+  Future<void> save(CasePartiesModel model) async {
+    await SupabaseService.client
+        .from('case_parties')
+        .upsert(model.toUpsertJson());
+    state = AsyncData(model);
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_fetch);
+  }
+}
+
+// ── Assured Contacts (multiple per case) ──────────────────────────────────
+
+final assuredContactsProvider = AsyncNotifierProviderFamily<
+    AssuredContactsNotifier, List<AssuredContactModel>, String>(
+  AssuredContactsNotifier.new,
+);
+
+class AssuredContactsNotifier
+    extends FamilyAsyncNotifier<List<AssuredContactModel>, String> {
+  @override
+  Future<List<AssuredContactModel>> build(String arg) => _fetch();
+
+  Future<List<AssuredContactModel>> _fetch() async {
+    final data = await SupabaseService.client
+        .from('assured_contacts')
+        .select()
+        .eq('case_id', arg)
+        .order('created_at');
+    return (data as List)
+        .map((j) => AssuredContactModel.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> add({
+    required String caseId,
+    required String fullName,
+    String? roleTitle,
+    String? phone,
+    String? email,
+    String? notes,
+  }) async {
+    final payload = AssuredContactModel(
+      contactId: '',
+      caseId: caseId,
+      fullName: fullName,
+      roleTitle: roleTitle,
+      phone: phone,
+      email: email,
+      notes: notes,
+    );
+    final inserted = await SupabaseService.client
+        .from('assured_contacts')
+        .insert(payload.toInsertJson())
+        .select()
+        .single();
+    final created =
+        AssuredContactModel.fromJson(inserted);
+    final current = state.value ?? [];
+    state = AsyncData([...current, created]);
+  }
+
+  Future<void> delete(String contactId) async {
+    await SupabaseService.client
+        .from('assured_contacts')
+        .delete()
+        .eq('contact_id', contactId);
+    final current = state.value ?? [];
+    state =
+        AsyncData(current.where((c) => c.contactId != contactId).toList());
+  }
+}

@@ -183,12 +183,22 @@ class _ReportBuilderScreenState
   }
 
   void _showNewOutput(BuildContext context) {
+    final existingCount = ref
+        .read(reportOutputsProvider(widget.caseId))
+        .valueOrNull
+        ?.length ?? 0;
+    final jobNumber = ref
+        .read(assembledDataProvider(widget.caseId))
+        .valueOrNull
+        ?.caseData['job_number'] as String? ?? widget.caseId;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => NewOutputSheet(
         caseId: widget.caseId,
+        jobNumber: jobNumber,
+        existingCount: existingCount,
         onCreate: (type, reportNumber, sequenceNo) async {
           final output = await ref
               .read(reportOutputsProvider(widget.caseId).notifier)

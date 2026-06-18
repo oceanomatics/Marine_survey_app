@@ -24,16 +24,18 @@ class AddDamageItemSheet extends StatefulWidget {
 }
 
 class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
-  final _componentCtrl    = TextEditingController();
-  final _locationCtrl     = TextEditingController();
-  final _descriptionCtrl  = TextEditingController();
-  final _conditionCtrl    = TextEditingController();
-  final _exclusionCtrl    = TextEditingController();
+  final _componentCtrl   = TextEditingController();
+  final _locationCtrl    = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
+  final _conditionCtrl   = TextEditingController();
+  final _exclusionCtrl   = TextEditingController();
+  final _machineryCtrl   = TextEditingController();
 
-  RepairType _repairType   = RepairType.permanent;
-  RepairStatus _repairStatus = RepairStatus.notStarted;
-  bool _isConcerningAverage = true;
-  bool _saving = false;
+  DamageCategory _category     = DamageCategory.other;
+  RepairType _repairType        = RepairType.permanent;
+  RepairStatus _repairStatus    = RepairStatus.notStarted;
+  bool _isConcerningAverage     = true;
+  bool _saving                  = false;
 
   @override
   void initState() {
@@ -45,6 +47,7 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
       _descriptionCtrl.text = e.damageDescription  ?? '';
       _conditionCtrl.text   = e.conditionFound      ?? '';
       _exclusionCtrl.text   = e.exclusionReason     ?? '';
+      _category             = e.damageCategory;
       _repairType           = e.repairType          ?? RepairType.permanent;
       _repairStatus         = e.repairStatus;
       _isConcerningAverage  = e.isConcerningAverage;
@@ -58,6 +61,7 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
     _descriptionCtrl.dispose();
     _conditionCtrl.dispose();
     _exclusionCtrl.dispose();
+    _machineryCtrl.dispose();
     super.dispose();
   }
 
@@ -75,6 +79,7 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
         occurrenceId:      widget.occurrenceId,
         caseId:            widget.caseId,
         componentName:     _componentCtrl.text.trim(),
+        damageCategory:    _category,
         locationOnVessel:  _locationCtrl.text.trim().isEmpty
             ? null : _locationCtrl.text.trim(),
         damageDescription: _descriptionCtrl.text.trim().isEmpty
@@ -113,7 +118,6 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle
             Center(
               child: Container(
                 width: 40, height: 4,
@@ -143,9 +147,68 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
                     color: AppColors.textPrimary),
               ),
             ]),
+            const SizedBox(height: 20),
+
+            // ── Damage Category ──────────────────────────────────────
+            const _FieldLabel('Damage Category'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: DamageCategory.values.map((cat) {
+                final selected = _category == cat;
+                final color = _categoryColor(cat);
+                return GestureDetector(
+                  onTap: () => setState(() => _category = cat),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? color.withValues(alpha: 0.12)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: selected ? color : AppColors.border,
+                        width: selected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(_categoryIcon(cat),
+                          size: 13,
+                          color: selected
+                              ? color
+                              : AppColors.textTertiary),
+                      const SizedBox(width: 5),
+                      Text(
+                        cat.label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                          color: selected
+                              ? color
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ]),
+                  ),
+                );
+              }).toList(),
+            ),
+
+            if (_category == DamageCategory.mechanical) ...[
+              const SizedBox(height: 10),
+              SurveyField(
+                label: 'Machinery / System',
+                controller: _machineryCtrl,
+                hint: 'e.g. Main Engine, Generator No. 2, Steering Gear',
+              ),
+            ],
+
             const SizedBox(height: 16),
 
-            // Component name
             SurveyField(
               label: 'Component / Equipment *',
               controller: _componentCtrl,
@@ -153,14 +216,12 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
               important: true,
             ),
 
-            // Location on vessel
             SurveyField(
               label: 'Location on Vessel',
               controller: _locationCtrl,
               hint: 'e.g. Engine room, port side',
             ),
 
-            // Damage description
             SurveyField(
               label: 'Damage Description',
               controller: _descriptionCtrl,
@@ -168,7 +229,6 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
               maxLines: 3,
             ),
 
-            // Condition found
             SurveyField(
               label: 'Condition Found',
               controller: _conditionCtrl,
@@ -181,24 +241,21 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
 
             const SizedBox(height: 4),
 
-            // Repair type and status row
             Row(children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Repair Type',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary)),
+                    const _FieldLabel('Repair Type'),
                     const SizedBox(height: 5),
                     DropdownButtonFormField<RepairType>(
                       initialValue: _repairType,
                       decoration: _dropdownDeco(),
                       items: RepairType.values
                           .map((t) => DropdownMenuItem(
-                              value: t, child: Text(t.label, style: const TextStyle(fontSize: 13))))
+                              value: t,
+                              child: Text(t.label,
+                                  style: const TextStyle(fontSize: 13))))
                           .toList(),
                       onChanged: (v) =>
                           setState(() => _repairType = v ?? _repairType),
@@ -211,21 +268,20 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Repair Status',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary)),
+                    const _FieldLabel('Repair Status'),
                     const SizedBox(height: 5),
                     DropdownButtonFormField<RepairStatus>(
                       initialValue: _repairStatus,
                       decoration: _dropdownDeco(),
                       items: RepairStatus.values
                           .map((s) => DropdownMenuItem(
-                              value: s, child: Text(s.label, style: const TextStyle(fontSize: 13))))
+                              value: s,
+                              child: Text(s.label,
+                                  style: const TextStyle(fontSize: 13))))
                           .toList(),
                       onChanged: (v) =>
-                          setState(() => _repairStatus = v ?? _repairStatus),
+                          setState(() =>
+                              _repairStatus = v ?? _repairStatus),
                     ),
                   ],
                 ),
@@ -234,7 +290,6 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
 
             const SizedBox(height: 16),
 
-            // Concerning average toggle
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
@@ -283,7 +338,6 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
               ]),
             ),
 
-            // Exclusion reason (only when owner's account)
             if (!_isConcerningAverage) ...[
               const SizedBox(height: 10),
               SurveyField(
@@ -306,7 +360,8 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
                     padding: const EdgeInsets.symmetric(vertical: 14)),
                 child: _saving
                     ? const SizedBox(
-                        width: 18, height: 18,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
                     : Text(isEdit ? 'Update Item' : 'Add Damage Item',
@@ -319,6 +374,22 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
       ),
     );
   }
+
+  Color _categoryColor(DamageCategory cat) => switch (cat) {
+        DamageCategory.structuralExternal    => AppColors.coral,
+        DamageCategory.structuralInternal    => AppColors.navy,
+        DamageCategory.mechanical            => AppColors.amber,
+        DamageCategory.electricalElectronics => AppColors.purple,
+        DamageCategory.other                 => AppColors.textSecondary,
+      };
+
+  IconData _categoryIcon(DamageCategory cat) => switch (cat) {
+        DamageCategory.structuralExternal    => Icons.shield_outlined,
+        DamageCategory.structuralInternal    => Icons.home_outlined,
+        DamageCategory.mechanical            => Icons.settings_outlined,
+        DamageCategory.electricalElectronics => Icons.bolt_outlined,
+        DamageCategory.other                 => Icons.help_outline,
+      };
 
   InputDecoration _dropdownDeco() => InputDecoration(
         filled: true,
@@ -333,5 +404,19 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: AppColors.border),
         ),
+      );
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary),
       );
 }

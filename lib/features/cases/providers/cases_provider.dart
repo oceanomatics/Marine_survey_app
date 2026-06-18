@@ -80,6 +80,14 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     return newCase;
   }
 
+  Future<void> deleteCase(String caseId) async {
+    await SupabaseService.client
+        .from('cases')
+        .delete()
+        .eq('case_id', caseId);
+    await refresh();
+  }
+
   Future<void> updateCaseStatus(String caseId, CaseStatus status) async {
     await SupabaseService.client
         .from('cases')

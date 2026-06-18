@@ -122,9 +122,11 @@ class DamageItemCard extends StatelessWidget {
                 const Icon(Icons.location_on_outlined,
                     size: 13, color: AppColors.textTertiary),
                 const SizedBox(width: 4),
-                Text(item.locationOnVessel!,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textSecondary)),
+                Expanded(
+                  child: Text(item.locationOnVessel!,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textSecondary)),
+                ),
               ]),
             ],
 

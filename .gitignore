@@ -1,3 +1,7 @@
+# Secret keys — never commit
+.dart_defines
+.vscode/launch.json
+
 # Miscellaneous
 *.class
 *.log

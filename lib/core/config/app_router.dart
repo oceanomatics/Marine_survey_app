@@ -13,8 +13,13 @@ import '../../features/capture/screens/quick_capture_screen.dart';
 import '../../features/documents/screens/document_vault_screen.dart';
 import '../../features/checklist/screens/checklist_screen.dart';
 import '../../features/reports/screens/report_builder_screen.dart';
+import '../../features/survey/screens/attendees_screen.dart';
+import '../../features/parties/screens/parties_screen.dart';
+import '../../features/attendances/screens/attendances_screen.dart';
+import '../../features/timeline/screens/timeline_screen.dart';
 import '../../features/correspondence/screens/inbox_screen.dart';
 import '../../features/timesheet/screens/timesheet_screen.dart';
+import '../../features/settings/screens/usage_screen.dart';
 import '../../shared/screens/login_screen.dart';
 import '../../core/api/supabase_client.dart';
 
@@ -85,6 +90,26 @@ final appRouter = GoRouter(
               ),
             ),
             GoRoute(
+              path: 'attendees',
+              builder: (context, state) =>
+                  AttendeesScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'parties',
+              builder: (context, state) =>
+                  PartiesScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'attendances',
+              builder: (context, state) =>
+                  AttendancesScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'timeline',
+              builder: (context, state) =>
+                  TimelineScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'reports',
               builder: (context, state) =>
                   ReportBuilderScreen(caseId: state.pathParameters['caseId']!),
@@ -100,6 +125,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/timesheet',
       builder: (context, state) => const TimesheetScreen(),
+    ),
+    GoRoute(
+      path: '/usage',
+      builder: (context, state) => const UsageScreen(),
     ),
   ],
 );

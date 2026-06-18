@@ -1,7 +1,6 @@
 // lib/features/documents/providers/document_provider.dart
 
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
@@ -89,6 +88,7 @@ class DocumentModel {
       fileType != null &&
       ['jpg', 'jpeg', 'png', 'webp'].contains(fileType!.toLowerCase());
   bool get isPdf => fileType != null && fileType!.toLowerCase() == 'pdf';
+  bool get isDocx => fileType != null && fileType!.toLowerCase() == 'docx';
 
   factory DocumentModel.fromJson(Map<String, dynamic> j) => DocumentModel(
         docId: j['doc_id'] as String,
@@ -168,8 +168,8 @@ class DocumentNotifier
         .toList();
   }
 
-  /// Upload a file (image or PDF bytes) and create a document record
-  /// Returns the new DocumentModel
+  /// Upload a file and create a document record.
+  /// [willExtract] controls whether extraction_status is set to 'pending'.
   Future<DocumentModel> uploadAndCreate({
     required String caseId,
     required Uint8List bytes,
@@ -177,12 +177,12 @@ class DocumentNotifier
     required String mimeType,
     required String title,
     DocCategory? category,
+    bool willExtract = true,
   }) async {
     final ext = filename.split('.').last.toLowerCase();
     final storagePath =
         '$caseId/documents/${DateTime.now().millisecondsSinceEpoch}_$filename';
 
-    // Upload to Supabase Storage
     await SupabaseService.uploadFile(
       bucket: 'documents',
       path: storagePath,
@@ -190,20 +190,19 @@ class DocumentNotifier
       mimeType: mimeType,
     );
 
-    // Create document record
     final data = await SupabaseService.client
         .from('documents')
         .insert({
           'case_id': caseId,
           'title': title,
-          'doc_category': category?.value ?? DocCategory.certificate.value,
+          'doc_category': category?.value,
           'file_path': storagePath,
           'file_type': ext,
           'file_size_kb': (bytes.length / 1024).roundToDouble(),
           'availability': 'enclosed',
           'received_date': DateTime.now().toIso8601String().split('T').first,
           'ai_extracted': false,
-          'extraction_status': 'pending',
+          'extraction_status': willExtract ? 'pending' : 'not_applicable',
         })
         .select()
         .single();
@@ -243,10 +242,42 @@ class DocumentNotifier
     return doc;
   }
 
-  Future<void> deleteDocument(String docId) async {
-    await SupabaseService.client.from('documents').delete().eq('doc_id', docId);
+  Future<void> deleteDocument(DocumentModel doc) async {
+    // Delete the storage file first so we don't leave orphans.
+    if (doc.filePath != null && doc.filePath!.isNotEmpty) {
+      try {
+        await SupabaseService.client.storage
+            .from('documents')
+            .remove([doc.filePath!]);
+      } catch (e) {
+        debugPrint('[DocumentProvider] storage delete failed: $e');
+      }
+    }
+    // Nullify any FK references before deleting the row (certificates may
+    // have source_doc_id pointing here). Non-fatal if the column is absent.
+    try {
+      await SupabaseService.client
+          .from('certificates')
+          .update({'source_doc_id': null})
+          .eq('source_doc_id', doc.docId);
+    } catch (_) {}
+    await SupabaseService.client
+        .from('documents')
+        .delete()
+        .eq('doc_id', doc.docId);
     final current = state.value ?? [];
-    state = AsyncData(current.where((d) => d.docId != docId).toList());
+    state = AsyncData(current.where((d) => d.docId != doc.docId).toList());
+  }
+
+  Future<void> renameDocument(String docId, String newTitle) async {
+    await SupabaseService.client
+        .from('documents')
+        .update({'title': newTitle})
+        .eq('doc_id', docId);
+    final current = state.value ?? [];
+    state = AsyncData(current
+        .map((d) => d.docId == docId ? _copyWithTitle(d, newTitle) : d)
+        .toList());
   }
 
   Future<void> refresh() async {
@@ -254,6 +285,17 @@ class DocumentNotifier
     state = await AsyncValue.guard(() => _fetch(arg));
   }
 }
+
+DocumentModel _copyWithTitle(DocumentModel d, String title) =>
+    DocumentModel(
+      docId: d.docId, caseId: d.caseId, title: title,
+      docCategory: d.docCategory, docType: d.docType, source: d.source,
+      docDate: d.docDate, receivedDate: d.receivedDate, filePath: d.filePath,
+      fileType: d.fileType, fileSizeKb: d.fileSizeKb,
+      availability: d.availability, aiExtracted: d.aiExtracted,
+      extractionStatus: d.extractionStatus, language: d.language,
+      notes: d.notes, createdAt: d.createdAt,
+    );
 
 // ── AI Extraction provider ─────────────────────────────────────────────────
 
