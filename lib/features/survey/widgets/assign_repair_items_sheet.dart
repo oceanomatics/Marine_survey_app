@@ -20,6 +20,7 @@ class AssignRepairItemsSheet extends StatefulWidget {
   final Future<void> Function(
     Map<String, RepairType> outcomes,
     Map<String, bool> concerning,
+    Map<String, String?> notes,
   ) onSave;
 
   @override
@@ -27,10 +28,9 @@ class AssignRepairItemsSheet extends StatefulWidget {
 }
 
 class _AssignRepairItemsSheetState extends State<AssignRepairItemsSheet> {
-  // damageId → outcome (null = not included in this period)
   late final Map<String, RepairType?> _selections;
-  // damageId → isConcerningAverage (initialized from damage item, then overridable)
   late final Map<String, bool> _concerning;
+  late final Map<String, TextEditingController> _noteCtrlMap;
   bool _saving = false;
   String? _error;
 
@@ -39,18 +39,27 @@ class _AssignRepairItemsSheetState extends State<AssignRepairItemsSheet> {
     super.initState();
     _selections = {};
     _concerning = {};
-    // Default: inherit from damage item
+    _noteCtrlMap = {};
     for (final item in widget.ds.damageItems) {
       _selections[item.damageId] = null;
       _concerning[item.damageId] = item.isConcerningAverage;
+      _noteCtrlMap[item.damageId] = TextEditingController();
     }
-    // Pre-populate from existing assignments
     for (final a in widget.period.assignments) {
       if (_selections.containsKey(a.damageId)) {
         _selections[a.damageId] = a.outcome;
         _concerning[a.damageId] = a.isConcerningAverage;
+        _noteCtrlMap[a.damageId]?.text = a.notes ?? '';
       }
     }
+  }
+
+  @override
+  void dispose() {
+    for (final ctrl in _noteCtrlMap.values) {
+      ctrl.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> _save() async {
@@ -64,7 +73,13 @@ class _AssignRepairItemsSheetState extends State<AssignRepairItemsSheet> {
       final concerning = Map.fromEntries(
         outcomes.keys.map((id) => MapEntry(id, _concerning[id] ?? true)),
       );
-      await widget.onSave(outcomes, concerning);
+      final notes = Map.fromEntries(
+        outcomes.keys.map((id) {
+          final text = _noteCtrlMap[id]?.text.trim();
+          return MapEntry(id, text?.isEmpty == true ? null : text);
+        }),
+      );
+      await widget.onSave(outcomes, concerning, notes);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       setState(() { _error = e.toString(); _saving = false; });
@@ -73,148 +88,152 @@ class _AssignRepairItemsSheetState extends State<AssignRepairItemsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      maxChildSize: 0.95,
-      minChildSize: 0.5,
-      expand: false,
-      builder: (_, ctrl) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 4),
-              width: 40, height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.checklist, color: _kColor, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Assign Items — ${widget.period.displayTitle}',
-                          style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary),
-                        ),
-                        const Text(
-                          'Select damage items and set their repair outcome',
-                          style: TextStyle(
-                              fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, thickness: 0.5),
-
-            if (_error != null)
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (_, ctrl) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
               Container(
-                margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(top: 10, bottom: 4),
+                width: 40, height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                child: Text(_error!,
-                    style: const TextStyle(fontSize: 12, color: AppColors.error)),
               ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.checklist, color: _kColor, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Assign Items — ${widget.period.displayTitle}',
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary),
+                          ),
+                          const Text(
+                            'Select damage items and set their repair outcome',
+                            style: TextStyle(
+                                fontSize: 11, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _saving ? null : () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 0.5),
 
-            Expanded(
-              child: ListView(
-                controller: ctrl,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                children: [
-                  for (final occ in widget.ds.occurrences) ...[
-                    _OccurrenceHeader(occ: occ),
-                    for (final cat in DamageCategory.values) ...[
-                      ...() {
-                        final items = widget.ds
-                            .itemsForOccurrenceAndCategory(occ.occurrenceId, cat);
-                        if (items.isEmpty) return <Widget>[];
-                        return [
-                          _CategoryLabel(cat: cat),
-                          ...items.map((item) => _ItemRow(
-                                item: item,
-                                selected: _selections[item.damageId] != null,
-                                outcome: _selections[item.damageId],
-                                isConcerningAverage:
-                                    _concerning[item.damageId] ?? true,
-                                onToggle: (v) => setState(() {
-                                  _selections[item.damageId] =
-                                      v ? RepairType.temporary : null;
-                                }),
-                                onOutcome: (o) => setState(
-                                    () => _selections[item.damageId] = o),
-                                onConcerningChanged: (v) => setState(
-                                    () => _concerning[item.damageId] = v),
-                              )),
-                        ];
-                      }(),
+              if (_error != null)
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(_error!,
+                      style: const TextStyle(fontSize: 12, color: AppColors.error)),
+                ),
+
+              Expanded(
+                child: ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                  children: [
+                    for (final occ in widget.ds.occurrences) ...[
+                      _OccurrenceHeader(occ: occ),
+                      for (final cat in DamageCategory.values) ...[
+                        ...() {
+                          final items = widget.ds
+                              .itemsForOccurrenceAndCategory(occ.occurrenceId, cat);
+                          if (items.isEmpty) return <Widget>[];
+                          return [
+                            _CategoryLabel(cat: cat),
+                            ...items.map((item) => _ItemRow(
+                                  item: item,
+                                  selected: _selections[item.damageId] != null,
+                                  outcome: _selections[item.damageId],
+                                  isConcerningAverage:
+                                      _concerning[item.damageId] ?? true,
+                                  notesCtrl: _noteCtrlMap[item.damageId]!,
+                                  onToggle: (v) => setState(() {
+                                    _selections[item.damageId] =
+                                        v ? RepairType.temporary : null;
+                                  }),
+                                  onOutcome: (o) => setState(
+                                      () => _selections[item.damageId] = o),
+                                  onConcerningChanged: (v) => setState(
+                                      () => _concerning[item.damageId] = v),
+                                )),
+                          ];
+                        }(),
+                      ],
                     ],
                   ],
-                ],
-              ),
-            ),
-
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: const Border(
-                    top: BorderSide(color: AppColors.border, width: 0.5)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 8, offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _kColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20, height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : Text(
-                          'Save Assignments (${_selections.values.where((v) => v != null).length} selected)',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 15),
-                        ),
                 ),
               ),
-            ),
-          ],
+
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: const Border(
+                      top: BorderSide(color: AppColors.border, width: 0.5)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8, offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _kColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 20, height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text(
+                            'Save Assignments (${_selections.values.where((v) => v != null).length} selected)',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 15),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -287,6 +306,7 @@ class _ItemRow extends StatelessWidget {
     required this.selected,
     required this.outcome,
     required this.isConcerningAverage,
+    required this.notesCtrl,
     required this.onToggle,
     required this.onOutcome,
     required this.onConcerningChanged,
@@ -296,6 +316,7 @@ class _ItemRow extends StatelessWidget {
   final bool selected;
   final RepairType? outcome;
   final bool isConcerningAverage;
+  final TextEditingController notesCtrl;
   final ValueChanged<bool> onToggle;
   final ValueChanged<RepairType> onOutcome;
   final ValueChanged<bool> onConcerningChanged;
@@ -316,7 +337,6 @@ class _ItemRow extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Item row with checkbox
           InkWell(
             onTap: () => onToggle(!selected),
             borderRadius: BorderRadius.circular(10),
@@ -366,7 +386,6 @@ class _ItemRow extends StatelessWidget {
             ),
           ),
 
-          // Outcome chips + average toggle — only when selected
           if (selected) ...[
             const Divider(height: 1, thickness: 0.5, indent: 12, endIndent: 12),
             // Outcome chips
@@ -426,7 +445,7 @@ class _ItemRow extends StatelessWidget {
             InkWell(
               onTap: () => onConcerningChanged(!isConcerningAverage),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
+                padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
                 child: Row(
                   children: [
                     SizedBox(
@@ -464,6 +483,34 @@ class _ItemRow extends StatelessWidget {
                 ),
               ),
             ),
+            // Notes field
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: TextField(
+                controller: notesCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Notes about what was done (optional)',
+                  hintStyle: const TextStyle(
+                      fontSize: 11, color: AppColors.textTertiary),
+                  filled: true,
+                  fillColor: AppColors.surface,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                ),
+                minLines: 1,
+                maxLines: 3,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
           ],
         ],
       ),
@@ -471,9 +518,8 @@ class _ItemRow extends StatelessWidget {
   }
 
   Color _outcomeColor(RepairType rt) => switch (rt) {
-        RepairType.temporary     => AppColors.warning,
-        RepairType.permanent     => AppColors.success,
-        RepairType.partPermanent => AppColors.teal,
-        RepairType.deferred      => AppColors.textSecondary,
+        RepairType.temporary => AppColors.warning,
+        RepairType.permanent => AppColors.success,
+        RepairType.deferred  => AppColors.textSecondary,
       };
 }

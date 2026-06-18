@@ -25,7 +25,6 @@ enum DamageCategory {
 enum RepairType {
   temporary('temporary', 'Temporary'),
   permanent('permanent', 'Permanent'),
-  partPermanent('part_permanent', 'Part Permanent'),
   deferred('deferred', 'Deferred');
 
   const RepairType(this.value, this.label);

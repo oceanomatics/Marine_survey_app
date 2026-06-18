@@ -13,13 +13,9 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
 import '../../capture/screens/camera_screen.dart';
-import '../../vessel/providers/vessel_provider.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../survey/providers/attendees_provider.dart';
-import '../../documents/providers/document_provider.dart';
 import '../../capture/providers/voice_note_provider.dart';
-import '../../parties/providers/parties_provider.dart';
-import '../../parties/models/party_model.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
 import '../../timeline/providers/timeline_provider.dart';
@@ -39,7 +35,6 @@ class CaseHomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final caseAsync = ref.watch(caseProvider(caseId));
     final progressAsync = ref.watch(checklistProgressProvider(caseId));
-    final pendingAsync = ref.watch(pendingCapturesProvider(caseId));
 
     return caseAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
@@ -48,7 +43,6 @@ class CaseHomeScreen extends ConsumerWidget {
         caseId: caseId,
         survey: survey,
         checklistProgress: progressAsync.value ?? 0,
-        pendingCaptures: pendingAsync.value ?? 0,
         onDeleteCase: () => _deleteCase(context, ref, survey),
       ),
     );
@@ -128,14 +122,12 @@ class _CaseHomeView extends StatelessWidget {
     required this.caseId,
     required this.survey,
     required this.checklistProgress,
-    required this.pendingCaptures,
     required this.onDeleteCase,
   });
 
   final String caseId;
   final CaseModel survey;
   final double checklistProgress;
-  final int pendingCaptures;
   final VoidCallback onDeleteCase;
 
   @override
@@ -152,7 +144,7 @@ class _CaseHomeView extends StatelessWidget {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SurveyNavRail(caseId: caseId, pendingCaptures: pendingCaptures),
+          _SurveyNavRail(caseId: caseId),
           const VerticalDivider(width: 1, thickness: 1, color: AppColors.border),
           Expanded(
             child: _PseudoReport(
@@ -286,10 +278,9 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
 // ── Nav Rail ──────────────────────────────────────────────────────────────
 
 class _SurveyNavRail extends StatelessWidget {
-  const _SurveyNavRail({required this.caseId, required this.pendingCaptures});
+  const _SurveyNavRail({required this.caseId});
 
   final String caseId;
-  final int pendingCaptures;
 
   @override
   Widget build(BuildContext context) {
@@ -318,49 +309,16 @@ class _SurveyNavRail extends StatelessWidget {
             onTap: () => context.go('/cases/$caseId/documents'),
           ),
           _NavItem(
-            icon: Icons.mic_outlined,
-            label: 'Interview',
+            icon: Icons.photo_library_outlined,
+            label: 'Photos',
             accent: AppColors.purple,
-            onTap: () => context.go('/cases/$caseId/voice'),
-          ),
-          _NavItem(
-            icon: Icons.warning_amber_outlined,
-            label: 'Damage',
-            accent: AppColors.coral,
-            onTap: () => context.go('/cases/$caseId/damage'),
-          ),
-          _NavItem(
-            icon: Icons.calendar_today_outlined,
-            label: 'Attend.',
-            accent: const Color(0xFFBF7E3A),
-            onTap: () => context.go('/cases/$caseId/attendances'),
-          ),
-          _NavItem(
-            icon: Icons.timeline,
-            label: 'Timeline',
-            accent: _kTimelineColor,
-            onTap: () => context.go('/cases/$caseId/timeline'),
+            onTap: () {},
           ),
           _NavItem(
             icon: Icons.checklist_outlined,
             label: 'Checklist',
             accent: AppColors.green,
             onTap: () => context.go('/cases/$caseId/checklist'),
-          ),
-          _NavItem(
-            icon: Icons.inbox_outlined,
-            label: 'Inbox',
-            accent: pendingCaptures > 0
-                ? AppColors.coral
-                : AppColors.navy,
-            badge: pendingCaptures > 0 ? '$pendingCaptures' : null,
-            onTap: () => context.go('/cases/$caseId/capture'),
-          ),
-          _NavItem(
-            icon: Icons.description_outlined,
-            label: 'Report',
-            accent: AppColors.navy,
-            onTap: () => context.go('/cases/$caseId/reports'),
           ),
           const Spacer(),
         ],
@@ -478,14 +436,12 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.accent,
     required this.onTap,
-    this.badge,
   });
 
   final IconData icon;
   final String label;
   final Color accent;
   final VoidCallback onTap;
-  final String? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -529,25 +485,6 @@ class _NavItem extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (badge != null)
-                    Positioned(
-                      top: 0,
-                      right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(
-                          color: AppColors.coral,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          badge!,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -573,23 +510,18 @@ class _PseudoReport extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final vessel = ref.watch(vesselForCaseProvider(caseId)).value;
     final damage = ref.watch(damageProvider(caseId)).value;
     final attendees = ref.watch(attendeesProvider(caseId)).value ?? [];
-    final docs = ref.watch(documentProvider(caseId)).value ?? [];
     final voices = ref.watch(voiceNotesProvider(caseId)).value ?? [];
-    final parties = ref.watch(partiesProvider(caseId)).value;
-    final assuredContacts =
-        ref.watch(assuredContactsProvider(caseId)).value ?? [];
     final visits = ref.watch(attendancesProvider(caseId)).value ?? [];
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
 
     final List<Widget> sections = survey.outputFormat == OutputFormat.nordic
-        ? _nordicSections(context, vessel, damage, attendees, docs, voices,
-            parties, assuredContacts, visits, timeline, repairPeriods)
-        : _ablSections(context, vessel, damage, attendees, docs, voices,
-            parties, assuredContacts, visits, timeline, repairPeriods);
+        ? _nordicSections(
+            context, damage, attendees, voices, visits, timeline, repairPeriods)
+        : _ablSections(
+            context, damage, attendees, voices, visits, timeline, repairPeriods);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -599,14 +531,6 @@ class _PseudoReport extends ConsumerWidget {
           _CaseBanner(survey: survey),
           const SizedBox(height: 10),
           for (final s in sections) ...[s, const SizedBox(height: 8)],
-          _SectionCard(
-            accentColor: AppColors.green,
-            icon: Icons.checklist_outlined,
-            title: 'Survey Checklist',
-            countLabel: '${(checklistProgress * 100).round()}%',
-            onOpen: () => context.go('/cases/$caseId/checklist'),
-            child: _checklistContent(),
-          ),
           const SizedBox(height: 40),
         ],
       ),
@@ -617,34 +541,16 @@ class _PseudoReport extends ConsumerWidget {
 
   List<Widget> _ablSections(
     BuildContext ctx,
-    VesselModel? vessel,
     DamageState? damage,
     List<AttendeeModel> attendees,
-    List<DocumentModel> docs,
     List<VoiceNoteModel> voices,
-    CasePartiesModel? parties,
-    List<AssuredContactModel> assuredContacts,
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
     List<RepairPeriodModel> repairPeriods,
   ) {
     final occ = damage?.occurrences.firstOrNull;
+    final attendanceCount = visits.length + attendees.length;
     return [
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.handshake_outlined,
-        title: 'Parties',
-        onOpen: () => ctx.go('/cases/$caseId/parties'),
-        child: _partiesContent(parties, assuredContacts),
-      ),
-      _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.directions_boat_outlined,
-        title: "Vessel's Description",
-        initiallyExpanded: vessel != null,
-        onOpen: () => ctx.go('/cases/$caseId/vessel'),
-        child: _vesselAblTable(vessel),
-      ),
       _SectionCard(
         accentColor: AppColors.coral,
         icon: Icons.event_note_outlined,
@@ -658,20 +564,12 @@ class _PseudoReport extends ConsumerWidget {
       ),
       _SectionCard(
         accentColor: const Color(0xFFBF7E3A),
-        icon: Icons.calendar_today_outlined,
-        title: 'Attendance',
-        countLabel: visits.isEmpty ? null : '${visits.length}',
-        initiallyExpanded: visits.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/attendances'),
-        child: _visitsContent(visits),
-      ),
-      _SectionCard(
-        accentColor: AppColors.navy,
         icon: Icons.people_outline,
-        title: 'Attending Representatives',
-        countLabel: attendees.isEmpty ? null : '${attendees.length}',
-        onOpen: () => ctx.go('/cases/$caseId/attendees'),
-        child: _attendeesContent(attendees),
+        title: 'Attendance & Representatives',
+        countLabel: attendanceCount == 0 ? null : '$attendanceCount',
+        initiallyExpanded: attendanceCount > 0,
+        onOpen: () => ctx.go('/cases/$caseId/attendances'),
+        child: _attendanceContent(visits, attendees),
       ),
       _SectionCard(
         accentColor: _kTimelineColor,
@@ -696,9 +594,7 @@ class _PseudoReport extends ConsumerWidget {
       _SectionCard(
         accentColor: AppColors.amber,
         icon: Icons.gavel_outlined,
-        title: occ?.allegationType != null
-            ? 'Allegation'
-            : 'Cause Consideration',
+        title: occ?.allegationType != null ? 'Allegation' : 'Cause Consideration',
         onOpen: () => ctx.go('/cases/$caseId/damage'),
         child: _causationContent(occ),
       ),
@@ -706,9 +602,11 @@ class _PseudoReport extends ConsumerWidget {
         accentColor: AppColors.midBlue,
         icon: Icons.build_outlined,
         title: 'Repairs',
-        countLabel: repairPeriods.isEmpty ? null : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
+        countLabel: repairPeriods.isEmpty
+            ? null
+            : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
         initiallyExpanded: repairPeriods.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
+        onOpen: () => ctx.go('/cases/$caseId/repairs'),
         child: _repairsContent(repairPeriods),
       ),
       _SectionCard(
@@ -723,7 +621,8 @@ class _PseudoReport extends ConsumerWidget {
         icon: Icons.schedule_outlined,
         title: 'Repair Times',
         onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Drydock / afloat days — enter in Damage Register'),
+        child: const _SectionEmpty(
+            'Drydock / afloat days — enter in Damage Register'),
       ),
       _SectionCard(
         accentColor: AppColors.purple,
@@ -732,14 +631,6 @@ class _PseudoReport extends ConsumerWidget {
         countLabel: voices.isEmpty ? null : '${voices.length}',
         onOpen: () => ctx.go('/cases/$caseId/voice'),
         child: _voiceContent(voices),
-      ),
-      _SectionCard(
-        accentColor: AppColors.amber,
-        icon: Icons.folder_outlined,
-        title: 'Documents',
-        countLabel: docs.isEmpty ? null : '${docs.length}',
-        onOpen: () => ctx.go('/cases/$caseId/documents'),
-        child: _documentsContent(docs),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -755,26 +646,16 @@ class _PseudoReport extends ConsumerWidget {
 
   List<Widget> _nordicSections(
     BuildContext ctx,
-    VesselModel? vessel,
     DamageState? damage,
     List<AttendeeModel> attendees,
-    List<DocumentModel> docs,
     List<VoiceNoteModel> voices,
-    CasePartiesModel? parties,
-    List<AssuredContactModel> assuredContacts,
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
     List<RepairPeriodModel> repairPeriods,
   ) {
     final occ = damage?.occurrences.firstOrNull;
+    final attendanceCount = visits.length + attendees.length;
     return [
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.handshake_outlined,
-        title: 'Parties',
-        onOpen: () => ctx.go('/cases/$caseId/parties'),
-        child: _partiesContent(parties, assuredContacts),
-      ),
       _SectionCard(
         accentColor: AppColors.coral,
         icon: Icons.event_note_outlined,
@@ -788,20 +669,12 @@ class _PseudoReport extends ConsumerWidget {
       ),
       _SectionCard(
         accentColor: const Color(0xFFBF7E3A),
-        icon: Icons.calendar_today_outlined,
-        title: 'Attendance',
-        countLabel: visits.isEmpty ? null : '${visits.length}',
-        initiallyExpanded: visits.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/attendances'),
-        child: _visitsContent(visits),
-      ),
-      _SectionCard(
-        accentColor: AppColors.navy,
         icon: Icons.people_outline,
-        title: 'Attending Representatives',
-        countLabel: attendees.isEmpty ? null : '${attendees.length}',
-        onOpen: () => ctx.go('/cases/$caseId/attendees'),
-        child: _attendeesContent(attendees),
+        title: 'Attendance & Representatives',
+        countLabel: attendanceCount == 0 ? null : '$attendanceCount',
+        initiallyExpanded: attendanceCount > 0,
+        onOpen: () => ctx.go('/cases/$caseId/attendances'),
+        child: _attendanceContent(visits, attendees),
       ),
       _SectionCard(
         accentColor: _kTimelineColor,
@@ -813,14 +686,6 @@ class _PseudoReport extends ConsumerWidget {
         child: _timelineContent(timeline, visits, damage),
       ),
       _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.directions_boat_outlined,
-        title: 'Vessel Particulars',
-        initiallyExpanded: vessel != null,
-        onOpen: () => ctx.go('/cases/$caseId/vessel'),
-        child: _vesselNordicTable(vessel),
-      ),
-      _SectionCard(
         accentColor: AppColors.midBlue,
         icon: Icons.route_outlined,
         title: "Vessel's Movements & Events",
@@ -829,14 +694,6 @@ class _PseudoReport extends ConsumerWidget {
           occ?.chronology,
           'Chronology / movements — enter in Occurrence',
         ),
-      ),
-      _SectionCard(
-        accentColor: AppColors.amber,
-        icon: Icons.folder_outlined,
-        title: 'Available Information',
-        countLabel: docs.isEmpty ? null : '${docs.length}',
-        onOpen: () => ctx.go('/cases/$caseId/documents'),
-        child: _availableInfoContent(docs),
       ),
       _SectionCard(
         accentColor: AppColors.teal,
@@ -871,9 +728,11 @@ class _PseudoReport extends ConsumerWidget {
         accentColor: AppColors.midBlue,
         icon: Icons.build_outlined,
         title: 'Repairs',
-        countLabel: repairPeriods.isEmpty ? null : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
+        countLabel: repairPeriods.isEmpty
+            ? null
+            : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
         initiallyExpanded: repairPeriods.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
+        onOpen: () => ctx.go('/cases/$caseId/repairs'),
         child: _repairsContent(repairPeriods),
       ),
       _SectionCard(
@@ -881,8 +740,7 @@ class _PseudoReport extends ConsumerWidget {
         icon: Icons.more_horiz_outlined,
         title: 'Other Matters of Relevance',
         onOpen: () => ctx.go('/cases/$caseId/reports'),
-        child:
-            const _SectionEmpty('Other matters — draft in Report Builder'),
+        child: const _SectionEmpty('Other matters — draft in Report Builder'),
       ),
       _SectionCard(
         accentColor: AppColors.amber,
@@ -925,8 +783,7 @@ class _PseudoReport extends ConsumerWidget {
         icon: Icons.schedule_outlined,
         title: 'Summary of Time for Repairs',
         onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty(
-            'Repair times — enter in Damage Register'),
+        child: const _SectionEmpty('Repair times — enter in Damage Register'),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -940,105 +797,70 @@ class _PseudoReport extends ConsumerWidget {
 
   // ── Content builders ──────────────────────────────────────────────────────
 
-  Widget _vesselAblTable(VesselModel? vessel) {
-    if (vessel == null) {
-      return const _SectionEmpty('No vessel added — tap Open to begin');
+  Widget _attendanceContent(
+    List<SurveyAttendanceModel> visits,
+    List<AttendeeModel> attendees,
+  ) {
+    if (visits.isEmpty && attendees.isEmpty) {
+      return const _SectionEmpty('No attendance recorded — tap Open to add');
     }
-    return _fieldWrap([
-      ('Name', vessel.name),
-      ('Type', vessel.vesselType),
-      ('Flag', vessel.flag),
-      ('IMO No.', vessel.imoNumber),
-      ('GT / NT',
-          vessel.grossTonnage != null
-              ? '${vessel.grossTonnage!.toStringAsFixed(0)} / ${vessel.netTonnage?.toStringAsFixed(0) ?? '—'}'
-              : null),
-      ('DWT',
-          vessel.deadweight != null
-              ? '${vessel.deadweight!.toStringAsFixed(0)} t'
-              : null),
-      ('Built',
-          vessel.yearBuilt != null
-              ? [vessel.yearBuilt.toString(), vessel.buildYard]
-                  .whereType<String>()
-                  .join(', ')
-              : null),
-      ('Owners', vessel.owners),
-      ('Class',
-          vessel.classSociety != null
-              ? '${vessel.classSociety} ${vessel.classNotation ?? ''}'.trim()
-              : null),
-      ('LOA / LBP',
-          vessel.lengthOa != null
-              ? '${vessel.lengthOa!.toStringAsFixed(0)} / ${vessel.lengthBp?.toStringAsFixed(0) ?? '—'} m'
-              : null),
-      ('B × D',
-          vessel.breadth != null
-              ? '${vessel.breadth!.toStringAsFixed(0)} × ${vessel.depth?.toStringAsFixed(0) ?? '—'} m'
-              : null),
-      ('Max Draft',
-          vessel.maxDraft != null
-              ? '${vessel.maxDraft!.toStringAsFixed(1)} m'
-              : null),
-      ('Speed',
-          vessel.serviceSpeed != null
-              ? '${vessel.serviceSpeed!.toStringAsFixed(1)} kn'
-              : null),
-    ]);
-  }
-
-  Widget _vesselNordicTable(VesselModel? vessel) {
-    if (vessel == null) {
-      return const _SectionEmpty('No vessel added — tap Open to begin');
-    }
-    return _fieldWrap([
-      ('Vessel Type', vessel.vesselType),
-      ('IMO No.', vessel.imoNumber),
-      ('GT', vessel.grossTonnage?.toStringAsFixed(0)),
-      ('Flag', vessel.flag),
-      ('Port of Registry', vessel.portOfRegistry),
-      ('Year Built', vessel.yearBuilt?.toString()),
-      ('Build Yard', vessel.buildYard),
-      ('Owners', vessel.owners),
-      ('Operators', vessel.operators),
-      ('Class Society', vessel.classSociety),
-      ('Class Notation', vessel.classNotation),
-      ('LOA / LBP',
-          vessel.lengthOa != null
-              ? '${vessel.lengthOa!.toStringAsFixed(0)} / ${vessel.lengthBp?.toStringAsFixed(0) ?? '—'} m'
-              : null),
-      ('B × D',
-          vessel.breadth != null
-              ? '${vessel.breadth!.toStringAsFixed(0)} × ${vessel.depth?.toStringAsFixed(0) ?? '—'} m'
-              : null),
-      ('DWT',
-          vessel.deadweight != null
-              ? '${vessel.deadweight!.toStringAsFixed(0)} t'
-              : null),
-      ('Max Draft',
-          vessel.maxDraft != null
-              ? '${vessel.maxDraft!.toStringAsFixed(1)} m'
-              : null),
-      ('Speed',
-          vessel.serviceSpeed != null
-              ? '${vessel.serviceSpeed!.toStringAsFixed(1)} kn'
-              : null),
-    ]);
-  }
-
-  Widget _fieldWrap(List<(String, String?)> rows) {
-    final filled =
-        rows.where((r) => r.$2 != null && r.$2!.isNotEmpty).toList();
-    if (filled.isEmpty) return const _SectionEmpty('No data saved yet');
-    return Wrap(
-      spacing: 8,
-      runSpacing: 2,
-      children: filled
-          .map((r) => SizedBox(
-                width: 190,
-                child: _FieldRow(label: r.$1, value: r.$2!),
-              ))
-          .toList(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...visits.map((v) {
+          final dateStr = v.attendanceDate != null
+              ? '${v.attendanceDate!.day.toString().padLeft(2, '0')}/'
+                  '${v.attendanceDate!.month.toString().padLeft(2, '0')}/'
+                  '${v.attendanceDate!.year}'
+              : 'TBC';
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  margin: const EdgeInsets.only(top: 5, right: 8),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFBF7E3A),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Text(v.attendanceType.label,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textPrimary)),
+                        const SizedBox(width: 6),
+                        Text(dateStr,
+                            style: const TextStyle(
+                                fontSize: 11, color: AppColors.textSecondary)),
+                      ]),
+                      if (v.location != null)
+                        Text(v.location!,
+                            style: const TextStyle(
+                                fontSize: 11, color: AppColors.textSecondary)),
+                      if (v.vesselStatus != null)
+                        Text(v.vesselStatus!.label,
+                            style: const TextStyle(
+                                fontSize: 11, color: AppColors.textTertiary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        if (attendees.isNotEmpty && visits.isNotEmpty)
+          const Divider(height: 12, thickness: 0.5),
+        ...attendees.map((a) => _AttendeeRow(attendee: a)),
+      ],
     );
   }
 
@@ -1267,75 +1089,6 @@ class _PseudoReport extends ConsumerWidget {
     );
   }
 
-  Widget _availableInfoContent(List<DocumentModel> docs) {
-    if (docs.isEmpty) {
-      return const _SectionEmpty('No documents imported yet');
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            Expanded(
-              child: Text('Document',
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textTertiary)),
-            ),
-            Text('Availability',
-                style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textTertiary)),
-          ],
-        ),
-        const Divider(height: 8, color: AppColors.border),
-        ...docs.map((d) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(d.title,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.textPrimary),
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  Text(
-                    d.availability.label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: d.availability.value == 'enclosed'
-                          ? AppColors.success
-                          : AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            )),
-      ],
-    );
-  }
-
-  Widget _documentsContent(List<DocumentModel> docs) {
-    if (docs.isEmpty) {
-      return const _SectionEmpty('No documents imported yet');
-    }
-    final byCategory = <String, int>{};
-    for (final d in docs) {
-      final cat = d.docCategory?.label ?? 'Other';
-      byCategory[cat] = (byCategory[cat] ?? 0) + 1;
-    }
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: byCategory.entries
-          .map((e) => _CategoryChip(label: e.key, count: e.value))
-          .toList(),
-    );
-  }
-
   Widget _voiceContent(List<VoiceNoteModel> voices) {
     if (voices.isEmpty) return const _SectionEmpty('No recordings yet');
     final transcribed = voices
@@ -1385,127 +1138,6 @@ class _PseudoReport extends ConsumerWidget {
               ),
             )),
       ],
-    );
-  }
-
-  Widget _attendeesContent(List<AttendeeModel> attendees) {
-    if (attendees.isEmpty) {
-      return const _SectionEmpty('No attendees recorded yet');
-    }
-    return Column(
-      children: attendees.map((a) => _AttendeeRow(attendee: a)).toList(),
-    );
-  }
-
-  Widget _partiesContent(
-      CasePartiesModel? parties, List<AssuredContactModel> contacts) {
-    if (parties == null || parties.isEmpty) {
-      return const _SectionEmpty('No parties recorded — tap Open to add');
-    }
-    final rows = <(String, String)>[];
-    if (parties.principalCompany != null || parties.principalName != null) {
-      rows.add(('Principal',
-          [parties.principalName, parties.principalCompany]
-              .whereType<String>()
-              .join(' · ')));
-    }
-    if (parties.reviewerName != null || parties.reviewerCompany != null) {
-      rows.add(('Reviewer',
-          [parties.reviewerName, parties.reviewerCompany]
-              .whereType<String>()
-              .join(' · ')));
-    }
-    if (parties.underwriterCompany != null ||
-        parties.underwriterName != null) {
-      rows.add(('Underwriter',
-          [parties.underwriterName, parties.underwriterCompany]
-              .whereType<String>()
-              .join(' · ')));
-    }
-    if (parties.adjusterName != null || parties.adjusterCompany != null) {
-      rows.add(('Adjuster',
-          [parties.adjusterName, parties.adjusterCompany]
-              .whereType<String>()
-              .join(' · ')));
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ...rows.map((r) => _FieldRow(label: r.$1, value: r.$2)),
-        if (contacts.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            'Assured: ${contacts.map((c) => c.fullName).join(', ')}',
-            style: const TextStyle(
-                fontSize: 11, color: AppColors.textSecondary),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _visitsContent(List<SurveyAttendanceModel> visits) {
-    if (visits.isEmpty) {
-      return const _SectionEmpty('No visits recorded — tap Open to add');
-    }
-    return Column(
-      children: visits.map((v) {
-        final dateStr = v.attendanceDate != null
-            ? '${v.attendanceDate!.day.toString().padLeft(2, '0')}/'
-                '${v.attendanceDate!.month.toString().padLeft(2, '0')}/'
-                '${v.attendanceDate!.year}'
-            : 'TBC';
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 7),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                margin: const EdgeInsets.only(top: 5, right: 8),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFBF7E3A),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          v.attendanceType.label,
-                          style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textPrimary),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(dateStr,
-                            style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textSecondary)),
-                      ],
-                    ),
-                    if (v.location != null)
-                      Text(v.location!,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textSecondary)),
-                    if (v.vesselStatus != null)
-                      Text(v.vesselStatus!.label,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textTertiary)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
     );
   }
 
@@ -1700,35 +1332,6 @@ class _PseudoReport extends ConsumerWidget {
                 ),
               ))
           .toList(),
-    );
-  }
-
-  Widget _checklistContent() {
-    final pct = (checklistProgress * 100).round();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: checklistProgress,
-            minHeight: 8,
-            backgroundColor: AppColors.border,
-            valueColor: AlwaysStoppedAnimation<Color>(
-                checklistProgress >= 1.0
-                    ? AppColors.success
-                    : AppColors.green),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          checklistProgress >= 1.0
-              ? 'All checklist items complete'
-              : '$pct% complete — ${((1 - checklistProgress) * 100).round()}% remaining',
-          style: const TextStyle(
-              fontSize: 11, color: AppColors.textSecondary),
-        ),
-      ],
     );
   }
 
@@ -2011,29 +1614,6 @@ class _AttendeeRow extends StatelessWidget {
   }
 }
 
-class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({required this.label, required this.count});
-  final String label;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.lightAmber,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.amber.withValues(alpha: 0.25)),
-      ),
-      child: Text(
-        '$label · \$count',
-        style: const TextStyle(
-            fontSize: 11, color: AppColors.amber, fontWeight: FontWeight.w500),
-      ),
-    );
-  }
-}
-
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.label, required this.color});
   final String label;
@@ -2052,39 +1632,6 @@ class _StatusChip extends StatelessWidget {
         label,
         style: TextStyle(
             fontSize: 9, color: color, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
-// ── Shared micro-widgets ──────────────────────────────────────────────────
-
-class _FieldRow extends StatelessWidget {
-  const _FieldRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 56,
-            child: Text(label,
-                style: const TextStyle(
-                    fontSize: 11, color: AppColors.textSecondary)),
-          ),
-          Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w500)),
-          ),
-        ],
       ),
     );
   }

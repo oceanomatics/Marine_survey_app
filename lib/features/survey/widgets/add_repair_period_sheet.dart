@@ -93,7 +93,9 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
   @override
   Widget build(BuildContext context) {
     final df = DateFormat('dd/MM/yyyy');
-    return DraggableScrollableSheet(
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: DraggableScrollableSheet(
       initialChildSize: 0.75,
       maxChildSize: 0.95,
       minChildSize: 0.4,
@@ -305,6 +307,7 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
           ],
         ),
       ),
+    ),
     );
   }
 

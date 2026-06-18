@@ -80,6 +80,7 @@ class RepairPeriodsNotifier
     String periodId,
     Map<String, RepairType> outcomes,
     Map<String, bool> concerning,
+    Map<String, String?> notes,
   ) async {
     await SupabaseService.client
         .from('repair_assignments')
@@ -88,12 +89,16 @@ class RepairPeriodsNotifier
 
     if (outcomes.isNotEmpty) {
       final rows = outcomes.entries
-          .map((e) => {
-                'period_id':            periodId,
-                'damage_id':            e.key,
-                'outcome':              e.value.value,
-                'is_concerning_average': concerning[e.key] ?? true,
-              })
+          .map((e) {
+            final note = notes[e.key];
+            return {
+              'period_id':             periodId,
+              'damage_id':             e.key,
+              'outcome':               e.value.value,
+              'is_concerning_average': concerning[e.key] ?? true,
+              if (note != null && note.isNotEmpty) 'notes': note,
+            };
+          })
           .toList();
       await SupabaseService.client.from('repair_assignments').insert(rows);
 

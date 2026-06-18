@@ -7,6 +7,7 @@ import '../../features/cases/screens/case_home_screen.dart';
 import '../../features/cases/screens/new_case_screen.dart';
 import '../../features/vessel/screens/vessel_particulars_screen.dart';
 import '../../features/survey/screens/damage_register_screen.dart';
+import '../../features/survey/screens/repair_periods_screen.dart';
 import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
 import '../../features/capture/screens/quick_capture_screen.dart';
@@ -59,6 +60,11 @@ final appRouter = GoRouter(
               path: 'damage',
               builder: (context, state) =>
                   DamageRegisterScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'repairs',
+              builder: (context, state) =>
+                  RepairPeriodsScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'camera',

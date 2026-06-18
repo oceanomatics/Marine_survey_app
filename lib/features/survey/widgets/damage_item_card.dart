@@ -221,10 +221,9 @@ class DamageItemCard extends StatelessWidget {
   }
 
   Color _repairTypeColor(RepairType t) => switch (t) {
-        RepairType.temporary     => AppColors.warning,
-        RepairType.permanent     => AppColors.success,
-        RepairType.partPermanent => AppColors.teal,
-        RepairType.deferred      => AppColors.textSecondary,
+        RepairType.temporary => AppColors.warning,
+        RepairType.permanent => AppColors.success,
+        RepairType.deferred  => AppColors.textSecondary,
       };
 
   Color _repairStatusColor(RepairStatus s) => switch (s) {
