@@ -26,7 +26,7 @@ class AttendancesNotifier
         .toList();
   }
 
-  Future<void> add({
+  Future<SurveyAttendanceModel> add({
     required String caseId,
     required AttendanceType type,
     DateTime? date,
@@ -50,10 +50,10 @@ class AttendancesNotifier
         .insert(model.toInsertJson())
         .select()
         .single();
-    final created =
-        SurveyAttendanceModel.fromJson(inserted);
+    final created = SurveyAttendanceModel.fromJson(inserted);
     final current = state.value ?? [];
     state = AsyncData([...current, created]);
+    return created;
   }
 
   Future<void> delete(String attendanceId) async {

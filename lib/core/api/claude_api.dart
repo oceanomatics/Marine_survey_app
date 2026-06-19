@@ -404,6 +404,74 @@ Dates in ISO format. Return null for missing fields.''',
     return _parseJson(text);
   }
 
+  // ── Correspondence Extraction ─────────────────────────────────────────────
+
+  /// Extract parties, summary, action items and key dates from a PDF email trail.
+  static Future<Map<String, dynamic>> extractCorrespondence({
+    required String base64Pdf,
+    String? filename,
+  }) async {
+    final hint = filename != null ? 'Filename: $filename.\n' : '';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(
+        extra: {'feature': 'correspondence_extraction'},
+        headers: {'anthropic-beta': 'pdfs-2024-09-25'},
+      ),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 1500,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'document',
+                'source': {
+                  'type': 'base64',
+                  'media_type': 'application/pdf',
+                  'data': base64Pdf,
+                },
+              },
+              {
+                'type': 'text',
+                'text': '''${hint}This is a marine insurance / survey correspondence document (email trail, letter, or report). Extract the following and return ONLY a JSON object with no preamble or markdown:
+
+{
+  "summary": "2-3 sentence summary of the overall correspondence",
+  "sender": "primary sender name and organisation",
+  "recipient": "primary recipient name and organisation",
+  "corr_date": "date of most recent or primary communication in YYYY-MM-DD format, or null",
+  "parties": [
+    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter"}
+  ],
+  "key_dates": [
+    "YYYY-MM-DD — description of the event"
+  ],
+  "action_items": [
+    "action item or outstanding request"
+  ],
+  "decisions": [
+    "key decision or agreement reached"
+  ],
+  "claim_reference": "",
+  "vessel_name": "",
+  "job_number": ""
+}
+
+Return null or empty array for fields not found. Dates in ISO format.''',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data);
+    return _parseJson(text);
+  }
+
   // ── Email Classification ──────────────────────────────────────────────────
 
   /// Classify an incoming email and extract job number if present

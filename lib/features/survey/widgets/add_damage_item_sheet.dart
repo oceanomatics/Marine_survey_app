@@ -12,12 +12,14 @@ class AddDamageItemSheet extends StatefulWidget {
     required this.occurrenceId,
     required this.onSave,
     this.existing,
+    this.occurrences = const [],
   });
 
   final String caseId;
   final String occurrenceId;
   final DamageItemModel? existing;
   final Future<void> Function(DamageItemModel) onSave;
+  final List<OccurrenceModel> occurrences;
 
   @override
   State<AddDamageItemSheet> createState() => _AddDamageItemSheetState();
@@ -36,10 +38,12 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
   RepairStatus _repairStatus    = RepairStatus.notStarted;
   bool _isConcerningAverage     = true;
   bool _saving                  = false;
+  late String _selectedOccurrenceId;
 
   @override
   void initState() {
     super.initState();
+    _selectedOccurrenceId = widget.occurrenceId;
     final e = widget.existing;
     if (e != null) {
       _componentCtrl.text   = e.componentName;
@@ -76,7 +80,7 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
     try {
       final item = DamageItemModel(
         damageId:          widget.existing?.damageId ?? '',
-        occurrenceId:      widget.occurrenceId,
+        occurrenceId:      _selectedOccurrenceId,
         caseId:            widget.caseId,
         componentName:     _componentCtrl.text.trim(),
         damageCategory:    _category,
@@ -149,6 +153,46 @@ class _AddDamageItemSheetState extends State<AddDamageItemSheet> {
               ),
             ]),
             const SizedBox(height: 20),
+
+            // ── Occurrence selector (only when multiple exist) ────────
+            if (widget.occurrences.length > 1) ...[
+              const _FieldLabel('Occurrence'),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.lightCoral,
+                  border: Border.all(
+                      color: AppColors.coral.withValues(alpha: 0.4)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButton<String>(
+                  value: _selectedOccurrenceId,
+                  isExpanded: true,
+                  underline: const SizedBox.shrink(),
+                  dropdownColor: Colors.white,
+                  items: widget.occurrences.map((occ) {
+                    final label = occ.title ??
+                        'Occurrence ${occ.occurrenceNo}';
+                    return DropdownMenuItem(
+                      value: occ.occurrenceId,
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.coral,
+                            fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (v) {
+                    if (v != null) setState(() => _selectedOccurrenceId = v);
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // ── Damage Category ──────────────────────────────────────
             const _FieldLabel('Damage Category'),

@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import '../providers/damage_provider.dart';
+import '../../photos/models/photo_model.dart';
+import '../../photos/widgets/photo_strip.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class DamageItemCard extends StatelessWidget {
@@ -10,11 +12,17 @@ class DamageItemCard extends StatelessWidget {
     required this.item,
     required this.onEdit,
     required this.onDelete,
+    required this.photos,
+    required this.onAddPhoto,
+    required this.onDeletePhoto,
   });
 
   final DamageItemModel item;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final List<PhotoModel> photos;
+  final VoidCallback onAddPhoto;
+  final void Function(String photoId) onDeletePhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +35,6 @@ class DamageItemCard extends StatelessWidget {
             // ── Header row ──────────────────────────────────────────
             Row(
               children: [
-                // Sequence number
                 Container(
                   width: 24,
                   height: 24,
@@ -61,7 +68,6 @@ class DamageItemCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Average / owner badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 7, vertical: 3),
@@ -90,8 +96,8 @@ class DamageItemCard extends StatelessWidget {
                     if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
                   },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
                       value: 'edit',
                       child: Row(children: [
                         Icon(Icons.edit_outlined, size: 15),
@@ -99,7 +105,7 @@ class DamageItemCard extends StatelessWidget {
                         Text('Edit', style: TextStyle(fontSize: 13)),
                       ]),
                     ),
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'delete',
                       child: Row(children: [
                         Icon(Icons.delete_outline,
@@ -136,7 +142,9 @@ class DamageItemCard extends StatelessWidget {
               Text(
                 item.damageDescription!,
                 style: const TextStyle(
-                    fontSize: 12, color: AppColors.textPrimary, height: 1.4),
+                    fontSize: 12,
+                    color: AppColors.textPrimary,
+                    height: 1.4),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -172,6 +180,14 @@ class DamageItemCard extends StatelessWidget {
               ),
             ],
 
+            // ── Photo strip ───────────────────────────────────────────
+            const SizedBox(height: 10),
+            PhotoStrip(
+              photos: photos,
+              onAddPhoto: onAddPhoto,
+              onDeletePhoto: onDeletePhoto,
+            ),
+
             const SizedBox(height: 10),
 
             // ── Status row ────────────────────────────────────────────
@@ -187,22 +203,10 @@ class DamageItemCard extends StatelessWidget {
                   label: item.repairStatus.label,
                   color: _repairStatusColor(item.repairStatus),
                 ),
-                const Spacer(),
-                // Photo count
-                if (item.photoCount > 0)
-                  Row(children: [
-                    const Icon(Icons.photo_outlined,
-                        size: 13, color: AppColors.textTertiary),
-                    const SizedBox(width: 3),
-                    Text('${item.photoCount}',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textTertiary)),
-                  ]),
               ],
             ),
 
-            // ── Exclusion reason (owner's items) ──────────────────────
+            // ── Exclusion reason ──────────────────────────────────────
             if (!item.isConcerningAverage &&
                 item.exclusionReason != null) ...[
               const SizedBox(height: 6),
@@ -223,14 +227,14 @@ class DamageItemCard extends StatelessWidget {
   Color _repairTypeColor(RepairType t) => switch (t) {
         RepairType.temporary => AppColors.warning,
         RepairType.permanent => AppColors.success,
-        RepairType.deferred  => AppColors.textSecondary,
+        RepairType.deferred => AppColors.textSecondary,
       };
 
   Color _repairStatusColor(RepairStatus s) => switch (s) {
         RepairStatus.notStarted => AppColors.textTertiary,
         RepairStatus.inProgress => AppColors.warning,
-        RepairStatus.completed  => AppColors.success,
-        RepairStatus.deferred   => AppColors.textSecondary,
+        RepairStatus.completed => AppColors.success,
+        RepairStatus.deferred => AppColors.textSecondary,
       };
 }
 

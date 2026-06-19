@@ -312,13 +312,25 @@ class _SurveyNavRail extends StatelessWidget {
             icon: Icons.photo_library_outlined,
             label: 'Photos',
             accent: AppColors.purple,
-            onTap: () {},
+            onTap: () => context.go('/cases/$caseId/photos'),
           ),
           _NavItem(
             icon: Icons.checklist_outlined,
             label: 'Checklist',
             accent: AppColors.green,
             onTap: () => context.go('/cases/$caseId/checklist'),
+          ),
+          _NavItem(
+            icon: Icons.mail_outline,
+            label: 'Mail',
+            accent: const Color(0xFF2A6099),
+            onTap: () => context.go('/cases/$caseId/correspondence'),
+          ),
+          _NavItem(
+            icon: Icons.edit_note,
+            label: 'Notes',
+            accent: const Color(0xFF4A7A5A),
+            onTap: () => context.go('/cases/$caseId/notes'),
           ),
           const Spacer(),
         ],
@@ -517,11 +529,8 @@ class _PseudoReport extends ConsumerWidget {
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
 
-    final List<Widget> sections = survey.outputFormat == OutputFormat.nordic
-        ? _nordicSections(
-            context, damage, attendees, voices, visits, timeline, repairPeriods)
-        : _ablSections(
-            context, damage, attendees, voices, visits, timeline, repairPeriods);
+    final List<Widget> sections = _sections(
+        context, damage, attendees, voices, visits, timeline, repairPeriods);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -537,9 +546,9 @@ class _PseudoReport extends ConsumerWidget {
     );
   }
 
-  // ── ABL London sections ───────────────────────────────────────────────────
+  // ── Unified sections (format differences handled at report builder stage) ──
 
-  List<Widget> _ablSections(
+  List<Widget> _sections(
     BuildContext ctx,
     DamageState? damage,
     List<AttendeeModel> attendees,
@@ -551,17 +560,6 @@ class _PseudoReport extends ConsumerWidget {
     final occ = damage?.occurrences.firstOrNull;
     final attendanceCount = visits.length + attendees.length;
     return [
-      _SectionCard(
-        accentColor: AppColors.coral,
-        icon: Icons.event_note_outlined,
-        title: 'Occurrence',
-        countLabel: (damage?.occurrences.length ?? 0) > 0
-            ? '${damage!.occurrences.length}'
-            : null,
-        initiallyExpanded: occ != null,
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _occurrenceContent(damage),
-      ),
       _SectionCard(
         accentColor: const Color(0xFFBF7E3A),
         icon: Icons.people_outline,
@@ -579,6 +577,44 @@ class _PseudoReport extends ConsumerWidget {
         initiallyExpanded: timeline.isNotEmpty || visits.isNotEmpty,
         onOpen: () => ctx.go('/cases/$caseId/timeline'),
         child: _timelineContent(timeline, visits, damage),
+      ),
+      _SectionCard(
+        accentColor: AppColors.coral,
+        icon: Icons.event_note_outlined,
+        title: 'Occurrence',
+        countLabel: (damage?.occurrences.length ?? 0) > 0
+            ? '${damage!.occurrences.length}'
+            : null,
+        initiallyExpanded: occ != null,
+        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        child: _occurrenceContent(damage),
+      ),
+      _SectionCard(
+        accentColor: AppColors.midBlue,
+        icon: Icons.history_outlined,
+        title: 'Background',
+        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        child: _narrativeContent(
+          occ?.backgroundNarrative,
+          'Background narrative — enter in Occurrence',
+        ),
+      ),
+      _SectionCard(
+        accentColor: AppColors.midBlue,
+        icon: Icons.route_outlined,
+        title: "Vessel's Movements & Events",
+        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        child: _narrativeContent(
+          occ?.chronology,
+          'Chronology / movements — enter in Occurrence',
+        ),
+      ),
+      _SectionCard(
+        accentColor: AppColors.amber,
+        icon: Icons.gavel_outlined,
+        title: occ?.allegationType != null ? 'Allegation' : 'Cause Consideration',
+        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        child: _causationContent(occ),
       ),
       _SectionCard(
         accentColor: AppColors.coral,
@@ -592,13 +628,6 @@ class _PseudoReport extends ConsumerWidget {
         child: _extentOfDamageContent(damage),
       ),
       _SectionCard(
-        accentColor: AppColors.amber,
-        icon: Icons.gavel_outlined,
-        title: occ?.allegationType != null ? 'Allegation' : 'Cause Consideration',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _causationContent(occ),
-      ),
-      _SectionCard(
         accentColor: AppColors.midBlue,
         icon: Icons.build_outlined,
         title: 'Repairs',
@@ -608,6 +637,20 @@ class _PseudoReport extends ConsumerWidget {
         initiallyExpanded: repairPeriods.isNotEmpty,
         onOpen: () => ctx.go('/cases/$caseId/repairs'),
         child: _repairsContent(repairPeriods),
+      ),
+      _SectionCard(
+        accentColor: AppColors.teal,
+        icon: Icons.anchor_outlined,
+        title: 'Dry Docking / Temporary Repairs',
+        onOpen: () => ctx.go('/cases/$caseId/damage'),
+        child: const _SectionEmpty('Drydock details — enter in Damage Register'),
+      ),
+      _SectionCard(
+        accentColor: AppColors.navy,
+        icon: Icons.schedule_outlined,
+        title: 'Repair Times',
+        onOpen: () => ctx.go('/cases/$caseId/damage'),
+        child: const _SectionEmpty('Drydock / afloat days — enter in Damage Register'),
       ),
       _SectionCard(
         accentColor: AppColors.green,
@@ -615,154 +658,6 @@ class _PseudoReport extends ConsumerWidget {
         title: 'Accounts',
         onOpen: () => ctx.go('/cases/$caseId/damage'),
         child: const _SectionEmpty('Invoices module — Phase 1.1'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.schedule_outlined,
-        title: 'Repair Times',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty(
-            'Drydock / afloat days — enter in Damage Register'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.purple,
-        icon: Icons.mic_outlined,
-        title: "Surveyor's Notes",
-        countLabel: voices.isEmpty ? null : '${voices.length}',
-        onOpen: () => ctx.go('/cases/$caseId/voice'),
-        child: _voiceContent(voices),
-      ),
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.description_outlined,
-        title: 'Report Status',
-        onOpen: () => ctx.go('/cases/$caseId/reports'),
-        child: _reportStatusContent(),
-      ),
-    ];
-  }
-
-  // ── Nordic / Gard sections ────────────────────────────────────────────────
-
-  List<Widget> _nordicSections(
-    BuildContext ctx,
-    DamageState? damage,
-    List<AttendeeModel> attendees,
-    List<VoiceNoteModel> voices,
-    List<SurveyAttendanceModel> visits,
-    List<TimelineEventModel> timeline,
-    List<RepairPeriodModel> repairPeriods,
-  ) {
-    final occ = damage?.occurrences.firstOrNull;
-    final attendanceCount = visits.length + attendees.length;
-    return [
-      _SectionCard(
-        accentColor: AppColors.coral,
-        icon: Icons.event_note_outlined,
-        title: 'Occurrence',
-        countLabel: (damage?.occurrences.length ?? 0) > 0
-            ? '${damage!.occurrences.length}'
-            : null,
-        initiallyExpanded: occ != null,
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _occurrenceContent(damage),
-      ),
-      _SectionCard(
-        accentColor: const Color(0xFFBF7E3A),
-        icon: Icons.people_outline,
-        title: 'Attendance & Representatives',
-        countLabel: attendanceCount == 0 ? null : '$attendanceCount',
-        initiallyExpanded: attendanceCount > 0,
-        onOpen: () => ctx.go('/cases/$caseId/attendances'),
-        child: _attendanceContent(visits, attendees),
-      ),
-      _SectionCard(
-        accentColor: _kTimelineColor,
-        icon: Icons.timeline,
-        title: 'Case Timeline',
-        countLabel: _timelineCount(timeline, visits, damage),
-        initiallyExpanded: timeline.isNotEmpty || visits.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/timeline'),
-        child: _timelineContent(timeline, visits, damage),
-      ),
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.route_outlined,
-        title: "Vessel's Movements & Events",
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _narrativeContent(
-          occ?.chronology,
-          'Chronology / movements — enter in Occurrence',
-        ),
-      ),
-      _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.engineering_outlined,
-        title: 'Brief Technical Description',
-        onOpen: () => ctx.go('/cases/$caseId/vessel'),
-        child: const _SectionEmpty(
-            'Technical description — draft in Report Builder'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.history_outlined,
-        title: 'Background',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _narrativeContent(
-          occ?.backgroundNarrative,
-          'Background narrative — enter in Occurrence',
-        ),
-      ),
-      _SectionCard(
-        accentColor: AppColors.coral,
-        icon: Icons.warning_amber_outlined,
-        title: 'Damage Description',
-        countLabel: (damage?.totalDamageItems ?? 0) > 0
-            ? '${damage!.totalDamageItems} items'
-            : null,
-        initiallyExpanded: (damage?.totalDamageItems ?? 0) > 0,
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _extentOfDamageContent(damage),
-      ),
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.build_outlined,
-        title: 'Repairs',
-        countLabel: repairPeriods.isEmpty
-            ? null
-            : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
-        initiallyExpanded: repairPeriods.isNotEmpty,
-        onOpen: () => ctx.go('/cases/$caseId/repairs'),
-        child: _repairsContent(repairPeriods),
-      ),
-      _SectionCard(
-        accentColor: AppColors.purple,
-        icon: Icons.more_horiz_outlined,
-        title: 'Other Matters of Relevance',
-        onOpen: () => ctx.go('/cases/$caseId/reports'),
-        child: const _SectionEmpty('Other matters — draft in Report Builder'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.amber,
-        icon: Icons.gavel_outlined,
-        title: 'Cause Consideration',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _causationContent(occ),
-      ),
-      _SectionCard(
-        accentColor: AppColors.green,
-        icon: Icons.receipt_outlined,
-        title: 'Repair Cost',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Invoices module — Phase 1.1'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.anchor_outlined,
-        title: 'Dry Docking / Temporary Repairs',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty(
-            'Drydock details — enter in Damage Register'),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -779,11 +674,19 @@ class _PseudoReport extends ConsumerWidget {
         child: _notAverageContent(damage),
       ),
       _SectionCard(
-        accentColor: AppColors.navy,
-        icon: Icons.schedule_outlined,
-        title: 'Summary of Time for Repairs',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Repair times — enter in Damage Register'),
+        accentColor: AppColors.purple,
+        icon: Icons.more_horiz_outlined,
+        title: 'Other Matters of Relevance',
+        onOpen: () => ctx.go('/cases/$caseId/reports'),
+        child: const _SectionEmpty('Other matters — draft in Report Builder'),
+      ),
+      _SectionCard(
+        accentColor: AppColors.purple,
+        icon: Icons.mic_outlined,
+        title: "Surveyor's Notes",
+        countLabel: voices.isEmpty ? null : '${voices.length}',
+        onOpen: () => ctx.go('/cases/$caseId/voice'),
+        child: _voiceContent(voices),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,

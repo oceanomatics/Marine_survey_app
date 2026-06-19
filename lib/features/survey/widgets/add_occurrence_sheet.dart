@@ -2,10 +2,17 @@
 
 import 'package:flutter/material.dart';
 import '../../vessel/widgets/survey_field.dart';
+import '../providers/damage_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class AddOccurrenceSheet extends StatefulWidget {
-  const AddOccurrenceSheet({super.key, required this.onSave});
+  const AddOccurrenceSheet({
+    super.key,
+    required this.onSave,
+    this.existing,
+  });
+
+  final OccurrenceModel? existing;
 
   final Future<void> Function(
     String title,
@@ -24,6 +31,18 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
   final _descriptionCtrl = TextEditingController();
   DateTime? _dateTime;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _titleCtrl.text       = e.title        ?? '';
+      _locationCtrl.text    = e.location     ?? '';
+      _descriptionCtrl.text = e.briefDescription ?? '';
+      _dateTime             = e.dateTime;
+    }
+  }
 
   @override
   void dispose() {
@@ -104,8 +123,9 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('Add Occurrence',
-                style: TextStyle(
+            Text(
+                widget.existing != null ? 'Edit Occurrence' : 'Add Occurrence',
+                style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary)),
@@ -181,12 +201,11 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
             ),
 
             SurveyField(
-              label: "Owner's Description (brief)",
+              label: 'Narrative',
               controller: _descriptionCtrl,
               hint:
-                  'Brief background — the owner\'s account of what happened. '
-                  'Full narrative can be added in the report builder.',
-              maxLines: 4,
+                  'Background, sequence of events, owner\'s account…',
+              maxLines: 12,
             ),
 
             const SizedBox(height: 8),
@@ -203,8 +222,11 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
                         width: 18, height: 18,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
-                    : const Text('Add Occurrence',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    : Text(
+                        widget.existing != null
+                            ? 'Update Occurrence'
+                            : 'Add Occurrence',
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
             ),
           ],

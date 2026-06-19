@@ -7,23 +7,44 @@ import '../../../core/api/supabase_client.dart';
 // ── Role types ─────────────────────────────────────────────────────────────
 
 enum AttendeeRole {
+  // Group 0 — Vessel representatives
   master('master', 'Master'),
+  portCaptain('port_captain', 'Port Captain'),
   chiefEngineer('chief_engineer', 'Chief Engineer'),
   firstEngineer('first_engineer', 'First Engineer'),
   superintendent('superintendent', 'Superintendent'),
-  classSurveyor('class_surveyor', 'Class Surveyor'),
   ownerRep('owner_rep', 'Owner\'s Representative'),
+  // Group 1 — Contractors
   serviceEngineer('service_engineer', 'Service Engineer'),
-  broker('broker', 'Broker'),
+  other('other', 'Other'),
+  // Group 2 — Class / other surveyors
+  classSurveyor('class_surveyor', 'Class Surveyor'),
   adjuster('adjuster', 'Adjuster / Average Adjuster'),
+  broker('broker', 'Broker'),
   solicitor('solicitor', 'Solicitor'),
-  surveyor('surveyor', 'Surveyor'),
-  portCaptain('port_captain', 'Port Captain'),
-  other('other', 'Other');
+  // Group 3 — Attending surveyor (us) — always last
+  surveyor('surveyor', 'Surveyor');
 
   const AttendeeRole(this.value, this.label);
   final String value;
   final String label;
+
+  /// Display-order priority: vessel reps → contractors → class/others → surveyor.
+  int get sortOrder => switch (this) {
+        master          => 0,
+        portCaptain     => 1,
+        chiefEngineer   => 2,
+        firstEngineer   => 3,
+        superintendent  => 4,
+        ownerRep        => 5,
+        serviceEngineer => 10,
+        other           => 11,
+        classSurveyor   => 20,
+        adjuster        => 21,
+        broker          => 22,
+        solicitor       => 23,
+        surveyor        => 30,
+      };
 
   static AttendeeRole fromValue(String v) =>
       values.firstWhere((e) => e.value == v,

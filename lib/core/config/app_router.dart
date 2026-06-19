@@ -7,6 +7,7 @@ import '../../features/cases/screens/case_home_screen.dart';
 import '../../features/cases/screens/new_case_screen.dart';
 import '../../features/vessel/screens/vessel_particulars_screen.dart';
 import '../../features/survey/screens/damage_register_screen.dart';
+import '../../features/survey/screens/occurrence_screen.dart';
 import '../../features/survey/screens/repair_periods_screen.dart';
 import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
@@ -18,7 +19,10 @@ import '../../features/survey/screens/attendees_screen.dart';
 import '../../features/parties/screens/parties_screen.dart';
 import '../../features/attendances/screens/attendances_screen.dart';
 import '../../features/timeline/screens/timeline_screen.dart';
+import '../../features/photos/screens/photo_gallery_screen.dart';
 import '../../features/correspondence/screens/inbox_screen.dart';
+import '../../features/correspondence/screens/correspondence_screen.dart';
+import '../../features/surveyor_notes/screens/surveyor_notes_screen.dart';
 import '../../features/timesheet/screens/timesheet_screen.dart';
 import '../../features/settings/screens/usage_screen.dart';
 import '../../shared/screens/login_screen.dart';
@@ -96,6 +100,11 @@ final appRouter = GoRouter(
               ),
             ),
             GoRoute(
+              path: 'occurrence',
+              builder: (context, state) =>
+                  OccurrenceScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'attendees',
               builder: (context, state) =>
                   AttendeesScreen(caseId: state.pathParameters['caseId']!),
@@ -114,6 +123,21 @@ final appRouter = GoRouter(
               path: 'timeline',
               builder: (context, state) =>
                   TimelineScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'photos',
+              builder: (context, state) =>
+                  PhotoGalleryScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'correspondence',
+              builder: (context, state) =>
+                  CorrespondenceScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'notes',
+              builder: (context, state) =>
+                  SurveyorNotesScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'reports',

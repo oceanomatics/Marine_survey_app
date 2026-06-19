@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import '../models/attendance_model.dart';
 import '../providers/attendances_provider.dart';
 import '../widgets/add_attendance_sheet.dart';
+import '../widgets/edit_attendees_sheet.dart';
+import '../../survey/providers/attendees_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
@@ -19,12 +21,19 @@ class AttendancesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final attendancesAsync = ref.watch(attendancesProvider(caseId));
+    final allAttendees = ref.watch(attendeesProvider(caseId)).value ?? [];
+
+    // Deduplicate previous attendees by name so suggestions are unique
+    final seen = <String>{};
+    final uniquePrevious = allAttendees
+        .where((a) => seen.add(a.fullName.toLowerCase()))
+        .toList();
 
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(title: const Text('Attendance')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddSheet(context, ref),
+        onPressed: () => _showAddSheet(context, ref, uniquePrevious),
         backgroundColor: _kVisitsColor,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
@@ -36,34 +45,101 @@ class AttendancesScreen extends ConsumerWidget {
             const AppLoadingWidget(message: 'Loading attendance...'),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (attendances) => attendances.isEmpty
-            ? _EmptyState(onAdd: () => _showAddSheet(context, ref))
+            ? _EmptyState(
+                onAdd: () => _showAddSheet(context, ref, uniquePrevious))
             : _AttendanceList(
                 caseId: caseId,
                 attendances: attendances,
+                allAttendees: allAttendees,
                 onDelete: (id) => ref
                     .read(attendancesProvider(caseId).notifier)
                     .delete(id),
+                onEditAttendees: (attendance, attendees) =>
+                    _showEditAttendeesSheet(
+                        context, ref, attendance, attendees),
               ),
       ),
     );
   }
 
-  void _showAddSheet(BuildContext context, WidgetRef ref) {
+  void _showEditAttendeesSheet(
+    BuildContext context,
+    WidgetRef ref,
+    SurveyAttendanceModel attendance,
+    List<AttendeeModel> currentAttendees,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => EditAttendeesSheet(
+        caseId: caseId,
+        attendanceId: attendance.attendanceId,
+        initialAttendees: currentAttendees,
+        onAdd: (a) =>
+            ref.read(attendeesProvider(caseId).notifier).addAttendee(a),
+        onDelete: (id) =>
+            ref.read(attendeesProvider(caseId).notifier).deleteAttendee(id),
+      ),
+    );
+  }
+
+  void _showAddSheet(
+    BuildContext context,
+    WidgetRef ref,
+    List<AttendeeModel> previousAttendees,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => AddAttendanceSheet(
-        onSave: (type, date, location, surveyor, vesselStatus, summary) async {
-          await ref.read(attendancesProvider(caseId).notifier).add(
-                caseId:       caseId,
-                type:         type,
-                date:         date,
-                location:     location,
-                surveyorName: surveyor,
-                vesselStatus: vesselStatus,
-                summary:      summary,
-              );
+        previousAttendees: previousAttendees,
+        onSave: (type, date, location, surveyor, vesselStatus, summary,
+            enabledPrevious, newAttendees) async {
+          // 1. Create the attendance record
+          final created =
+              await ref.read(attendancesProvider(caseId).notifier).add(
+                    caseId: caseId,
+                    type: type,
+                    date: date,
+                    location: location,
+                    surveyorName: surveyor,
+                    vesselStatus: vesselStatus,
+                    summary: summary,
+                  );
+
+          // 2. Carry forward enabled previous attendees (new records per attendance)
+          for (final prev in enabledPrevious) {
+            await ref.read(attendeesProvider(caseId).notifier).addAttendee(
+                  AttendeeModel(
+                    attendeeId:   '',
+                    caseId:       caseId,
+                    fullName:     prev.fullName,
+                    attendanceId: created.attendanceId,
+                    rankPosition: prev.rankPosition,
+                    company:      prev.company,
+                    representing: prev.representing,
+                    roleType:     prev.roleType,
+                    contactEmail: prev.contactEmail,
+                    contactPhone: prev.contactPhone,
+                  ),
+                );
+          }
+
+          // 3. Create new attendees entered inline
+          for (final entry in newAttendees) {
+            await ref.read(attendeesProvider(caseId).notifier).addAttendee(
+                  AttendeeModel(
+                    attendeeId:   '',
+                    caseId:       caseId,
+                    fullName:     entry.name,
+                    attendanceId: created.attendanceId,
+                    roleType:     entry.role,
+                    company:      entry.company,
+                  ),
+                );
+          }
         },
       ),
     );
@@ -126,12 +202,16 @@ class _AttendanceList extends StatelessWidget {
   const _AttendanceList({
     required this.caseId,
     required this.attendances,
+    required this.allAttendees,
     required this.onDelete,
+    required this.onEditAttendees,
   });
 
   final String caseId;
   final List<SurveyAttendanceModel> attendances;
+  final List<AttendeeModel> allAttendees;
   final Future<void> Function(String attendanceId) onDelete;
+  final void Function(SurveyAttendanceModel, List<AttendeeModel>) onEditAttendees;
 
   @override
   Widget build(BuildContext context) {
@@ -139,11 +219,25 @@ class _AttendanceList extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       itemCount: attendances.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _AttendanceCard(
-        attendance: attendances[i],
-        isFirst: i == 0,
-        onDelete: () => onDelete(attendances[i].attendanceId),
-      ),
+      itemBuilder: (_, i) {
+        final attendance = attendances[i];
+        // Include attendees linked to this attendance OR case-level
+        // attendees (attendance_id == null) from the pre-attendance-linking era.
+        final attendees = allAttendees
+            .where((a) =>
+                a.attendanceId == attendance.attendanceId ||
+                a.attendanceId == null)
+            .toList()
+          ..sort((a, b) =>
+              (a.roleType?.sortOrder ?? 99)
+                  .compareTo(b.roleType?.sortOrder ?? 99));
+        return _AttendanceCard(
+          attendance: attendance,
+          attendees: attendees,
+          onDelete: () => onDelete(attendance.attendanceId),
+          onEditAttendees: () => onEditAttendees(attendance, attendees),
+        );
+      },
     );
   }
 }
@@ -153,13 +247,15 @@ class _AttendanceList extends StatelessWidget {
 class _AttendanceCard extends StatelessWidget {
   const _AttendanceCard({
     required this.attendance,
-    required this.isFirst,
+    required this.attendees,
     required this.onDelete,
+    required this.onEditAttendees,
   });
 
   final SurveyAttendanceModel attendance;
-  final bool isFirst;
+  final List<AttendeeModel> attendees;
   final VoidCallback onDelete;
+  final VoidCallback onEditAttendees;
 
   Color _typeColor(AttendanceType t) => switch (t) {
         AttendanceType.initial         => _kVisitsColor,
@@ -242,8 +338,8 @@ class _AttendanceCard extends StatelessWidget {
                               onPressed: () =>
                                   Navigator.pop(ctx, true),
                               child: const Text('Remove',
-                                  style:
-                                      TextStyle(color: Colors.red)),
+                                  style: TextStyle(
+                                      color: Colors.red)),
                             ),
                           ],
                         ),
@@ -268,9 +364,8 @@ class _AttendanceCard extends StatelessWidget {
               ],
             ),
           ),
-          Divider(
-              height: 1,
-              color: tc.withValues(alpha: 0.2)),
+          Divider(height: 1, color: tc.withValues(alpha: 0.2)),
+
           // ── Body ────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
@@ -301,6 +396,70 @@ class _AttendanceCard extends StatelessWidget {
                       ),
                   ],
                 ),
+
+                // ── Attendees list ─────────────────────────────────
+                const SizedBox(height: 10),
+                Row(children: [
+                  const Text('ATTENDEES',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.5)),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: onEditAttendees,
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.edit_outlined,
+                          size: 12, color: _kVisitsColor),
+                      SizedBox(width: 3),
+                      Text('Edit',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: _kVisitsColor,
+                              fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                if (attendees.isEmpty)
+                  Text('No attendees recorded — tap Edit to add',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textTertiary.withValues(alpha: 0.8),
+                          fontStyle: FontStyle.italic))
+                else
+                  Table(
+                    columnWidths: const {
+                      0: FlexColumnWidth(3),
+                      1: FlexColumnWidth(2),
+                      2: FlexColumnWidth(3),
+                    },
+                    border: const TableBorder(
+                      horizontalInside: BorderSide(
+                        color: Color(0xFFE0E0E0),
+                        width: 0.5,
+                      ),
+                    ),
+                    children: [
+                      const TableRow(
+                        children: [
+                          _TableHeader('Name'),
+                          _TableHeader('Title / Function'),
+                          _TableHeader('Company'),
+                        ],
+                      ),
+                      ...attendees.map((a) => TableRow(
+                            children: [
+                              _TableCell(a.fullName, bold: true),
+                              _TableCell(
+                                  a.roleType?.label ?? a.rankPosition ?? '—'),
+                              _TableCell(a.company ?? a.representing ?? '—'),
+                            ],
+                          )),
+                    ],
+                  ),
+
                 if (attendance.summary != null &&
                     attendance.summary!.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -317,6 +476,46 @@ class _AttendanceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Attendee table widgets ─────────────────────────────────────────────────
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textTertiary,
+            letterSpacing: 0.3,
+          ),
+        ),
+      );
+}
+
+class _TableCell extends StatelessWidget {
+  const _TableCell(this.text, {this.bold = false});
+  final String text;
+  final bool bold;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            color: bold ? AppColors.textPrimary : AppColors.textSecondary,
+            fontWeight: bold ? FontWeight.w500 : FontWeight.w400,
+          ),
+        ),
+      );
 }
 
 // ── Info chip ──────────────────────────────────────────────────────────────
@@ -339,8 +538,7 @@ class _InfoChip extends StatelessWidget {
       children: [
         Icon(icon, size: 12, color: color),
         const SizedBox(width: 3),
-        Text(label,
-            style: TextStyle(fontSize: 12, color: color)),
+        Text(label, style: TextStyle(fontSize: 12, color: color)),
       ],
     );
   }

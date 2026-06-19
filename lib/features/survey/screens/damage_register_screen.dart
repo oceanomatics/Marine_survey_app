@@ -2,10 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/damage_item_card.dart';
 import '../widgets/add_damage_item_sheet.dart';
 import '../widgets/add_occurrence_sheet.dart';
+import '../../photos/providers/photo_provider.dart';
+import '../../photos/models/photo_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
@@ -18,6 +21,7 @@ class DamageRegisterScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final damageAsync = ref.watch(damageProvider(caseId));
+    final allPhotos = ref.watch(photosProvider(caseId)).value ?? [];
 
     void showAddOccurrence() {
       showModalBottomSheet(
@@ -39,6 +43,7 @@ class DamageRegisterScreen extends ConsumerWidget {
     }
 
     void showAddDamageItem(String occurrenceId) {
+      final occs = damageAsync.value?.occurrences ?? [];
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -46,6 +51,7 @@ class DamageRegisterScreen extends ConsumerWidget {
         builder: (_) => AddDamageItemSheet(
           caseId: caseId,
           occurrenceId: occurrenceId,
+          occurrences: occs,
           onSave: (item) async {
             await ref.read(damageProvider(caseId).notifier).addDamageItem(item);
           },
@@ -54,6 +60,7 @@ class DamageRegisterScreen extends ConsumerWidget {
     }
 
     void showEditDamageItem(DamageItemModel item) {
+      final occs = damageAsync.value?.occurrences ?? [];
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -61,6 +68,7 @@ class DamageRegisterScreen extends ConsumerWidget {
         builder: (_) => AddDamageItemSheet(
           caseId: caseId,
           occurrenceId: item.occurrenceId,
+          occurrences: occs,
           existing: item,
           onSave: (updated) async {
             await ref
@@ -69,6 +77,43 @@ class DamageRegisterScreen extends ConsumerWidget {
           },
         ),
       );
+    }
+
+    Future<void> addPhotoForDamageItem(String damageId) async {
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (_) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Camera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo Library'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ]),
+        ),
+      );
+      if (source == null || !context.mounted) return;
+      final picked =
+          await ImagePicker().pickImage(source: source, imageQuality: 90);
+      if (picked == null || !context.mounted) return;
+      final bytes = await picked.readAsBytes();
+      await ref.read(photosProvider(caseId).notifier).addPhoto(
+            caseId: caseId,
+            bytes: bytes,
+            linkedToType: 'damage_item',
+            linkedToId: damageId,
+          );
     }
 
     return Scaffold(
@@ -101,12 +146,17 @@ class DamageRegisterScreen extends ConsumerWidget {
             : _DamageBody(
                 caseId: caseId,
                 ds: ds,
+                allPhotos: allPhotos,
                 onAddItem: showAddDamageItem,
                 onEditItem: showEditDamageItem,
                 onDeleteItem: (damageId) => ref
                     .read(damageProvider(caseId).notifier)
                     .deleteDamageItem(damageId),
                 onAddOccurrence: showAddOccurrence,
+                onAddPhoto: addPhotoForDamageItem,
+                onDeletePhoto: (photoId) => ref
+                    .read(photosProvider(caseId).notifier)
+                    .deletePhoto(photoId),
               ),
       ),
     );
@@ -119,18 +169,24 @@ class _DamageBody extends StatelessWidget {
   const _DamageBody({
     required this.caseId,
     required this.ds,
+    required this.allPhotos,
     required this.onAddItem,
     required this.onEditItem,
     required this.onDeleteItem,
     required this.onAddOccurrence,
+    required this.onAddPhoto,
+    required this.onDeletePhoto,
   });
 
   final String caseId;
   final DamageState ds;
+  final List<PhotoModel> allPhotos;
   final ValueChanged<String> onAddItem;
   final ValueChanged<DamageItemModel> onEditItem;
   final ValueChanged<String> onDeleteItem;
   final VoidCallback onAddOccurrence;
+  final Future<void> Function(String damageId) onAddPhoto;
+  final void Function(String photoId) onDeletePhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -171,6 +227,9 @@ class _DamageBody extends StatelessWidget {
                         item: item,
                         onEdit: () => onEditItem(item),
                         onDelete: () => _confirmDelete(ctx, item.damageId),
+                        photos: allPhotos.forDamageItem(item.damageId),
+                        onAddPhoto: () => onAddPhoto(item.damageId),
+                        onDeletePhoto: onDeletePhoto,
                       ),
                     );
                   },
