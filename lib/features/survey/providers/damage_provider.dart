@@ -92,6 +92,7 @@ class OccurrenceModel {
     required this.occurrenceId,
     required this.caseId,
     required this.occurrenceNo,
+    this.isPrimary = false,
     this.dateTime,
     this.location,
     this.title,
@@ -109,6 +110,7 @@ class OccurrenceModel {
   final String occurrenceId;
   final String caseId;
   final int occurrenceNo;
+  final bool isPrimary;
   final DateTime? dateTime;
   final String? location;
   final String? title;
@@ -126,6 +128,7 @@ class OccurrenceModel {
         occurrenceId:        j['occurrence_id'] as String,
         caseId:              j['case_id'] as String,
         occurrenceNo:        j['occurrence_no'] as int? ?? 1,
+        isPrimary:           j['is_primary'] as bool? ?? false,
         dateTime:            j['date_time'] != null
             ? DateTime.tryParse(j['date_time'] as String)
             : null,
@@ -147,6 +150,7 @@ class OccurrenceModel {
   Map<String, dynamic> toInsertJson() => {
         'case_id':       caseId,
         'occurrence_no': occurrenceNo,
+        'is_primary':    isPrimary,
         if (dateTime != null) 'date_time': dateTime!.toIso8601String(),
         if (location != null)          'location':           location,
         if (title != null)             'title':              title,
@@ -388,6 +392,9 @@ class DamageState {
       damageItems.where((d) => d.isConcerningAverage).length;
   int get ownerItems =>
       damageItems.where((d) => !d.isConcerningAverage).length;
+
+  OccurrenceModel? get primaryOccurrence =>
+      occurrences.where((o) => o.isPrimary).firstOrNull;
 }
 
 // ── Provider ───────────────────────────────────────────────────────────────
@@ -518,6 +525,81 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .eq('occurrence_id', occ.occurrenceId);
     await refresh();
   }
+
+  Future<void> setPrimaryOccurrence(String occurrenceId) async {
+    final current = state.value!;
+
+    // 1. Clear all primaries for this case, then set the chosen one.
+    await SupabaseService.client
+        .from('occurrences')
+        .update({'is_primary': false})
+        .eq('case_id', arg);
+    await SupabaseService.client
+        .from('occurrences')
+        .update({'is_primary': true})
+        .eq('occurrence_id', occurrenceId);
+
+    // 2. Keep the case title in sync (jobNo – vessel – caseType – occTitle).
+    try {
+      final primary =
+          current.occurrences.firstWhere((o) => o.occurrenceId == occurrenceId);
+      final caseRow = await SupabaseService.client
+          .from('cases')
+          .select('job_number, case_type, vessels(name)')
+          .eq('case_id', arg)
+          .single();
+      final jobNo   = caseRow['job_number'] as String? ?? '';
+      final vName   = (caseRow['vessels'] as Map?)?['name'] as String? ?? '';
+      final ctLabel = _caseTypeLabel(caseRow['case_type'] as String? ?? '');
+      final occTitle = primary.title ?? '';
+      final parts = [
+        if (jobNo.isNotEmpty)    jobNo,
+        if (vName.isNotEmpty)    vName,
+        if (ctLabel.isNotEmpty)  ctLabel,
+        if (occTitle.isNotEmpty) occTitle,
+      ];
+      if (parts.isNotEmpty) {
+        await SupabaseService.client
+            .from('cases')
+            .update({'title': parts.join(' – ')})
+            .eq('case_id', arg);
+      }
+    } catch (e) {
+      debugPrint('[DamageNotifier] setPrimaryOccurrence title sync: $e');
+    }
+
+    // 3. Update local state immediately so UI reflects change without refetch.
+    state = AsyncData(DamageState(
+      occurrences: current.occurrences
+          .map((o) => OccurrenceModel(
+                occurrenceId:        o.occurrenceId,
+                caseId:              o.caseId,
+                occurrenceNo:        o.occurrenceNo,
+                isPrimary:           o.occurrenceId == occurrenceId,
+                dateTime:            o.dateTime,
+                location:            o.location,
+                title:               o.title,
+                briefDescription:    o.briefDescription,
+                backgroundNarrative: o.backgroundNarrative,
+                chronology:          o.chronology,
+                causeType:           o.causeType,
+                allegationType:      o.allegationType,
+                causeAgreement:      o.causeAgreement,
+                causeNarrative:      o.causeNarrative,
+                ismReported:         o.ismReported,
+                createdAt:           o.createdAt,
+              ))
+          .toList(),
+      damageItems: current.damageItems,
+      repairs:     current.repairs,
+    ));
+  }
+
+  static String _caseTypeLabel(String v) => const {
+        'hm': 'H&M', 'pi': 'P&I', 'cs': 'C&S',
+        'dp_trials': 'DP Trials', 'deficiency': 'Deficiency',
+        'consulting': 'Consulting',
+      }[v] ?? v.toUpperCase();
 
   Future<void> deleteOccurrence(String occurrenceId) async {
     final current = state.value!;

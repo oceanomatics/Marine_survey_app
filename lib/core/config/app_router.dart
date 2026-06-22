@@ -25,6 +25,8 @@ import '../../features/correspondence/screens/inbox_screen.dart';
 import '../../features/correspondence/screens/correspondence_screen.dart';
 import '../../features/background/screens/background_screen.dart';
 import '../../features/surveyor_notes/screens/surveyor_notes_screen.dart';
+import '../../features/hse/screens/hse_screen.dart';
+import '../../features/analyst/screens/case_analyst_screen.dart';
 import '../../features/timesheet/screens/timesheet_screen.dart';
 import '../../features/settings/screens/usage_screen.dart';
 import '../../features/settings/screens/account_screen.dart';
@@ -152,6 +154,16 @@ final appRouter = GoRouter(
               path: 'notes',
               builder: (context, state) =>
                   SurveyorNotesScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'hse',
+              builder: (context, state) =>
+                  HseScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'analyst',
+              builder: (context, state) =>
+                  CaseAnalystScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'reports',

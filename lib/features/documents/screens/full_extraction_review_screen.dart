@@ -23,6 +23,8 @@ import '../../../core/api/report_extraction.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/providers/import_review.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 
 class FullExtractionReviewScreen extends ConsumerStatefulWidget {
   const FullExtractionReviewScreen({
@@ -58,6 +60,7 @@ class _FullExtractionReviewScreenState
   final Set<String> _approved = {
     'vessel', 'machinery', 'occurrences',
     'damage_items', 'repairs_performed', 'attendees', 'certificates',
+    'context_cues',
   };
 
   @override
@@ -702,6 +705,27 @@ class _FullExtractionReviewScreenState
         }
       }
 
+      // ── Context cues ─────────────────────────────────────────────
+      if (_approved.contains('context_cues') && result.hasContextCues) {
+        final notifier =
+            ref.read(surveyorNotesProvider(widget.caseId).notifier);
+        for (final cue in result.contextCues) {
+          final content = (cue['content'] as String? ?? '').trim();
+          if (content.isEmpty) continue;
+          await notifier.add(
+            caseId:        widget.caseId,
+            content:       content,
+            category:      NoteCategory.fromValue(
+                cue['category'] as String? ?? 'general'),
+            reportSection: ReportSection.fromValue(
+                cue['report_section'] as String?),
+            priority: CuePriority.fromValue(
+                cue['priority'] as String?),
+          );
+        }
+        affected.add('context_cues');
+      }
+
       // ── Case title + claim reference ──────────────────────────────
       {
         final caseUpdate = <String, dynamic>{};
@@ -769,6 +793,7 @@ class _FullExtractionReviewScreenState
       ref.invalidate(vesselForCaseProvider(widget.caseId));
       ref.invalidate(certificatesProvider(widget.caseId));
       ref.invalidate(documentProvider(widget.caseId));
+      ref.invalidate(surveyorNotesProvider(widget.caseId));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1140,6 +1165,27 @@ class _FullExtractionReviewScreenState
                   .map((c) =>
                       '${c['cert_name'] ?? c['cert_type'] ?? ''}'
                       '${c['expiry_date'] != null ? ' — expires ${c['expiry_date']}' : ''}')
+                  .join('\n'),
+            ),
+
+          if (r.hasContextCues)
+            _SectionToggle(
+              key: const ValueKey('context_cues'),
+              icon: Icons.label_outline,
+              color: const Color(0xFF4A7A5A),
+              title: 'Context Cues',
+              count: r.contextCues.length,
+              unit: 'cues',
+              approved: _approved.contains('context_cues'),
+              onToggle: (v) => setState(() => v
+                  ? _approved.add('context_cues')
+                  : _approved.remove('context_cues')),
+              preview: r.contextCues
+                  .map((c) {
+                    final priority = c['priority'] as String? ?? 'normal';
+                    final prefix = priority == 'important' ? '! ' : '· ';
+                    return '$prefix${c['content'] ?? ''}';
+                  })
                   .join('\n'),
             ),
 

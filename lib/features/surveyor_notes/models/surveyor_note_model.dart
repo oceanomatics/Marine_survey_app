@@ -2,6 +2,28 @@
 
 import 'package:flutter/foundation.dart';
 
+// ── Cue priority ──────────────────────────────────────────────────────────
+
+enum CuePriority {
+  important,
+  normal,
+  ignored;
+
+  static CuePriority fromValue(String? v) => switch (v) {
+        'important' => important,
+        'ignored'   => ignored,
+        _           => normal,
+      };
+
+  String get value => name;
+
+  String get label => switch (this) {
+        important => 'Important',
+        normal    => 'Normal',
+        ignored   => 'Ignored',
+      };
+}
+
 // ── Note category (type of observation) ──────────────────────────────────
 
 enum NoteCategory {
@@ -10,6 +32,7 @@ enum NoteCategory {
   followUp,
   interview,
   technical,
+  policy,
   general;
 
   static NoteCategory fromValue(String v) => switch (v) {
@@ -18,6 +41,7 @@ enum NoteCategory {
         'follow_up'    => followUp,
         'interview'    => interview,
         'technical'    => technical,
+        'policy'       => policy,
         _              => general,
       };
 
@@ -32,15 +56,16 @@ enum NoteCategory {
         followUp    => 'Follow-up',
         interview   => 'Interview',
         technical   => 'Technical',
+        policy      => 'Policy',
         general     => 'General',
       };
 }
 
 // ── Report section tag ────────────────────────────────────────────────────
 //
-// Each section matches a section of the survey report (and the pseudo-report
-// on the case home screen).  Notes tagged with a section are surfaced in the
-// corresponding report builder section and in the section's own screen.
+// Each section matches a section of the survey report.
+// Notes tagged with a section surface in the corresponding report builder
+// section and in the section's own screen.
 
 enum ReportSection {
   background,
@@ -99,7 +124,6 @@ enum ReportSection {
         otherMatters    => 'Other Matters of Relevance',
       };
 
-  // Report order for display / grouping
   static const ordered = [
     background,
     occurrence,
@@ -126,6 +150,8 @@ class SurveyorNote {
     required this.content,
     this.category = NoteCategory.general,
     this.reportSection,
+    this.priority = CuePriority.normal,
+    this.resolvedAt,
     this.linkedToType,
     this.linkedToId,
     required this.createdAt,
@@ -137,10 +163,14 @@ class SurveyorNote {
   final String content;
   final NoteCategory category;
   final ReportSection? reportSection;
+  final CuePriority priority;
+  final DateTime? resolvedAt;
   final String? linkedToType;
   final String? linkedToId;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  bool get isResolved => resolvedAt != null;
 
   factory SurveyorNote.fromMap(Map<String, dynamic> m) => SurveyorNote(
         id:            m['id'] as String,
@@ -148,6 +178,10 @@ class SurveyorNote {
         content:       m['content'] as String,
         category:      NoteCategory.fromValue(m['category'] as String? ?? 'general'),
         reportSection: ReportSection.fromValue(m['report_section'] as String?),
+        priority:      CuePriority.fromValue(m['priority'] as String?),
+        resolvedAt:    m['resolved_at'] != null
+            ? DateTime.tryParse(m['resolved_at'] as String)
+            : null,
         linkedToType:  m['linked_to_type'] as String?,
         linkedToId:    m['linked_to_id'] as String?,
         createdAt:     DateTime.parse(m['created_at'] as String),
@@ -160,6 +194,8 @@ class SurveyorNote {
         'content':         content,
         'category':        category.value,
         'report_section':  reportSection?.value,
+        'priority':        priority.value,
+        'resolved_at':     resolvedAt?.toIso8601String(),
         if (linkedToType != null) 'linked_to_type': linkedToType,
         if (linkedToId != null)   'linked_to_id':   linkedToId,
         'created_at':      createdAt.toIso8601String(),
@@ -170,6 +206,8 @@ class SurveyorNote {
     String? content,
     NoteCategory? category,
     Object? reportSection = _sentinel,
+    CuePriority? priority,
+    Object? resolvedAt = _sentinel,
     String? linkedToType,
     String? linkedToId,
   }) =>
@@ -181,6 +219,10 @@ class SurveyorNote {
         reportSection: reportSection == _sentinel
             ? this.reportSection
             : reportSection as ReportSection?,
+        priority:      priority ?? this.priority,
+        resolvedAt:    resolvedAt == _sentinel
+            ? this.resolvedAt
+            : resolvedAt as DateTime?,
         linkedToType:  linkedToType ?? this.linkedToType,
         linkedToId:    linkedToId ?? this.linkedToId,
         createdAt:     createdAt,
@@ -188,5 +230,4 @@ class SurveyorNote {
       );
 }
 
-// Sentinel to distinguish "pass null explicitly" from "omit the argument"
 const Object _sentinel = Object();

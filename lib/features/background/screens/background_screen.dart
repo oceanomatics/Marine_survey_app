@@ -702,4 +702,5 @@ Color _catColor(NoteCategory cat) => switch (cat) {
       NoteCategory.interview   => const Color(0xFF0891B2),
       NoteCategory.technical   => const Color(0xFFDC2626),
       NoteCategory.general     => const Color(0xFF4A7A5A),
+      NoteCategory.policy      => const Color(0xFF6B4C9A),
     };

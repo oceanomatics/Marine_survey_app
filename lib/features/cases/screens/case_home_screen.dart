@@ -336,6 +336,18 @@ class _SurveyNavRail extends StatelessWidget {
             accent: const Color(0xFF4A7A5A),
             onTap: () => context.go('/cases/$caseId/notes'),
           ),
+          _NavItem(
+            icon: Icons.health_and_safety_outlined,
+            label: 'HSE',
+            accent: const Color(0xFFD4500A),
+            onTap: () => context.go('/cases/$caseId/hse'),
+          ),
+          _NavItem(
+            icon: Icons.auto_awesome_outlined,
+            label: 'Analyst',
+            accent: const Color(0xFF1E3A5F),
+            onTap: () => context.go('/cases/$caseId/analyst'),
+          ),
           const Spacer(),
         ],
       ),
@@ -569,7 +581,7 @@ class _PseudoReport extends ConsumerWidget {
     List<RepairPeriodModel> repairPeriods, {
     Set<String> highlighted = const <String>{},
   }) {
-    final occ = damage?.occurrences.firstOrNull;
+    final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
     final attendanceCount = visits.length + attendees.length;
     return [
       _SectionCard(
@@ -777,6 +789,7 @@ class _PseudoReport extends ConsumerWidget {
       return const _SectionEmpty(
           'No occurrences recorded — tap Open to add');
     }
+    final multiOcc = damage.occurrences.length > 1;
     return Column(
       children: damage.occurrences.map((occ) {
         return Container(
@@ -800,6 +813,27 @@ class _PseudoReport extends ConsumerWidget {
                           color: AppColors.coral),
                     ),
                   ),
+                  if (multiOcc && occ.isPrimary) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.teal.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                            color: AppColors.teal.withValues(alpha: 0.4)),
+                      ),
+                      child: const Text(
+                        'PRIMARY',
+                        style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.teal,
+                            letterSpacing: 0.5),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   if (occ.dateTime != null)
                     Text(
                       '${occ.dateTime!.day.toString().padLeft(2, '0')}/${occ.dateTime!.month.toString().padLeft(2, '0')}/${occ.dateTime!.year}',
@@ -1471,19 +1505,14 @@ class _SectionCardState extends State<_SectionCard> {
             ? AppColors.lightAmber
             : AppColors.background,
         borderRadius: BorderRadius.circular(12),
-        border: widget.highlighted
-            ? const Border(
-                left: BorderSide(color: AppColors.warning, width: 3),
-                top: BorderSide(color: AppColors.border),
-                right: BorderSide(color: AppColors.border),
-                bottom: BorderSide(color: AppColors.border),
-              )
-            : Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (widget.highlighted)
+            Container(height: 3, color: AppColors.warning),
           // ── Header ──────────────────────────────────────────────────
           Row(
             children: [

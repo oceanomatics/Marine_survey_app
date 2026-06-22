@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/add_occurrence_sheet.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
@@ -49,8 +50,13 @@ class OccurrenceScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (_, i) => _OccurrenceCard(
               occurrence: sorted[i],
+              occurrenceCount: sorted.length,
               onEdit: () => _showEditSheet(context, ref, sorted[i]),
               onDelete: () => _confirmDelete(context, ref, sorted[i]),
+              onSetPrimary: () => ref
+                  .read(damageProvider(caseId).notifier)
+                  .setPrimaryOccurrence(sorted[i].occurrenceId)
+                  .then((_) => ref.invalidate(caseProvider(caseId))),
             ),
           );
         },
@@ -120,6 +126,7 @@ class OccurrenceScreen extends ConsumerWidget {
             occurrenceId:        occ.occurrenceId,
             caseId:              occ.caseId,
             occurrenceNo:        occ.occurrenceNo,
+            isPrimary:           occ.isPrimary,
             title:               title,
             dateTime:            dateTime,
             location:            (location == null || location.isEmpty) ? null : location,
@@ -147,13 +154,17 @@ class OccurrenceScreen extends ConsumerWidget {
 class _OccurrenceCard extends StatelessWidget {
   const _OccurrenceCard({
     required this.occurrence,
+    required this.occurrenceCount,
     required this.onEdit,
     required this.onDelete,
+    required this.onSetPrimary,
   });
 
   final OccurrenceModel occurrence;
+  final int occurrenceCount;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onSetPrimary;
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +201,27 @@ class _OccurrenceCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (occurrenceCount > 1 && occurrence.isPrimary) ...[
+                  const SizedBox(width: 7),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.teal.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(
+                          color: AppColors.teal.withValues(alpha: 0.4)),
+                    ),
+                    child: const Text(
+                      'PRIMARY',
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.teal,
+                          letterSpacing: 0.5),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -247,10 +279,22 @@ class _OccurrenceCard extends StatelessWidget {
                   onSelected: (v) {
                     if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
+                    if (v == 'primary') onSetPrimary();
                   },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    PopupMenuItem(
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    if (occurrenceCount > 1 && !occurrence.isPrimary)
+                      const PopupMenuItem(
+                        value: 'primary',
+                        child: Row(children: [
+                          Icon(Icons.star_outline,
+                              size: 15, color: AppColors.teal),
+                          SizedBox(width: 8),
+                          Text('Set as primary',
+                              style: TextStyle(color: AppColors.teal)),
+                        ]),
+                      ),
+                    const PopupMenuItem(
                       value: 'delete',
                       child: Text('Delete',
                           style: TextStyle(color: Colors.red)),

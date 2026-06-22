@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -136,9 +136,17 @@ class AppDatabase {
       try {
         await db.execute(
             "ALTER TABLE surveyor_notes ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
-      } catch (_) {
-        // Column already present (fresh install)
-      }
+      } catch (_) {}
+    }
+    if (oldVersion < 6) {
+      try {
+        await db.execute(
+            "ALTER TABLE surveyor_notes ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'");
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE surveyor_notes ADD COLUMN resolved_at TEXT');
+      } catch (_) {}
     }
   }
 }

@@ -156,10 +156,18 @@ class ReportExtraction {
     "afloat_days": null
   },
   "cause_narrative": "Copy verbatim — do not summarise",
-  "allegation_type": "formal_allegation|no_formal_allegation|tbc"
+  "allegation_type": "formal_allegation|no_formal_allegation|tbc",
+  "context_cues": [
+    {
+      "content": "Concise statement of a key finding, adjuster instruction, policy position, coverage constraint, follow-up item or observation worth tracking by the surveyor",
+      "category": "observation|measurement|follow_up|interview|technical|policy|general",
+      "report_section": "background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters",
+      "priority": "important|normal"
+    }
+  ]
 }
 
-Return null for missing numeric fields. Return empty string for missing text fields. Dates in ISO format YYYY-MM-DD. Copy all narrative text verbatim — never summarise or truncate.''';
+Return null for missing numeric fields. Return empty string for missing text fields. Dates in ISO format YYYY-MM-DD. Copy all narrative text verbatim — never summarise or truncate. In context_cues, include every key finding, adjuster instruction, policy position, coverage constraint, follow-up action or noteworthy observation — especially anything that could affect how invoices, repairs or liabilities are treated.''';
 
     // Build content blocks — DOCX is extracted as text; PDF/images use native blocks.
     final List<Map<String, dynamic>> contentBlocks;
@@ -391,6 +399,7 @@ class FullReportExtraction {
     required this.yardRepairs,
     required this.causeNarrative,
     required this.allegationType,
+    required this.contextCues,
     required this.raw,
     this.rawText = '',
   });
@@ -408,6 +417,9 @@ class FullReportExtraction {
   final Map<String, dynamic> yardRepairs;
   final String causeNarrative;
   final String allegationType;
+  /// Key findings, adjuster instructions, policy positions and follow-up items
+  /// extracted by Claude to pre-populate the Context Cues screen.
+  final List<Map<String, dynamic>> contextCues;
   final Map<String, dynamic> raw;
   /// The raw text Claude returned before JSON parsing — for diagnostics.
   final String rawText;
@@ -433,6 +445,7 @@ class FullReportExtraction {
   bool get hasRepairsPerformed => repairsPerformed.isNotEmpty;
   bool get hasAttendees        => attendees.isNotEmpty;
   bool get hasCertificates     => certificates.isNotEmpty;
+  bool get hasContextCues      => contextCues.isNotEmpty;
 
   factory FullReportExtraction.fromJson(Map<String, dynamic> j,
       {String rawText = ''}) {
@@ -461,6 +474,7 @@ class FullReportExtraction {
       yardRepairs:      map('repairs'),
       causeNarrative:   j['cause_narrative'] as String? ?? '',
       allegationType:   j['allegation_type'] as String? ?? 'tbc',
+      contextCues:      list('context_cues'),
       raw:              j,
       rawText:          rawText,
     );

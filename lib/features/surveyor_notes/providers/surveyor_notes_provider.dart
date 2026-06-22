@@ -36,18 +36,23 @@ class SurveyorNotesNotifier
 
   @override
   Future<List<SurveyorNote>> build(String caseId) async {
-    // When connectivity is restored, flush the offline write queue
     ref.listen<AsyncValue<bool>>(connectivityProvider, (_, next) {
-      if (next.value == true) _syncPending();
+      if (next.value == true) _refresh();
     });
-    return _load();
+    // Return the SQLite cache immediately (includes pending_upsert notes),
+    // then update the state from Supabase in the background.
+    _refresh();
+    return _fetchOffline();
   }
 
-  // ── Load ────────────────────────────────────────────────────────────────
+  // ── Supabase sync (runs in background, updates state when done) ──────────
 
-  Future<List<SurveyorNote>> _load() async {
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
-      // Flush any queued offline writes before fetching fresh data
       await _syncPending();
 
       final rows = await SupabaseService.client
@@ -59,21 +64,19 @@ class SurveyorNotesNotifier
       final notes =
           (rows as List).map((r) => SurveyorNote.fromMap(r)).toList();
 
-      // Refresh the SQLite cache with the authoritative Supabase data
       await _refreshCache(notes);
 
-      // Always merge with pending-upsert items so they remain visible
-      // even if they haven't reached Supabase yet (RLS, temporary error, etc.)
       final pending = await _fetchPending();
-      if (pending.isEmpty) return notes;
       final syncedIds = notes.map((n) => n.id).toSet();
-      return [
+      state = AsyncData([
         ...pending.where((n) => !syncedIds.contains(n.id)),
         ...notes,
-      ];
+      ]);
     } catch (e, st) {
-      debugPrint('SurveyorNotes._load error: $e\n$st');
-      return _fetchOffline();
+      debugPrint('SurveyorNotes._refresh error: $e\n$st');
+      // Keep whatever state is already shown — do not blank the screen.
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -84,6 +87,8 @@ class SurveyorNotesNotifier
     required String content,
     NoteCategory category = NoteCategory.general,
     ReportSection? reportSection,
+    CuePriority priority = CuePriority.normal,
+    DateTime? resolvedAt,
     String? linkedToType,
     String? linkedToId,
   }) async {
@@ -94,6 +99,8 @@ class SurveyorNotesNotifier
       content:       content,
       category:      category,
       reportSection: reportSection,
+      priority:      priority,
+      resolvedAt:    resolvedAt,
       linkedToType:  linkedToType,
       linkedToId:    linkedToId,
       createdAt:     now,
@@ -119,7 +126,10 @@ class SurveyorNotesNotifier
     String noteId, {
     required String content,
     NoteCategory? category,
-    ReportSection? reportSection, // null = clear section; omit sentinel not needed — always pass explicitly
+    ReportSection? reportSection,
+    CuePriority? priority,
+    bool updateResolvedAt = false,
+    DateTime? resolvedAt,
   }) async {
     final current = state.value ?? [];
     final note = current.firstWhere((n) => n.id == noteId);
@@ -129,6 +139,8 @@ class SurveyorNotesNotifier
       content:       content,
       category:      category ?? note.category,
       reportSection: reportSection,
+      priority:      priority ?? note.priority,
+      resolvedAt:    updateResolvedAt ? resolvedAt : note.resolvedAt,
       linkedToType:  note.linkedToType,
       linkedToId:    note.linkedToId,
       createdAt:     note.createdAt,
