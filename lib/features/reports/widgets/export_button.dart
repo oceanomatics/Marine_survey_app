@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/report_provider.dart';
 import '../services/docx_export_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
 
 class ExportButton extends ConsumerStatefulWidget {
   const ExportButton({
@@ -95,16 +96,8 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
       if (mounted) {
         _showSuccess(context, filename);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Export failed: $e'),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Export failed: $e', error: e, stack: st, tag: 'App');
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

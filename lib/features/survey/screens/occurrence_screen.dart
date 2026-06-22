@@ -50,6 +50,7 @@ class OccurrenceScreen extends ConsumerWidget {
             itemBuilder: (_, i) => _OccurrenceCard(
               occurrence: sorted[i],
               onEdit: () => _showEditSheet(context, ref, sorted[i]),
+              onDelete: () => _confirmDelete(context, ref, sorted[i]),
             ),
           );
         },
@@ -76,6 +77,36 @@ class OccurrenceScreen extends ConsumerWidget {
     );
   }
 
+  void _confirmDelete(
+      BuildContext context, WidgetRef ref, OccurrenceModel occ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete occurrence?'),
+        content: Text(
+          'Delete "${occ.title ?? 'Occurrence ${occ.occurrenceNo}'}"? '
+          'All linked damage items and repairs will also be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref
+                  .read(damageProvider(caseId).notifier)
+                  .deleteOccurrence(occ.occurrenceId);
+            },
+            child: const Text('Delete',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditSheet(
       BuildContext context, WidgetRef ref, OccurrenceModel occ) {
     showModalBottomSheet(
@@ -95,7 +126,9 @@ class OccurrenceScreen extends ConsumerWidget {
             briefDescription:    description?.isEmpty == true ? null : description,
             backgroundNarrative: occ.backgroundNarrative,
             chronology:          occ.chronology,
+            causeType:           occ.causeType,
             allegationType:      occ.allegationType,
+            causeAgreement:      occ.causeAgreement,
             causeNarrative:      occ.causeNarrative,
             ismReported:         occ.ismReported,
             createdAt:           occ.createdAt,
@@ -115,10 +148,12 @@ class _OccurrenceCard extends StatelessWidget {
   const _OccurrenceCard({
     required this.occurrence,
     required this.onEdit,
+    required this.onDelete,
   });
 
   final OccurrenceModel occurrence;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -205,13 +240,22 @@ class _OccurrenceCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined,
-                      color: AppColors.coral, size: 18),
-                  onPressed: onEdit,
-                  tooltip: 'Edit occurrence',
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints(),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert,
+                      color: AppColors.coral, size: 20),
+                  padding: EdgeInsets.zero,
+                  onSelected: (v) {
+                    if (v == 'edit') onEdit();
+                    if (v == 'delete') onDelete();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Delete',
+                          style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
                 ),
               ],
             ),

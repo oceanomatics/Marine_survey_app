@@ -9,6 +9,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pdfrx/pdfrx.dart';
+
+import '../../../core/services/debug_logger.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../documents/providers/document_provider.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../survey/providers/damage_provider.dart';
@@ -17,6 +21,7 @@ import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/providers/certificates_provider.dart';
 import '../../../core/api/report_extraction.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../../core/providers/import_review.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class FullExtractionReviewScreen extends ConsumerStatefulWidget {
@@ -127,6 +132,19 @@ class _FullExtractionReviewScreenState
     if (result == null) return;
     setState(() => _applying = true);
 
+    // Changelog — collect every ID we insert so the floating review banner
+    // can offer a one-tap revert.
+    final insOccIds    = <String>[];
+    final insDmgIds    = <String>[];
+    final insRepIds    = <String>[];
+    final insAttIds    = <String>[];
+    final insCertIds   = <String>[];
+    final insMachIds   = <String>[];
+    String? newAttId;            // attendance record created (not reused)
+    var vesselSnap     = <String, dynamic>{};
+    var vesselCreated  = false;
+    final affected     = <String>{};
+
     try {
       // Fetch current case data upfront — needed for vessel_id, job_number,
       // case_type (used when building the display title at the end).
@@ -136,11 +154,27 @@ class _FullExtractionReviewScreenState
           .eq('case_id', widget.caseId)
           .single();
       String? vesselId = caseRow['vessel_id'] as String?;
+
+      // Snapshot existing vessel fields so we can restore them on revert.
+      if (vesselId != null) {
+        try {
+          final snap = await SupabaseService.client
+              .from('vessels')
+              .select()
+              .eq('vessel_id', vesselId)
+              .single();
+          vesselSnap = Map<String, dynamic>.from(snap as Map);
+        } catch (_) {}
+      }
       final jobNumber  = caseRow['job_number']  as String? ?? '';
       final caseType   = caseRow['case_type']   as String? ?? '';
 
       // ── Vessel particulars ──────────────────────────────────────
       if (_approved.contains('vessel') && result.hasVesselData) {
+
+        // Dump the full raw vessel data from Claude so it's always visible
+        // in the VS Code debug console — makes it easy to spot missing fields.
+        debugPrint('[VESSEL] raw from Claude: ${jsonEncode(result.vessel)}');
 
         final vesselFields = <String, dynamic>{};
         const fieldMap = {
@@ -162,45 +196,143 @@ class _FullExtractionReviewScreenState
           }
         });
 
+        debugPrint('[VESSEL] vesselFields to write: ${jsonEncode(vesselFields)}');
+
         if (vesselFields.isNotEmpty) {
+          final imoNumber =
+              (vesselFields['imo_number'] as String? ?? '').trim();
+
+          debugPrint('[VESSEL] case vessel_id=$vesselId  extracted IMO="$imoNumber"');
+
           if (vesselId == null) {
-            // Look for an existing vessel by IMO to avoid unique-constraint
-            // violations on duplicate imports.
-            final imoNumber =
-                (vesselFields['imo_number'] as String? ?? '').trim();
+            // Look for an existing vessel by IMO.
             if (imoNumber.isNotEmpty) {
+              debugPrint('[VESSEL] looking up existing vessel by IMO "$imoNumber"');
               final existing = await SupabaseService.client
                   .from('vessels')
                   .select('vessel_id')
                   .eq('imo_number', imoNumber)
                   .maybeSingle();
               vesselId = existing?['vessel_id'] as String?;
+              debugPrint('[VESSEL] IMO lookup result: ${vesselId ?? "not found"}');
             }
             if (vesselId != null) {
-              // Update the found vessel with any new fields.
+              // Found by IMO — fetch full snapshot for smart merge + revert.
+              try {
+                final snap = await SupabaseService.client
+                    .from('vessels')
+                    .select()
+                    .eq('vessel_id', vesselId)
+                    .single();
+                vesselSnap = Map<String, dynamic>.from(snap as Map);
+              } catch (_) {}
+              await SupabaseService.client
+                  .from('cases')
+                  .update({'vessel_id': vesselId})
+                  .eq('case_id', widget.caseId);
+            }
+          }
+
+          if (vesselId != null) {
+            debugPrint('[VESSEL] path=smart-merge vesselId=$vesselId');
+            // Existing vessel — smart field-by-field merge so we never blindly
+            // overwrite more-complete data or change the unique IMO key.
+            final merge = _smartMerge(vesselSnap, vesselFields);
+            var toUpdate = Map<String, dynamic>.from(merge.toUpdate);
+
+            if (merge.conflicts.isNotEmpty) {
+              if (!mounted) return;
+              final resolved = await _showConflictDialog(
+                merge.conflicts,
+                result.reportMeta['report_date'] as String?,
+              );
+              if (!mounted) return;
+              if (resolved == null) return; // User cancelled import.
+              toUpdate.addAll(resolved);
+            }
+
+            // IMO is a unique key — never update it on an existing vessel.
+            toUpdate.remove('imo_number');
+            debugPrint('[VESSEL] smart-merge toUpdate keys: ${toUpdate.keys.toList()}');
+
+            if (toUpdate.isNotEmpty) {
               await SupabaseService.client
                   .from('vessels')
-                  .update(vesselFields)
+                  .update(toUpdate)
                   .eq('vessel_id', vesselId);
-            } else {
-              // No existing vessel — create one.
+            }
+          } else {
+            // No matching vessel found by IMO lookup — create or reuse one.
+            if (imoNumber.isNotEmpty) {
+              debugPrint('[VESSEL] path=upsert IMO="$imoNumber"');
+              // Upsert on imo_number: atomically inserts a new vessel or
+              // updates an existing one if the IMO already exists in the DB
+              // (e.g. same vessel imported via a different case).
+              // This eliminates 23505 unique constraint violations entirely.
               final vData = await SupabaseService.client
                   .from('vessels')
-                  .insert(vesselFields)
+                  .upsert(vesselFields, onConflict: 'imo_number')
                   .select()
                   .single();
               vesselId = vData['vessel_id'] as String;
+              vesselCreated = true;
+              debugPrint('[VESSEL] upsert succeeded → vessel_id=$vesselId');
+              await DebugLogger.log(
+                'Vessel upsert on IMO "$imoNumber" → id $vesselId',
+                tag: 'Vessel',
+              );
+            } else {
+              debugPrint('[VESSEL] path=insert (no IMO)');
+              // No IMO — plain insert; recover by name if a constraint fires.
+              try {
+                final vData = await SupabaseService.client
+                    .from('vessels')
+                    .insert(vesselFields)
+                    .select()
+                    .single();
+                vesselId = vData['vessel_id'] as String;
+                vesselCreated = true;
+                debugPrint('[VESSEL] insert succeeded → vessel_id=$vesselId');
+              } catch (e, st) {
+                if (_is23505(e)) {
+                  await DebugLogger.log(
+                    '23505 on vessel insert (no IMO) — attempting name recovery',
+                    tag: 'Vessel',
+                    error: e,
+                    stack: st,
+                  );
+                  final vesselName =
+                      (vesselFields['name'] as String? ?? '').trim();
+                  if (vesselName.isNotEmpty) {
+                    final found = await SupabaseService.client
+                        .from('vessels')
+                        .select('vessel_id')
+                        .eq('name', vesselName)
+                        .maybeSingle();
+                    if (found != null) {
+                      vesselId = found['vessel_id'] as String;
+                      await DebugLogger.log(
+                        'Recovered 23505 by vessel name "$vesselName"',
+                        tag: 'Vessel',
+                      );
+                    } else {
+                      rethrow;
+                    }
+                  } else {
+                    rethrow;
+                  }
+                } else {
+                  rethrow;
+                }
+              }
             }
             await SupabaseService.client
                 .from('cases')
                 .update({'vessel_id': vesselId})
                 .eq('case_id', widget.caseId);
-          } else {
-            await SupabaseService.client
-                .from('vessels')
-                .update(vesselFields)
-                .eq('vessel_id', vesselId);
           }
+
+          affected.add('vessel');
         }
       }
 
@@ -208,7 +340,29 @@ class _FullExtractionReviewScreenState
       if (_approved.contains('machinery') &&
           result.hasMachinery && vesselId != null) {
         for (final m in result.machinery) {
-          await SupabaseService.client.from('machinery').insert({
+          // Skip if same machinery type+make already exists on this vessel.
+          final mRole = (m['role'] as String? ?? '').trim();
+          final mMake = (m['make'] as String? ?? '').trim();
+          if (mRole.isNotEmpty) {
+            try {
+              final dup = mMake.isNotEmpty
+                  ? await SupabaseService.client
+                      .from('machinery')
+                      .select('machinery_id')
+                      .eq('vessel_id', vesselId)
+                      .eq('machinery_type', mRole)
+                      .eq('make', mMake)
+                      .maybeSingle()
+                  : await SupabaseService.client
+                      .from('machinery')
+                      .select('machinery_id')
+                      .eq('vessel_id', vesselId)
+                      .eq('machinery_type', mRole)
+                      .maybeSingle();
+              if (dup != null) continue;
+            } catch (_) {}
+          }
+          final machData = await SupabaseService.client.from('machinery').insert({
             'vessel_id':      vesselId,
             'machinery_type': m['role'] ?? 'other',
             'role':           m['role'],
@@ -227,7 +381,8 @@ class _FullExtractionReviewScreenState
               'configuration': m['configuration'],
             if (m['serial_number'] != null && m['serial_number'] != '')
               'serial_number': m['serial_number'],
-          });
+          }).select().single();
+          insMachIds.add(machData['machinery_id'] as String);
         }
       }
 
@@ -236,14 +391,43 @@ class _FullExtractionReviewScreenState
 
       // ── Occurrences + Damage items ────────────────────────────────
       if (_approved.contains('occurrences') && result.hasOccurrences) {
+        // Offset new occurrence numbers so they don't clash with existing ones.
+        int occNoOffset = 0;
+        try {
+          final existingOccs = await SupabaseService.client
+              .from('occurrences')
+              .select('occurrence_no')
+              .eq('case_id', widget.caseId)
+              .order('occurrence_no', ascending: false)
+              .limit(1);
+          if ((existingOccs as List).isNotEmpty) {
+            occNoOffset = (existingOccs.first['occurrence_no'] as int?) ?? 0;
+          }
+        } catch (_) {}
+
         for (final o in result.occurrences) {
           final occNo = (o['occurrence_no'] as num?)?.toInt() ?? 1;
+
+          // Per-occurrence causation — fall back to global fields if absent.
+          final occAllegation =
+              ((o['allegation_type'] as String?)?.isNotEmpty == true)
+                  ? o['allegation_type'] as String
+                  : result.allegationType;
+          final occCauseType = (o['cause_type'] as String? ?? '').isNotEmpty
+              ? o['cause_type'] as String
+              : null;
+          final occCauseNarrative =
+              ((o['cause_narrative'] as String?) ?? '').isNotEmpty
+                  ? o['cause_narrative'] as String
+                  : result.causeNarrative.isNotEmpty
+                      ? result.causeNarrative
+                      : null;
 
           final occData = await SupabaseService.client
               .from('occurrences')
               .insert({
                 'case_id':       widget.caseId,
-                'occurrence_no': o['occurrence_no'] ?? 1,
+                'occurrence_no': occNoOffset + occNo,
                 if (o['title'] != null && o['title'] != '')
                   'title': o['title'],
                 if (o['date_time'] != null && o['date_time'] != '')
@@ -256,12 +440,16 @@ class _FullExtractionReviewScreenState
                 if (o['background_narrative'] != null &&
                     o['background_narrative'] != '')
                   'background_narrative': o['background_narrative'],
-                'allegation_type': result.allegationType,
-                if (result.causeNarrative.isNotEmpty)
-                  'cause_narrative': result.causeNarrative,
+                'allegation_type': occAllegation,
+                if (occCauseType != null) 'cause_type': occCauseType,
+                if (occCauseNarrative != null)
+                  'cause_narrative': occCauseNarrative,
               })
               .select()
               .single();
+
+          insOccIds.add(occData['occurrence_id'] as String);
+          affected.add('occurrences');
 
           if (_approved.contains('damage_items') && result.hasDamageItems) {
             final occId = occData['occurrence_id'] as String;
@@ -296,8 +484,51 @@ class _FullExtractionReviewScreenState
               // Record item_no → UUID for repair wiring.
               final itemNo = (d['item_no'] as num?)?.toInt() ?? (i + 1);
               itemNoToId[itemNo] = dmgData['damage_id'] as String;
+              insDmgIds.add(dmgData['damage_id'] as String);
+              affected.add('damage');
             }
           }
+        }
+
+        // Renumber all case occurrences sequentially by date so the badge
+        // numbers are always consistent even when dates from two reports
+        // interleave (e.g. Occ 1 from report A is later than Occ 1 from B).
+        try {
+          final allOccs = await SupabaseService.client
+              .from('occurrences')
+              .select('occurrence_id, date_time')
+              .eq('case_id', widget.caseId);
+          final sorted = (allOccs as List).cast<Map<String, dynamic>>()
+            ..sort((a, b) {
+              final da = a['date_time'] != null
+                  ? DateTime.tryParse(a['date_time'] as String)
+                  : null;
+              final db = b['date_time'] != null
+                  ? DateTime.tryParse(b['date_time'] as String)
+                  : null;
+              if (da == null && db == null) return 0;
+              if (da == null) return 1;
+              if (db == null) return -1;
+              return da.compareTo(db);
+            });
+          // Two-pass renumber avoids unique-constraint (23505) violations when
+          // newly inserted occurrences interleave with existing ones by date.
+          // Pass 1: park all rows at high temp values to clear any overlaps.
+          for (int i = 0; i < sorted.length; i++) {
+            await SupabaseService.client
+                .from('occurrences')
+                .update({'occurrence_no': sorted.length + 1000 + i})
+                .eq('occurrence_id', sorted[i]['occurrence_id'] as String);
+          }
+          // Pass 2: assign final sequential 1-based values.
+          for (int i = 0; i < sorted.length; i++) {
+            await SupabaseService.client
+                .from('occurrences')
+                .update({'occurrence_no': i + 1})
+                .eq('occurrence_id', sorted[i]['occurrence_id'] as String);
+          }
+        } catch (e) {
+          debugPrint('[FullExtraction] occurrence renumber failed: $e');
         }
       }
 
@@ -309,7 +540,6 @@ class _FullExtractionReviewScreenState
               .from('repairs')
               .insert({
                 'case_id':    widget.caseId,
-                if (r['repair_no'] != null) 'repair_no': r['repair_no'],
                 'repair_type': r['repair_type'] ?? 'permanent',
                 if (r['description'] != null && r['description'] != '')
                   'description': r['description'],
@@ -324,6 +554,7 @@ class _FullExtractionReviewScreenState
               .select()
               .single();
           final repairId = repairData['repair_id'] as String;
+          insRepIds.add(repairId);
 
           // Wire repair → damage items via junction table.
           final rawNos = r['item_nos'];
@@ -332,7 +563,7 @@ class _FullExtractionReviewScreenState
               final itemId = itemNoToId[(n as num).toInt()];
               if (itemId != null) {
                 await SupabaseService.client
-                    .from('repair_damage_items')
+                    .from('repair_damage_links')
                     .insert({
                   'repair_id': repairId,
                   'damage_id': itemId,
@@ -345,10 +576,64 @@ class _FullExtractionReviewScreenState
 
       // ── Attendees ─────────────────────────────────────────────────
       if (_approved.contains('attendees') && result.hasAttendees) {
+        // Derive an attendance date from the first extracted occurrence's
+        // date, or fall back to today.
+        DateTime? attDate;
+        if (result.occurrences.isNotEmpty) {
+          final raw = result.occurrences.first['date_time'] as String?;
+          if (raw != null && raw.isNotEmpty) attDate = DateTime.tryParse(raw);
+        }
+
+        // Look for an existing survey_attendance whose date is within
+        // 30 days of the report's occurrence date — if found, re-use it
+        // so we don't fragment the same visit into multiple records.
+        String? attendanceId;
+        try {
+          final existingAtts = await SupabaseService.client
+              .from('survey_attendances')
+              .select('attendance_id, attendance_date')
+              .eq('case_id', widget.caseId);
+          for (final row in existingAtts as List) {
+            final rowDate = row['attendance_date'] != null
+                ? DateTime.tryParse(row['attendance_date'] as String)
+                : null;
+            if (attDate != null &&
+                rowDate != null &&
+                attDate.difference(rowDate).inDays.abs() <= 30) {
+              attendanceId = row['attendance_id'] as String;
+              break;
+            }
+          }
+        } catch (_) {}
+
+        // No matching attendance found — create a fresh one.
+        if (attendanceId == null) {
+          try {
+            final attRow = await SupabaseService.client
+                .from('survey_attendances')
+                .insert({
+                  'case_id':         widget.caseId,
+                  'attendance_type': 'initial',
+                  if (attDate != null)
+                    'attendance_date':
+                        '${attDate.year}-'
+                        '${attDate.month.toString().padLeft(2, '0')}-'
+                        '${attDate.day.toString().padLeft(2, '0')}',
+                })
+                .select()
+                .single();
+            attendanceId = attRow['attendance_id'] as String;
+            newAttId = attendanceId; // track as newly created for revert
+          } catch (e) {
+            debugPrint('[FullExtraction] create attendance failed: $e');
+          }
+        }
+
         for (final a in result.attendees) {
           if (a['full_name'] == null || a['full_name'] == '') continue;
-          await SupabaseService.client.from('attendees').insert({
+          final attData = await SupabaseService.client.from('attendees').insert({
             'case_id':   widget.caseId,
+            if (attendanceId != null) 'attendance_id': attendanceId,
             'full_name': a['full_name'],
             if (a['rank_position'] != null && a['rank_position'] != '')
               'rank_position': a['rank_position'],
@@ -358,32 +643,62 @@ class _FullExtractionReviewScreenState
               'representing': a['representing'],
             if (a['role_type'] != null)
               'role_type': a['role_type'],
-          });
+          }).select().single();
+          insAttIds.add(attData['attendee_id'] as String);
+          affected.add('attendees');
         }
       }
 
       // ── Certificates ──────────────────────────────────────────────
       if (_approved.contains('certificates') && result.hasCertificates) {
         for (final c in result.certificates) {
-          await SupabaseService.client.from('certificates').insert({
-            'case_id':   widget.caseId,
-            if (vesselId != null) 'vessel_id': vesselId,
-            'cert_type': c['cert_type'] ?? 'other',
-            if (c['cert_name'] != null && c['cert_name'] != '')
-              'cert_name': c['cert_name'],
-            if (c['issuing_authority'] != null &&
-                c['issuing_authority'] != '')
-              'issuing_authority': c['issuing_authority'],
-            if (c['issue_date'] != null && c['issue_date'] != '')
-              'issue_date': c['issue_date'],
-            if (c['expiry_date'] != null && c['expiry_date'] != '')
-              'expiry_date': c['expiry_date'],
-            if (c['cert_number'] != null && c['cert_number'] != '')
-              'cert_number': c['cert_number'],
-            'status':         'valid',
-            'extracted_auto': true,
-            'source_doc_id':  widget.doc.docId,
-          });
+          final cType = (c['cert_type'] ?? 'other') as String;
+          final cNum  = (c['cert_number'] as String? ?? '').trim();
+
+          // Skip if cert of same type (and number when available) already
+          // exists for this case — avoids re-importing the same certificate.
+          try {
+            final dup = cNum.isNotEmpty
+                ? await SupabaseService.client
+                    .from('certificates')
+                    .select('certificate_id')
+                    .eq('case_id', widget.caseId)
+                    .eq('cert_type', cType)
+                    .eq('cert_number', cNum)
+                    .maybeSingle()
+                : await SupabaseService.client
+                    .from('certificates')
+                    .select('certificate_id')
+                    .eq('case_id', widget.caseId)
+                    .eq('cert_type', cType)
+                    .maybeSingle();
+            if (dup != null) continue;
+          } catch (_) {}
+
+          final certData = await SupabaseService.client
+              .from('certificates')
+              .insert({
+                'case_id':   widget.caseId,
+                if (vesselId != null) 'vessel_id': vesselId,
+                'cert_type': cType,
+                if (c['cert_name'] != null && c['cert_name'] != '')
+                  'cert_name': c['cert_name'],
+                if (c['issuing_authority'] != null &&
+                    c['issuing_authority'] != '')
+                  'issuing_authority': c['issuing_authority'],
+                if (c['issue_date'] != null && c['issue_date'] != '')
+                  'issue_date': c['issue_date'],
+                if (c['expiry_date'] != null && c['expiry_date'] != '')
+                  'expiry_date': c['expiry_date'],
+                if (cNum.isNotEmpty) 'cert_number': cNum,
+                'status':         'valid',
+                'extracted_auto': true,
+                'source_doc_id':  widget.doc.docId,
+              })
+              .select()
+              .single();
+          insCertIds.add(certData['certificate_id'] as String);
+          affected.add('certificates');
         }
       }
 
@@ -423,6 +738,28 @@ class _FullExtractionReviewScreenState
         'extraction_status': 'completed',
       }).eq('doc_id', widget.doc.docId);
 
+      // Arm the floating review banner so the user can inspect or revert.
+      if (affected.isNotEmpty) {
+        ref.read(importReviewProvider.notifier).state = ImportReview(
+          caseId: widget.caseId,
+          docTitle: widget.doc.title,
+          importedAt: DateTime.now(),
+          occurrenceIds: List.unmodifiable(insOccIds),
+          damageIds: List.unmodifiable(insDmgIds),
+          repairIds: List.unmodifiable(insRepIds),
+          attendeeIds: List.unmodifiable(insAttIds),
+          newAttendanceId: newAttId,
+          certificateIds: List.unmodifiable(insCertIds),
+          machineryIds: List.unmodifiable(insMachIds),
+          vesselId: vesselId,
+          vesselWasCreated: vesselCreated,
+          vesselPrevValues: vesselCreated
+              ? const <String, dynamic>{}
+              : Map.unmodifiable(vesselSnap),
+          affectedSections: Set.unmodifiable(affected),
+        );
+      }
+
       // Invalidate every provider that caches data we just wrote so the UI
       // reflects the changes immediately without requiring an app restart.
       ref.invalidate(caseProvider(widget.caseId));
@@ -443,17 +780,113 @@ class _FullExtractionReviewScreenState
         );
         Navigator.pop(context);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: AppColors.error),
-        );
-      }
+    } catch (e, st) {
+      debugPrint('[IMPORT] FAILED: $e\n$st');
+      if (mounted) showError(context, 'Import failed: $e', error: e, stack: st, tag: 'Import');
     } finally {
       if (mounted) setState(() => _applying = false);
     }
+  }
+
+  // ── Smart merge helpers ──────────────────────────────────────────────────
+
+  static bool _is23505(Object e) =>
+      e.toString().contains('23505') ||
+      e.toString().contains('duplicate key value');
+
+  static String _vesselLabel(String key) => const {
+    'name':             'Vessel Name',
+    'imo_number':       'IMO Number',
+    'vessel_type':      'Vessel Type',
+    'flag':             'Flag',
+    'port_of_registry': 'Port of Registry',
+    'gross_tonnage':    'Gross Tonnage (GT)',
+    'net_tonnage':      'Net Tonnage (NT)',
+    'deadweight':       'Deadweight (DWT)',
+    'length_oa':        'Length OA (m)',
+    'length_bp':        'Length BP (m)',
+    'breadth':          'Breadth (m)',
+    'depth':            'Depth (m)',
+    'max_draft':        'Max Draft (m)',
+    'year_built':       'Year Built',
+    'build_yard':       'Build Yard',
+    'build_country':    'Build Country',
+    'owners':           'Owners',
+    'operators':        'Operators',
+    'class_society':    'Class Society',
+    'class_notation':   'Class Notation',
+    'service_speed':    'Service Speed (kn)',
+  }[key] ?? key;
+
+  /// Compares extracted vessel fields against the existing DB snapshot.
+  ///   • Empty existing  → auto-fill with new value.
+  ///   • New is a longer superset of existing → upgrade automatically.
+  ///   • Existing is more detailed → keep, skip.
+  ///   • Genuinely different → add to conflict list for user decision.
+  ///   • IMO number → never auto-changed; always flagged if different.
+  static ({Map<String, dynamic> toUpdate, List<_FieldConflict> conflicts})
+      _smartMerge(
+    Map<String, dynamic> existing,
+    Map<String, dynamic> extracted,
+  ) {
+    final toUpdate  = <String, dynamic>{};
+    final conflicts = <_FieldConflict>[];
+
+    final exImo  = existing['imo_number']?.toString().trim() ?? '';
+    final newImo = extracted['imo_number']?.toString().trim() ?? '';
+    if (exImo.isNotEmpty && newImo.isNotEmpty && exImo != newImo) {
+      conflicts.add(_FieldConflict(
+        key: 'imo_number', label: 'IMO Number',
+        existing: exImo, fromReport: newImo,
+      ));
+    }
+
+    for (final entry in extracted.entries) {
+      if (entry.key == 'imo_number') continue;
+      final newVal = entry.value;
+      final exVal  = existing[entry.key];
+
+      if (newVal == null || newVal.toString().trim().isEmpty) continue;
+      if (exVal  == null || exVal.toString().trim().isEmpty) {
+        toUpdate[entry.key] = newVal;
+        continue;
+      }
+
+      final exStr  = exVal.toString().trim();
+      final newStr = newVal.toString().trim();
+      if (exStr.toLowerCase() == newStr.toLowerCase()) continue;
+
+      if (newStr.length > exStr.length &&
+          newStr.toLowerCase().contains(exStr.toLowerCase())) {
+        toUpdate[entry.key] = newVal;
+        continue;
+      }
+      if (exStr.length > newStr.length &&
+          exStr.toLowerCase().contains(newStr.toLowerCase())) {
+        continue;
+      }
+
+      conflicts.add(_FieldConflict(
+        key: entry.key, label: _vesselLabel(entry.key),
+        existing: exStr, fromReport: newStr,
+      ));
+    }
+
+    return (toUpdate: toUpdate, conflicts: conflicts);
+  }
+
+  Future<Map<String, dynamic>?> _showConflictDialog(
+    List<_FieldConflict> conflicts,
+    String? reportDate,
+  ) {
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ConflictDialog(
+        conflicts: conflicts,
+        reportDate: reportDate,
+      ),
+    );
   }
 
   @override
@@ -487,7 +920,11 @@ class _FullExtractionReviewScreenState
         ],
       ),
       body: _extracting
-          ? _Loading(title: widget.doc.title)
+          ? _Loading(
+              title: widget.doc.title,
+              bytes: widget.bytes,
+              mimeType: widget.mimeType,
+            )
           : _error != null
               ? _Error(error: _error!, onRetry: _runExtraction)
               : _buildReview(),
@@ -990,40 +1427,76 @@ class _InfoBox extends StatelessWidget {
 }
 
 class _Loading extends StatelessWidget {
-  const _Loading({required this.title});
+  const _Loading({
+    required this.title,
+    required this.bytes,
+    required this.mimeType,
+  });
   final String title;
+  final Uint8List bytes;
+  final String mimeType;
+
+  bool get _isImage => mimeType.startsWith('image/');
+  bool get _isPdf   => mimeType == 'application/pdf';
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const SizedBox(
-              width: 48, height: 48,
-              child: CircularProgressIndicator(
-                  color: AppColors.amber, strokeWidth: 3),
+  Widget build(BuildContext context) => Column(children: [
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
             ),
-            const SizedBox(height: 20),
-            const Text('Analysing report...',
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary)),
-            const SizedBox(height: 6),
-            Text(title,
-                textAlign: TextAlign.center,
+            clipBehavior: Clip.hardEdge,
+            child: _buildPreview(),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const SizedBox(
+              width: 20, height: 20,
+              child: CircularProgressIndicator(
+                  color: AppColors.amber, strokeWidth: 2.5),
+            ),
+            const SizedBox(width: 14),
+            Flexible(
+              child: Text(
+                'Claude is reading "$title"…',
                 style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
-            const SizedBox(height: 16),
-            const Text(
-              'Claude is reading the report and extracting\nvessel data, damage items, attendees\nand certificates...',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 12, color: AppColors.textTertiary),
+                    fontSize: 13, color: AppColors.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ]),
         ),
+      ]);
+
+  Widget _buildPreview() {
+    if (_isImage) {
+      return InteractiveViewer(
+        child: Image.memory(bytes, fit: BoxFit.contain),
       );
+    }
+    if (_isPdf) {
+      return PdfViewer.data(
+        bytes,
+        sourceName: title,
+        params: const PdfViewerParams(margin: 4),
+      );
+    }
+    return const Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.description_outlined,
+            size: 72, color: AppColors.textTertiary),
+        SizedBox(height: 12),
+        Text('Preview not available for this file type',
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+      ]),
+    );
+  }
 }
 
 class _Error extends StatelessWidget {
@@ -1141,6 +1614,224 @@ class _Error extends StatelessWidget {
           label: const Text('Try again'),
         ),
       ]),
+    );
+  }
+}
+
+// ── Conflict resolution ────────────────────────────────────────────────────
+
+class _FieldConflict {
+  const _FieldConflict({
+    required this.key,
+    required this.label,
+    required this.existing,
+    required this.fromReport,
+  });
+  final String key;
+  final String label;
+  final String existing;
+  final String fromReport;
+}
+
+class _ConflictDialog extends StatefulWidget {
+  const _ConflictDialog({required this.conflicts, this.reportDate});
+  final List<_FieldConflict> conflicts;
+  final String? reportDate;
+
+  @override
+  State<_ConflictDialog> createState() => _ConflictDialogState();
+}
+
+class _ConflictDialogState extends State<_ConflictDialog> {
+  late final Map<String, bool> _keepExisting;
+
+  @override
+  void initState() {
+    super.initState();
+    _keepExisting = {for (final c in widget.conflicts) c.key: true};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(children: [
+        Icon(Icons.compare_arrows, color: AppColors.amber, size: 20),
+        SizedBox(width: 8),
+        Text('Field conflicts', style: TextStyle(fontSize: 16)),
+      ]),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.reportDate != null &&
+                widget.reportDate!.isNotEmpty) ...[
+              Text(
+                'Report date: ${widget.reportDate}',
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 6),
+            ],
+            const Text(
+              'These fields differ between the report and current records. '
+              'Choose which value to keep for each:',
+              style: TextStyle(
+                  fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 340),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: widget.conflicts.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 14, color: AppColors.divider),
+                itemBuilder: (_, i) {
+                  final c = widget.conflicts[i];
+                  final keepEx = _keepExisting[c.key] ?? true;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        c.label,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(children: [
+                        Expanded(
+                          child: _ConflictOption(
+                            label: 'Current',
+                            value: c.existing,
+                            selected: keepEx,
+                            color: AppColors.midBlue,
+                            onTap: () =>
+                                setState(() => _keepExisting[c.key] = true),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _ConflictOption(
+                            label: 'Report',
+                            value: c.fromReport,
+                            selected: !keepEx,
+                            color: AppColors.amber,
+                            onTap: () =>
+                                setState(() => _keepExisting[c.key] = false),
+                          ),
+                        ),
+                      ]),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel import'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final useFromReport = <String, dynamic>{};
+            for (final c in widget.conflicts) {
+              if (_keepExisting[c.key] == false) {
+                useFromReport[c.key] = c.fromReport;
+              }
+            }
+            Navigator.pop(context, useFromReport);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConflictOption extends StatelessWidget {
+  const _ConflictOption({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+  final String label;
+  final String value;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withValues(alpha: 0.08)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color : AppColors.border,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 13,
+                color: selected ? color : AppColors.textTertiary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? color : AppColors.textTertiary,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 3),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 11,
+                color: selected
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+                height: 1.3,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

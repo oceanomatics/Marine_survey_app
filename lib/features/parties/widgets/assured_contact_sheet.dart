@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
 
 const _kColor = AppColors.coral;
 
@@ -60,13 +61,8 @@ class _AssuredContactSheetState extends State<AssuredContactSheet> {
         _val(_notesCtrl),
       );
       if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e'),
-              backgroundColor: AppColors.error),
-        );
-      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
     } finally {
       if (mounted) setState(() => _saving = false);
     }

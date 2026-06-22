@@ -40,6 +40,7 @@ dependencies:
   speech_to_text: ^7.0.0
 
   # File handling
+  archive: ^3.6.1
   file_picker: ^11.0.2
   open_filex: ^4.4.0
   url_launcher: ^6.3.0
@@ -53,6 +54,10 @@ dependencies:
   # Network
   dio: ^5.4.3+1
   connectivity_plus: ^6.0.3
+
+  # Secure credentials & PDF generation
+  flutter_secure_storage: ^9.2.2
+  pdf: ^3.11.1
 
   # UI components
   flutter_svg: ^2.0.10+1

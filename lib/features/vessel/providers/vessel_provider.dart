@@ -4,6 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../cases/models/case_model.dart';
 import '../../../core/api/supabase_client.dart';
 
+/// Thrown by [VesselForCaseNotifier.saveVessel] when the supplied IMO number
+/// is already assigned to a different vessel in the database.
+class ImoConflictException implements Exception {
+  const ImoConflictException(
+      this.imoNumber, this.existingVesselId, this.existingVesselName);
+  final String imoNumber;
+  final String existingVesselId;
+  final String? existingVesselName;
+
+  @override
+  String toString() =>
+      'IMO $imoNumber is already assigned to vessel '
+      '"${existingVesselName ?? existingVesselId}"';
+}
+
 // ── Vessel for a case ──────────────────────────────────────────────────────
 
 final vesselForCaseProvider =
@@ -56,15 +71,45 @@ class VesselForCaseNotifier extends FamilyAsyncNotifier<VesselModel?, String> {
     return vessel;
   }
 
-  /// Save all vessel particulars fields
+  /// Save all vessel particulars fields.
+  /// IMO is handled separately — if another vessel already owns the supplied
+  /// IMO, [ImoConflictException] is thrown instead of hitting a 23505.
   Future<void> saveVessel({
     required String vesselId,
     required Map<String, dynamic> fields,
   }) async {
-    await SupabaseService.client
-        .from('vessels')
-        .update(fields)
-        .eq('vessel_id', vesselId);
+    final toUpdate = Map<String, dynamic>.from(fields);
+    final rawImo   = toUpdate.remove('imo_number');
+    final imoNumber = (rawImo as String? ?? '').trim();
+
+    if (toUpdate.isNotEmpty) {
+      await SupabaseService.client
+          .from('vessels')
+          .update(toUpdate)
+          .eq('vessel_id', vesselId);
+    }
+
+    if (imoNumber.isNotEmpty) {
+      final conflict = await SupabaseService.client
+          .from('vessels')
+          .select('vessel_id, name')
+          .eq('imo_number', imoNumber)
+          .neq('vessel_id', vesselId)
+          .maybeSingle();
+
+      if (conflict != null) {
+        throw ImoConflictException(
+          imoNumber,
+          conflict['vessel_id'] as String,
+          conflict['name'] as String?,
+        );
+      }
+
+      await SupabaseService.client
+          .from('vessels')
+          .update({'imo_number': imoNumber})
+          .eq('vessel_id', vesselId);
+    }
 
     await refresh();
   }

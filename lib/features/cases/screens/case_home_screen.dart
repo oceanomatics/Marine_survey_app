@@ -8,7 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/cases_provider.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../models/case_model.dart';
+import '../../../core/providers/import_review.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
@@ -105,12 +107,8 @@ class CaseHomeScreen extends ConsumerWidget {
     try {
       await ref.read(casesProvider.notifier).deleteCase(caseId);
       if (context.mounted) context.go('/cases');
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Delete failed: $e'),
-            backgroundColor: Colors.red));
-      }
+    } catch (e, st) {
+      if (context.mounted) showError(context, 'Delete failed: $e', error: e, stack: st, tag: 'App');
     }
   }
 }
@@ -297,6 +295,12 @@ class _SurveyNavRail extends StatelessWidget {
             onTap: () => context.go('/cases/$caseId/vessel'),
           ),
           _NavItem(
+            icon: Icons.history_outlined,
+            label: 'Backgnd',
+            accent: AppColors.midBlue,
+            onTap: () => context.go('/cases/$caseId/background'),
+          ),
+          _NavItem(
             icon: Icons.handshake_outlined,
             label: 'Parties',
             accent: AppColors.midBlue,
@@ -327,8 +331,8 @@ class _SurveyNavRail extends StatelessWidget {
             onTap: () => context.go('/cases/$caseId/correspondence'),
           ),
           _NavItem(
-            icon: Icons.edit_note,
-            label: 'Notes',
+            icon: Icons.label_outline,
+            label: 'Context',
             accent: const Color(0xFF4A7A5A),
             onTap: () => context.go('/cases/$caseId/notes'),
           ),
@@ -529,8 +533,15 @@ class _PseudoReport extends ConsumerWidget {
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
 
+    // Show amber left-border highlight on sections touched by the latest import.
+    final review = ref.watch(importReviewProvider);
+    final highlighted = (review?.caseId == caseId)
+        ? review!.affectedSections
+        : const <String>{};
+
     final List<Widget> sections = _sections(
-        context, damage, attendees, voices, visits, timeline, repairPeriods);
+        context, damage, attendees, voices, visits, timeline, repairPeriods,
+        highlighted: highlighted);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -555,8 +566,9 @@ class _PseudoReport extends ConsumerWidget {
     List<VoiceNoteModel> voices,
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
-    List<RepairPeriodModel> repairPeriods,
-  ) {
+    List<RepairPeriodModel> repairPeriods, {
+    Set<String> highlighted = const <String>{},
+  }) {
     final occ = damage?.occurrences.firstOrNull;
     final attendanceCount = visits.length + attendees.length;
     return [
@@ -566,6 +578,7 @@ class _PseudoReport extends ConsumerWidget {
         title: 'Attendance & Representatives',
         countLabel: attendanceCount == 0 ? null : '$attendanceCount',
         initiallyExpanded: attendanceCount > 0,
+        highlighted: highlighted.contains('attendees'),
         onOpen: () => ctx.go('/cases/$caseId/attendances'),
         child: _attendanceContent(visits, attendees),
       ),
@@ -586,6 +599,7 @@ class _PseudoReport extends ConsumerWidget {
             ? '${damage!.occurrences.length}'
             : null,
         initiallyExpanded: occ != null,
+        highlighted: highlighted.contains('occurrences'),
         onOpen: () => ctx.go('/cases/$caseId/occurrence'),
         child: _occurrenceContent(damage),
       ),
@@ -593,27 +607,17 @@ class _PseudoReport extends ConsumerWidget {
         accentColor: AppColors.midBlue,
         icon: Icons.history_outlined,
         title: 'Background',
-        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        onOpen: () => ctx.go('/cases/$caseId/background'),
         child: _narrativeContent(
           occ?.backgroundNarrative,
-          'Background narrative — enter in Occurrence',
-        ),
-      ),
-      _SectionCard(
-        accentColor: AppColors.midBlue,
-        icon: Icons.route_outlined,
-        title: "Vessel's Movements & Events",
-        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
-        child: _narrativeContent(
-          occ?.chronology,
-          'Chronology / movements — enter in Occurrence',
+          'Background narrative — tap Open to edit',
         ),
       ),
       _SectionCard(
         accentColor: AppColors.amber,
         icon: Icons.gavel_outlined,
-        title: occ?.allegationType != null ? 'Allegation' : 'Cause Consideration',
-        onOpen: () => ctx.go('/cases/$caseId/occurrence'),
+        title: 'Allegation / Causation',
+        onOpen: () => ctx.go('/cases/$caseId/causation'),
         child: _causationContent(occ),
       ),
       _SectionCard(
@@ -624,6 +628,7 @@ class _PseudoReport extends ConsumerWidget {
             ? '${damage!.totalDamageItems} items'
             : null,
         initiallyExpanded: (damage?.totalDamageItems ?? 0) > 0,
+        highlighted: highlighted.contains('damage'),
         onOpen: () => ctx.go('/cases/$caseId/damage'),
         child: _extentOfDamageContent(damage),
       ),
@@ -832,17 +837,71 @@ class _PseudoReport extends ConsumerWidget {
       return const _SectionEmpty(
           'No damage items recorded — tap Open to add');
     }
-    return Column(
-      children: damage.damageItems.map((item) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+
+    // Sort occurrences by date ascending; null dates go last.
+    final sortedOccs = [...damage.occurrences]..sort((a, b) {
+        if (a.dateTime == null && b.dateTime == null) return 0;
+        if (a.dateTime == null) return 1;
+        if (b.dateTime == null) return -1;
+        return a.dateTime!.compareTo(b.dateTime!);
+      });
+
+    // Assign display numbers in date order (may differ from DB occurrence_no
+    // if renumbering hasn't propagated yet).
+    final displayNo = <String, int>{};
+    for (int i = 0; i < sortedOccs.length; i++) {
+      displayNo[sortedOccs[i].occurrenceId] = i + 1;
+    }
+
+    final rows = <Widget>[];
+    for (final occ in sortedOccs) {
+      final items = damage.itemsForOccurrence(occ.occurrenceId);
+      if (items.isEmpty) continue;
+      final no = displayNo[occ.occurrenceId] ?? occ.occurrenceNo;
+
+      // Occurrence header
+      rows.add(Padding(
+        padding: EdgeInsets.only(bottom: 4, top: rows.isEmpty ? 0 : 8),
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.coral,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              'Occ. $no',
+              style: const TextStyle(
+                  fontSize: 9,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              occ.title ?? 'Occurrence $no',
+              style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
+      ));
+
+      // Damage items for this occurrence
+      for (final item in items) {
+        rows.add(Padding(
+          padding: const EdgeInsets.only(bottom: 5, left: 4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 6,
-                height: 6,
-                margin: const EdgeInsets.only(top: 5, right: 8),
+                width: 5,
+                height: 5,
+                margin: const EdgeInsets.only(top: 6, right: 8),
                 decoration: BoxDecoration(
                   color: item.isConcerningAverage
                       ? AppColors.coral
@@ -864,8 +923,8 @@ class _PseudoReport extends ConsumerWidget {
                     if (item.damageDescription != null &&
                         item.damageDescription!.isNotEmpty)
                       Text(
-                        item.damageDescription!.length > 90
-                            ? '${item.damageDescription!.substring(0, 90)}…'
+                        item.damageDescription!.length > 80
+                            ? '${item.damageDescription!.substring(0, 80)}…'
                             : item.damageDescription!,
                         style: const TextStyle(
                             fontSize: 11, color: AppColors.textSecondary),
@@ -873,13 +932,17 @@ class _PseudoReport extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (item.repairType != null)
-                _StatusChip(
-                    label: item.repairType!.label, color: AppColors.midBlue),
+              const SizedBox(width: 6),
+              _DamageCategoryChip(category: item.damageCategory),
             ],
           ),
-        );
-      }).toList(),
+        ));
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rows,
     );
   }
 
@@ -888,32 +951,86 @@ class _PseudoReport extends ConsumerWidget {
       return const _SectionEmpty(
           'No occurrence recorded — tap Open to add');
     }
-    if (occ.allegationType != null) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.lightAmber,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          'Allegation type: ${occ.allegationType}',
-          style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.amber,
-              fontWeight: FontWeight.w500),
-        ),
-      );
+
+    final causeTypeLabel = occ.causeType != null
+        ? _causeTypeLabel(occ.causeType!)
+        : null;
+    final allegationLabel = _allegationLabel(occ.allegationType);
+    final agreementLabel = occ.allegationType == 'formal_allegation'
+        ? _agreementLabel(occ.causeAgreement)
+        : null;
+
+    if (causeTypeLabel == null && allegationLabel == null) {
+      return const _SectionEmpty(
+          'Tap Open to record allegation and cause');
     }
-    if (occ.causeNarrative != null && occ.causeNarrative!.isNotEmpty) {
-      final text = occ.causeNarrative!;
-      return Text(
-        text.length > 250 ? '${text.substring(0, 250)}…' : text,
-        style: const TextStyle(
-            fontSize: 11, color: AppColors.textSecondary),
-      );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (causeTypeLabel != null)
+          _CausationChip(label: causeTypeLabel, color: AppColors.amber),
+        if (allegationLabel != null) ...[
+          const SizedBox(height: 5),
+          _CausationChip(
+            label: allegationLabel,
+            color: occ.allegationType == 'formal_allegation'
+                ? AppColors.coral
+                : AppColors.green,
+          ),
+        ],
+        if (agreementLabel != null) ...[
+          const SizedBox(height: 5),
+          _CausationChip(
+            label: agreementLabel,
+            color: occ.causeAgreement == 'agree'
+                ? AppColors.green
+                : occ.causeAgreement == 'disagree'
+                    ? AppColors.coral
+                    : AppColors.textSecondary,
+          ),
+        ],
+      ],
+    );
+  }
+
+  String? _causeTypeLabel(String value) {
+    const map = {
+      'grounding': 'Grounding / Stranding',
+      'collision': 'Collision',
+      'contact': 'Contact',
+      'fire': 'Fire',
+      'explosion': 'Explosion',
+      'flooding': 'Flooding',
+      'heavy_weather': 'Heavy Weather',
+      'machinery_failure': 'Machinery Failure',
+      'structural_failure': 'Structural Failure',
+      'crew_error': 'Crew / Nav. Error',
+      'port_damage': 'Port / Berth Damage',
+      'ice_damage': 'Ice Damage',
+      'lightning': 'Lightning Strike',
+      'malicious': 'Malicious Damage',
+      'other': 'Other',
+    };
+    return map[value];
+  }
+
+  String? _allegationLabel(String? type) {
+    switch (type) {
+      case 'formal_allegation':   return 'Formal Allegation';
+      case 'no_formal_allegation': return 'No Formal Allegation';
+      case 'tbc':                 return 'Allegation: TBC';
+      default:                    return null;
     }
-    return const _SectionEmpty(
-        'Cause / allegation — enter in Occurrence or draft in Report Builder');
+  }
+
+  String? _agreementLabel(String? agreement) {
+    switch (agreement) {
+      case 'agree':    return 'Position: We Agree';
+      case 'disagree': return 'Position: We Disagree';
+      case 'tbc':      return 'Position: TBC';
+      default:         return null;
+    }
   }
 
   Widget _repairsContent(List<RepairPeriodModel> periods) {
@@ -1321,6 +1438,7 @@ class _SectionCard extends StatefulWidget {
     required this.child,
     this.countLabel,
     this.initiallyExpanded = false,
+    this.highlighted = false,
   });
 
   final Color accentColor;
@@ -1330,6 +1448,7 @@ class _SectionCard extends StatefulWidget {
   final Widget child;
   final String? countLabel;
   final bool initiallyExpanded;
+  final bool highlighted;
 
   @override
   State<_SectionCard> createState() => _SectionCardState();
@@ -1348,9 +1467,18 @@ class _SectionCardState extends State<_SectionCard> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: widget.highlighted
+            ? AppColors.lightAmber
+            : AppColors.background,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: widget.highlighted
+            ? const Border(
+                left: BorderSide(color: AppColors.warning, width: 3),
+                top: BorderSide(color: AppColors.border),
+                right: BorderSide(color: AppColors.border),
+                bottom: BorderSide(color: AppColors.border),
+              )
+            : Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -1517,6 +1645,46 @@ class _AttendeeRow extends StatelessWidget {
   }
 }
 
+class _DamageCategoryChip extends StatelessWidget {
+  const _DamageCategoryChip({required this.category});
+  final DamageCategory category;
+
+  static const _labels = {
+    DamageCategory.structuralExternal:    'Structural',
+    DamageCategory.structuralInternal:    'Structural',
+    DamageCategory.mechanical:            'Mechanical',
+    DamageCategory.electricalElectronics: 'Electrical',
+    DamageCategory.other:                 'Other',
+  };
+
+  static const _colors = {
+    DamageCategory.structuralExternal:    AppColors.coral,
+    DamageCategory.structuralInternal:    AppColors.navy,
+    DamageCategory.mechanical:            AppColors.amber,
+    DamageCategory.electricalElectronics: AppColors.purple,
+    DamageCategory.other:                 AppColors.textSecondary,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _labels[category] ?? 'Other';
+    final color = _colors[category] ?? AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 9, color: color, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.label, required this.color});
   final String label;
@@ -1579,6 +1747,31 @@ class _SectionEmpty extends StatelessWidget {
             fontSize: 12,
             color: AppColors.textTertiary,
             fontStyle: FontStyle.italic),
+      ),
+    );
+  }
+}
+
+class _CausationChip extends StatelessWidget {
+  const _CausationChip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }

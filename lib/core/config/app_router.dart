@@ -8,6 +8,7 @@ import '../../features/cases/screens/new_case_screen.dart';
 import '../../features/vessel/screens/vessel_particulars_screen.dart';
 import '../../features/survey/screens/damage_register_screen.dart';
 import '../../features/survey/screens/occurrence_screen.dart';
+import '../../features/survey/screens/causation_screen.dart';
 import '../../features/survey/screens/repair_periods_screen.dart';
 import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
@@ -22,9 +23,12 @@ import '../../features/timeline/screens/timeline_screen.dart';
 import '../../features/photos/screens/photo_gallery_screen.dart';
 import '../../features/correspondence/screens/inbox_screen.dart';
 import '../../features/correspondence/screens/correspondence_screen.dart';
+import '../../features/background/screens/background_screen.dart';
 import '../../features/surveyor_notes/screens/surveyor_notes_screen.dart';
 import '../../features/timesheet/screens/timesheet_screen.dart';
 import '../../features/settings/screens/usage_screen.dart';
+import '../../features/settings/screens/account_screen.dart';
+import '../../features/settings/screens/debug_log_screen.dart';
 import '../../shared/screens/login_screen.dart';
 import '../../core/api/supabase_client.dart';
 
@@ -105,6 +109,11 @@ final appRouter = GoRouter(
                   OccurrenceScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
+              path: 'causation',
+              builder: (context, state) =>
+                  CausationScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'attendees',
               builder: (context, state) =>
                   AttendeesScreen(caseId: state.pathParameters['caseId']!),
@@ -135,6 +144,11 @@ final appRouter = GoRouter(
                   CorrespondenceScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
+              path: 'background',
+              builder: (context, state) =>
+                  BackgroundScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'notes',
               builder: (context, state) =>
                   SurveyorNotesScreen(caseId: state.pathParameters['caseId']!),
@@ -159,6 +173,14 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/usage',
       builder: (context, state) => const UsageScreen(),
+    ),
+    GoRoute(
+      path: '/account',
+      builder: (context, state) => const AccountScreen(),
+    ),
+    GoRoute(
+      path: '/debug-log',
+      builder: (context, state) => const DebugLogScreen(),
     ),
   ],
 );

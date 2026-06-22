@@ -209,9 +209,18 @@ class DocumentNotifier
 
     final doc = DocumentModel.fromJson(data);
 
-    // Prepend to list
-    final current = state.value ?? [];
-    state = AsyncData([doc, ...current]);
+    // Fetch fresh list from Supabase rather than prepending optimistically.
+    // This avoids a race where a concurrent re-fetch (e.g. triggered by
+    // ref.invalidate from FullExtractionReviewScreen) overwrites the state
+    // while this upload is in flight, causing the new document to disappear.
+    // The insert above has already committed, so the fresh fetch will always
+    // include it.
+    try {
+      state = AsyncData(await _fetch(arg));
+    } catch (_) {
+      final current = state.value ?? [];
+      state = AsyncData([doc, ...current]);
+    }
 
     return doc;
   }
@@ -237,8 +246,12 @@ class DocumentNotifier
         .single();
 
     final doc = DocumentModel.fromJson(data);
-    final current = state.value ?? [];
-    state = AsyncData([doc, ...current]);
+    try {
+      state = AsyncData(await _fetch(arg));
+    } catch (_) {
+      final current = state.value ?? [];
+      state = AsyncData([doc, ...current]);
+    }
     return doc;
   }
 
@@ -350,10 +363,10 @@ class ExtractionNotifier extends StateNotifier<ExtractionState> {
       final result = _buildResult(docId, raw);
       state = ExtractionState(result: result);
 
-      // Mark document as extracted in Supabase
+      // Mark document as awaiting user review — ai_extracted is only set to
+      // true once the user confirms the import on the review screen.
       await SupabaseService.client.from('documents').update({
-        'ai_extracted': true,
-        'extraction_status': 'completed',
+        'extraction_status': 'pending_review',
         'doc_type': raw['document_type'] as String?,
       }).eq('doc_id', docId);
 

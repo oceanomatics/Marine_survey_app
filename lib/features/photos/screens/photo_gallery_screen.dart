@@ -12,7 +12,6 @@ import '../providers/photo_provider.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
 import '../../../shared/theme/app_theme.dart';
-import '../../../shared/widgets/loading_widget.dart';
 
 const _kColor = AppColors.purple;
 const _kThumbSize = 110.0;

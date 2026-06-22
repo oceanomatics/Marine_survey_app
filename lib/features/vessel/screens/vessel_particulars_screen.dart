@@ -2,10 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../providers/vessel_provider.dart';
 import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
+import '../../documents/providers/document_provider.dart';
+import '../../settings/providers/account_provider.dart';
+import '../../../core/api/equasis_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../widgets/machinery_card.dart';
 import '../widgets/add_machinery_sheet.dart';
@@ -27,6 +32,7 @@ class _VesselParticularsScreenState
   late TabController _tabController;
   bool _saving = false;
   bool _hasChanges = false;
+  bool _fetchingEquasis = false;
 
   // ── Text controllers for all fields ───────────────────────────────────────
   final _nameCtrl         = TextEditingController();
@@ -129,7 +135,6 @@ class _VesselParticularsScreenState
           .saveVessel(vesselId: vesselId, fields: _collectFields());
       setState(() => _hasChanges = false);
 
-      // Refresh case providers so vessel name shows everywhere immediately
       ref.invalidate(caseProvider(widget.caseId));
       ref.invalidate(casesProvider);
 
@@ -142,6 +147,10 @@ class _VesselParticularsScreenState
           ),
         );
       }
+    } on ImoConflictException catch (e) {
+      if (mounted) showError(context, e.toString(), tag: 'Vessel');
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Vessel');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -165,7 +174,6 @@ class _VesselParticularsScreenState
           .saveVessel(vesselId: vessel.vesselId, fields: _collectFields());
       setState(() { _vesselId = vessel.vesselId; _hasChanges = false; });
 
-      // Refresh case providers so vessel name shows everywhere immediately
       ref.invalidate(caseProvider(widget.caseId));
       ref.invalidate(casesProvider);
 
@@ -178,8 +186,78 @@ class _VesselParticularsScreenState
           ),
         );
       }
+    } on ImoConflictException catch (e) {
+      if (mounted) showError(context, e.toString(), tag: 'Vessel');
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Vessel');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _fetchFromEquasis() async {
+    final imo = _imoCtrl.text.trim();
+    if (imo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter an IMO number first')),
+      );
+      return;
+    }
+
+    final account = ref.read(accountProvider).value;
+    final equasisAcc = account?.equasisAccount;
+    if (equasisAcc == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No Equasis account configured'),
+          action: SnackBarAction(
+            label: 'Account',
+            onPressed: () => context.go('/account'),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _fetchingEquasis = true);
+    try {
+      final pdfBytes = await EquasisService.fetchVesselReport(
+        imo: imo,
+        username: equasisAcc.username,
+        password: equasisAcc.password,
+        vesselName: _nameCtrl.text.trim(),
+      );
+
+      final now = DateTime.now();
+      final dateStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final filename = 'equasis_${imo}_$dateStr.pdf';
+
+      await ref.read(documentProvider(widget.caseId).notifier).uploadAndCreate(
+            caseId: widget.caseId,
+            bytes: pdfBytes,
+            filename: filename,
+            mimeType: 'application/pdf',
+            title: 'Equasis Ship Folder — IMO $imo ($dateStr)',
+            category: DocCategory.classReport,
+            willExtract: false,
+          );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Equasis report saved to Document Vault ✓'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Equasis fetch failed: $e', error: e, stack: st, tag: 'Vessel');
+    } finally {
+      if (mounted) setState(() => _fetchingEquasis = false);
     }
   }
 
@@ -234,6 +312,24 @@ class _VesselParticularsScreenState
           ],
         ),
         actions: [
+          // Equasis fetch — visible only when IMO is set
+          if (_imoCtrl.text.trim().isNotEmpty)
+            _fetchingEquasis
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.travel_explore,
+                        color: Colors.white),
+                    tooltip: 'Fetch from Equasis',
+                    onPressed: _fetchFromEquasis,
+                  ),
           if (_hasChanges || vesselId == null)
             Padding(
               padding: const EdgeInsets.only(right: 12),

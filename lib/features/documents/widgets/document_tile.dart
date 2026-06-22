@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/document_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
 
 class DocumentTile extends ConsumerWidget {
   const DocumentTile({
@@ -151,12 +152,8 @@ class DocumentTile extends ConsumerWidget {
               await ref
                   .read(documentProvider(doc.caseId).notifier)
                   .renameDocument(doc.docId, title);
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Rename failed: $e'),
-                    backgroundColor: AppColors.error));
-              }
+            } catch (e, st) {
+              if (context.mounted) showError(context, 'Rename failed: $e', error: e, stack: st, tag: 'Document');
             }
           },
         ),
@@ -173,12 +170,8 @@ class DocumentTile extends ConsumerWidget {
                 await ref
                     .read(documentProvider(doc.caseId).notifier)
                     .renameDocument(doc.docId, title);
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Rename failed: $e'),
-                      backgroundColor: AppColors.error));
-                }
+              } catch (e, st) {
+                if (context.mounted) showError(context, 'Rename failed: $e', error: e, stack: st, tag: 'Document');
               }
             },
             child: const Text('Save'),
@@ -205,12 +198,8 @@ class DocumentTile extends ConsumerWidget {
                 await ref
                     .read(documentProvider(doc.caseId).notifier)
                     .deleteDocument(doc);
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Delete failed: $e'),
-                      backgroundColor: AppColors.error));
-                }
+              } catch (e, st) {
+                if (context.mounted) showError(context, 'Delete failed: $e', error: e, stack: st, tag: 'Document');
               }
             },
             child: const Text('Delete',

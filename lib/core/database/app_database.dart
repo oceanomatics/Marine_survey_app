@@ -1,7 +1,13 @@
 // lib/core/database/app_database.dart
 //
-// SQLite singleton for local-first storage.
-// Supabase remains the cloud destination; sync is a separate step.
+// SQLite is the offline cache / write queue.
+// Supabase is the authoritative cloud store — data is synced to Supabase
+// as soon as connectivity is available.
+//
+// sync_status values (used by tables that mirror a Supabase table):
+//   'synced'         — matches Supabase
+//   'pending_upsert' — created or edited offline; needs upsert to Supabase
+//   'pending_delete' — deleted offline; needs delete on Supabase before removal here
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -23,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 3,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -71,10 +77,12 @@ class AppDatabase {
         case_id         TEXT NOT NULL,
         content         TEXT NOT NULL,
         category        TEXT NOT NULL DEFAULT 'general',
+        report_section  TEXT,
         linked_to_type  TEXT,
         linked_to_id    TEXT,
         created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
+        updated_at      TEXT NOT NULL,
+        sync_status     TEXT NOT NULL DEFAULT 'synced'
       )
     ''');
   }
@@ -115,6 +123,22 @@ class AppDatabase {
           updated_at      TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 4) {
+      try {
+        await db.execute(
+            'ALTER TABLE surveyor_notes ADD COLUMN report_section TEXT');
+      } catch (_) {
+        // Column already present (fresh install into v3+ path)
+      }
+    }
+    if (oldVersion < 5) {
+      try {
+        await db.execute(
+            "ALTER TABLE surveyor_notes ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
+      } catch (_) {
+        // Column already present (fresh install)
+      }
     }
   }
 }

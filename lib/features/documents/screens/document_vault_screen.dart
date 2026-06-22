@@ -9,6 +9,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pdfrx/pdfrx.dart';
 import '../../../core/utils/robust_downloader.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../providers/document_provider.dart';
 import '../widgets/document_tile.dart';
 import '../widgets/import_options_sheet.dart';
@@ -199,8 +200,11 @@ class DocumentVaultScreen extends ConsumerWidget {
     required DocCategory category,
     String? contextNotes,
   }) async {
-    final title = await _askTitle(context, filename);
-    if (title == null || !context.mounted) return;
+    final title = filename
+        .replaceAll(
+            RegExp(r'\.(pdf|docx|jpg|jpeg|png)$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[_\-]'), ' ')
+        .trim();
 
     final willExtract = category == DocCategory.certificate ||
         category == DocCategory.inspectionReport ||
@@ -219,12 +223,8 @@ class DocumentVaultScreen extends ConsumerWidget {
             category: category,
             willExtract: willExtract,
           );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Upload failed: $e'),
-            backgroundColor: AppColors.error));
-      }
+    } catch (e, st) {
+      if (context.mounted) showError(context, 'Upload failed: $e', error: e, stack: st, tag: 'Document');
       return;
     }
 
@@ -258,38 +258,6 @@ class DocumentVaultScreen extends ConsumerWidget {
     }
   }
 
-  Future<String?> _askTitle(BuildContext context, String filename) async {
-    final suggested = filename
-        .replaceAll(
-            RegExp(r'\.(pdf|docx|jpg|jpeg|png)$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'[_\-]'), ' ')
-        .trim();
-
-    final ctrl = TextEditingController(text: suggested);
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Document title',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Class Certificate — MV EXAMPLE',
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('Continue')),
-        ],
-      ),
-    );
-  }
 
   // ── Preview ──────────────────────────────────────────────────────────────
 
@@ -302,12 +270,8 @@ class DocumentVaultScreen extends ConsumerWidget {
       signedUrl = await SupabaseService.client.storage
           .from('documents')
           .createSignedUrl(doc.filePath!, 3600);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Cannot open document: $e'),
-            backgroundColor: AppColors.error));
-      }
+    } catch (e, st) {
+      if (context.mounted) showError(context, 'Cannot open document: $e', error: e, stack: st, tag: 'Document');
       return;
     }
 
@@ -351,12 +315,8 @@ class DocumentVaultScreen extends ConsumerWidget {
       signedUrl = await SupabaseService.client.storage
           .from('documents')
           .createSignedUrl(doc.filePath!, 3600);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Cannot access document: $e'),
-            backgroundColor: AppColors.error));
-      }
+    } catch (e, st) {
+      if (context.mounted) showError(context, 'Cannot access document: $e', error: e, stack: st, tag: 'Document');
       return;
     }
 
@@ -416,12 +376,10 @@ class DocumentVaultScreen extends ConsumerWidget {
         onProgress: (received, total) =>
             progressNotifier.value = (received, total),
       );
-    } catch (e) {
+    } catch (e, st) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Download failed after retries: $e'),
-            backgroundColor: AppColors.error));
+        showError(context, 'Download failed after retries: $e', error: e, stack: st, tag: 'Document');
       }
       progressNotifier.dispose();
       return;

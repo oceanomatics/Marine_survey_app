@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import '../providers/voice_note_provider.dart';
 import '../providers/quick_capture_provider.dart';
 import '../widgets/voice_note_card.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
@@ -177,12 +178,8 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
           duration: Duration(seconds: 2),
         ));
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Save failed: $e'),
-            backgroundColor: AppColors.error));
-      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
     } finally {
       if (mounted) setState(() => _saving = false);
     }

@@ -7,9 +7,11 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pdfrx/pdfrx.dart';
 import '../providers/document_provider.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../vessel/providers/vessel_provider.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class ExtractionReviewScreen extends ConsumerStatefulWidget {
@@ -188,16 +190,32 @@ class _ExtractionReviewScreenState
       // Save vessel fields
       if (vesselFields.isNotEmpty) {
         final vessel = vesselAsync.value;
-        if (vessel != null) {
+        final targetId = vessel != null
+            ? vessel.vesselId
+            : (await vesselNotifier.createVessel(
+                    caseId: widget.caseId,
+                    name: vesselFields['name'] as String? ?? 'TBC'))
+                .vesselId;
+
+        try {
           await vesselNotifier.saveVessel(
-              vesselId: vessel.vesselId, fields: vesselFields);
-        } else {
-          // Create vessel first
-          final name = vesselFields['name'] as String? ?? 'TBC';
-          final created = await vesselNotifier.createVessel(
-              caseId: widget.caseId, name: name);
-          await vesselNotifier.saveVessel(
-              vesselId: created.vesselId, fields: vesselFields);
+              vesselId: targetId, fields: vesselFields);
+        } on ImoConflictException catch (e) {
+          // Another vessel already owns this IMO — relink the case to it
+          // and apply the non-IMO fields there instead.
+          await SupabaseService.client
+              .from('cases')
+              .update({'vessel_id': e.existingVesselId})
+              .eq('case_id', widget.caseId);
+          final nonImo = Map<String, dynamic>.from(vesselFields)
+            ..remove('imo_number');
+          if (nonImo.isNotEmpty) {
+            await SupabaseService.client
+                .from('vessels')
+                .update(nonImo)
+                .eq('vessel_id', e.existingVesselId);
+          }
+          await vesselNotifier.refresh();
         }
       }
 
@@ -243,6 +261,8 @@ class _ExtractionReviewScreenState
         } catch (_) {}
       }
 
+      ref.invalidate(documentProvider(widget.caseId));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -253,14 +273,8 @@ class _ExtractionReviewScreenState
         );
         Navigator.pop(context);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error applying data: $e'),
-              backgroundColor: AppColors.error),
-        );
-      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Error applying data: $e', error: e, stack: st, tag: 'Import');
     } finally {
       if (mounted) setState(() => _applying = false);
     }
@@ -298,7 +312,11 @@ class _ExtractionReviewScreenState
         ],
       ),
       body: _extracting
-          ? _ExtractionLoading(docTitle: widget.doc.title)
+          ? _ExtractionLoading(
+            docTitle: widget.doc.title,
+            bytes: widget.bytes,
+            mimeType: widget.mimeType,
+          )
           : _error != null && _result == null
               ? _ExtractionError(
                   error: _error!,
@@ -443,42 +461,81 @@ class _ExtractionReviewScreenState
 // ── Sub-widgets ────────────────────────────────────────────────────────────
 
 class _ExtractionLoading extends StatelessWidget {
-  const _ExtractionLoading({required this.docTitle});
+  const _ExtractionLoading({
+    required this.docTitle,
+    required this.bytes,
+    required this.mimeType,
+  });
   final String docTitle;
+  final Uint8List bytes;
+  final String mimeType;
+
+  bool get _isImage => mimeType.startsWith('image/');
+  bool get _isPdf   => mimeType == 'application/pdf';
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+    return Column(children: [
+      // ── Document preview ────────────────────────────────────────
+      Expanded(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          clipBehavior: Clip.hardEdge,
+          child: _buildPreview(),
+        ),
+      ),
+      // ── Spinner + status ────────────────────────────────────────
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           const SizedBox(
-            width: 48,
-            height: 48,
+            width: 20, height: 20,
             child: CircularProgressIndicator(
-                color: AppColors.amber, strokeWidth: 3),
+                color: AppColors.amber, strokeWidth: 2.5),
           ),
-          const SizedBox(height: 20),
-          const Text('Analysing document...',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary)),
-          const SizedBox(height: 6),
-          Text(
-            docTitle,
-            textAlign: TextAlign.center,
-            style:
-                const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Claude is reading the document\nand extracting vessel data...',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+          const SizedBox(width: 14),
+          Flexible(
+            child: Text(
+              'Claude is reading "$docTitle"…',
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ]),
       ),
+    ]);
+  }
+
+  Widget _buildPreview() {
+    if (_isImage) {
+      return InteractiveViewer(
+        child: Image.memory(bytes, fit: BoxFit.contain),
+      );
+    }
+    if (_isPdf) {
+      return PdfViewer.data(
+        bytes,
+        sourceName: docTitle,
+        params: const PdfViewerParams(
+          margin: 4,
+          backgroundColor: Colors.transparent,
+        ),
+      );
+    }
+    // DOCX or other — show a simple icon placeholder
+    return const Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.description_outlined, size: 72, color: AppColors.textTertiary),
+        SizedBox(height: 12),
+        Text('Preview not available for this file type',
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+      ]),
     );
   }
 }

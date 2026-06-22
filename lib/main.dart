@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/api/supabase_client.dart';
 import 'core/config/app_router.dart';
+import 'core/widgets/import_review_banner.dart';
 import 'shared/theme/app_theme.dart';
 
 void main() async {
@@ -27,6 +28,9 @@ class MarineSurveyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
+      builder: (context, child) => Stack(
+        children: [child!, const ImportReviewBanner()],
+      ),
       title: 'Marine Survey',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

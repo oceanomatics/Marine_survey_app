@@ -116,6 +116,35 @@ class DamageRegisterScreen extends ConsumerWidget {
           );
     }
 
+    void confirmDeleteOccurrence(OccurrenceModel occ) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete occurrence?'),
+          content: Text(
+            'Delete "${occ.title ?? 'Occurrence ${occ.occurrenceNo}'}"? '
+            'All linked damage items and repairs will also be removed.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                ref
+                    .read(damageProvider(caseId).notifier)
+                    .deleteOccurrence(occ.occurrenceId);
+              },
+              child: const Text('Delete',
+                  style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(
@@ -152,6 +181,7 @@ class DamageRegisterScreen extends ConsumerWidget {
                 onDeleteItem: (damageId) => ref
                     .read(damageProvider(caseId).notifier)
                     .deleteDamageItem(damageId),
+                onDeleteOccurrence: confirmDeleteOccurrence,
                 onAddOccurrence: showAddOccurrence,
                 onAddPhoto: addPhotoForDamageItem,
                 onDeletePhoto: (photoId) => ref
@@ -173,6 +203,7 @@ class _DamageBody extends StatelessWidget {
     required this.onAddItem,
     required this.onEditItem,
     required this.onDeleteItem,
+    required this.onDeleteOccurrence,
     required this.onAddOccurrence,
     required this.onAddPhoto,
     required this.onDeletePhoto,
@@ -184,6 +215,7 @@ class _DamageBody extends StatelessWidget {
   final ValueChanged<String> onAddItem;
   final ValueChanged<DamageItemModel> onEditItem;
   final ValueChanged<String> onDeleteItem;
+  final ValueChanged<OccurrenceModel> onDeleteOccurrence;
   final VoidCallback onAddOccurrence;
   final Future<void> Function(String damageId) onAddPhoto;
   final void Function(String photoId) onDeletePhoto;
@@ -200,6 +232,7 @@ class _DamageBody extends StatelessWidget {
               occurrence: occ,
               itemCount: ds.itemsForOccurrence(occ.occurrenceId).length,
               onAddItem: () => onAddItem(occ.occurrenceId),
+              onDelete: () => onDeleteOccurrence(occ),
             ),
           ),
 
@@ -364,11 +397,13 @@ class _OccurrenceHeader extends StatelessWidget {
     required this.occurrence,
     required this.itemCount,
     required this.onAddItem,
+    required this.onDelete,
   });
 
   final OccurrenceModel occurrence;
   final int itemCount;
   final VoidCallback onAddItem;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -442,21 +477,42 @@ class _OccurrenceHeader extends StatelessWidget {
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                '$itemCount item${itemCount == 1 ? '' : 's'}',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.coral.withValues(alpha: 0.8),
-                    fontWeight: FontWeight.w500),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '$itemCount item${itemCount == 1 ? '' : 's'}',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.coral.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: onAddItem,
+                    child: const Icon(Icons.add_circle_outline,
+                        color: AppColors.coral, size: 22),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              GestureDetector(
-                onTap: onAddItem,
-                child: const Icon(Icons.add_circle_outline,
-                    color: AppColors.coral, size: 22),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert,
+                    color: AppColors.coral.withValues(alpha: 0.8), size: 20),
+                padding: EdgeInsets.zero,
+                onSelected: (v) {
+                  if (v == 'delete') onDelete();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Delete occurrence',
+                        style: TextStyle(color: Colors.red)),
+                  ),
+                ],
               ),
             ],
           ),

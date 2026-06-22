@@ -33,6 +33,12 @@ class CasesListScreen extends ConsumerWidget {
             onPressed: () => context.go('/usage'),
             tooltip: 'API usage',
           ),
+          IconButton(
+            icon: const Icon(Icons.manage_accounts_outlined,
+                color: Colors.white),
+            onPressed: () => context.go('/account'),
+            tooltip: 'Account',
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

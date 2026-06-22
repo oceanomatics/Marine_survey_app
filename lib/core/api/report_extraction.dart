@@ -5,6 +5,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:archive/archive.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
@@ -33,13 +34,6 @@ class ReportExtraction {
     String? caseId,
     String? contextNotes,
   }) async {
-    if (mediaType.contains('wordprocessingml') || mediaType.contains('msword')) {
-      throw UnsupportedError(
-        'DOCX files cannot be analysed directly. '
-        'Please export the report as a PDF and import that instead.',
-      );
-    }
-
     final hint = documentHint != null
         ? 'This is a $documentHint. '
         : 'This appears to be a marine survey report. ';
@@ -48,37 +42,7 @@ class ReportExtraction {
         ? '\nSurveyor context note: ${contextNotes.trim()}\nTake this note into account when interpreting the document.\n'
         : '';
 
-    // PDFs use the "document" block type; images use "image".
-    final contentBlock = mediaType == 'application/pdf'
-        ? {
-            'type': 'document',
-            'source': {
-              'type': 'base64',
-              'media_type': 'application/pdf',
-              'data': base64Content,
-            },
-          }
-        : {
-            'type': 'image',
-            'source': {
-              'type': 'base64',
-              'media_type': mediaType,
-              'data': base64Content,
-            },
-          };
-
-    final payload = {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 4096,
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
-            contentBlock,
-            {
-              'type': 'text',
-              'text': '''$hint$contextSection\nExtract ALL structured data from this marine survey report and return ONLY a JSON object with no preamble or markdown. Extract every field you can identify.
-
+    const extractionTemplate = '''
 {
   "report_meta": {
     "report_number": "",
@@ -132,8 +96,11 @@ class ReportExtraction {
       "location": "",
       "title": "",
       "brief_description": "",
-      "background_narrative": "",
-      "ism_reported": null
+      "background_narrative": "Copy verbatim from the report — do not summarise or truncate",
+      "ism_reported": null,
+      "cause_type": "grounding|collision|contact|fire|explosion|flooding|heavy_weather|machinery_failure|structural_failure|crew_error|port_damage|ice_damage|lightning|malicious|other",
+      "allegation_type": "formal_allegation|no_formal_allegation|tbc",
+      "cause_narrative": "Copy verbatim from causation/allegation section — do not summarise"
     }
   ],
   "damage_items": [
@@ -188,13 +155,57 @@ class ReportExtraction {
     "drydock_days": null,
     "afloat_days": null
   },
-  "cause_narrative": "",
+  "cause_narrative": "Copy verbatim — do not summarise",
   "allegation_type": "formal_allegation|no_formal_allegation|tbc"
 }
 
-Return null for missing numeric fields. Return empty string for missing text fields. Dates in ISO format YYYY-MM-DD.''',
-            },
-          ],
+Return null for missing numeric fields. Return empty string for missing text fields. Dates in ISO format YYYY-MM-DD. Copy all narrative text verbatim — never summarise or truncate.''';
+
+    // Build content blocks — DOCX is extracted as text; PDF/images use native blocks.
+    final List<Map<String, dynamic>> contentBlocks;
+    if (mediaType.contains('wordprocessingml') || mediaType.contains('msword')) {
+      final rawBytes = base64Decode(base64Content);
+      final docxText = _extractDocxText(rawBytes);
+      contentBlocks = [
+        {
+          'type': 'text',
+          'text': '$hint$contextSection\nExtract ALL structured data from this marine survey report and return ONLY a JSON object with no preamble or markdown. Extract every field you can identify. Copy all narrative text verbatim.\n\n<document_text>\n$docxText\n</document_text>\n\n$extractionTemplate',
+        }
+      ];
+    } else {
+      final mediaBlock = mediaType == 'application/pdf'
+          ? {
+              'type': 'document',
+              'source': {
+                'type': 'base64',
+                'media_type': 'application/pdf',
+                'data': base64Content,
+              },
+            }
+          : {
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': mediaType,
+                'data': base64Content,
+              },
+            };
+      contentBlocks = [
+        mediaBlock,
+        {
+          'type': 'text',
+          'text': '$hint$contextSection\nExtract ALL structured data from this marine survey report and return ONLY a JSON object with no preamble or markdown. Extract every field you can identify. Copy all narrative text verbatim.\n\n$extractionTemplate',
+        },
+      ];
+    }
+
+    final payload = {
+      'model': AppConfig.claudeModel,
+      'max_tokens': 8096,
+      'messages': [
+        {
+          'role': 'user',
+          'content': contentBlocks,
         },
       ],
     };
@@ -325,6 +336,43 @@ Return null for missing numeric fields. Return empty string for missing text fie
     } catch (e) {
       return {};
     }
+  }
+
+  /// Extracts plain text from a DOCX file (which is a ZIP of XML).
+  /// Reads word/document.xml and pulls text from <w:t> elements,
+  /// preserving paragraph breaks.
+  static String _extractDocxText(Uint8List bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    ArchiveFile? docFile;
+    for (final file in archive) {
+      if (file.name == 'word/document.xml') {
+        docFile = file;
+        break;
+      }
+    }
+    if (docFile == null) {
+      throw UnsupportedError('Invalid DOCX: word/document.xml not found');
+    }
+    final xmlStr = utf8.decode(docFile.content as List<int>);
+
+    final buf      = StringBuffer();
+    final paraRe   = RegExp(r'<w:p[ />].*?</w:p>', dotAll: true);
+    final textRe   = RegExp(r'<w:t[^>]*>(.*?)</w:t>', dotAll: true);
+
+    for (final para in paraRe.allMatches(xmlStr)) {
+      final paraBuf = StringBuffer();
+      for (final t in textRe.allMatches(para.group(0)!)) {
+        paraBuf.write((t.group(1) ?? '')
+            .replaceAll('&amp;',  '&')
+            .replaceAll('&lt;',   '<')
+            .replaceAll('&gt;',   '>')
+            .replaceAll('&quot;', '"')
+            .replaceAll('&apos;', "'"));
+      }
+      final line = paraBuf.toString().trim();
+      if (line.isNotEmpty) buf.writeln(line);
+    }
+    return buf.toString().trim();
   }
 }
 

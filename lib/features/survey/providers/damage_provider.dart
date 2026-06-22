@@ -51,6 +51,39 @@ enum RepairStatus {
           orElse: () => RepairStatus.notStarted);
 }
 
+// ── H&M cause types ────────────────────────────────────────────────────────
+
+enum HMCauseType {
+  grounding('grounding', 'Grounding / Stranding'),
+  collision('collision', 'Collision'),
+  contact('contact', 'Contact'),
+  fire('fire', 'Fire'),
+  explosion('explosion', 'Explosion'),
+  flooding('flooding', 'Flooding'),
+  heavyWeather('heavy_weather', 'Heavy Weather'),
+  machineryFailure('machinery_failure', 'Machinery Failure'),
+  structuralFailure('structural_failure', 'Structural Failure'),
+  crewError('crew_error', 'Crew / Nav. Error'),
+  portDamage('port_damage', 'Port / Berth Damage'),
+  iceDamage('ice_damage', 'Ice Damage'),
+  lightning('lightning', 'Lightning Strike'),
+  malicious('malicious', 'Malicious Damage'),
+  other('other', 'Other');
+
+  const HMCauseType(this.value, this.label);
+  final String value;
+  final String label;
+
+  static HMCauseType? fromValue(String? v) {
+    if (v == null) return null;
+    try {
+      return values.firstWhere((e) => e.value == v);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 // ── Occurrence model ───────────────────────────────────────────────────────
 
 @immutable
@@ -65,7 +98,9 @@ class OccurrenceModel {
     this.briefDescription,
     this.backgroundNarrative,
     this.chronology,
+    this.causeType,
     this.allegationType,
+    this.causeAgreement,
     this.causeNarrative,
     this.ismReported,
     this.createdAt,
@@ -80,7 +115,9 @@ class OccurrenceModel {
   final String? briefDescription;
   final String? backgroundNarrative;
   final String? chronology;
+  final String? causeType;
   final String? allegationType;
+  final String? causeAgreement;
   final String? causeNarrative;
   final bool? ismReported;
   final DateTime? createdAt;
@@ -97,7 +134,9 @@ class OccurrenceModel {
         briefDescription:    j['brief_description'] as String?,
         backgroundNarrative: j['background_narrative'] as String?,
         chronology:          j['chronology'] as String?,
+        causeType:           j['cause_type'] as String?,
         allegationType:      j['allegation_type'] as String?,
+        causeAgreement:      j['cause_agreement'] as String?,
         causeNarrative:      j['cause_narrative'] as String?,
         ismReported:         j['ism_reported'] as bool?,
         createdAt:           j['created_at'] != null
@@ -115,7 +154,9 @@ class OccurrenceModel {
         if (backgroundNarrative != null)
           'background_narrative': backgroundNarrative,
         if (chronology != null)        'chronology':         chronology,
+        if (causeType != null)         'cause_type':         causeType,
         if (allegationType != null)    'allegation_type':    allegationType,
+        if (causeAgreement != null)    'cause_agreement':    causeAgreement,
         if (causeNarrative != null)    'cause_narrative':    causeNarrative,
         if (ismReported != null)       'ism_reported':       ismReported,
       };
@@ -475,6 +516,48 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .from('occurrences')
         .update(occ.toInsertJson())
         .eq('occurrence_id', occ.occurrenceId);
+    await refresh();
+  }
+
+  Future<void> deleteOccurrence(String occurrenceId) async {
+    final current = state.value!;
+
+    // Cascade in dependency order so FK constraints are not violated.
+    final dmgIds = current.damageItems
+        .where((d) => d.occurrenceId == occurrenceId)
+        .map((d) => d.damageId)
+        .toList();
+
+    if (dmgIds.isNotEmpty) {
+      try {
+        await SupabaseService.client
+            .from('repair_damage_links')
+            .delete()
+            .inFilter('damage_id', dmgIds);
+      } catch (e) {
+        debugPrint('[DamageNotifier] repair_damage_links cleanup: $e');
+      }
+    }
+
+    try {
+      await SupabaseService.client
+          .from('repairs')
+          .delete()
+          .eq('occurrence_id', occurrenceId);
+    } catch (e) {
+      debugPrint('[DamageNotifier] repairs cleanup: $e');
+    }
+
+    await SupabaseService.client
+        .from('damage_items')
+        .delete()
+        .eq('occurrence_id', occurrenceId);
+
+    await SupabaseService.client
+        .from('occurrences')
+        .delete()
+        .eq('occurrence_id', occurrenceId);
+
     await refresh();
   }
 

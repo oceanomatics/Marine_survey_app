@@ -7,6 +7,7 @@ import '../models/party_model.dart';
 import '../providers/parties_provider.dart';
 import '../widgets/assured_contact_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
 // Accent colour for Parties module
@@ -140,15 +141,8 @@ class _PartiesFormState extends ConsumerState<_PartiesForm> {
           ),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Save failed: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
     } finally {
       if (mounted) setState(() => _saving = false);
     }

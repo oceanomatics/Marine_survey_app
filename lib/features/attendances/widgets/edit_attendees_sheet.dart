@@ -365,6 +365,26 @@ class _AttendeeRowState extends State<_AttendeeRow> {
                 icon: const Icon(Icons.close,
                     size: 18, color: AppColors.textTertiary),
                 onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Remove attendee?'),
+                      content: Text(
+                          'Remove ${widget.attendee.fullName} from this attendance?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Remove',
+                              style: TextStyle(color: AppColors.error)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true || !mounted) return;
                   setState(() => _deleting = true);
                   await widget.onDelete();
                 },
