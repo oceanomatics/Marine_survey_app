@@ -131,6 +131,7 @@ class _CaseHomeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: AppColors.surface,
       appBar: _SurveyAppBar(
         survey: survey,
