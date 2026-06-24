@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../cases/providers/cases_provider.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,7 @@ class DamageItemModel {
     required this.componentName,
     this.damageCategory = DamageCategory.other,
     this.machineryId,
+    this.componentId,
     this.locationOnVessel,
     this.damageDescription,
     this.conditionFound,
@@ -195,6 +197,7 @@ class DamageItemModel {
   final String componentName;
   final DamageCategory damageCategory;
   final String? machineryId;
+  final String? componentId;
   final String? locationOnVessel;
   final String? damageDescription;
   final String? conditionFound;
@@ -214,6 +217,7 @@ class DamageItemModel {
         damageCategory:    DamageCategory.fromValue(
             j['damage_category'] as String? ?? 'other'),
         machineryId:       j['machinery_id'] as String?,
+        componentId:       j['component_id'] as String?,
         locationOnVessel:  j['location_on_vessel'] as String?,
         damageDescription: j['damage_description'] as String?,
         conditionFound:    j['condition_found'] as String?,
@@ -236,6 +240,7 @@ class DamageItemModel {
         'component_name':  componentName,
         'damage_category': damageCategory.value,
         if (machineryId != null)       'machinery_id':        machineryId,
+        if (componentId != null)       'component_id':        componentId,
         if (locationOnVessel != null)  'location_on_vessel':  locationOnVessel,
         if (damageDescription != null) 'damage_description':  damageDescription,
         if (conditionFound != null)    'condition_found':     conditionFound,
@@ -250,6 +255,7 @@ class DamageItemModel {
     String? componentName,
     DamageCategory? damageCategory,
     String? machineryId,
+    String? componentId,
     String? locationOnVessel,
     String? damageDescription,
     String? conditionFound,
@@ -265,6 +271,7 @@ class DamageItemModel {
         componentName:     componentName     ?? this.componentName,
         damageCategory:    damageCategory    ?? this.damageCategory,
         machineryId:       machineryId       ?? this.machineryId,
+        componentId:       componentId       ?? this.componentId,
         locationOnVessel:  locationOnVessel  ?? this.locationOnVessel,
         damageDescription: damageDescription ?? this.damageDescription,
         conditionFound:    conditionFound    ?? this.conditionFound,
@@ -509,6 +516,12 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .single();
 
     final occ = OccurrenceModel.fromJson(data);
+
+    // Sync case title when the first occurrence is created with a title.
+    if (current.occurrences.isEmpty && title.isNotEmpty) {
+      await _syncCaseTitleFromOccurrence(occ);
+    }
+
     state = AsyncData(DamageState(
       occurrences: [...current.occurrences, occ],
       damageItems: current.damageItems,
@@ -518,11 +531,78 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
   }
 
   Future<void> updateOccurrence(OccurrenceModel occ) async {
+    debugPrint('[DamageNotifier.updateOccurrence] START id=${occ.occurrenceId}');
+    // Explicit null values for causation fields so Supabase clears them on the
+    // row rather than leaving old values in place (toInsertJson omits nulls).
+    final payload = occ.toInsertJson()
+      ..['cause_type']      = occ.causeType
+      ..['cause_agreement'] = occ.causeAgreement
+      ..['cause_narrative'] = occ.causeNarrative
+      ..['allegation_type'] = occ.allegationType;
+
+    debugPrint('[DamageNotifier.updateOccurrence] payload keys: ${payload.keys.toList()}');
+    debugPrint('[DamageNotifier.updateOccurrence] state type: ${state.runtimeType}, hasValue: ${state.hasValue}');
+
     await SupabaseService.client
         .from('occurrences')
-        .update(occ.toInsertJson())
+        .update(payload)
         .eq('occurrence_id', occ.occurrenceId);
-    await refresh();
+
+    debugPrint('[DamageNotifier.updateOccurrence] Supabase update done');
+
+    // Update local state directly — avoids the AsyncLoading flash that
+    // refresh() would trigger, so the causation card updates immediately.
+    final current = state.value;
+    if (current == null) {
+      debugPrint('[DamageNotifier.updateOccurrence] ERROR: state.value is null (state=${state.runtimeType})');
+      throw StateError('Provider state unavailable during update (state=${state.runtimeType})');
+    }
+    state = AsyncData(DamageState(
+      occurrences: current.occurrences
+          .map((o) => o.occurrenceId == occ.occurrenceId ? occ : o)
+          .toList(),
+      damageItems: current.damageItems,
+      repairs: current.repairs,
+    ));
+    debugPrint('[DamageNotifier.updateOccurrence] local state updated');
+
+    // Sync case title when the primary (or only) occurrence is updated.
+    final isOnlyOccurrence = current.occurrences.length == 1;
+    if ((occ.isPrimary || isOnlyOccurrence) &&
+        occ.title != null &&
+        occ.title!.isNotEmpty) {
+      await _syncCaseTitleFromOccurrence(occ);
+    }
+    debugPrint('[DamageNotifier.updateOccurrence] DONE');
+  }
+
+  Future<void> _syncCaseTitleFromOccurrence(OccurrenceModel occ) async {
+    try {
+      final caseRow = await SupabaseService.client
+          .from('cases')
+          .select('job_number, case_type, vessels(name)')
+          .eq('case_id', arg)
+          .single();
+      final jobNo   = caseRow['job_number'] as String? ?? '';
+      final vName   = (caseRow['vessels'] as Map?)?['name'] as String? ?? '';
+      final ctLabel = _caseTypeLabel(caseRow['case_type'] as String? ?? '');
+      final occTitle = occ.title ?? '';
+      final parts = [
+        if (jobNo.isNotEmpty)    jobNo,
+        if (vName.isNotEmpty)    vName,
+        if (ctLabel.isNotEmpty)  ctLabel,
+        if (occTitle.isNotEmpty) occTitle,
+      ];
+      if (parts.isNotEmpty) {
+        await SupabaseService.client
+            .from('cases')
+            .update({'title': parts.join(' – ')})
+            .eq('case_id', arg);
+        ref.invalidate(casesProvider);
+      }
+    } catch (e) {
+      debugPrint('[DamageNotifier] _syncCaseTitleFromOccurrence: $e');
+    }
   }
 
   Future<void> setPrimaryOccurrence(String occurrenceId) async {

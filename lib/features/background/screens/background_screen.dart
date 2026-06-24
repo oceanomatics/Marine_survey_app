@@ -10,6 +10,7 @@ import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../providers/background_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/save_bar.dart';
 
 const _kAccent = Color(0xFF2A6B9E);
 
@@ -82,6 +83,10 @@ class _BackgroundScreenState extends ConsumerState<BackgroundScreen> {
           backgroundColor: AppColors.surface,
           appBar: _BackgroundAppBar(
             dirty: _dirty,
+            saving: _saving,
+          ),
+          bottomNavigationBar: SaveBar(
+            visible: _dirty,
             saving: _saving,
             onSave: _doSave,
           ),
@@ -156,12 +161,10 @@ class _BackgroundAppBar extends StatelessWidget
   const _BackgroundAppBar({
     required this.dirty,
     required this.saving,
-    required this.onSave,
   });
 
   final bool dirty;
   final bool saving;
-  final VoidCallback onSave;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -190,17 +193,6 @@ class _BackgroundAppBar extends StatelessWidget
                 color: Colors.white38, size: 15),
         ],
       ),
-      actions: [
-        if (dirty && !saving)
-          TextButton(
-            onPressed: onSave,
-            child: const Text('Save',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14)),
-          ),
-      ],
     );
   }
 }
@@ -560,37 +552,34 @@ class _CueSheetState extends State<_CueSheet> {
           const SizedBox(height: 12),
 
           // ── Category chips ───────────────────────────────────────
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
               children: NoteCategory.values.map((cat) {
                 final selected = _category == cat;
                 final color = _catColor(cat);
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _category = cat),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 140),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 11, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? color
-                            : color.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: color.withValues(
-                                alpha: selected ? 1.0 : 0.25)),
-                      ),
-                      child: Text(cat.label,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: selected ? Colors.white : color)),
+                return GestureDetector(
+                  onTap: () => setState(() => _category = cat),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 11, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? color
+                          : color.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: color.withValues(
+                              alpha: selected ? 1.0 : 0.25)),
                     ),
+                    child: Text(cat.label,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: selected ? Colors.white : color)),
                   ),
                 );
               }).toList(),

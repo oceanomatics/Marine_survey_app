@@ -24,6 +24,8 @@ import '../../timeline/providers/timeline_provider.dart';
 import '../../timeline/models/timeline_event_model.dart';
 import '../../survey/providers/repair_period_provider.dart';
 import '../../survey/models/repair_period_model.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
 
@@ -284,6 +286,11 @@ class _SurveyNavRail extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final caseModel = ref.watch(caseProvider(caseId)).value;
+    final notes = ref.watch(surveyorNotesProvider(caseId)).value ?? [];
+    final unallocatedCount = notes
+        .where((n) =>
+            n.reportSection == null && n.priority != CuePriority.ignored)
+        .length;
 
     return Container(
       width: 68,
@@ -334,6 +341,7 @@ class _SurveyNavRail extends ConsumerWidget {
             icon: Icons.label_outline,
             label: 'Context',
             accent: const Color(0xFF4A7A5A),
+            badgeCount: unallocatedCount,
             onTap: () => context.go('/cases/$caseId/notes'),
           ),
           _NavItem(
@@ -772,12 +780,14 @@ class _NavItem extends StatelessWidget {
     required this.label,
     required this.accent,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   final IconData icon;
   final String label;
   final Color accent;
   final VoidCallback onTap;
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -821,6 +831,32 @@ class _NavItem extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (badgeCount > 0)
+                    Positioned(
+                      top: 0,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        constraints: const BoxConstraints(minWidth: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDC2626),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: const Color(0xFFD5E8F5), width: 1.5),
+                        ),
+                        child: Text(
+                          badgeCount > 99 ? '99+' : '$badgeCount',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

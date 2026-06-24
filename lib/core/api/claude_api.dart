@@ -83,13 +83,21 @@ class ClaudeApi {
   "cert_name": "",
   "vessel_name": "",
   "imo_number": "",
+  "vessel_type": "",
   "flag": "",
+  "port_of_registry": "",
   "gross_tonnage": null,
   "net_tonnage": null,
   "deadweight": null,
+  "holds_count": null,
+  "tanks_count": null,
   "length_oa": null,
+  "length_bp": null,
   "breadth": null,
-  "draft": null,
+  "breadth_qualifier": "",
+  "depth": null,
+  "max_draft": null,
+  "draft_qualifier": "",
   "year_built": null,
   "build_yard": "",
   "build_country": "",
@@ -97,23 +105,90 @@ class ClaudeApi {
   "operators": "",
   "class_society": "",
   "class_notation": "",
+  "service_speed": null,
+  "propulsion_type": "",
+  "propeller_type": "",
+  "propulsion_drive_type": "",
+  "mcr_power_value": null,
+  "mcr_rpm": null,
+  "mcr_power_unit": "kW",
   "issuing_authority": "",
   "issue_date": "",
   "expiry_date": "",
   "annual_survey_date": "",
   "cert_number": "",
-  "port_of_registry": "",
   "language": "en",
   "additional_fields": {}
 }
 
 Return null for fields not found. Dates in ISO format YYYY-MM-DD.
-If build_country is not explicitly stated, infer it from the build_yard address (e.g. "Hyundai, Ulsan, South Korea" → build_country = "South Korea").''',
+If build_country is not explicitly stated, infer it from the build_yard address.
+For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA)|Breadth|Beam"; draft_qualifier from "Load Line Draft|Max Draft|Draft".''',
             },
           ],
         },
       ],
     });
+
+    final text = _extractText(response.data);
+    return _parseJson(text);
+  }
+
+  // ── Nameplate Extraction ──────────────────────────────────────────────────
+
+  /// Extract structured data from a machinery or equipment nameplate photo.
+  static Future<Map<String, dynamic>> extractNameplate({
+    required String base64Image,
+    required String mediaType,
+  }) async {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'nameplate_extraction'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 600,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'image',
+                'source': {
+                  'type': 'base64',
+                  'media_type': mediaType,
+                  'data': base64Image,
+                },
+              },
+              {
+                'type': 'text',
+                'text': '''This is a machinery or equipment nameplate from a marine vessel. Extract every readable field and return ONLY a JSON object with no preamble or markdown:
+
+{
+  "manufacturer": "",
+  "model": "",
+  "part_number": "",
+  "serial_number": "",
+  "date_of_manufacture": "",
+  "rated_power_kw": null,
+  "rated_rpm": null,
+  "voltage_v": null,
+  "frequency_hz": null,
+  "current_a": null,
+  "weight_kg": null,
+  "additional_info": ""
+}
+
+Rules:
+- Return null for numeric fields not found, "" for text fields not found.
+- date_of_manufacture: year only is fine (e.g. "2009"), or ISO date if full date visible.
+- rated_power_kw: convert from kW, bhp, or hp — store in kW (1 hp = 0.7457 kW, 1 bhp = 0.7457 kW).
+- additional_info: any other text on the nameplate not captured above (certifications, standards, class marks, etc.) as a single readable string.
+- If a value is partially legible, include what you can read.''',
+              },
+            ],
+          },
+        ],
+      },
+    );
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -137,7 +212,7 @@ If build_country is not explicitly stated, infer it from the build_yard address 
 
 $pdfText
 
-Return:
+Return ONLY valid JSON, no preamble:
 {
   "vessel_name": "",
   "imo_number": "",
@@ -147,11 +222,15 @@ Return:
   "gross_tonnage": null,
   "net_tonnage": null,
   "deadweight": null,
+  "holds_count": null,
+  "tanks_count": null,
   "length_oa": null,
   "length_bp": null,
   "breadth": null,
+  "breadth_qualifier": "",
   "depth": null,
   "max_draft": null,
+  "draft_qualifier": "",
   "year_built": null,
   "build_yard": "",
   "build_country": "",
@@ -160,6 +239,12 @@ Return:
   "class_society": "",
   "class_notation": "",
   "service_speed": null,
+  "propulsion_type": "",
+  "propeller_type": "",
+  "propulsion_drive_type": "",
+  "mcr_power_value": null,
+  "mcr_rpm": null,
+  "mcr_power_unit": "kW",
   "machinery": [
     {
       "machinery_type": "",
@@ -174,6 +259,13 @@ Return:
   ]
 }
 
+Field guidance:
+- breadth_qualifier: choose from "Moulded Breadth", "Extreme Breadth", "Beam (OA)", "Breadth", "Beam"
+- draft_qualifier: choose from "Load Line Draft", "Max Draft", "Draft"
+- propulsion_type: choose from "single screw, motor driven", "twin screw, motor driven", "single screw, steam turbine driven"
+- propeller_type: choose from "Single screw fixed pitch", "Twin screw fixed pitch", "Single Azipod", "Twin Azipods", "Single screw variable pitch", "Twin screw variable pitch", "Water Jet"
+- propulsion_drive_type: choose from "Direct drive", "Via reduction gearbox", "Via double reduction gearbox", "Electric Motor"
+- mcr_power_value: numeric MCR value; set mcr_power_unit to "kW" or "bhp"
 Dates in ISO format. Return null for missing fields.''',
         },
       ],
@@ -262,6 +354,57 @@ Draft the cause consideration now:''',
       ],
     });
 
+    return _extractText(response.data);
+  }
+
+  // ── Sub-causation narrative draft ─────────────────────────────────────────
+
+  /// Draft a concise sub-causation / contributing factors narrative for the
+  /// Allegation / Causation section of a marine survey report.
+  static Future<String> draftSubCausation({
+    required String occurrenceTitle,
+    required String causeTypeLabel,
+    required String? allegationType,
+    required String? briefDescription,
+    required String? backgroundNarrative,
+    required List<String> contextCues,
+  }) async {
+    final cuesText = contextCues.isNotEmpty
+        ? '\n\nSURVEYOR CONTEXT CUES:\n${contextCues.map((c) => '• $c').join('\n')}'
+        : '';
+    final bgText = backgroundNarrative != null && backgroundNarrative.isNotEmpty
+        ? '\n\nBACKGROUND:\n$backgroundNarrative'
+        : '';
+    final descText = briefDescription != null && briefDescription.isNotEmpty
+        ? '\n\nBRIEF DESCRIPTION:\n$briefDescription'
+        : '';
+    final allegLabel = switch (allegationType) {
+      'formal_allegation'    => 'Formal allegation raised',
+      'no_formal_allegation' => 'No formal allegation raised',
+      _                      => 'Allegation status TBC',
+    };
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'sub_causation_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 600,
+        'messages': [
+          {
+            'role': 'user',
+            'content': '''Draft a concise SUB-CAUSATION / CONTRIBUTING FACTORS paragraph (2–4 sentences) for a marine survey report.
+Write in precise technical prose. Explain the sequence of events or contributing factors that led to this casualty. Do not speculate beyond the information provided.
+
+OCCURRENCE: $occurrenceTitle
+CAUSE TYPE: $causeTypeLabel
+ALLEGATION STATUS: $allegLabel$descText$bgText$cuesText
+
+Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
+          },
+        ],
+      },
+    );
     return _extractText(response.data);
   }
 
@@ -379,6 +522,15 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
     "gross_tonnage": null,
     "net_tonnage": null,
     "deadweight": null,
+    "holds_count": null,
+    "tanks_count": null,
+    "length_oa": null,
+    "length_bp": null,
+    "breadth": null,
+    "breadth_qualifier": "",
+    "depth": null,
+    "max_draft": null,
+    "draft_qualifier": "",
     "year_built": null,
     "build_yard": "",
     "build_country": "",
@@ -386,7 +538,13 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
     "operators": "",
     "class_society": "",
     "class_notation": "",
-    "service_speed": null
+    "service_speed": null,
+    "propulsion_type": "",
+    "propeller_type": "",
+    "propulsion_drive_type": "",
+    "mcr_power_value": null,
+    "mcr_rpm": null,
+    "mcr_power_unit": "kW"
   }
 }
 
@@ -395,7 +553,16 @@ Rules:
 - context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
 - detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none
 - detected_machinery: list each distinct machinery item mentioned with technical data; leave as [] if none or if only named in passing without any technical detail
-- vessel_data: populate ONLY for intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, etc.); omit fields not present; numeric values must be numbers; leave as {} if not applicable
+- vessel_data: populate for intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, class certificates, vessel particulars sheets, etc.); omit fields not present; numeric values must be numbers; leave as {} if not applicable
+- vessel_data field guidance:
+  · breadth_qualifier: if stated, choose closest from: "Moulded Breadth", "Extreme Breadth", "Beam (OA)", "Breadth", "Beam"
+  · draft_qualifier: if stated, choose closest from: "Load Line Draft", "Max Draft", "Draft"
+  · propulsion_type: if stated, choose closest from: "single screw, motor driven", "twin screw, motor driven", "single screw, steam turbine driven"
+  · propeller_type: if stated, choose closest from: "Single screw fixed pitch", "Twin screw fixed pitch", "Single Azipod", "Twin Azipods", "Single screw variable pitch", "Twin screw variable pitch", "Water Jet"
+  · propulsion_drive_type: if stated, choose closest from: "Direct drive", "Via reduction gearbox", "Via double reduction gearbox", "Electric Motor"
+  · mcr_power_value: the numeric MCR power value; set mcr_power_unit to "kW" or "bhp" accordingly
+  · holds_count: integer number of cargo holds (cargo ships, bulk carriers)
+  · tanks_count: integer number of cargo tanks (tankers, chemical carriers)
 - Return ONLY the JSON object, no other text''',
               },
             ],

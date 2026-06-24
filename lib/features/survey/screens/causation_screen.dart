@@ -6,6 +6,8 @@ import '../providers/damage_provider.dart';
 import '../widgets/causation_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 
 class CausationScreen extends ConsumerWidget {
   const CausationScreen({super.key, required this.caseId});
@@ -30,45 +32,58 @@ class CausationScreen extends ConsumerWidget {
               return a.dateTime!.compareTo(b.dateTime!);
             });
 
-          if (occs.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.gavel_outlined,
-                        size: 64, color: AppColors.textTertiary),
-                    SizedBox(height: 16),
-                    Text(
-                      'No occurrences recorded',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
+          return Column(
+            children: [
+              Expanded(
+                child: occs.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.gavel_outlined,
+                                  size: 64,
+                                  color: AppColors.textTertiary),
+                              SizedBox(height: 16),
+                              Text(
+                                'No occurrences recorded',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Add an occurrence first before recording\ncausation details.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textTertiary),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding:
+                            const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                        itemCount: occs.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 12),
+                        itemBuilder: (_, i) => _CausationCard(
+                          occurrence: occs[i],
+                          onEdit: () =>
+                              _showSheet(context, ref, occs[i]),
+                        ),
                       ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Add an occurrence first before recording\ncausation details.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.textTertiary),
-                    ),
-                  ],
-                ),
               ),
-            );
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
-            itemCount: occs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) => _CausationCard(
-              occurrence: occs[i],
-              onEdit: () => _showSheet(context, ref, occs[i]),
-            ),
+              ContextCuesPanel(
+                caseId: caseId,
+                section: ReportSection.causation,
+              ),
+            ],
           );
         },
       ),
@@ -192,32 +207,31 @@ class _CausationCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Row: Cause type
-                _InfoRow(
-                  label: 'Allegation of Cause',
-                  child: causeType != null
-                      ? _Badge(
-                          label: causeType.label,
-                          bg: AppColors.lightAmber,
-                          fg: AppColors.amber,
-                        )
-                      : const _Unset('Not set'),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 10,
+                  children: [
+                    _InfoStack(
+                      label: 'Cause Type',
+                      child: causeType != null
+                          ? _Badge(
+                              label: causeType.label,
+                              bg: AppColors.lightAmber,
+                              fg: AppColors.amber,
+                            )
+                          : const _Unset('Not set'),
+                    ),
+                    _InfoStack(
+                      label: 'Formal Statement',
+                      child: _allegationBadge(allegationType),
+                    ),
+                    if (allegationType == 'formal_allegation')
+                      _InfoStack(
+                        label: 'Our Position',
+                        child: _agreementBadge(agreement),
+                      ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-
-                // Row: Formal allegation
-                _InfoRow(
-                  label: 'Formal Allegation',
-                  child: _allegationBadge(allegationType),
-                ),
-
-                if (allegationType == 'formal_allegation') ...[
-                  const SizedBox(height: 8),
-                  _InfoRow(
-                    label: 'Our Position',
-                    child: _agreementBadge(agreement),
-                  ),
-                ],
 
                 // Sub-causation comment preview
                 if (occurrence.causeNarrative != null &&
@@ -347,27 +361,26 @@ class _CausationCard extends StatelessWidget {
 
 // ── Helper widgets ─────────────────────────────────────────────────────────
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.child});
+class _InfoStack extends StatelessWidget {
+  const _InfoStack({required this.label, required this.child});
   final String label;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.textTertiary,
-              fontWeight: FontWeight.w500,
-            ),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 9,
+            color: AppColors.textTertiary,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
         ),
+        const SizedBox(height: 4),
         child,
       ],
     );

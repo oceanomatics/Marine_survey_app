@@ -188,24 +188,6 @@ class DamageItemCard extends StatelessWidget {
               onDeletePhoto: onDeletePhoto,
             ),
 
-            const SizedBox(height: 10),
-
-            // ── Status row ────────────────────────────────────────────
-            Row(
-              children: [
-                if (item.repairType != null)
-                  _StatusChip(
-                    label: item.repairType!.label,
-                    color: _repairTypeColor(item.repairType!),
-                  ),
-                const SizedBox(width: 6),
-                _StatusChip(
-                  label: item.repairStatus.label,
-                  color: _repairStatusColor(item.repairStatus),
-                ),
-              ],
-            ),
-
             // ── Exclusion reason ──────────────────────────────────────
             if (!item.isConcerningAverage &&
                 item.exclusionReason != null) ...[
@@ -224,39 +206,4 @@ class DamageItemCard extends StatelessWidget {
     );
   }
 
-  Color _repairTypeColor(RepairType t) => switch (t) {
-        RepairType.temporary => AppColors.warning,
-        RepairType.permanent => AppColors.success,
-        RepairType.deferred => AppColors.textSecondary,
-      };
-
-  Color _repairStatusColor(RepairStatus s) => switch (s) {
-        RepairStatus.notStarted => AppColors.textTertiary,
-        RepairStatus.inProgress => AppColors.warning,
-        RepairStatus.completed => AppColors.success,
-        RepairStatus.deferred => AppColors.textSecondary,
-      };
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.label, required this.color});
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: FontWeight.w600)),
-    );
-  }
 }

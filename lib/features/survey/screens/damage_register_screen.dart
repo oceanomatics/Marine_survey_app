@@ -2,15 +2,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/damage_item_card.dart';
 import '../widgets/add_damage_item_sheet.dart';
 import '../widgets/add_occurrence_sheet.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../photos/models/photo_model.dart';
+import '../../vessel/providers/vessel_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/photo_picker_sheet.dart';
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,8 @@ class DamageRegisterScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final damageAsync = ref.watch(damageProvider(caseId));
-    final allPhotos = ref.watch(photosProvider(caseId)).value ?? [];
+    final allPhotos   = ref.watch(photosProvider(caseId)).value ?? [];
+    final vesselId    = ref.watch(vesselForCaseProvider(caseId)).value?.vesselId;
 
     void showAddOccurrence() {
       showModalBottomSheet(
@@ -50,6 +52,7 @@ class DamageRegisterScreen extends ConsumerWidget {
         backgroundColor: Colors.transparent,
         builder: (_) => AddDamageItemSheet(
           caseId: caseId,
+          vesselId: vesselId,
           occurrenceId: occurrenceId,
           occurrences: occs,
           onSave: (item) async {
@@ -67,6 +70,7 @@ class DamageRegisterScreen extends ConsumerWidget {
         backgroundColor: Colors.transparent,
         builder: (_) => AddDamageItemSheet(
           caseId: caseId,
+          vesselId: vesselId,
           occurrenceId: item.occurrenceId,
           occurrences: occs,
           existing: item,
@@ -80,40 +84,25 @@ class DamageRegisterScreen extends ConsumerWidget {
     }
 
     Future<void> addPhotoForDamageItem(String damageId) async {
-      final source = await showModalBottomSheet<ImageSource>(
+      final source = await showModalBottomSheet<PhotoPickSource>(
         context: context,
         backgroundColor: Colors.transparent,
-        builder: (_) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Camera'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Photo Library'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ]),
+        builder: (_) => const PhotoPickerSheet(
+          accentColor: AppColors.coral,
+          title: 'Add Damage Photo',
         ),
       );
       if (source == null || !context.mounted) return;
-      final picked =
-          await ImagePicker().pickImage(source: source, imageQuality: 90);
-      if (picked == null || !context.mounted) return;
-      final bytes = await picked.readAsBytes();
-      await ref.read(photosProvider(caseId).notifier).addPhoto(
-            caseId: caseId,
-            bytes: bytes,
-            linkedToType: 'damage_item',
-            linkedToId: damageId,
-          );
+      final bytesList = await PhotoPickerSheet.resolveBytes(source, context: context);
+      if (bytesList.isEmpty || !context.mounted) return;
+      for (final bytes in bytesList) {
+        await ref.read(photosProvider(caseId).notifier).addPhoto(
+              caseId: caseId,
+              bytes: bytes,
+              linkedToType: 'damage_item',
+              linkedToId: damageId,
+            );
+      }
     }
 
     void confirmDeleteOccurrence(OccurrenceModel occ) {

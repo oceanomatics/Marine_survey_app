@@ -1,5 +1,7 @@
 // lib/features/documents/screens/document_vault_screen.dart
 
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -11,8 +13,11 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/api/claude_api.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../features/cases/providers/cases_provider.dart';
+import '../../../features/photos/models/photo_model.dart';
+import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
@@ -41,6 +46,11 @@ class DocumentVaultScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final docsAsync = ref.watch(documentProvider(caseId));
     final isOnline = ref.watch(_isOnlineProvider).value ?? true;
+    final allocatedPhotos = ref
+        .watch(photosProvider(caseId))
+        .value
+        ?.where((p) => p.allocation != null)
+        .toList() ?? [];
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -65,7 +75,7 @@ class DocumentVaultScreen extends ConsumerWidget {
       body: docsAsync.when(
         loading: () => const AppLoadingWidget(message: 'Loading documents…'),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (docs) => docs.isEmpty
+        data: (docs) => (docs.isEmpty && allocatedPhotos.isEmpty)
             ? _EmptyVault(onImport: () => _startImport(context, ref))
             : RefreshIndicator(
                 onRefresh: () =>
@@ -74,9 +84,12 @@ class DocumentVaultScreen extends ConsumerWidget {
                   docs: docs,
                   caseId: caseId,
                   isOnline: isOnline,
+                  allocatedPhotos: allocatedPhotos,
                   onImport: () => _startImport(context, ref),
                   onPreview: (doc) => _previewDocument(context, doc),
                   onExtract: (doc) => _runExtraction(context, ref, doc),
+                  onExtractPhoto: (photo) =>
+                      _runPhotoExtraction(context, ref, photo),
                 ),
               ),
       ),
@@ -241,6 +254,59 @@ class DocumentVaultScreen extends ConsumerWidget {
         result: result,
       ),
     );
+  }
+
+  // ── Photo AI extraction ─────────────────────────────────────────────────
+
+  Future<void> _runPhotoExtraction(
+      BuildContext context, WidgetRef ref, PhotoModel photo) async {
+    if (!context.mounted) return;
+
+    // Show loading indicator briefly while calling Claude.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Sending photo to AI…'),
+        duration: Duration(seconds: 60),
+      ),
+    );
+
+    try {
+      final bytes = await File(photo.localPath).readAsBytes();
+      final raw = await ClaudeApi.extractDocument(
+        base64Content: base64Encode(bytes),
+        mediaType: 'image/jpeg',
+        categoryHint: photo.allocation?.label ?? 'marine document photo',
+      );
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      final result = _parsePhotoExtraction(photo.id, raw);
+
+      if (!result.hasAny) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No data extracted from this photo')),
+        );
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ExtractionResultSheet(
+          caseId: caseId,
+          docTitle: photo.caption ?? photo.allocation?.label ?? 'Photo',
+          result: result,
+        ),
+      );
+    } catch (e, st) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        showError(context, 'Extraction failed: $e',
+            error: e, stack: st, tag: 'PhotoExtract');
+      }
+    }
   }
 
   // ── Preview ─────────────────────────────────────────────────────────────
@@ -1132,16 +1198,20 @@ class _DocList extends StatelessWidget {
     required this.docs,
     required this.caseId,
     required this.isOnline,
+    required this.allocatedPhotos,
     required this.onImport,
     required this.onPreview,
     required this.onExtract,
+    required this.onExtractPhoto,
   });
   final List<DocumentModel> docs;
   final String caseId;
   final bool isOnline;
+  final List<PhotoModel> allocatedPhotos;
   final VoidCallback onImport;
   final void Function(DocumentModel) onPreview;
   final void Function(DocumentModel) onExtract;
+  final void Function(PhotoModel) onExtractPhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -1151,9 +1221,18 @@ class _DocList extends StatelessWidget {
           .add(doc);
     }
 
+    // Group allocated photos by allocation type for display.
+    final photosByAlloc = <PhotoAllocation, List<PhotoModel>>{};
+    for (final ph in allocatedPhotos) {
+      if (ph.allocation != null) {
+        photosByAlloc.putIfAbsent(ph.allocation!, () => []).add(ph);
+      }
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
       children: [
+        // ── Regular documents ───────────────────────────────────────
         for (final entry in grouped.entries) ...[
           _CategoryHeader(entry.key),
           const SizedBox(height: 6),
@@ -1172,6 +1251,25 @@ class _DocList extends StatelessWidget {
             );
           }),
           const SizedBox(height: 12),
+        ],
+
+        // ── Photo documents ─────────────────────────────────────────
+        if (photosByAlloc.isNotEmpty) ...[
+          const _PhotoSectionHeader(),
+          const SizedBox(height: 8),
+          for (final entry in photosByAlloc.entries) ...[
+            _PhotoAllocHeader(entry.key),
+            const SizedBox(height: 6),
+            ...entry.value.map((ph) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _PhotoDocTile(
+                    photo: ph,
+                    isOnline: isOnline,
+                    onExtract: isOnline ? () => onExtractPhoto(ph) : null,
+                  ),
+                )),
+            const SizedBox(height: 12),
+          ],
         ],
       ],
     );
@@ -1203,6 +1301,181 @@ class _CategoryHeader extends StatelessWidget {
     ]);
   }
 }
+
+// ── Photo document widgets ──────────────────────────────────────────────────
+
+class _PhotoSectionHeader extends StatelessWidget {
+  const _PhotoSectionHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Container(
+        width: 3, height: 14,
+        decoration: BoxDecoration(
+          color: AppColors.purple, borderRadius: BorderRadius.circular(2)),
+      ),
+      const SizedBox(width: 8),
+      const Text(
+        'PHOTO DOCUMENTS',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textSecondary,
+          letterSpacing: 0.8,
+        ),
+      ),
+      const SizedBox(width: 8),
+      const Tooltip(
+        message: 'Photos allocated from the Photo Gallery. '
+            'Tap the AI button to extract data.',
+        child: Icon(Icons.info_outline, size: 12, color: AppColors.textTertiary),
+      ),
+    ]);
+  }
+}
+
+class _PhotoAllocHeader extends StatelessWidget {
+  const _PhotoAllocHeader(this.allocation);
+  final PhotoAllocation allocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _allocColor(allocation);
+    return Row(children: [
+      Container(
+        width: 3, height: 14,
+        decoration: BoxDecoration(
+          color: color, borderRadius: BorderRadius.circular(2)),
+      ),
+      const SizedBox(width: 8),
+      Text(
+        allocation.label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 0.8,
+        ),
+      ),
+    ]);
+  }
+}
+
+class _PhotoDocTile extends StatelessWidget {
+  const _PhotoDocTile({
+    required this.photo,
+    required this.isOnline,
+    required this.onExtract,
+  });
+
+  final PhotoModel photo;
+  final bool isOnline;
+  final VoidCallback? onExtract;
+
+  @override
+  Widget build(BuildContext context) {
+    final alloc = photo.allocation!;
+    final color = _allocColor(alloc);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(children: [
+        // Thumbnail
+        ClipRRect(
+          borderRadius: const BorderRadius.horizontal(left: Radius.circular(10)),
+          child: Image.file(
+            File(photo.thumbnailPath ?? photo.localPath),
+            width: 72,
+            height: 72,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              width: 72, height: 72,
+              color: color.withValues(alpha: 0.08),
+              child: Icon(_allocIcon(alloc), color: color, size: 28),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+
+        // Caption + allocation tag
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                photo.caption?.isNotEmpty == true
+                    ? photo.caption!
+                    : alloc.label,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  alloc.label,
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: color),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // AI extract button
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Tooltip(
+            message: isOnline
+                ? 'Extract data with AI'
+                : 'Offline — connect to extract',
+            child: IconButton(
+              icon: Icon(
+                Icons.auto_awesome_outlined,
+                color: isOnline ? _kColor : AppColors.textTertiary,
+                size: 20,
+              ),
+              onPressed: onExtract,
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+Color _allocColor(PhotoAllocation a) => switch (a) {
+      PhotoAllocation.coverPage        => AppColors.purple,
+      PhotoAllocation.logbook          => AppColors.midBlue,
+      PhotoAllocation.maintenanceRecord => AppColors.teal,
+      PhotoAllocation.certificate      => AppColors.amber,
+      PhotoAllocation.damageEvidence   => AppColors.coral,
+      PhotoAllocation.namePlate        => AppColors.textSecondary,
+    };
+
+IconData _allocIcon(PhotoAllocation a) => switch (a) {
+      PhotoAllocation.coverPage        => Icons.home_outlined,
+      PhotoAllocation.logbook          => Icons.menu_book_outlined,
+      PhotoAllocation.maintenanceRecord => Icons.build_outlined,
+      PhotoAllocation.certificate      => Icons.verified_outlined,
+      PhotoAllocation.damageEvidence   => Icons.warning_amber_outlined,
+      PhotoAllocation.namePlate        => Icons.label_outlined,
+    };
 
 // ── Empty state ─────────────────────────────────────────────────────────────
 
@@ -1305,6 +1578,71 @@ class _ImagePreviewScreen extends StatelessWidget {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Parse a raw Claude extraction response into a [DocExtractionResult].
+/// Uses the photo's id as the synthetic docId.
+DocExtractionResult _parsePhotoExtraction(
+    String photoId, Map<String, dynamic> raw) {
+  final hardFields = <String, dynamic>{};
+  final rawHard = raw['hard_fields'];
+  if (rawHard is Map) {
+    for (final e in rawHard.entries) {
+      if (e.value != null && e.value != '' && e.value != 0) {
+        hardFields[e.key as String] = e.value;
+      }
+    }
+  }
+
+  final findings = <String>[];
+  final findingCats = <String>[];
+  for (final f in raw['context_findings'] as List? ?? []) {
+    if (f is Map) {
+      final text = f['text']?.toString() ?? '';
+      if (text.isNotEmpty) {
+        findings.add(text);
+        findingCats.add(f['note_category']?.toString() ?? 'observation');
+      }
+    } else {
+      final text = f.toString();
+      if (text.isNotEmpty) {
+        findings.add(text);
+        findingCats.add('observation');
+      }
+    }
+  }
+
+  final incidents = (raw['detected_incidents'] as List? ?? [])
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+
+  final machinery = (raw['detected_machinery'] as List? ?? [])
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+
+  final vesselFields = <String, dynamic>{};
+  final rawVessel = raw['vessel_data'];
+  if (rawVessel is Map) {
+    for (final e in rawVessel.entries) {
+      if (e.value != null && e.value != '') {
+        vesselFields[e.key as String] = e.value;
+      }
+    }
+  }
+
+  return DocExtractionResult(
+    docId: photoId,
+    hardFields: hardFields,
+    contextFindings: findings,
+    findingCategories: findingCats,
+    detectedIncidents: incidents,
+    detectedMachinery: machinery,
+    vesselFields: vesselFields,
+    suggestedCategory: raw['suggested_category'] as String?,
+    documentType: raw['document_type'] as String?,
+  );
+}
 
 String _mimeFrom(String ext) => switch (ext) {
       'pdf' => 'application/pdf',

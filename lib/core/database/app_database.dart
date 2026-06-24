@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 9,
+      version: 10,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -41,7 +41,9 @@ class AppDatabase {
         id              TEXT PRIMARY KEY,
         case_id         TEXT NOT NULL,
         local_path      TEXT NOT NULL,
+        thumbnail_path  TEXT,
         caption         TEXT,
+        photo_allocation TEXT,
         linked_to_type  TEXT,
         linked_to_id    TEXT,
         attendance_id   TEXT,

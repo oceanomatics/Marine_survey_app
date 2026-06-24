@@ -198,6 +198,125 @@ class MachineryNotifier
   }
 }
 
+// ── Vessel Components Provider ─────────────────────────────────────────────
+// arg = machineryId
+
+final vesselComponentsProvider =
+    AsyncNotifierProviderFamily<VesselComponentsNotifier,
+        List<VesselComponentModel>, String>(
+  VesselComponentsNotifier.new,
+);
+
+class VesselComponentsNotifier
+    extends FamilyAsyncNotifier<List<VesselComponentModel>, String> {
+  @override
+  Future<List<VesselComponentModel>> build(String machineryId) =>
+      _fetch(machineryId);
+
+  Future<List<VesselComponentModel>> _fetch(String machineryId) async {
+    try {
+      final data = await SupabaseService.client
+          .from('vessel_components')
+          .select()
+          .eq('machinery_id', machineryId)
+          .order('sequence_no');
+      return (data as List)
+          .map((e) => VesselComponentModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<VesselComponentModel> addComponent(
+      VesselComponentModel component) async {
+    final data = await SupabaseService.client
+        .from('vessel_components')
+        .insert(component.toInsertJson())
+        .select()
+        .single();
+    final created = VesselComponentModel.fromJson(data);
+    state = AsyncData([...state.value ?? [], created]);
+    return created;
+  }
+
+  Future<void> deleteComponent(String componentId) async {
+    await SupabaseService.client
+        .from('vessel_components')
+        .delete()
+        .eq('component_id', componentId);
+    state = AsyncData(
+      (state.value ?? [])
+          .where((c) => c.componentId != componentId)
+          .toList(),
+    );
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => _fetch(arg));
+  }
+}
+
+// ── Vessel Component Model ─────────────────────────────────────────────────
+
+class VesselComponentModel {
+  const VesselComponentModel({
+    required this.componentId,
+    required this.machineryId,
+    required this.vesselId,
+    required this.name,
+    this.manufacturer,
+    this.model,
+    this.serialNumber,
+    this.dateOfManufacture,
+    this.notes,
+    this.sequenceNo = 1,
+    this.createdAt,
+  });
+
+  final String componentId;
+  final String machineryId;
+  final String vesselId;
+  final String name;
+  final String? manufacturer;
+  final String? model;
+  final String? serialNumber;
+  final String? dateOfManufacture;
+  final String? notes;
+  final int sequenceNo;
+  final DateTime? createdAt;
+
+  factory VesselComponentModel.fromJson(Map<String, dynamic> j) =>
+      VesselComponentModel(
+        componentId:       j['component_id'] as String,
+        machineryId:       j['machinery_id'] as String,
+        vesselId:          j['vessel_id'] as String,
+        name:              j['name'] as String,
+        manufacturer:      j['manufacturer'] as String?,
+        model:             j['model'] as String?,
+        serialNumber:      j['serial_number'] as String?,
+        dateOfManufacture: j['date_of_manufacture'] as String?,
+        notes:             j['notes'] as String?,
+        sequenceNo:        j['sequence_no'] as int? ?? 1,
+        createdAt:         j['created_at'] != null
+            ? DateTime.tryParse(j['created_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toInsertJson() => {
+        'machinery_id': machineryId,
+        'vessel_id':    vesselId,
+        'name':         name,
+        if (manufacturer != null)     'manufacturer':       manufacturer,
+        if (model != null)            'model':              model,
+        if (serialNumber != null)     'serial_number':      serialNumber,
+        if (dateOfManufacture != null) 'date_of_manufacture': dateOfManufacture,
+        if (notes != null)            'notes':              notes,
+        'sequence_no': sequenceNo,
+      };
+}
+
 // ── Machinery Model ────────────────────────────────────────────────────────
 
 class MachineryModel {
@@ -309,22 +428,23 @@ class MachineryModel {
 
   String get displayName {
     final parts = <String>[];
-    if (quantity > 1) parts.add('${quantity}x');
     if (make != null) parts.add(make!);
     if (model != null) parts.add(model!);
     if (parts.isEmpty) parts.add(machineryType);
+    if (unitNumber != null) parts.add('(No. $unitNumber)');
     return parts.join(' ');
   }
 
   String get roleLabel => switch (role) {
-        'main_engine' => 'Main Engine',
-        'diesel_generator' => 'Diesel Generator',
-        'thruster' => 'Thruster',
-        'turbocharger' => 'Turbocharger',
-        'gearbox' => 'Gearbox',
-        'pump' => 'Pump',
-        'compressor' => 'Compressor',
-        'crane' => 'Crane',
-        _ => 'Other',
+        'main_engine'         => 'Main Engine',
+        'diesel_generator'    => 'Diesel Generator',
+        'emergency_generator' => 'Emerg. Generator',
+        'thruster'            => 'Thruster',
+        'gearbox'             => 'Gearbox',
+        'pump'                => 'Pump',
+        'compressor'          => 'Compressor',
+        'separator'           => 'Separator',
+        'crane'               => 'Crane',
+        _                     => 'Other',
       };
 }

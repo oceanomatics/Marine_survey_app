@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/account_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../core/config/app_config.dart';
+import '../../../shared/widgets/save_bar.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -95,6 +96,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               onPressed: () => context.go('/cases'),
             ),
           ),
+          bottomNavigationBar: SaveBar(
+            visible: _profileDirty,
+            saving: _savingProfile,
+            onSave: _saveProfile,
+          ),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -112,27 +118,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 addressCtrl: _addressCtrl,
                 onChanged: () => setState(() => _profileDirty = true),
               ),
-              if (_profileDirty) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _savingProfile ? null : _saveProfile,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.midBlue,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: _savingProfile
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2),
-                          )
-                        : const Text('Save Profile'),
-                  ),
-                ),
-              ],
 
               const SizedBox(height: 24),
 

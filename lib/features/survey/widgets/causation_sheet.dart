@@ -1,9 +1,13 @@
 // lib/features/survey/widgets/causation_sheet.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/damage_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../vessel/widgets/survey_field.dart';
+import '../../../core/api/claude_api.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 
 // ── Standard formulation generator ────────────────────────────────────────
 
@@ -44,7 +48,7 @@ String? buildAllegationFormulation(
 
 // ── Sheet ──────────────────────────────────────────────────────────────────
 
-class CausationSheet extends StatefulWidget {
+class CausationSheet extends ConsumerStatefulWidget {
   const CausationSheet({
     super.key,
     required this.occurrence,
@@ -55,15 +59,17 @@ class CausationSheet extends StatefulWidget {
   final Future<void> Function(OccurrenceModel updated) onSave;
 
   @override
-  State<CausationSheet> createState() => _CausationSheetState();
+  ConsumerState<CausationSheet> createState() => _CausationSheetState();
 }
 
-class _CausationSheetState extends State<CausationSheet> {
+class _CausationSheetState extends ConsumerState<CausationSheet> {
   HMCauseType? _causeType;
   String _allegationType = 'tbc';
   String _causeAgreement = 'tbc';
   final _commentCtrl = TextEditingController();
   bool _saving = false;
+  bool _generating = false;
+  String? _saveError;
 
   @override
   void initState() {
@@ -81,14 +87,54 @@ class _CausationSheetState extends State<CausationSheet> {
     super.dispose();
   }
 
+  Future<void> _generateSubCausation() async {
+    if (_generating) return;
+    setState(() => _generating = true);
+    try {
+      final occ = widget.occurrence;
+      final notes = ref
+          .read(surveyorNotesProvider(occ.caseId))
+          .value ?? [];
+      final causationCues = notes
+          .where((n) => n.reportSection == ReportSection.causation)
+          .map((n) => n.content)
+          .toList();
+
+      final text = await ClaudeApi.draftSubCausation(
+        occurrenceTitle:    occ.title ?? 'Occurrence ${occ.occurrenceNo}',
+        causeTypeLabel:     _causeType?.label ?? 'Unknown cause',
+        allegationType:     _allegationType,
+        briefDescription:   occ.briefDescription,
+        backgroundNarrative: occ.backgroundNarrative,
+        contextCues:        causationCues,
+      );
+      if (mounted) {
+        _commentCtrl.text = text;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('AI draft failed: $e'),
+            backgroundColor: AppColors.coral,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
+  }
+
   Future<void> _save() async {
-    setState(() => _saving = true);
+    debugPrint('[CausationSheet._save] START occ=${widget.occurrence.occurrenceId}');
+    setState(() { _saving = true; _saveError = null; });
     try {
       final occ = widget.occurrence;
       final updated = OccurrenceModel(
         occurrenceId:        occ.occurrenceId,
         caseId:              occ.caseId,
         occurrenceNo:        occ.occurrenceNo,
+        isPrimary:           occ.isPrimary,
         dateTime:            occ.dateTime,
         location:            occ.location,
         title:               occ.title,
@@ -106,8 +152,13 @@ class _CausationSheetState extends State<CausationSheet> {
         ismReported:         occ.ismReported,
         createdAt:           occ.createdAt,
       );
+      debugPrint('[CausationSheet._save] calling onSave, causeType=${updated.causeType} allegationType=${updated.allegationType}');
       await widget.onSave(updated);
+      debugPrint('[CausationSheet._save] onSave completed OK, popping');
       if (mounted) Navigator.pop(context);
+    } catch (e, st) {
+      debugPrint('[CausationSheet._save] ERROR: $e\n$st');
+      if (mounted) setState(() => _saveError = '[${e.runtimeType}] $e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -237,7 +288,44 @@ class _CausationSheetState extends State<CausationSheet> {
               const SizedBox(height: 22),
 
               // ── SUB-CAUSATION ───────────────────────────────────────
-              const _SectionLabel('SUB-CAUSATION / COMMENTS'),
+              Row(
+                children: [
+                  const _SectionLabel('SUB-CAUSATION / COMMENTS'),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: _generating ? null : _generateSubCausation,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.amber.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: AppColors.amber.withValues(alpha: 0.3)),
+                      ),
+                      child: _generating
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: AppColors.amber),
+                            )
+                          : const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.auto_awesome_outlined,
+                                  size: 11, color: AppColors.amber),
+                              SizedBox(width: 4),
+                              Text('AI Draft',
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.amber)),
+                            ]),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 4),
               const Text(
                 'Explain the factors or sequence of events that led to this cause',
@@ -250,7 +338,7 @@ class _CausationSheetState extends State<CausationSheet> {
                 hint: 'e.g. The vessel was navigating at reduced speed in poor '
                     'visibility when the anchor watch failed to detect the '
                     'reef on the radar…',
-                maxLines: 6,
+                maxLines: 5,
               ),
 
               // ── STANDARD FORMULATION PREVIEW ────────────────────────
@@ -287,6 +375,33 @@ class _CausationSheetState extends State<CausationSheet> {
               ],
 
               const SizedBox(height: 24),
+
+              if (_saveError != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.coral.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: AppColors.coral.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.error_outline,
+                          color: AppColors.coral, size: 15),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _saveError!,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.coral),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
               SizedBox(
                 width: double.infinity,

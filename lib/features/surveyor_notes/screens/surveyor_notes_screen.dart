@@ -202,8 +202,8 @@ class _NotesList extends StatelessWidget {
     }
 
     final sections = [
-      ...ReportSection.ordered.where(grouped.containsKey),
       if (grouped.containsKey(null)) null,
+      ...ReportSection.ordered.where(grouped.containsKey),
     ];
 
     final items = <Widget>[];
@@ -241,8 +241,8 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = section != null ? _sectionColor(section!) : AppColors.textTertiary;
-    final label = section?.label ?? 'Untagged';
+    final color = section != null ? _sectionColor(section!) : const Color(0xFFD97706);
+    final label = section?.label ?? 'Unallocated';
     return Row(children: [
       Container(
         width: 8,
@@ -292,7 +292,7 @@ class _NoteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final sectionColor = note.reportSection != null
         ? _sectionColor(note.reportSection!)
-        : AppColors.textTertiary;
+        : const Color(0xFFD97706);
     final catColor = _categoryColor(note.category);
     final isIgnored = note.priority == CuePriority.ignored;
 
@@ -654,43 +654,38 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
                         letterSpacing: 0.7),
                   ),
                   const SizedBox(height: 6),
-                  SizedBox(
-                    height: 32,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: NoteCategory.values.map((cat) {
-                        final selected = _category == cat;
-                        final color = _categoryColor(cat);
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: GestureDetector(
-                            onTap: () => setState(() => _category = cat),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: selected
-                                    ? color
-                                    : color.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: color.withValues(
-                                        alpha: selected ? 1.0 : 0.25)),
-                              ),
-                              child: Text(
-                                cat.label,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: selected ? Colors.white : color,
-                                ),
-                              ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: NoteCategory.values.map((cat) {
+                      final selected = _category == cat;
+                      final color = _categoryColor(cat);
+                      return GestureDetector(
+                        onTap: () => setState(() => _category = cat),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? color
+                                : color.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: color.withValues(
+                                    alpha: selected ? 1.0 : 0.25)),
+                          ),
+                          child: Text(
+                            cat.label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: selected ? Colors.white : color,
                             ),
                           ),
-                        );
-                      }).toList(),
-                    ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
