@@ -150,12 +150,51 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 ---
 
+## Parties & Stakeholders
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| 63 | Parties screen loads and shows grouped sections | `[ ]` | |
+| 64 | Empty state shows "No stakeholders" message | `[ ]` | |
+| 65 | Add stakeholder manually: name, company, role, group, phone, email, notes | `[ ]` | |
+| 66 | Group dropdown shows all 6 groups (Insured, Underwriter, Broker, Surveyors, Technical Contractors, Other) | `[ ]` | |
+| 67 | Stakeholder card shows initials avatar, name, company, role chip, contact rows | `[ ]` | |
+| 68 | Delete stakeholder: confirm dialog → removed from list | `[ ]` | |
+| 69 | Group header "Add" button pre-selects that group in the sheet | `[ ]` | |
+
+---
+
 ## Correspondence & Inbox
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 63 | Inbox screen loads | `[ ]` | |
-| 64 | Correspondence screen loads for case | `[ ]` | |
+| 70 | Inbox screen loads | `[ ]` | |
+| 71 | Correspondence screen loads for case | `[ ]` | |
+| 72 | FAB "Add" opens bottom sheet with PDF and EML options | `[ ]` | |
+| 73 | Upload PDF → card appears collapsed in list | `[ ]` | |
+| 74 | Tap card header → expands to show full card | `[ ]` | |
+| 75 | Collapsed card shows: icon, title (1 line), status chip, date, party/action counts | `[ ]` | |
+| 76 | Three-dot menu: Preview / Extract with AI / Delete | `[ ]` | |
+| 77 | Delete: confirm dialog → card removed | `[ ]` | |
+| 78 | Extract with AI → status changes to completed, summary + parties + actions populated | `[ ]` | |
+| 79 | corrDate field populated after extraction (shows date in header) | `[ ]` | |
+| 80 | Import .eml → card appears; From/To/Date pre-filled | `[ ]` | |
+| 81 | EML import: attachment dialog appears with file list | `[ ]` | |
+| 82 | Attachment dialog: image thumbnails shown; tap → full-screen zoom | `[ ]` | |
+| 83 | Attachment dialog: size filter slider hides small images (default 20 KB) | `[ ]` | |
+| 84 | Attachment dialog: "N small image(s) hidden" label appears when filter active | `[ ]` | |
+| 85 | Attachment dialog: per-item checkboxes; "Save Selected (N)" button | `[ ]` | |
+| 86 | Attachment dialog: "Skip All" closes without saving | `[ ]` | |
+| 87 | Selected attachments appear in Document Vault after import | `[ ]` | |
+| 88 | EML card: "View Email" opens preview with From/To/Date headers + selectable body | `[ ]` | |
+| 89 | EML card: Extract with AI uses body text (not PDF path) | `[ ]` | |
+| 90 | After extraction: extracted parties shown as chips in expanded card | `[ ]` | |
+| 91 | "Add to Parties" button appears when parties extracted | `[ ]` | |
+| 92 | "Add to Parties" dialog: pre-checked list of parties; deselect → excluded | `[ ]` | |
+| 93 | Confirmed parties appear in Parties screen under correct group | `[ ]` | |
+| 94 | Re-adding same party → snackbar "Already in stakeholders list" | `[ ]` | |
+| 95 | Action items listed in expanded card with → Context icon button | `[ ]` | |
+| 96 | Tap Context icon → action appears in Surveyor Notes as Follow-up / Important | `[ ]` | |
 
 ---
 
@@ -163,7 +202,7 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 65 | Timeline screen loads and shows events | `[ ]` | |
+| 97 | Timeline screen loads and shows events | `[ ]` | |
 
 ---
 
@@ -171,8 +210,9 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 66 | Notes screen loads | `[ ]` | |
-| 67 | Create/edit a note | `[ ]` | |
+| 98 | Notes screen loads | `[ ]` | |
+| 99 | Create/edit a note | `[ ]` | |
+| 100 | Action item sent from correspondence appears as Follow-up / Important | `[ ]` | |
 
 ---
 
@@ -180,7 +220,7 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 68 | Timesheet screen loads | `[ ]` | |
+| 101 | Timesheet screen loads | `[ ]` | |
 
 ---
 
@@ -188,7 +228,7 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 69 | Report builder screen loads | `[ ]` | |
+| 102 | Report builder screen loads | `[ ]` | |
 
 ---
 
@@ -196,13 +236,13 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 70 | Account screen accessible from cases list icon | `[ ]` | |
-| 71 | Save name / email / phone / address → persists after restart | `[ ]` | |
-| 72 | Active Anthropic key shown (last 6 chars) | `[ ]` | |
-| 73 | Add external account (label / url / user / pass) | `[ ]` | |
-| 74 | Edit external account → changes saved | `[ ]` | |
-| 75 | Delete external account (confirm dialog) | `[ ]` | |
-| 76 | Equasis credentials survive app restart | `[ ]` | |
+| 103 | Account screen accessible from cases list icon | `[ ]` | |
+| 104 | Save name / email / phone / address → persists after restart | `[ ]` | |
+| 105 | Active Anthropic key shown (last 6 chars) | `[ ]` | |
+| 106 | Add external account (label / url / user / pass) | `[ ]` | |
+| 107 | Edit external account → changes saved | `[ ]` | |
+| 108 | Delete external account (confirm dialog) | `[ ]` | |
+| 109 | Equasis credentials survive app restart | `[ ]` | |
 
 ---
 
@@ -210,9 +250,9 @@ Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 77 | Usage screen loads | `[ ]` | |
-| 78 | Token counts increment after an extraction | `[ ]` | |
+| 110 | Usage screen loads | `[ ]` | |
+| 111 | Token counts increment after an extraction | `[ ]` | |
 
 ---
 
-*Last updated: 2026-06-22*
+*Last updated: 2026-06-23*

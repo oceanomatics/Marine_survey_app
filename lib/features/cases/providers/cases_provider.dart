@@ -160,6 +160,60 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(arg));
   }
+
+  Future<void> updateCaseRefs({
+    String? jobNumber,
+    String? claimReference,
+    CaseStatus? status,
+    CaseType? caseType,
+    DateTime? instructionDate,
+    OutputFormat? outputFormat,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (jobNumber != null)       updates['job_number']       = jobNumber;
+    if (claimReference != null)  updates['claim_reference']  = claimReference;
+    if (status != null)          updates['status']           = status.value;
+    if (caseType != null)        updates['case_type']        = caseType.value;
+    if (outputFormat != null)    updates['output_format']    = outputFormat.value;
+    if (instructionDate != null) {
+      updates['instruction_date'] =
+          instructionDate.toIso8601String().split('T').first;
+    }
+    if (updates.isEmpty) return;
+    await SupabaseService.client
+        .from('cases')
+        .update(updates)
+        .eq('case_id', arg);
+    state = await AsyncValue.guard(() => _fetch(arg));
+    ref.invalidate(casesProvider);
+  }
+
+  /// Creates a vessel record (if case has none) or updates the existing one,
+  /// then links it to this case.
+  Future<void> upsertVesselName(String vesselName) async {
+    final current = state.value;
+    if (current == null) return;
+
+    if (current.vesselId != null) {
+      await SupabaseService.client
+          .from('vessels')
+          .update({'name': vesselName})
+          .eq('vessel_id', current.vesselId!);
+    } else {
+      final row = await SupabaseService.client
+          .from('vessels')
+          .insert({'name': vesselName})
+          .select()
+          .single();
+      final newVesselId = row['vessel_id'] as String;
+      await SupabaseService.client
+          .from('cases')
+          .update({'vessel_id': newVesselId})
+          .eq('case_id', arg);
+    }
+    state = await AsyncValue.guard(() => _fetch(arg));
+    ref.invalidate(casesProvider);
+  }
 }
 
 // ── Checklist progress ─────────────────────────────────────────────────────

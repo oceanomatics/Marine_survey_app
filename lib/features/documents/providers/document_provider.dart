@@ -6,19 +6,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
 
-// ── Document model ─────────────────────────────────────────────────────────
+// ── Document category ──────────────────────────────────────────────────────
 
 enum DocCategory {
   certificate('certificate', 'Certificate'),
-  classReport('class_report', 'Class Report'),
+  classSurveyReport('class_survey_report', 'Class Survey Report'),
+  conditionOfClass('condition_of_class', 'Condition of Class'),
+  previousSurveyReport('previous_survey_report', 'Previous Survey Report'),
   inspectionReport('inspection_report', 'Inspection Report'),
+  serviceReport('service_report', 'Service Report'),
   logbookExtract('logbook_extract', 'Logbook Extract'),
   maintenanceRecord('maintenance_record', 'Maintenance Record'),
-  serviceReport('service_report', 'Service Report'),
   statementOfFacts('statement_of_facts', 'Statement of Facts'),
+  incidentReport('incident_report', 'Incident Report'),
   oilAnalysis('oil_analysis', 'Oil Analysis'),
   invoice('invoice', 'Invoice'),
   correspondence('correspondence', 'Correspondence'),
+  intelligenceReport('intelligence_report', 'Intelligence Report'),
   other('other', 'Other');
 
   const DocCategory(this.value, this.label);
@@ -27,6 +31,12 @@ enum DocCategory {
 
   static DocCategory fromValue(String v) =>
       values.firstWhere((e) => e.value == v, orElse: () => DocCategory.other);
+
+  // Legacy DB values that may still exist
+  static DocCategory fromLegacyValue(String v) => switch (v) {
+        'class_report' => DocCategory.classSurveyReport,
+        _ => fromValue(v),
+      };
 }
 
 enum DocAvailability {
@@ -42,6 +52,8 @@ enum DocAvailability {
   static DocAvailability fromValue(String v) =>
       values.firstWhere((e) => e.value == v, orElse: () => DocAvailability.tbc);
 }
+
+// ── Document model ─────────────────────────────────────────────────────────
 
 @immutable
 class DocumentModel {
@@ -60,6 +72,7 @@ class DocumentModel {
     this.availability = DocAvailability.enclosed,
     this.aiExtracted = false,
     this.extractionStatus,
+    this.extractedData,
     this.language = 'en',
     this.notes,
     this.createdAt,
@@ -79,6 +92,7 @@ class DocumentModel {
   final DocAvailability availability;
   final bool aiExtracted;
   final String? extractionStatus;
+  final Map<String, dynamic>? extractedData;
   final String language;
   final String? notes;
   final DateTime? createdAt;
@@ -89,13 +103,17 @@ class DocumentModel {
       ['jpg', 'jpeg', 'png', 'webp'].contains(fileType!.toLowerCase());
   bool get isPdf => fileType != null && fileType!.toLowerCase() == 'pdf';
   bool get isDocx => fileType != null && fileType!.toLowerCase() == 'docx';
+  bool get extractionPending =>
+      hasFile && !aiExtracted && extractionStatus == 'pending';
+  bool get extractionProcessing => extractionStatus == 'processing';
+  bool get extractionFailed => extractionStatus == 'failed';
 
   factory DocumentModel.fromJson(Map<String, dynamic> j) => DocumentModel(
         docId: j['doc_id'] as String,
         caseId: j['case_id'] as String,
         title: j['title'] as String,
         docCategory: j['doc_category'] != null
-            ? DocCategory.fromValue(j['doc_category'] as String)
+            ? DocCategory.fromLegacyValue(j['doc_category'] as String)
             : null,
         docType: j['doc_type'] as String?,
         source: j['source'] as String?,
@@ -112,37 +130,80 @@ class DocumentModel {
             DocAvailability.fromValue(j['availability'] as String? ?? 'tbc'),
         aiExtracted: j['ai_extracted'] as bool? ?? false,
         extractionStatus: j['extraction_status'] as String?,
+        extractedData: j['extracted_data'] != null
+            ? Map<String, dynamic>.from(j['extracted_data'] as Map)
+            : null,
         language: j['language'] as String? ?? 'en',
         notes: j['notes'] as String?,
         createdAt: j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
       );
+
+  DocumentModel copyWith({
+    String? title,
+    DocCategory? docCategory,
+    String? docType,
+    String? extractionStatus,
+    Map<String, dynamic>? extractedData,
+    bool? aiExtracted,
+    String? notes,
+  }) =>
+      DocumentModel(
+        docId: docId,
+        caseId: caseId,
+        title: title ?? this.title,
+        docCategory: docCategory ?? this.docCategory,
+        docType: docType ?? this.docType,
+        source: source,
+        docDate: docDate,
+        receivedDate: receivedDate,
+        filePath: filePath,
+        fileType: fileType,
+        fileSizeKb: fileSizeKb,
+        availability: availability,
+        aiExtracted: aiExtracted ?? this.aiExtracted,
+        extractionStatus: extractionStatus ?? this.extractionStatus,
+        extractedData: extractedData ?? this.extractedData,
+        language: language,
+        notes: notes ?? this.notes,
+        createdAt: createdAt,
+      );
 }
 
-// ── Extraction result — what Claude found ──────────────────────────────────
+// ── Extraction result ──────────────────────────────────────────────────────
 
 @immutable
-class ExtractionResult {
-  const ExtractionResult({
+class DocExtractionResult {
+  const DocExtractionResult({
     required this.docId,
-    required this.rawFields,
-    required this.vesselFields,
-    required this.certFields,
-    this.confidence = 'medium',
+    required this.hardFields,
+    required this.contextFindings,
+    required this.findingCategories,
+    required this.detectedIncidents,
+    required this.detectedMachinery,
+    this.vesselFields = const {},
+    this.suggestedCategory,
     this.documentType,
   });
 
   final String docId;
-  final Map<String, dynamic> rawFields; // everything Claude returned
-  final Map<String, dynamic> vesselFields; // fields that map to vessels table
-  final Map<String, dynamic>
-      certFields; // fields that map to certificates table
-  final String confidence;
+  final Map<String, dynamic> hardFields;
+  final List<String> contextFindings;
+  final List<String> findingCategories;
+  final List<Map<String, dynamic>> detectedIncidents;
+  final List<Map<String, dynamic>> detectedMachinery;
+  /// Vessel particulars extracted from intelligence documents (Equasis etc).
+  final Map<String, dynamic> vesselFields;
+  final String? suggestedCategory;
   final String? documentType;
 
-  bool get hasVesselData => vesselFields.isNotEmpty;
-  bool get hasCertData => certFields.isNotEmpty;
+  bool get hasHardData    => hardFields.isNotEmpty;
+  bool get hasFindings    => contextFindings.isNotEmpty;
+  bool get hasIncidents   => detectedIncidents.isNotEmpty;
+  bool get hasMachinery   => detectedMachinery.isNotEmpty;
+  bool get hasVesselData  => vesselFields.isNotEmpty;
+  bool get hasAny => hasHardData || hasFindings || hasIncidents || hasMachinery || hasVesselData;
 }
 
 // ── Document provider ──────────────────────────────────────────────────────
@@ -169,7 +230,7 @@ class DocumentNotifier
   }
 
   /// Upload a file and create a document record.
-  /// [willExtract] controls whether extraction_status is set to 'pending'.
+  /// All uploaded docs get extraction_status: 'pending' — extract is manual.
   Future<DocumentModel> uploadAndCreate({
     required String caseId,
     required Uint8List bytes,
@@ -180,8 +241,9 @@ class DocumentNotifier
     bool willExtract = true,
   }) async {
     final ext = filename.split('.').last.toLowerCase();
+    final safeFilename = _sanitizeFilename(filename);
     final storagePath =
-        '$caseId/documents/${DateTime.now().millisecondsSinceEpoch}_$filename';
+        '$caseId/documents/${DateTime.now().millisecondsSinceEpoch}_$safeFilename';
 
     await SupabaseService.uploadFile(
       bucket: 'documents',
@@ -208,24 +270,136 @@ class DocumentNotifier
         .single();
 
     final doc = DocumentModel.fromJson(data);
-
-    // Fetch fresh list from Supabase rather than prepending optimistically.
-    // This avoids a race where a concurrent re-fetch (e.g. triggered by
-    // ref.invalidate from FullExtractionReviewScreen) overwrites the state
-    // while this upload is in flight, causing the new document to disappear.
-    // The insert above has already committed, so the fresh fetch will always
-    // include it.
     try {
       state = AsyncData(await _fetch(arg));
     } catch (_) {
       final current = state.value ?? [];
       state = AsyncData([doc, ...current]);
     }
-
     return doc;
   }
 
-  /// Add a document record without a file (e.g. "requested" item)
+  /// Run AI extraction on a document already in the vault.
+  /// Returns [DocExtractionResult] for the caller to show in the results sheet.
+  /// Does NOT write extracted data to DB — call [saveExtracted] to confirm.
+  Future<DocExtractionResult?> extract(String docId) async {
+    _patchStatus(docId, 'processing');
+    try {
+      final current = state.value ?? [];
+      final doc = current.firstWhere((d) => d.docId == docId);
+      if (doc.filePath == null) return null;
+
+      final bytes = await SupabaseService.client.storage
+          .from('documents')
+          .download(doc.filePath!);
+
+      final ext = doc.fileType?.toLowerCase() ?? 'pdf';
+      final mediaType = switch (ext) {
+        'pdf'            => 'application/pdf',
+        'jpg' || 'jpeg'  => 'image/jpeg',
+        'png'            => 'image/png',
+        _                => 'application/pdf',
+      };
+
+      final raw = await ClaudeApi.extractDocument(
+        base64Content: base64Encode(bytes),
+        mediaType: mediaType,
+        categoryHint: doc.docCategory?.label ?? 'marine document',
+      );
+
+      final hardFields = <String, dynamic>{};
+      final rawHard = raw['hard_fields'];
+      if (rawHard is Map) {
+        for (final e in rawHard.entries) {
+          if (e.value != null && e.value != '' && e.value != 0) {
+            hardFields[e.key as String] = e.value;
+          }
+        }
+      }
+
+      // Parse findings — supports both old (string) and new ({text, note_category}) formats
+      final findings = <String>[];
+      final findingCats = <String>[];
+      for (final f in raw['context_findings'] as List? ?? []) {
+        if (f is Map) {
+          final text = f['text']?.toString() ?? '';
+          if (text.isNotEmpty) {
+            findings.add(text);
+            findingCats.add(f['note_category']?.toString() ?? 'observation');
+          }
+        } else {
+          final text = f.toString();
+          if (text.isNotEmpty) {
+            findings.add(text);
+            findingCats.add('observation');
+          }
+        }
+      }
+
+      final incidents = (raw['detected_incidents'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+
+      final machinery = (raw['detected_machinery'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+
+      // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
+      final vesselFields = <String, dynamic>{};
+      final rawVessel = raw['vessel_data'];
+      if (rawVessel is Map) {
+        for (final e in rawVessel.entries) {
+          if (e.value != null && e.value != '') {
+            vesselFields[e.key as String] = e.value;
+          }
+        }
+      }
+
+      return DocExtractionResult(
+        docId: docId,
+        hardFields: hardFields,
+        contextFindings: findings,
+        findingCategories: findingCats,
+        detectedIncidents: incidents,
+        detectedMachinery: machinery,
+        vesselFields: vesselFields,
+        suggestedCategory: raw['suggested_category'] as String?,
+        documentType: raw['document_type'] as String?,
+      );
+    } catch (e) {
+      _patchStatus(docId, 'failed');
+      await SupabaseService.client
+          .from('documents')
+          .update({'extraction_status': 'failed'}).eq('doc_id', docId);
+      return null;
+    }
+  }
+
+  /// Persist the user-selected extraction result and mark the document extracted.
+  Future<void> saveExtracted(
+    String docId,
+    Map<String, dynamic> selectedHardFields,
+  ) async {
+    await SupabaseService.client.from('documents').update({
+      'extracted_data': selectedHardFields,
+      'ai_extracted': true,
+      'extraction_status': 'completed',
+    }).eq('doc_id', docId);
+
+    final current = state.value ?? [];
+    state = AsyncData(current.map((d) {
+      if (d.docId != docId) return d;
+      return d.copyWith(
+        extractedData: selectedHardFields,
+        aiExtracted: true,
+        extractionStatus: 'completed',
+      );
+    }).toList());
+  }
+
+  /// Add a document record without a file (e.g. "requested" item).
   Future<DocumentModel> addRecord({
     required String caseId,
     required String title,
@@ -256,7 +430,6 @@ class DocumentNotifier
   }
 
   Future<void> deleteDocument(DocumentModel doc) async {
-    // Delete the storage file first so we don't leave orphans.
     if (doc.filePath != null && doc.filePath!.isNotEmpty) {
       try {
         await SupabaseService.client.storage
@@ -266,8 +439,6 @@ class DocumentNotifier
         debugPrint('[DocumentProvider] storage delete failed: $e');
       }
     }
-    // Nullify any FK references before deleting the row (certificates may
-    // have source_doc_id pointing here). Non-fatal if the column is absent.
     try {
       await SupabaseService.client
           .from('certificates')
@@ -282,6 +453,30 @@ class DocumentNotifier
     state = AsyncData(current.where((d) => d.docId != doc.docId).toList());
   }
 
+  Future<void> updateMetadata(
+    String docId, {
+    String? title,
+    DocCategory? category,
+  }) async {
+    final updates = <String, dynamic>{
+      if (title != null) 'title': title,
+      if (category != null) 'doc_category': category.value,
+    };
+    if (updates.isEmpty) return;
+    await SupabaseService.client
+        .from('documents')
+        .update(updates)
+        .eq('doc_id', docId);
+    final current = state.value ?? [];
+    state = AsyncData(current.map((d) {
+      if (d.docId != docId) return d;
+      return d.copyWith(
+        title: title ?? d.title,
+        docCategory: category ?? d.docCategory,
+      );
+    }).toList());
+  }
+
   Future<void> renameDocument(String docId, String newTitle) async {
     await SupabaseService.client
         .from('documents')
@@ -289,7 +484,7 @@ class DocumentNotifier
         .eq('doc_id', docId);
     final current = state.value ?? [];
     state = AsyncData(current
-        .map((d) => d.docId == docId ? _copyWithTitle(d, newTitle) : d)
+        .map((d) => d.docId == docId ? d.copyWith(title: newTitle) : d)
         .toList());
   }
 
@@ -297,162 +492,65 @@ class DocumentNotifier
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(arg));
   }
+
+  void _patchStatus(String docId, String status) {
+    final current = state.value ?? [];
+    state = AsyncData(current.map((d) {
+      if (d.docId != docId) return d;
+      return d.copyWith(extractionStatus: status);
+    }).toList());
+  }
 }
 
-DocumentModel _copyWithTitle(DocumentModel d, String title) =>
-    DocumentModel(
-      docId: d.docId, caseId: d.caseId, title: title,
-      docCategory: d.docCategory, docType: d.docType, source: d.source,
-      docDate: d.docDate, receivedDate: d.receivedDate, filePath: d.filePath,
-      fileType: d.fileType, fileSizeKb: d.fileSizeKb,
-      availability: d.availability, aiExtracted: d.aiExtracted,
-      extractionStatus: d.extractionStatus, language: d.language,
-      notes: d.notes, createdAt: d.createdAt,
-    );
+// ── Helpers ───────────────────────────────────────────────────────────────
 
-// ── AI Extraction provider ─────────────────────────────────────────────────
+String _sanitizeFilename(String filename) {
+  // Transliterate common accented characters to ASCII equivalents
+  const accents = {
+    'à':'a','â':'a','ä':'a','á':'a','ã':'a','å':'a',
+    'è':'e','é':'e','ê':'e','ë':'e',
+    'ì':'i','î':'i','ï':'i','í':'i',
+    'ò':'o','ô':'o','ö':'o','ó':'o','õ':'o','ø':'o',
+    'ù':'u','û':'u','ü':'u','ú':'u',
+    'ý':'y','ÿ':'y',
+    'ç':'c','ñ':'n','ß':'ss',
+    'À':'A','Â':'A','Ä':'A','Á':'A','Ã':'A','Å':'A',
+    'È':'E','É':'E','Ê':'E','Ë':'E',
+    'Ì':'I','Î':'I','Ï':'I','Í':'I',
+    'Ò':'O','Ô':'O','Ö':'O','Ó':'O','Õ':'O','Ø':'O',
+    'Ù':'U','Û':'U','Ü':'U','Ú':'U',
+    'Ç':'C','Ñ':'N',
+  };
+  var s = filename;
+  for (final e in accents.entries) {
+    s = s.replaceAll(e.key, e.value);
+  }
+  // Replace any remaining non-safe characters (spaces, parens, etc.) with _
+  s = s.replaceAll(RegExp(r'[^\w.\-]'), '_');
+  // Collapse consecutive underscores
+  s = s.replaceAll(RegExp(r'_+'), '_');
+  return s;
+}
 
-/// Holds extraction state for a single document being processed
+// ── Connectivity provider ──────────────────────────────────────────────────
+
+// Kept for backward compatibility — new code uses documentProvider directly.
 @immutable
-class ExtractionState {
-  const ExtractionState({
-    this.isLoading = false,
-    this.result,
-    this.error,
+class ExtractionResult {
+  const ExtractionResult({
+    required this.docId,
+    required this.rawFields,
+    required this.vesselFields,
+    required this.certFields,
+    this.confidence = 'medium',
+    this.documentType,
   });
-  final bool isLoading;
-  final ExtractionResult? result;
-  final String? error;
-
-  ExtractionState copyWith({
-    bool? isLoading,
-    ExtractionResult? result,
-    String? error,
-  }) =>
-      ExtractionState(
-        isLoading: isLoading ?? this.isLoading,
-        result: result ?? this.result,
-        error: error ?? this.error,
-      );
-}
-
-final extractionProvider =
-    StateNotifierProvider<ExtractionNotifier, ExtractionState>(
-  (_) => ExtractionNotifier(),
-);
-
-class ExtractionNotifier extends StateNotifier<ExtractionState> {
-  ExtractionNotifier() : super(const ExtractionState());
-
-  /// Run Claude extraction on image bytes
-  Future<ExtractionResult?> extractFromImage({
-    required String docId,
-    required Uint8List bytes,
-    required String mimeType,
-    String? documentHint,
-  }) async {
-    state = const ExtractionState(isLoading: true);
-    try {
-      final base64 = base64Encode(bytes);
-      final raw = await ClaudeApi.extractCertificateData(
-        base64Image: base64,
-        mediaType: mimeType,
-        documentHint: documentHint,
-      );
-
-      final result = _buildResult(docId, raw);
-      state = ExtractionState(result: result);
-
-      // Mark document as awaiting user review — ai_extracted is only set to
-      // true once the user confirms the import on the review screen.
-      await SupabaseService.client.from('documents').update({
-        'extraction_status': 'pending_review',
-        'doc_type': raw['document_type'] as String?,
-      }).eq('doc_id', docId);
-
-      return result;
-    } catch (e) {
-      state = ExtractionState(error: e.toString());
-      await SupabaseService.client
-          .from('documents')
-          .update({'extraction_status': 'failed'}).eq('doc_id', docId);
-      return null;
-    }
-  }
-
-  void clear() => state = const ExtractionState();
-
-  ExtractionResult _buildResult(String docId, Map<String, dynamic> raw) {
-    // Fields that map to the vessels table
-    final vesselFields = <String, dynamic>{};
-    final fieldMap = {
-      'vessel_name': 'name',
-      'imo_number': 'imo_number',
-      'vessel_type': 'vessel_type',
-      'flag': 'flag',
-      'port_of_registry': 'port_of_registry',
-      'gross_tonnage': 'gross_tonnage',
-      'net_tonnage': 'net_tonnage',
-      'deadweight': 'deadweight',
-      'length_oa': 'length_oa',
-      'length_bp': 'length_bp',
-      'breadth': 'breadth',
-      'depth': 'depth',
-      'max_draft': 'max_draft',
-      'year_built': 'year_built',
-      'build_yard': 'build_yard',
-      'build_country': 'build_country',
-      'owners': 'owners',
-      'operators': 'operators',
-      'class_society': 'class_society',
-      'class_notation': 'class_notation',
-      'service_speed': 'service_speed',
-    };
-    for (final entry in fieldMap.entries) {
-      if (raw[entry.key] != null) {
-        vesselFields[entry.value] = raw[entry.key];
-      }
-    }
-
-    // Fields that map to the certificates table
-    final certFields = <String, dynamic>{};
-    if (raw['document_type'] != null) {
-      certFields['cert_type'] = _mapCertType(raw['document_type'] as String);
-      certFields['cert_name'] = raw['document_type'];
-    }
-    if (raw['issuing_authority'] != null) {
-      certFields['issuing_authority'] = raw['issuing_authority'];
-    }
-    if (raw['issue_date'] != null) certFields['issue_date'] = raw['issue_date'];
-    if (raw['expiry_date'] != null) {
-      certFields['expiry_date'] = raw['expiry_date'];
-    }
-    if (raw['annual_survey_date'] != null) {
-      certFields['annual_survey_date'] = raw['annual_survey_date'];
-    }
-    if (raw['cert_number'] != null) {
-      certFields['cert_number'] = raw['cert_number'];
-    }
-
-    return ExtractionResult(
-      docId: docId,
-      rawFields: raw,
-      vesselFields: vesselFields,
-      certFields: certFields,
-      documentType: raw['document_type'] as String?,
-    );
-  }
-
-  String _mapCertType(String docType) {
-    final t = docType.toLowerCase();
-    if (t.contains('class')) return 'class_certificate';
-    if (t.contains('doc') || t.contains('compliance')) return 'doc';
-    if (t.contains('smc') || t.contains('safety management')) return 'smc';
-    if (t.contains('load line')) return 'load_line';
-    if (t.contains('marpol')) return 'marpol';
-    if (t.contains('psc') || t.contains('port state')) return 'psc_inspection';
-    if (t.contains('iopp')) return 'iopp';
-    if (t.contains('dp')) return 'dp_certificate';
-    return 'other';
-  }
+  final String docId;
+  final Map<String, dynamic> rawFields;
+  final Map<String, dynamic> vesselFields;
+  final Map<String, dynamic> certFields;
+  final String confidence;
+  final String? documentType;
+  bool get hasVesselData => vesselFields.isNotEmpty;
+  bool get hasCertData => certFields.isNotEmpty;
 }

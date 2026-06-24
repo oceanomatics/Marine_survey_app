@@ -247,6 +247,7 @@ class _AddRepairSheetState extends State<AddRepairSheet> {
                           _linkedIds.remove(item.damageId);
                         }
                       }),
+                      tileColor: Colors.transparent,
                       title: Text(item.componentName,
                           style: const TextStyle(fontSize: 13)),
                       subtitle: item.damageCategory != DamageCategory.other

@@ -27,7 +27,8 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(controller: _jobCtrl,
               decoration: const InputDecoration(
-                  labelText: 'Job Number *', hintText: 'e.g. AU-M53-056789')),
+                  labelText: 'Job Number',
+                  hintText: 'e.g. AU-M53-056789 — can be filled from instruction email')),
           const SizedBox(height: 16),
           TextField(controller: _claimCtrl,
               decoration: const InputDecoration(
@@ -67,11 +68,14 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
   }
 
   Future<void> _create() async {
-    if (_jobCtrl.text.trim().isEmpty) return;
     setState(() => _loading = true);
+    final rawJob = _jobCtrl.text.trim();
+    final jobNumber = rawJob.isEmpty
+        ? 'TMP-${DateTime.now().millisecondsSinceEpoch}'
+        : rawJob;
     try {
       final c = await ref.read(casesProvider.notifier).createCase(
-        jobNumber: _jobCtrl.text.trim(),
+        jobNumber: jobNumber,
         caseType: _type,
         outputFormat: _fmt,
         claimReference: _claimCtrl.text.trim().isEmpty

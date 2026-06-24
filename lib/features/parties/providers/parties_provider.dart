@@ -3,6 +3,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/party_model.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../correspondence/models/correspondence_model.dart';
 
 // ── Case Parties (single record per case) ─────────────────────────────────
 
@@ -38,7 +39,7 @@ class PartiesNotifier extends FamilyAsyncNotifier<CasePartiesModel?, String> {
   }
 }
 
-// ── Assured Contacts (multiple per case) ──────────────────────────────────
+// ── Assured Contacts / Stakeholders (multiple per case) ───────────────────
 
 final assuredContactsProvider = AsyncNotifierProviderFamily<
     AssuredContactsNotifier, List<AssuredContactModel>, String>(
@@ -64,29 +65,76 @@ class AssuredContactsNotifier
   Future<void> add({
     required String caseId,
     required String fullName,
+    String? company,
     String? roleTitle,
+    StakeholderGroup? stakeholderGroup,
     String? phone,
     String? email,
     String? notes,
   }) async {
     final payload = AssuredContactModel(
-      contactId: '',
-      caseId: caseId,
-      fullName: fullName,
-      roleTitle: roleTitle,
-      phone: phone,
-      email: email,
-      notes: notes,
+      contactId:        '',
+      caseId:           caseId,
+      fullName:         fullName,
+      company:          company,
+      roleTitle:        roleTitle,
+      stakeholderGroup: stakeholderGroup,
+      phone:            phone,
+      email:            email,
+      notes:            notes,
     );
     final inserted = await SupabaseService.client
         .from('assured_contacts')
         .insert(payload.toInsertJson())
         .select()
         .single();
-    final created =
-        AssuredContactModel.fromJson(inserted);
+    final created = AssuredContactModel.fromJson(inserted);
     final current = state.value ?? [];
     state = AsyncData([...current, created]);
+  }
+
+  /// Add all extracted parties from a correspondence in one call.
+  /// Skips duplicates (same fullName already exists for this case).
+  Future<int> addFromExtracted(
+    String caseId,
+    List<ExtractedParty> parties,
+  ) async {
+    final existing = (state.value ?? []).map((c) => c.fullName.toLowerCase()).toSet();
+    var added = 0;
+    for (final p in parties) {
+      if (existing.contains(p.name.toLowerCase())) continue;
+      await add(
+        caseId:           caseId,
+        fullName:         p.name,
+        company:          p.company,
+        roleTitle:        p.role,
+        stakeholderGroup: StakeholderGroup.fromRole(p.role),
+        phone:            p.phone,
+        email:            p.email,
+      );
+      existing.add(p.name.toLowerCase());
+      added++;
+    }
+    return added;
+  }
+
+  Future<void> editContact(AssuredContactModel contact) async {
+    await SupabaseService.client
+        .from('assured_contacts')
+        .update({
+          'full_name':         contact.fullName,
+          'company':           contact.company,
+          'role_title':        contact.roleTitle,
+          'stakeholder_group': contact.stakeholderGroup?.value,
+          'phone':             contact.phone,
+          'email':             contact.email,
+          'notes':             contact.notes,
+        })
+        .eq('contact_id', contact.contactId);
+    final current = state.value ?? [];
+    state = AsyncData(
+      current.map((c) => c.contactId == contact.contactId ? contact : c).toList(),
+    );
   }
 
   Future<void> delete(String contactId) async {

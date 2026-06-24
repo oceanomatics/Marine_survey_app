@@ -356,7 +356,7 @@ class _NoteCard extends StatelessWidget {
                                     height: 1.45),
                               ),
                               const SizedBox(height: 6),
-                              // Footer: date + resolved indicator
+                              // Footer: date + source + resolved indicator
                               Row(children: [
                                 Text(
                                   _formatDate(note.updatedAt),
@@ -364,6 +364,41 @@ class _NoteCard extends StatelessWidget {
                                       fontSize: 10,
                                       color: AppColors.textTertiary),
                                 ),
+                                if (note.source != null) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.midBlue
+                                            .withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                                Icons.description_outlined,
+                                                size: 9,
+                                                color: AppColors.midBlue),
+                                            const SizedBox(width: 3),
+                                            Flexible(
+                                              child: Text(
+                                                note.source!,
+                                                style: const TextStyle(
+                                                    fontSize: 9,
+                                                    color: AppColors.midBlue,
+                                                    fontWeight:
+                                                        FontWeight.w600),
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ]),
+                                    ),
+                                  ),
+                                ],
                                 if (note.isResolved) ...[
                                   const SizedBox(width: 8),
                                   Container(
@@ -580,7 +615,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Report section picker ────────────────────────────────
+            // ── Report section quick pick ────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
@@ -595,7 +630,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
                         letterSpacing: 0.7),
                   ),
                   const SizedBox(height: 6),
-                  _SectionDropdown(
+                  _SectionChips(
                     value: _section,
                     onChanged: (s) => setState(() => _section = s),
                   ),
@@ -729,7 +764,6 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
                 controller: _ctrl,
-                autofocus: true,
                 maxLines: 6,
                 minLines: 3,
                 decoration: InputDecoration(
@@ -881,57 +915,81 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
   ];
 }
 
-// ── Section dropdown ───────────────────────────────────────────────────────
+// ── Section quick-pick chips ───────────────────────────────────────────────
 
-class _SectionDropdown extends StatelessWidget {
-  const _SectionDropdown({required this.value, required this.onChanged});
+class _SectionChips extends StatelessWidget {
+  const _SectionChips({required this.value, required this.onChanged});
   final ReportSection? value;
   final void Function(ReportSection?) onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        value != null ? _sectionColor(value!) : AppColors.textTertiary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      decoration: BoxDecoration(
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: DropdownButton<ReportSection?>(
-        value: value,
-        isExpanded: true,
-        underline: const SizedBox.shrink(),
-        hint: const Text('No section — general note',
-            style: TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 13,
-                fontStyle: FontStyle.italic)),
-        items: [
-          const DropdownMenuItem<ReportSection?>(
-            value: null,
-            child: Text('No section — general note',
-                style: TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 13,
-                    fontStyle: FontStyle.italic)),
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        // "None" chip
+        GestureDetector(
+          onTap: () => onChanged(null),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: value == null
+                  ? AppColors.textTertiary.withValues(alpha: 0.18)
+                  : AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: AppColors.textTertiary
+                    .withValues(alpha: value == null ? 0.5 : 0.2),
+                width: value == null ? 1.5 : 1.0,
+              ),
+            ),
+            child: Text(
+              'None',
+              style: TextStyle(
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+                fontWeight:
+                    value == null ? FontWeight.w700 : FontWeight.w400,
+                color: value == null
+                    ? AppColors.textSecondary
+                    : AppColors.textTertiary,
+              ),
+            ),
           ),
-          ...ReportSection.ordered.map((s) => DropdownMenuItem<ReportSection?>(
-                value: s,
-                child: Row(children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                        color: _sectionColor(s), shape: BoxShape.circle),
-                  ),
-                  Text(s.label, style: const TextStyle(fontSize: 13)),
-                ]),
-              )),
-        ],
-        onChanged: onChanged,
-      ),
+        ),
+        ...ReportSection.ordered.map((s) {
+          final selected = value == s;
+          final color = _sectionColor(s);
+          return GestureDetector(
+            onTap: () => onChanged(selected ? null : s),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected ? color : color.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: color.withValues(alpha: selected ? 1.0 : 0.25),
+                  width: selected ? 1.5 : 1.0,
+                ),
+              ),
+              child: Text(
+                s.shortLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight:
+                      selected ? FontWeight.w700 : FontWeight.w400,
+                  color: selected ? Colors.white : color,
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 }
@@ -1011,13 +1069,15 @@ Color _sectionColor(ReportSection s) => switch (s) {
     };
 
 Color _categoryColor(NoteCategory cat) => switch (cat) {
-      NoteCategory.observation => const Color(0xFF2A6099),
-      NoteCategory.measurement => const Color(0xFF7B5EA7),
-      NoteCategory.followUp    => const Color(0xFFD97706),
-      NoteCategory.interview   => const Color(0xFF0891B2),
-      NoteCategory.technical   => const Color(0xFFDC2626),
-      NoteCategory.policy      => const Color(0xFF4338CA),
-      NoteCategory.general     => const Color(0xFF4A7A5A),
+      NoteCategory.observation   => const Color(0xFF2A6099),
+      NoteCategory.measurement   => const Color(0xFF7B5EA7),
+      NoteCategory.followUp      => const Color(0xFFD97706),
+      NoteCategory.interview     => const Color(0xFF0891B2),
+      NoteCategory.technical     => const Color(0xFFDC2626),
+      NoteCategory.operations    => const Color(0xFF0F766E),
+      NoteCategory.previousWorks => const Color(0xFF6B7280),
+      NoteCategory.policy        => const Color(0xFF4338CA),
+      NoteCategory.general       => const Color(0xFF4A7A5A),
     };
 
 Color _priorityColor(CuePriority p) => switch (p) {

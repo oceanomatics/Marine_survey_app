@@ -3,6 +3,29 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
+/// References extracted from a correspondence by the AI that can be applied
+/// to the parent case (job number, claim ref, vessel name, instruction date).
+@immutable
+class ExtractedCaseRefs {
+  const ExtractedCaseRefs({
+    this.jobNumber,
+    this.claimReference,
+    this.vesselName,
+    this.instructionDate,
+  });
+
+  final String? jobNumber;
+  final String? claimReference;
+  final String? vesselName;
+  final DateTime? instructionDate;
+
+  bool get hasAny =>
+      jobNumber != null ||
+      claimReference != null ||
+      vesselName != null ||
+      instructionDate != null;
+}
+
 enum CorrStatus {
   pending,
   processing,
@@ -32,22 +55,30 @@ class ExtractedParty {
     required this.name,
     this.company,
     this.role,
+    this.email,
+    this.phone,
   });
 
   final String name;
   final String? company;
   final String? role;
+  final String? email;
+  final String? phone;
 
   factory ExtractedParty.fromMap(Map<String, dynamic> m) => ExtractedParty(
         name:    m['name'] as String? ?? '',
         company: m['company'] as String?,
         role:    m['role'] as String?,
+        email:   m['email'] as String?,
+        phone:   m['phone'] as String?,
       );
 
   Map<String, dynamic> toMap() => {
         'name': name,
         if (company != null) 'company': company,
         if (role != null) 'role': role,
+        if (email != null) 'email': email,
+        if (phone != null) 'phone': phone,
       };
 }
 
@@ -62,6 +93,7 @@ class CorrespondenceModel {
     this.corrDate,
     required this.localPath,
     this.summary,
+    this.bodyText,
     this.parties = const [],
     this.actions = const [],
     this.keyDates = const [],
@@ -78,12 +110,15 @@ class CorrespondenceModel {
   final DateTime? corrDate;
   final String localPath;
   final String? summary;
+  final String? bodyText;
   final List<ExtractedParty> parties;
   final List<String> actions;
   final List<String> keyDates;
   final CorrStatus status;
   final double? fileSizeKb;
   final DateTime createdAt;
+
+  bool get isEml => localPath.toLowerCase().endsWith('.eml');
 
   factory CorrespondenceModel.fromMap(Map<String, dynamic> m) {
     List<ExtractedParty> parseParties(String? json) {
@@ -118,6 +153,7 @@ class CorrespondenceModel {
           : null,
       localPath:   m['local_path'] as String,
       summary:     m['summary'] as String?,
+      bodyText:    m['body_text'] as String?,
       parties:     parseParties(m['parties_json'] as String?),
       actions:     parseStrings(m['actions_json'] as String?),
       keyDates:    parseStrings(m['key_dates_json'] as String?),
@@ -136,6 +172,7 @@ class CorrespondenceModel {
         if (corrDate != null)  'corr_date': corrDate!.toIso8601String().split('T').first,
         'local_path':     localPath,
         if (summary != null)   'summary':   summary,
+        if (bodyText != null)  'body_text': bodyText,
         'parties_json':   jsonEncode(parties.map((p) => p.toMap()).toList()),
         'actions_json':   jsonEncode(actions),
         'key_dates_json': jsonEncode(keyDates),
@@ -150,6 +187,7 @@ class CorrespondenceModel {
     String? recipient,
     DateTime? corrDate,
     String? summary,
+    String? bodyText,
     List<ExtractedParty>? parties,
     List<String>? actions,
     List<String>? keyDates,
@@ -164,6 +202,7 @@ class CorrespondenceModel {
         corrDate:    corrDate ?? this.corrDate,
         localPath:   localPath,
         summary:     summary ?? this.summary,
+        bodyText:    bodyText ?? this.bodyText,
         parties:     parties ?? this.parties,
         actions:     actions ?? this.actions,
         keyDates:    keyDates ?? this.keyDates,

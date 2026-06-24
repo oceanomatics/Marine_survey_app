@@ -276,30 +276,29 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
 
 // ── Nav Rail ──────────────────────────────────────────────────────────────
 
-class _SurveyNavRail extends StatelessWidget {
+class _SurveyNavRail extends ConsumerWidget {
   const _SurveyNavRail({required this.caseId});
 
   final String caseId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final caseModel = ref.watch(caseProvider(caseId)).value;
+
     return Container(
       width: 68,
       color: const Color(0xFFD5E8F5),
       child: Column(
         children: [
-          const SizedBox(height: 8),
+          // ── Case editor header ───────────────────────────────────────
+          _CaseEditorButton(caseId: caseId, caseModel: caseModel),
+          const Divider(height: 1, color: Color(0xFFB8D5EC)),
+          const SizedBox(height: 4),
           _NavItem(
             icon: Icons.directions_boat_outlined,
             label: 'Vessel',
             accent: AppColors.teal,
             onTap: () => context.go('/cases/$caseId/vessel'),
-          ),
-          _NavItem(
-            icon: Icons.history_outlined,
-            label: 'Backgnd',
-            accent: AppColors.midBlue,
-            onTap: () => context.go('/cases/$caseId/background'),
           ),
           _NavItem(
             icon: Icons.handshake_outlined,
@@ -354,6 +353,314 @@ class _SurveyNavRail extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Case editor button (top of nav rail) ──────────────────────────────────
+
+class _CaseEditorButton extends StatelessWidget {
+  const _CaseEditorButton({required this.caseId, required this.caseModel});
+  final String caseId;
+  final CaseModel? caseModel;
+
+  @override
+  Widget build(BuildContext context) {
+    const jobNo = 'Case';
+
+    return Tooltip(
+      message: 'Edit case details',
+      child: InkWell(
+        onTap: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _CaseEditorSheet(caseId: caseId),
+        ),
+        child: SizedBox(
+          width: 68,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44, height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.navy.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.edit_note_outlined,
+                      color: AppColors.navy, size: 20),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  jobNo,
+                  style: TextStyle(
+                    color: AppColors.navy,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Case editor sheet ─────────────────────────────────────────────────────
+
+class _CaseEditorSheet extends ConsumerStatefulWidget {
+  const _CaseEditorSheet({required this.caseId});
+  final String caseId;
+
+  @override
+  ConsumerState<_CaseEditorSheet> createState() => _CaseEditorSheetState();
+}
+
+class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
+  late final TextEditingController _jobCtrl;
+  late final TextEditingController _claimCtrl;
+  DateTime? _instructionDate;
+  CaseStatus? _status;
+  CaseType? _caseType;
+  OutputFormat? _outputFormat;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = ref.read(caseProvider(widget.caseId)).value;
+    _jobCtrl   = TextEditingController(
+        text: c?.hasPlaceholderJobNumber == true ? '' : (c?.jobNumber ?? ''));
+    _claimCtrl = TextEditingController(text: c?.claimReference ?? '');
+    _instructionDate = c?.instructionDate;
+    _status      = c?.status;
+    _caseType    = c?.caseType;
+    _outputFormat = c?.outputFormat;
+  }
+
+  @override
+  void dispose() {
+    _jobCtrl.dispose();
+    _claimCtrl.dispose();
+    super.dispose();
+  }
+
+  String? _v(TextEditingController c) {
+    final t = c.text.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final rawJob = _v(_jobCtrl);
+      await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
+        jobNumber:       rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
+        claimReference:  _v(_claimCtrl),
+        status:          _status,
+        caseType:        _caseType,
+        instructionDate: _instructionDate,
+        outputFormat:    _outputFormat,
+      );
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              Container(
+                width: 32, height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors.navy.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.edit_note_outlined,
+                    color: AppColors.navy, size: 17),
+              ),
+              const SizedBox(width: 10),
+              const Text('Edit Case Details',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20,
+                    color: AppColors.textSecondary),
+                onPressed: () => Navigator.pop(context),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            _field('Job / File Number', _jobCtrl,
+                hint: 'e.g. AU-M53-056789'),
+            const SizedBox(height: 10),
+            _field('Claim Reference', _claimCtrl,
+                hint: 'e.g. GARD-2025-0123456'),
+            const SizedBox(height: 10),
+
+            // Instruction date
+            GestureDetector(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _instructionDate ?? DateTime.now(),
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) setState(() => _instructionDate = picked);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.calendar_today_outlined,
+                      size: 15, color: AppColors.textTertiary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _instructionDate != null
+                          ? '${_instructionDate!.day.toString().padLeft(2, '0')}/'
+                              '${_instructionDate!.month.toString().padLeft(2, '0')}/'
+                              '${_instructionDate!.year}'
+                          : 'Instruction Date',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _instructionDate != null
+                            ? AppColors.textPrimary
+                            : AppColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                  if (_instructionDate != null)
+                    GestureDetector(
+                      onTap: () => setState(() => _instructionDate = null),
+                      child: const Icon(Icons.clear,
+                          size: 16, color: AppColors.textTertiary),
+                    ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Survey type
+            DropdownButtonFormField<CaseType>(
+              value: _caseType,
+              decoration: _inputDeco('Survey Type'),
+              items: CaseType.values
+                  .map((t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t.label,
+                            style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _caseType = v),
+            ),
+            const SizedBox(height: 10),
+
+            // Status
+            DropdownButtonFormField<CaseStatus>(
+              value: _status,
+              decoration: _inputDeco('Status'),
+              items: CaseStatus.values
+                  .map((s) => DropdownMenuItem(
+                        value: s,
+                        child: Text(s.label,
+                            style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _status = v),
+            ),
+            const SizedBox(height: 10),
+
+            // Report format
+            DropdownButtonFormField<OutputFormat>(
+              value: _outputFormat,
+              decoration: _inputDeco('Report Format'),
+              items: OutputFormat.values
+                  .map((f) => DropdownMenuItem(
+                        value: f,
+                        child: Text(f.label,
+                            style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _outputFormat = v),
+            ),
+            const SizedBox(height: 18),
+
+            ElevatedButton(
+              onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.navy,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      height: 18, width: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Save',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDeco(String label, {String? hint}) => InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: const TextStyle(
+            fontSize: 13, color: AppColors.textSecondary),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.navy, width: 1.5),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        isDense: true,
+      );
+
+  Widget _field(String label, TextEditingController ctrl, {String? hint}) =>
+      TextField(
+        controller: ctrl,
+        style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+        decoration: _inputDeco(label, hint: hint),
+      );
 }
 
 // ── Bottom capture toolbar ────────────────────────────────────────────────

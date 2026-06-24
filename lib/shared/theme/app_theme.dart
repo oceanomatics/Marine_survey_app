@@ -139,6 +139,9 @@ class AppTheme {
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
+        listTileTheme: const ListTileThemeData(
+          tileColor: Colors.transparent,
+        ),
         dividerTheme: const DividerThemeData(
           color: AppColors.divider,
           thickness: 1,

@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 6,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -62,6 +62,7 @@ class AppDatabase {
         corr_date       TEXT,
         local_path      TEXT NOT NULL,
         summary         TEXT,
+        body_text       TEXT,
         parties_json    TEXT,
         actions_json    TEXT,
         key_dates_json  TEXT,
@@ -78,8 +79,11 @@ class AppDatabase {
         content         TEXT NOT NULL,
         category        TEXT NOT NULL DEFAULT 'general',
         report_section  TEXT,
+        priority        TEXT NOT NULL DEFAULT 'normal',
+        resolved_at     TEXT,
         linked_to_type  TEXT,
         linked_to_id    TEXT,
+        source          TEXT,
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL,
         sync_status     TEXT NOT NULL DEFAULT 'synced'
@@ -87,66 +91,13 @@ class AppDatabase {
     ''');
   }
 
+  // Prototype mode: SQLite is a disposable cache — Supabase is authoritative.
+  // Any schema change just bumps the version here; the cache is wiped and
+  // rebuilt from Supabase on next launch.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute(
-          'ALTER TABLE photos ADD COLUMN attendance_id TEXT');
-    }
-    if (oldVersion < 3) {
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS correspondence (
-          id              TEXT PRIMARY KEY,
-          case_id         TEXT NOT NULL,
-          title           TEXT NOT NULL,
-          sender          TEXT,
-          recipient       TEXT,
-          corr_date       TEXT,
-          local_path      TEXT NOT NULL,
-          summary         TEXT,
-          parties_json    TEXT,
-          actions_json    TEXT,
-          key_dates_json  TEXT,
-          status          TEXT NOT NULL DEFAULT 'pending',
-          file_size_kb    REAL,
-          created_at      TEXT NOT NULL
-        )
-      ''');
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS surveyor_notes (
-          id              TEXT PRIMARY KEY,
-          case_id         TEXT NOT NULL,
-          content         TEXT NOT NULL,
-          category        TEXT NOT NULL DEFAULT 'general',
-          linked_to_type  TEXT,
-          linked_to_id    TEXT,
-          created_at      TEXT NOT NULL,
-          updated_at      TEXT NOT NULL
-        )
-      ''');
-    }
-    if (oldVersion < 4) {
-      try {
-        await db.execute(
-            'ALTER TABLE surveyor_notes ADD COLUMN report_section TEXT');
-      } catch (_) {
-        // Column already present (fresh install into v3+ path)
-      }
-    }
-    if (oldVersion < 5) {
-      try {
-        await db.execute(
-            "ALTER TABLE surveyor_notes ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
-      } catch (_) {}
-    }
-    if (oldVersion < 6) {
-      try {
-        await db.execute(
-            "ALTER TABLE surveyor_notes ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'");
-      } catch (_) {}
-      try {
-        await db.execute(
-            'ALTER TABLE surveyor_notes ADD COLUMN resolved_at TEXT');
-      } catch (_) {}
-    }
+    await db.execute('DROP TABLE IF EXISTS photos');
+    await db.execute('DROP TABLE IF EXISTS correspondence');
+    await db.execute('DROP TABLE IF EXISTS surveyor_notes');
+    await _onCreate(db, newVersion);
   }
 }

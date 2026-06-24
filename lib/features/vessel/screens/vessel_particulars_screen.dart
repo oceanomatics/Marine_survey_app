@@ -196,32 +196,50 @@ class _VesselParticularsScreenState
   }
 
   Future<void> _fetchFromEquasis() async {
+    if (_fetchingEquasis) return;
+    // Set immediately (sync) so rapid double-taps can't start a second call.
+    _fetchingEquasis = true;
+
     final imo = _imoCtrl.text.trim();
     if (imo.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter an IMO number first')),
-      );
+      _fetchingEquasis = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('Enter an IMO number first')));
+      }
       return;
     }
 
-    final account = ref.read(accountProvider).value;
-    final equasisAcc = account?.equasisAccount;
+    final accountAsync = ref.read(accountProvider);
+    if (accountAsync.isLoading) {
+      _fetchingEquasis = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('Account still loading — please try again')));
+      }
+      return;
+    }
+    final equasisAcc = accountAsync.value?.equasisAccount;
     if (equasisAcc == null) {
+      _fetchingEquasis = false;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      final router = GoRouter.of(context);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
           content: const Text('No Equasis account configured'),
           action: SnackBarAction(
-            label: 'Account',
-            onPressed: () => context.go('/account'),
+            label: 'Set up',
+            onPressed: () => router.go('/account'),
           ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+          duration: const Duration(seconds: 5),
+        ));
       return;
     }
 
-    setState(() => _fetchingEquasis = true);
+    setState(() {}); // trigger rebuild to show spinner
     try {
       final pdfBytes = await EquasisService.fetchVesselReport(
         imo: imo,
@@ -241,8 +259,8 @@ class _VesselParticularsScreenState
             filename: filename,
             mimeType: 'application/pdf',
             title: 'Equasis Ship Folder — IMO $imo ($dateStr)',
-            category: DocCategory.classReport,
-            willExtract: false,
+            category: DocCategory.intelligenceReport,
+            willExtract: true,
           );
 
       if (mounted) {
@@ -312,24 +330,6 @@ class _VesselParticularsScreenState
           ],
         ),
         actions: [
-          // Equasis fetch — visible only when IMO is set
-          if (_imoCtrl.text.trim().isNotEmpty)
-            _fetchingEquasis
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 14),
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.travel_explore,
-                        color: Colors.white),
-                    tooltip: 'Fetch from Equasis',
-                    onPressed: _fetchFromEquasis,
-                  ),
           if (_hasChanges || vesselId == null)
             Padding(
               padding: const EdgeInsets.only(right: 12),
@@ -371,6 +371,8 @@ class _VesselParticularsScreenState
             buildYardCtrl:    _buildYardCtrl,
             buildCountryCtrl: _buildCountryCtrl,
             onChanged: () => setState(() => _hasChanges = true),
+            onEquasisFetch: _fetchFromEquasis,
+            fetchingEquasis: _fetchingEquasis,
           ),
           _DimensionsTab(
             gtCtrl:      _gtCtrl,
@@ -410,12 +412,16 @@ class _IdentityTab extends StatelessWidget {
     required this.buildYardCtrl,
     required this.buildCountryCtrl,
     required this.onChanged,
+    this.onEquasisFetch,
+    this.fetchingEquasis = false,
   });
 
   final TextEditingController nameCtrl, imoCtrl, typeCtrl, flagCtrl, portCtrl;
   final TextEditingController ownersCtrl, operatorsCtrl, classCtrl, notationCtrl;
   final TextEditingController yearBuiltCtrl, buildYardCtrl, buildCountryCtrl;
   final VoidCallback onChanged;
+  final VoidCallback? onEquasisFetch;
+  final bool fetchingEquasis;
 
   @override
   Widget build(BuildContext context) {
@@ -435,12 +441,76 @@ class _IdentityTab extends StatelessWidget {
           onChanged: (_) => onChanged(),
           capitalization: TextCapitalization.characters,
         ),
-        SurveyField(
-          label: 'IMO Number',
-          controller: imoCtrl,
-          hint: 'e.g. 9374935',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: SurveyField(
+                label: 'IMO Number',
+                controller: imoCtrl,
+                hint: 'e.g. 9374935',
+                keyboard: TextInputType.number,
+                onChanged: (_) => onChanged(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: fetchingEquasis
+                  ? const SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Center(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.teal),
+                        ),
+                      ),
+                    )
+                  : Tooltip(
+                      message: 'Fetch from Equasis',
+                      child: InkWell(
+                        onTap: onEquasisFetch,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: onEquasisFetch != null
+                                ? AppColors.lightTeal
+                                : AppColors.surface,
+                            border: Border.all(
+                              color: onEquasisFetch != null
+                                  ? AppColors.teal
+                                  : AppColors.border,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.travel_explore,
+                                size: 15,
+                                color: onEquasisFetch != null
+                                    ? AppColors.teal
+                                    : AppColors.textTertiary),
+                            const SizedBox(width: 5),
+                            Text(
+                              'Equasis',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: onEquasisFetch != null
+                                    ? AppColors.teal
+                                    : AppColors.textTertiary,
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ),
+            ),
+          ],
         ),
         SurveyField(
           label: 'Vessel Type',

@@ -349,7 +349,6 @@ class RepairModel {
         if (completionDate != null)
           'completion_date': completionDate!.toIso8601String().split('T').first,
         if (notes != null) 'notes': notes,
-        'sequence_no':   sequenceNo,
       };
 }
 
@@ -440,7 +439,7 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
             .from('repairs')
             .select()
             .eq('case_id', caseId)
-            .order('sequence_no');
+            .order('created_at');
         final repairList = repairRaw as List;
 
         if (repairList.isNotEmpty) {
@@ -703,12 +702,8 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
 
   Future<RepairModel> addRepair(RepairModel repair) async {
     final current = state.value!;
-    final existing = current.repairsForOccurrence(repair.occurrenceId);
-    final nextSeq =
-        existing.isEmpty ? 1 : existing.last.sequenceNo + 1;
 
     final insertData = repair.toInsertJson();
-    insertData['sequence_no'] = nextSeq;
 
     final data = await SupabaseService.client
         .from('repairs')

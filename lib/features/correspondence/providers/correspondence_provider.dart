@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/api/claude_api.dart';
+import '../../../core/utils/eml_parser.dart';
 import '../models/correspondence_model.dart';
 
 const _uuid = Uuid();
@@ -69,19 +70,71 @@ class CorrespondenceNotifier
     return corr;
   }
 
-  /// Run Claude extraction on an uploaded PDF.
-  Future<void> extract(String corrId) async {
+  /// Parse an EML file, save it locally and create a correspondence record.
+  /// Returns the record plus the list of attachments found in the email.
+  Future<(CorrespondenceModel, List<EmlAttachment>)> importEml({
+    required String caseId,
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    final msg = EmlParser.parse(bytes);
+
+    final dir = await getApplicationDocumentsDirectory();
+    final corrDir =
+        Directory(p.join(dir.path, 'cases', caseId, 'correspondence'));
+    await corrDir.create(recursive: true);
+
+    final id = _uuid.v4();
+    final localPath = p.join(corrDir.path, '$id.eml');
+    await File(localPath).writeAsBytes(bytes);
+
+    final corr = CorrespondenceModel(
+      id:         id,
+      caseId:     caseId,
+      title:      msg.subject,
+      sender:     msg.from.isNotEmpty ? msg.from : null,
+      recipient:  msg.to.isNotEmpty ? msg.to : null,
+      corrDate:   msg.date,
+      localPath:  localPath,
+      bodyText:   msg.plainBody.isNotEmpty ? msg.plainBody : null,
+      fileSizeKb: bytes.length / 1024,
+      createdAt:  DateTime.now(),
+    );
+
+    final db = await AppDatabase.instance.database;
+    await db.insert('correspondence', corr.toMap());
+
+    final current = state.value ?? [];
+    state = AsyncData([corr, ...current]);
+
+    return (corr, msg.attachments);
+  }
+
+  /// Run Claude extraction on an uploaded PDF or imported EML.
+  /// Returns case-level references found in the document (job no, claim ref,
+  /// vessel name, instruction date) so the caller can offer to apply them.
+  Future<ExtractedCaseRefs?> extract(String corrId) async {
     _setStatus(corrId, CorrStatus.processing);
     try {
       final current = state.value ?? [];
       final corr = current.firstWhere((c) => c.id == corrId);
-      final bytes = await File(corr.localPath).readAsBytes();
-      final base64Pdf = base64Encode(bytes);
 
-      final result = await ClaudeApi.extractCorrespondence(
-        base64Pdf: base64Pdf,
-        filename: corr.title,
-      );
+      Map<String, dynamic> result;
+      if (corr.isEml && corr.bodyText != null) {
+        result = await ClaudeApi.extractCorrespondenceFromText(
+          subject:  corr.title,
+          bodyText: corr.bodyText!,
+          from:     corr.sender,
+          to:       corr.recipient,
+        );
+      } else {
+        final bytes = await File(corr.localPath).readAsBytes();
+        final base64Pdf = base64Encode(bytes);
+        result = await ClaudeApi.extractCorrespondence(
+          base64Pdf: base64Pdf,
+          filename:  corr.title,
+        );
+      }
 
       // Parse parties
       final partiesList = (result['parties'] as List? ?? []);
@@ -97,10 +150,16 @@ class CorrespondenceNotifier
           .map((e) => e.toString())
           .toList();
 
+      final corrDateRaw = result['corr_date'];
+      final corrDate = corrDateRaw is String
+          ? DateTime.tryParse(corrDateRaw)
+          : null;
+
       final updated = corr.copyWith(
         summary:   result['summary'] as String?,
         sender:    result['sender'] as String?,
         recipient: result['recipient'] as String?,
+        corrDate:  corrDate,
         parties:   parties,
         actions:   actions,
         keyDates:  keyDates,
@@ -108,9 +167,30 @@ class CorrespondenceNotifier
       );
 
       await _persist(updated);
+
+      // Collect case-level refs to return
+      final instrDateRaw = result['instruction_date'];
+      final instrDate = instrDateRaw is String
+          ? DateTime.tryParse(instrDateRaw)
+          : null;
+
+      final refs = ExtractedCaseRefs(
+        jobNumber:       _nonEmpty(result['job_number']),
+        claimReference:  _nonEmpty(result['claim_reference']),
+        vesselName:      _nonEmpty(result['vessel_name']),
+        instructionDate: instrDate,
+      );
+      return refs.hasAny ? refs : null;
     } catch (e) {
       _setStatus(corrId, CorrStatus.failed);
+      return null;
     }
+  }
+
+  String? _nonEmpty(dynamic v) {
+    if (v is! String) return null;
+    final s = v.trim();
+    return s.isEmpty ? null : s;
   }
 
   Future<void> delete(String corrId) async {

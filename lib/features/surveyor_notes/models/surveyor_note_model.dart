@@ -32,32 +32,39 @@ enum NoteCategory {
   followUp,
   interview,
   technical,
+  operations,
+  previousWorks,
   policy,
   general;
 
   static NoteCategory fromValue(String v) => switch (v) {
-        'observation'  => observation,
-        'measurement'  => measurement,
-        'follow_up'    => followUp,
-        'interview'    => interview,
-        'technical'    => technical,
-        'policy'       => policy,
-        _              => general,
+        'observation'    => observation,
+        'measurement'    => measurement,
+        'follow_up'      => followUp,
+        'interview'      => interview,
+        'technical'      => technical,
+        'operations'     => operations,
+        'previous_works' => previousWorks,
+        'policy'         => policy,
+        _                => general,
       };
 
   String get value => switch (this) {
-        followUp => 'follow_up',
-        _        => name,
+        followUp      => 'follow_up',
+        previousWorks => 'previous_works',
+        _             => name,
       };
 
   String get label => switch (this) {
-        observation => 'Observation',
-        measurement => 'Measurement',
-        followUp    => 'Follow-up',
-        interview   => 'Interview',
-        technical   => 'Technical',
-        policy      => 'Policy',
-        general     => 'General',
+        observation   => 'Observation',
+        measurement   => 'Measurement',
+        followUp      => 'Follow-up',
+        interview     => 'Interview',
+        technical     => 'Technical',
+        operations    => 'Operations',
+        previousWorks => 'Prev. Works',
+        policy        => 'Policy',
+        general       => 'General',
       };
 }
 
@@ -124,6 +131,21 @@ enum ReportSection {
         otherMatters    => 'Other Matters of Relevance',
       };
 
+  String get shortLabel => switch (this) {
+        background      => 'Background',
+        occurrence      => 'Occurrence',
+        attendance      => 'Attendance',
+        timeline        => 'Timeline',
+        causation       => 'Causation',
+        damage          => 'Damage',
+        repairs         => 'Repairs',
+        repairTimes     => 'Repair Times',
+        extraExpenses   => 'Extra Expenses',
+        generalExpenses => 'Gen. Expenses',
+        notAverage      => 'Not Average',
+        otherMatters    => 'Other Matters',
+      };
+
   static const ordered = [
     background,
     occurrence,
@@ -154,6 +176,7 @@ class SurveyorNote {
     this.resolvedAt,
     this.linkedToType,
     this.linkedToId,
+    this.source,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -167,6 +190,7 @@ class SurveyorNote {
   final DateTime? resolvedAt;
   final String? linkedToType;
   final String? linkedToId;
+  final String? source;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -184,6 +208,7 @@ class SurveyorNote {
             : null,
         linkedToType:  m['linked_to_type'] as String?,
         linkedToId:    m['linked_to_id'] as String?,
+        source:        m['source'] as String?,
         createdAt:     DateTime.parse(m['created_at'] as String),
         updatedAt:     DateTime.parse(m['updated_at'] as String),
       );
@@ -198,6 +223,7 @@ class SurveyorNote {
         'resolved_at':     resolvedAt?.toIso8601String(),
         if (linkedToType != null) 'linked_to_type': linkedToType,
         if (linkedToId != null)   'linked_to_id':   linkedToId,
+        if (source != null)       'source':          source,
         'created_at':      createdAt.toIso8601String(),
         'updated_at':      updatedAt.toIso8601String(),
       };
@@ -210,6 +236,7 @@ class SurveyorNote {
     Object? resolvedAt = _sentinel,
     String? linkedToType,
     String? linkedToId,
+    String? source,
   }) =>
       SurveyorNote(
         id:            id,
@@ -225,6 +252,7 @@ class SurveyorNote {
             : resolvedAt as DateTime?,
         linkedToType:  linkedToType ?? this.linkedToType,
         linkedToId:    linkedToId ?? this.linkedToId,
+        source:        source ?? this.source,
         createdAt:     createdAt,
         updatedAt:     DateTime.now(),
       );

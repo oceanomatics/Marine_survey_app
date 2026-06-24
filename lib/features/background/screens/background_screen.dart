@@ -696,11 +696,13 @@ class _CuesEmpty extends StatelessWidget {
 Color _categoryColor(NoteCategory cat) => _catColor(cat);
 
 Color _catColor(NoteCategory cat) => switch (cat) {
-      NoteCategory.observation => const Color(0xFF2A6099),
-      NoteCategory.measurement => const Color(0xFF7B5EA7),
-      NoteCategory.followUp    => const Color(0xFFD97706),
-      NoteCategory.interview   => const Color(0xFF0891B2),
-      NoteCategory.technical   => const Color(0xFFDC2626),
-      NoteCategory.general     => const Color(0xFF4A7A5A),
-      NoteCategory.policy      => const Color(0xFF6B4C9A),
+      NoteCategory.observation   => const Color(0xFF2A6099),
+      NoteCategory.measurement   => const Color(0xFF7B5EA7),
+      NoteCategory.followUp      => const Color(0xFFD97706),
+      NoteCategory.interview     => const Color(0xFF0891B2),
+      NoteCategory.technical     => const Color(0xFFDC2626),
+      NoteCategory.operations    => const Color(0xFF0F766E),
+      NoteCategory.previousWorks => const Color(0xFF6B7280),
+      NoteCategory.policy        => const Color(0xFF4338CA),
+      NoteCategory.general       => const Color(0xFF4A7A5A),
     };

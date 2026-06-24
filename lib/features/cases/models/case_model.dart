@@ -9,6 +9,7 @@ enum CaseType {
   pi('pi', 'P&I'),
   cs('cs', 'C&S'),
   dpTrials('dp_trials', 'DP Trials'),
+  mws('mws', 'MWS'),
   deficiency('deficiency', 'Deficiency'),
   consulting('consulting', 'Consulting');
 
@@ -36,12 +37,9 @@ enum CaseStatus {
 }
 
 enum OutputFormat {
+  abl('abl', 'ABL'),
   nordic('nordic', 'Nordic (Gard)'),
-  abl('abl', 'ABL Internal'),
-  piClub('pi_club', 'P&I Club'),
-  ablCs('abl_cs', 'ABL C&S'),
-  dpMarine('dp_marine', 'DP Marine'),
-  freeform('freeform', 'Freeform');
+  oceano('oceano_services', 'OceanoServices');
 
   const OutputFormat(this.value, this.label);
   final String value;
@@ -129,6 +127,8 @@ class CaseModel {
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
+      vesselName: json['vessel_name'] as String?,
+      clientName: json['client_name'] as String?,
     );
   }
 
@@ -149,6 +149,9 @@ class CaseModel {
     if (storageFolderPath != null) 'storage_folder_path': storageFolderPath,
     if (notes != null)             'notes':               notes,
   };
+
+  bool get hasPlaceholderJobNumber =>
+      jobNumber.startsWith('TMP-') || jobNumber == 'TBC' || jobNumber.isEmpty;
 
   CaseModel copyWith({
     String? jobNumber,

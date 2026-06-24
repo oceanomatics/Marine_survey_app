@@ -265,6 +265,149 @@ Draft the cause consideration now:''',
     return _extractText(response.data);
   }
 
+  // ── Generalized Document Extraction ──────────────────────────────────────
+
+  /// Extract hard structured data + soft context findings from any marine doc.
+  /// Works with PDFs (via the Anthropic PDF beta) and images.
+  static Future<Map<String, dynamic>> extractDocument({
+    required String base64Content,
+    required String mediaType,
+    required String categoryHint,
+  }) async {
+    final isPdf = mediaType == 'application/pdf';
+    final contentBlock = isPdf
+        ? {
+            'type': 'document',
+            'source': {
+              'type': 'base64',
+              'media_type': 'application/pdf',
+              'data': base64Content,
+            },
+          }
+        : {
+            'type': 'image',
+            'source': {
+              'type': 'base64',
+              'media_type': mediaType,
+              'data': base64Content,
+            },
+          };
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(
+        extra: {'feature': 'document_extraction'},
+        headers: isPdf ? {'anthropic-beta': 'pdfs-2024-09-25'} : null,
+      ),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 2000,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              contentBlock,
+              {
+                'type': 'text',
+                'text': '''You are extracting data from a marine survey document (category hint: $categoryHint).
+
+IMPORTANT: All text in the output MUST be in English. Translate any non-English content.
+
+Extract ALL information and return ONLY valid JSON with no preamble or markdown:
+
+{
+  "document_type": "specific type of this document",
+  "suggested_category": "certificate|class_survey_report|condition_of_class|previous_survey_report|service_report|logbook_extract|maintenance_record|statement_of_facts|incident_report|oil_analysis|invoice|intelligence_report|other",
+  "hard_fields": {
+    "vessel_name": "",
+    "imo_number": "",
+    "document_date": "",
+    "document_number": "",
+    "issuing_authority": "",
+    "expiry_date": "",
+    "next_due_date": "",
+    "survey_date": "",
+    "port_of_survey": "",
+    "class_society": "",
+    "class_notation": "",
+    "surveyor_name": "",
+    "component": "",
+    "serial_number": "",
+    "manufacturer": "",
+    "model_ref": "",
+    "hours_run": null,
+    "next_service_hours": null,
+    "invoice_number": "",
+    "supplier": "",
+    "amount": null,
+    "currency": ""
+  },
+  "context_findings": [
+    {
+      "text": "Brief factual statement in English about a finding, condition, observation, or recommendation",
+      "note_category": "observation|measurement|technical|operations|previous_works|follow_up|interview|policy|general"
+    }
+  ],
+  "detected_incidents": [
+    {
+      "title": "Short title for the incident or occurrence",
+      "date": "YYYY-MM-DD or null",
+      "location": "place or null",
+      "description": "1-2 sentence description in English"
+    }
+  ],
+  "detected_machinery": [
+    {
+      "machinery_type": "descriptive name e.g. Main Engine, Turbocharger",
+      "role": "main_engine|diesel_generator|turbocharger|gearbox|thruster|pump|compressor|crane|other",
+      "make": "",
+      "model": "",
+      "serial_number": "",
+      "mcr_kw": null,
+      "mcr_rpm": null,
+      "fuel_type": ""
+    }
+  ],
+  "vessel_data": {
+    "vessel_name": "",
+    "imo_number": "",
+    "call_sign": "",
+    "mmsi": "",
+    "vessel_type": "",
+    "flag": "",
+    "port_of_registry": "",
+    "gross_tonnage": null,
+    "net_tonnage": null,
+    "deadweight": null,
+    "year_built": null,
+    "build_yard": "",
+    "build_country": "",
+    "owners": "",
+    "operators": "",
+    "class_society": "",
+    "class_notation": "",
+    "service_speed": null
+  }
+}
+
+Rules:
+- hard_fields: include ONLY fields actually present in the document; omit absent fields entirely; dates MUST be YYYY-MM-DD; numeric values must be numbers not strings
+- context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
+- detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none
+- detected_machinery: list each distinct machinery item mentioned with technical data; leave as [] if none or if only named in passing without any technical detail
+- vessel_data: populate ONLY for intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, etc.); omit fields not present; numeric values must be numbers; leave as {} if not applicable
+- Return ONLY the JSON object, no other text''',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data);
+    return _parseJson(text);
+  }
+
   // ── Invoice Extraction ────────────────────────────────────────────────────
 
   /// Extract invoice data from a PDF or image
@@ -444,7 +587,7 @@ Dates in ISO format. Return null for missing fields.''',
   "recipient": "primary recipient name and organisation",
   "corr_date": "date of most recent or primary communication in YYYY-MM-DD format, or null",
   "parties": [
-    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter"}
+    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter", "email": "", "phone": ""}
   ],
   "key_dates": [
     "YYYY-MM-DD — description of the event"
@@ -455,14 +598,77 @@ Dates in ISO format. Return null for missing fields.''',
   "decisions": [
     "key decision or agreement reached"
   ],
-  "claim_reference": "",
-  "vessel_name": "",
-  "job_number": ""
+  "claim_reference": "underwriter or P&I claim / file reference, or null",
+  "vessel_name": "name of the vessel, or null",
+  "job_number": "surveyor's job or file number if mentioned, or null",
+  "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
 }
 
-Return null or empty array for fields not found. Dates in ISO format.''',
+Return null or empty array for fields not found. Dates in ISO format. For parties, include email and phone only when explicitly present in the document.''',
               },
             ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data);
+    return _parseJson(text);
+  }
+
+  /// Extract parties, summary, action items and key dates from plain-text email.
+  static Future<Map<String, dynamic>> extractCorrespondenceFromText({
+    required String subject,
+    required String bodyText,
+    String? from,
+    String? to,
+  }) async {
+    final emailContent = [
+      if (from != null && from.isNotEmpty) 'From: $from',
+      if (to != null && to.isNotEmpty) 'To: $to',
+      'Subject: $subject',
+      '',
+      bodyText,
+    ].join('\n');
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'correspondence_extraction'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 1500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''This is a marine insurance / survey email. Extract the following and return ONLY a JSON object with no preamble or markdown:
+
+$emailContent
+
+{
+  "summary": "2-3 sentence summary of the overall correspondence",
+  "sender": "primary sender name and organisation",
+  "recipient": "primary recipient name and organisation",
+  "corr_date": "date of the email in YYYY-MM-DD format, or null",
+  "parties": [
+    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter", "email": "", "phone": ""}
+  ],
+  "key_dates": [
+    "YYYY-MM-DD — description of the event"
+  ],
+  "action_items": [
+    "action item or outstanding request"
+  ],
+  "decisions": [
+    "key decision or agreement reached"
+  ],
+  "claim_reference": "underwriter or P&I claim / file reference, or null",
+  "vessel_name": "name of the vessel, or null",
+  "job_number": "surveyor's job or file number if mentioned, or null",
+  "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
+}
+
+Return null or empty array for fields not found. Dates in ISO format. For parties, include email and phone only when explicitly present in the document.''',
           },
         ],
       },

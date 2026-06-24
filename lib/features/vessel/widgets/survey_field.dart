@@ -15,6 +15,7 @@ class SurveyField extends StatelessWidget {
     this.maxLines = 1,
     this.capitalization = TextCapitalization.none,
     this.suffix,
+    this.suffixIcon,
     this.enabled = true,
     this.important = false,
   });
@@ -27,6 +28,7 @@ class SurveyField extends StatelessWidget {
   final int maxLines;
   final TextCapitalization capitalization;
   final String? suffix;
+  final Widget? suffixIcon;
   final bool enabled;
   final bool important; // shows a blue left border
 
@@ -78,6 +80,7 @@ class SurveyField extends StatelessWidget {
                   fontWeight: FontWeight.w400,
                 ),
                 suffixText: suffix,
+                suffixIcon: suffixIcon,
                 suffixStyle: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textTertiary,

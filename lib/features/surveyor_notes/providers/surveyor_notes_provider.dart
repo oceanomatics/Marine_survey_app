@@ -91,6 +91,7 @@ class SurveyorNotesNotifier
     DateTime? resolvedAt,
     String? linkedToType,
     String? linkedToId,
+    String? source,
   }) async {
     final now = DateTime.now();
     final note = SurveyorNote(
@@ -103,6 +104,7 @@ class SurveyorNotesNotifier
       resolvedAt:    resolvedAt,
       linkedToType:  linkedToType,
       linkedToId:    linkedToId,
+      source:        source,
       createdAt:     now,
       updatedAt:     now,
     );
@@ -143,6 +145,7 @@ class SurveyorNotesNotifier
       resolvedAt:    updateResolvedAt ? resolvedAt : note.resolvedAt,
       linkedToType:  note.linkedToType,
       linkedToId:    note.linkedToId,
+      source:        note.source,
       createdAt:     note.createdAt,
       updatedAt:     DateTime.now(),
     );
