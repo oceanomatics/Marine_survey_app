@@ -93,11 +93,11 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
         sections:  widget.sections,
       );
 
-      if (mounted) {
-        _showSuccess(context, filename);
-      }
+      if (!context.mounted) return;
+      _showSuccess(context, filename);
     } catch (e, st) {
-      if (mounted) showError(context, 'Export failed: $e', error: e, stack: st, tag: 'App');
+      if (!context.mounted) return;
+      showError(context, 'Export failed: $e', error: e, stack: st, tag: 'App');
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

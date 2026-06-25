@@ -132,6 +132,22 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
               const SizedBox(height: 24),
 
+              // ── Speech & Transcription ────────────────────────────────
+              const _SectionHeader(
+                icon: Icons.mic_outlined,
+                color: AppColors.purple,
+                title: 'Speech & Transcription',
+              ),
+              const SizedBox(height: 10),
+              _NavTile(
+                icon:     Icons.record_voice_over_outlined,
+                label:    'Speech Models & Settings',
+                subtitle: 'Choose model, decoding method, endpoint sensitivity',
+                onTap:    () => context.go('/speech-settings'),
+              ),
+
+              const SizedBox(height: 24),
+
               // ── External Accounts ─────────────────────────────────────
               const _SectionHeader(
                 icon: Icons.manage_accounts_outlined,
@@ -679,4 +695,52 @@ class _AccountSheetState extends State<_AccountSheet> {
       ),
     );
   }
+}
+
+// ── Navigation tile ────────────────────────────────────────────────────────
+
+class _NavTile extends StatelessWidget {
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData     icon;
+  final String       label;
+  final String       subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color:        Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border:       Border.all(color: AppColors.border),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            leading: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color:        AppColors.purple.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: AppColors.purple),
+            ),
+            title: Text(label,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500)),
+            subtitle: Text(subtitle,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary)),
+            trailing: const Icon(Icons.chevron_right,
+                color: AppColors.textTertiary),
+            onTap: onTap,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      );
 }

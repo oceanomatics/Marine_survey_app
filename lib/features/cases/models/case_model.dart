@@ -200,6 +200,8 @@ class VesselModel {
     required this.vesselId,
     required this.name,
     this.imoNumber,
+    this.callSign,
+    this.mmsi,
     this.vesselType,
     this.flag,
     this.portOfRegistry,
@@ -236,6 +238,8 @@ class VesselModel {
   final String vesselId;
   final String name;
   final String? imoNumber;
+  final String? callSign;
+  final String? mmsi;
   final String? vesselType;
   final String? flag;
   final String? portOfRegistry;
@@ -273,6 +277,8 @@ class VesselModel {
       vesselId:            json['vessel_id'] as String,
       name:                json['name'] as String,
       imoNumber:           json['imo_number'] as String?,
+      callSign:            json['call_sign'] as String?,
+      mmsi:                json['mmsi'] as String?,
       vesselType:          json['vessel_type'] as String?,
       flag:                json['flag'] as String?,
       portOfRegistry:      json['port_of_registry'] as String?,
@@ -314,6 +320,8 @@ class VesselModel {
   Map<String, dynamic> toJson() => {
     'name': name,
     if (imoNumber != null)            'imo_number':            imoNumber,
+    if (callSign != null)             'call_sign':             callSign,
+    if (mmsi != null)                 'mmsi':                  mmsi,
     if (vesselType != null)           'vessel_type':           vesselType,
     if (flag != null)                 'flag':                  flag,
     if (portOfRegistry != null)       'port_of_registry':      portOfRegistry,
@@ -351,6 +359,8 @@ class VesselModel {
       vesselId:      vesselId,
       name:          extracted['vessel_name'] as String? ?? name,
       imoNumber:     extracted['imo_number']  as String? ?? imoNumber,
+      callSign:      extracted['call_sign']   as String? ?? callSign,
+      mmsi:          extracted['mmsi']        as String? ?? mmsi,
       vesselType:    extracted['vessel_type'] as String? ?? vesselType,
       flag:          extracted['flag']        as String? ?? flag,
       portOfRegistry: extracted['port_of_registry'] as String? ?? portOfRegistry,

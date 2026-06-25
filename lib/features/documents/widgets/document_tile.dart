@@ -12,11 +12,13 @@ class DocumentTile extends ConsumerWidget {
     required this.doc,
     this.onPreview,
     this.onExtract,
+    this.onViewExtraction,
   });
 
   final DocumentModel doc;
   final VoidCallback? onPreview;
   final VoidCallback? onExtract;
+  final VoidCallback? onViewExtraction;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,7 +63,15 @@ class DocumentTile extends ConsumerWidget {
                     if (doc.extractionProcessing)
                       const _Badge('Extracting…', AppColors.amber)
                     else if (doc.aiExtracted)
-                      const _Badge('✓ Extracted', AppColors.success)
+                      GestureDetector(
+                        onTap: onViewExtraction,
+                        child: _Badge(
+                          onViewExtraction != null
+                              ? '✓ Extracted · view'
+                              : '✓ Extracted',
+                          AppColors.success,
+                        ),
+                      )
                     else if (doc.extractionFailed)
                       const _Badge('Extraction failed', AppColors.error),
                     if (doc.isDocx) ...[

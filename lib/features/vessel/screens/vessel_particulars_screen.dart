@@ -17,6 +17,9 @@ import '../widgets/add_machinery_sheet.dart';
 import '../widgets/section_header.dart';
 import '../widgets/survey_field.dart';
 import '../../../shared/widgets/save_bar.dart';
+import 'dart:io';
+import '../../photos/providers/photo_provider.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
 // ── ABL London H&M Report template option lists ───────────────────────────────
 
@@ -97,6 +100,8 @@ class _VesselParticularsScreenState
   // Text controllers
   final _nameCtrl         = TextEditingController();
   final _imoCtrl          = TextEditingController();
+  final _callSignCtrl     = TextEditingController();
+  final _mmsiCtrl         = TextEditingController();
   final _flagCtrl         = TextEditingController();
   final _portCtrl         = TextEditingController();
   final _gtCtrl           = TextEditingController();
@@ -141,7 +146,7 @@ class _VesselParticularsScreenState
   void dispose() {
     _tabController.dispose();
     for (final c in [
-      _nameCtrl, _imoCtrl, _flagCtrl, _portCtrl,
+      _nameCtrl, _imoCtrl, _callSignCtrl, _mmsiCtrl, _flagCtrl, _portCtrl,
       _gtCtrl, _ntCtrl, _dwtCtrl, _loaCtrl, _lbpCtrl,
       _breadthCtrl, _depthCtrl, _draftCtrl, _yearBuiltCtrl,
       _buildYardCtrl, _buildCountryCtrl, _ownersCtrl, _operatorsCtrl,
@@ -157,6 +162,8 @@ class _VesselParticularsScreenState
     _vesselId           = v.vesselId;
     _nameCtrl.text      = v.name;
     _imoCtrl.text       = v.imoNumber          ?? '';
+    _callSignCtrl.text  = v.callSign           ?? '';
+    _mmsiCtrl.text      = v.mmsi               ?? '';
     _vesselType         = v.vesselType;
     _flagCtrl.text      = v.flag               ?? '';
     _portCtrl.text      = v.portOfRegistry     ?? '';
@@ -191,6 +198,8 @@ class _VesselParticularsScreenState
   Map<String, dynamic> _collectFields() => {
     'name':                 _nameCtrl.text.trim(),
     'imo_number':           _imoCtrl.text.trim().isEmpty      ? null : _imoCtrl.text.trim(),
+    'call_sign':            _callSignCtrl.text.trim().isEmpty ? null : _callSignCtrl.text.trim(),
+    'mmsi':                 _mmsiCtrl.text.trim().isEmpty     ? null : _mmsiCtrl.text.trim(),
     'vessel_type':          _vesselType,
     'flag':                 _flagCtrl.text.trim().isEmpty     ? null : _flagCtrl.text.trim(),
     'port_of_registry':     _portCtrl.text.trim().isEmpty     ? null : _portCtrl.text.trim(),
@@ -427,8 +436,11 @@ class _VesselParticularsScreenState
         controller: _tabController,
         children: [
           _IdentityTab(
+            caseId:           widget.caseId,
             nameCtrl:         _nameCtrl,
             imoCtrl:          _imoCtrl,
+            callSignCtrl:     _callSignCtrl,
+            mmsiCtrl:         _mmsiCtrl,
             vesselType:       _vesselType,
             flagCtrl:         _flagCtrl,
             portCtrl:         _portCtrl,
@@ -467,6 +479,7 @@ class _VesselParticularsScreenState
           vessel?.vesselId != null
               ? _MachineryTab(
                   vesselId:            vessel!.vesselId,
+                  caseId:              widget.caseId,
                   propulsionType:      _propulsionType,
                   propellerType:       _propellerType,
                   propulsionDriveType: _propulsionDriveType,
@@ -488,10 +501,13 @@ class _VesselParticularsScreenState
 
 // ── Tab 1: Identity ───────────────────────────────────────────────────────────
 
-class _IdentityTab extends StatelessWidget {
+class _IdentityTab extends ConsumerStatefulWidget {
   const _IdentityTab({
+    required this.caseId,
     required this.nameCtrl,
     required this.imoCtrl,
+    required this.callSignCtrl,
+    required this.mmsiCtrl,
     required this.vesselType,
     required this.flagCtrl,
     required this.portCtrl,
@@ -509,7 +525,8 @@ class _IdentityTab extends StatelessWidget {
     this.fetchingEquasis = false,
   });
 
-  final TextEditingController nameCtrl, imoCtrl;
+  final String caseId;
+  final TextEditingController nameCtrl, imoCtrl, callSignCtrl, mmsiCtrl;
   final String? vesselType;
   final TextEditingController flagCtrl, portCtrl;
   final TextEditingController ownersCtrl, operatorsCtrl;
@@ -523,10 +540,86 @@ class _IdentityTab extends StatelessWidget {
   final bool fetchingEquasis;
 
   @override
+  ConsumerState<_IdentityTab> createState() => _IdentityTabState();
+}
+
+class _IdentityTabState extends ConsumerState<_IdentityTab> {
+  Future<void> _pickVesselPhoto() async {
+    final picked = await showModalBottomSheet<List<dynamic>>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => CasePhotoPickerSheet(
+        caseId: widget.caseId,
+        title: 'Select Vessel General View',
+        accentColor: AppColors.teal,
+      ),
+    );
+    if (picked == null || picked.isEmpty || !mounted) return;
+    final photo = picked.first;
+    await ref
+        .read(photosProvider(widget.caseId).notifier)
+        .attachLink(photo.id as String, 'vessel_general_view', widget.caseId);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final photos = ref.watch(photosProvider(widget.caseId)).value ?? [];
+    final vesselPhotoMatches = photos.where(
+        (p) => p.linkedToType == 'vessel_general_view' && p.linkedToId == widget.caseId);
+    final vesselPhoto =
+        vesselPhotoMatches.isEmpty ? null : vesselPhotoMatches.first;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // ── Vessel general view photo ──────────────────────────────
+        if (vesselPhoto != null)
+          GestureDetector(
+            onTap: _pickVesselPhoto,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.file(
+                File(vesselPhoto.thumbnailPath ?? vesselPhoto.localPath),
+                width: double.infinity,
+                height: 160,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 160,
+                  color: AppColors.surface,
+                  child: const Center(
+                    child: Icon(Icons.broken_image_outlined,
+                        color: AppColors.textTertiary),
+                  ),
+                ),
+              ),
+            ),
+          )
+        else
+          GestureDetector(
+            onTap: _pickVesselPhoto,
+            child: Container(
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.border, width: 1.5),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate_outlined,
+                      size: 20, color: AppColors.textTertiary),
+                  SizedBox(width: 8),
+                  Text('Add vessel general view',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: 16),
+
         const VesselSectionHeader(
           title: 'Vessel Identity',
           icon: Icons.directions_boat_outlined,
@@ -536,9 +629,9 @@ class _IdentityTab extends StatelessWidget {
 
         SurveyField(
           label: 'Vessel Name *',
-          controller: nameCtrl,
+          controller: widget.nameCtrl,
           hint: 'e.g. MINRES ODIN',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
           capitalization: TextCapitalization.characters,
         ),
 
@@ -549,44 +642,55 @@ class _IdentityTab extends StatelessWidget {
             Expanded(
               child: SurveyField(
                 label: 'IMO Number',
-                controller: imoCtrl,
+                controller: widget.imoCtrl,
                 hint: 'e.g. 9374935',
                 keyboard: TextInputType.number,
-                onChanged: (_) => onChanged(),
+                onChanged: (_) => widget.onChanged(),
               ),
             ),
             const SizedBox(width: 8),
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: fetchingEquasis
+              child: widget.fetchingEquasis
                   ? const SizedBox(
                       width: 36, height: 36,
                       child: Center(child: SizedBox(
                         width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.teal),
                       )))
                   : Tooltip(
                       message: 'Fetch from Equasis',
                       child: InkWell(
-                        onTap: onEquasisFetch,
+                        onTap: widget.onEquasisFetch,
                         borderRadius: BorderRadius.circular(8),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 10),
                           decoration: BoxDecoration(
-                            color: onEquasisFetch != null ? AppColors.lightTeal : AppColors.surface,
+                            color: widget.onEquasisFetch != null
+                                ? AppColors.lightTeal
+                                : AppColors.surface,
                             border: Border.all(
-                              color: onEquasisFetch != null ? AppColors.teal : AppColors.border,
+                              color: widget.onEquasisFetch != null
+                                  ? AppColors.teal
+                                  : AppColors.border,
                             ),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
                             Icon(Icons.travel_explore, size: 15,
-                                color: onEquasisFetch != null ? AppColors.teal : AppColors.textTertiary),
+                                color: widget.onEquasisFetch != null
+                                    ? AppColors.teal
+                                    : AppColors.textTertiary),
                             const SizedBox(width: 5),
-                            Text('Equasis', style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w600,
-                              color: onEquasisFetch != null ? AppColors.teal : AppColors.textTertiary,
-                            )),
+                            Text('Equasis',
+                                style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w600,
+                                  color: widget.onEquasisFetch != null
+                                      ? AppColors.teal
+                                      : AppColors.textTertiary,
+                                )),
                           ]),
                         ),
                       ),
@@ -597,10 +701,10 @@ class _IdentityTab extends StatelessWidget {
 
         _PickerField(
           label: 'Vessel Type',
-          value: vesselType,
+          value: widget.vesselType,
           hint: 'Select vessel type',
           options: _vesselTypes,
-          onChanged: onVesselTypeChanged,
+          onChanged: widget.onVesselTypeChanged,
         ),
         const SizedBox(height: 20),
 
@@ -612,16 +716,37 @@ class _IdentityTab extends StatelessWidget {
         const SizedBox(height: 12),
         SurveyField(
           label: 'Flag',
-          controller: flagCtrl,
+          controller: widget.flagCtrl,
           hint: 'e.g. Australia',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
         SurveyField(
           label: 'Port of Registry',
-          controller: portCtrl,
+          controller: widget.portCtrl,
           hint: 'e.g. Dampier',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Call Sign',
+              controller: widget.callSignCtrl,
+              hint: 'e.g. VRKU6',
+              capitalization: TextCapitalization.characters,
+              onChanged: (_) => widget.onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SurveyField(
+              label: 'MMSI',
+              controller: widget.mmsiCtrl,
+              hint: 'e.g. 477123456',
+              keyboard: TextInputType.number,
+              onChanged: (_) => widget.onChanged(),
+            ),
+          ),
+        ]),
         const SizedBox(height: 20),
 
         const VesselSectionHeader(
@@ -632,15 +757,15 @@ class _IdentityTab extends StatelessWidget {
         const SizedBox(height: 12),
         SurveyField(
           label: 'Owners',
-          controller: ownersCtrl,
+          controller: widget.ownersCtrl,
           hint: 'e.g. MinRes Marine Pty Ltd',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
         SurveyField(
           label: 'Operators',
-          controller: operatorsCtrl,
+          controller: widget.operatorsCtrl,
           hint: 'If different from owners',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
         const SizedBox(height: 20),
 
@@ -652,16 +777,16 @@ class _IdentityTab extends StatelessWidget {
         const SizedBox(height: 12),
         _PickerField(
           label: 'Class Society',
-          value: classSociety,
+          value: widget.classSociety,
           hint: 'Select classification society',
           options: _classSocieties,
-          onChanged: onClassSocietyChanged,
+          onChanged: widget.onClassSocietyChanged,
         ),
         SurveyField(
           label: 'Class Notation',
-          controller: notationCtrl,
+          controller: widget.notationCtrl,
           hint: 'e.g. A1, ATB, Towing vessel, AMS',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
         const SizedBox(height: 20),
 
@@ -674,24 +799,24 @@ class _IdentityTab extends StatelessWidget {
         Row(children: [
           Expanded(child: SurveyField(
             label: 'Year Built',
-            controller: yearBuiltCtrl,
+            controller: widget.yearBuiltCtrl,
             hint: 'e.g. 2007',
             keyboard: TextInputType.number,
-            onChanged: (_) => onChanged(),
+            onChanged: (_) => widget.onChanged(),
           )),
           const SizedBox(width: 12),
           Expanded(child: SurveyField(
             label: 'Build Country',
-            controller: buildCountryCtrl,
+            controller: widget.buildCountryCtrl,
             hint: 'e.g. Hong Kong',
-            onChanged: (_) => onChanged(),
+            onChanged: (_) => widget.onChanged(),
           )),
         ]),
         SurveyField(
           label: 'Build Yard',
-          controller: buildYardCtrl,
+          controller: widget.buildYardCtrl,
           hint: 'e.g. Hin Lee Shipyard',
-          onChanged: (_) => onChanged(),
+          onChanged: (_) => widget.onChanged(),
         ),
         const SizedBox(height: 32),
       ],
@@ -877,6 +1002,7 @@ class _DimensionsTab extends StatelessWidget {
 class _MachineryTab extends ConsumerWidget {
   const _MachineryTab({
     required this.vesselId,
+    required this.caseId,
     required this.propulsionType,
     required this.propellerType,
     required this.propulsionDriveType,
@@ -891,6 +1017,7 @@ class _MachineryTab extends ConsumerWidget {
   });
 
   final String vesselId;
+  final String caseId;
   final String? propulsionType;
   final String? propellerType;
   final String? propulsionDriveType;
@@ -1010,6 +1137,7 @@ class _MachineryTab extends ConsumerWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (_, i) => MachineryCard(
                   machinery: machinery[i],
+                  caseId: caseId,
                   onEdit: () => _showAddEdit(context, ref,
                       vesselId: vesselId, existing: machinery[i]),
                   onDelete: () => _confirmDelete(context, ref, machinery[i]),
@@ -1048,6 +1176,7 @@ class _MachineryTab extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => AddMachinerySheet(
         vesselId: vesselId,
+        caseId: caseId,
         existing: existing,
         onSave: (m) async {
           if (existing != null) {

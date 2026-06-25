@@ -297,66 +297,74 @@ class _SurveyNavRail extends ConsumerWidget {
       color: const Color(0xFFD5E8F5),
       child: Column(
         children: [
-          // ── Case editor header ───────────────────────────────────────
+          // ── Case editor header (fixed, not scrolled) ─────────────────
           _CaseEditorButton(caseId: caseId, caseModel: caseModel),
           const Divider(height: 1, color: Color(0xFFB8D5EC)),
-          const SizedBox(height: 4),
-          _NavItem(
-            icon: Icons.directions_boat_outlined,
-            label: 'Vessel',
-            accent: AppColors.teal,
-            onTap: () => context.go('/cases/$caseId/vessel'),
+          // ── Nav items scroll in landscape ────────────────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 4),
+                  _NavItem(
+                    icon: Icons.directions_boat_outlined,
+                    label: 'Vessel',
+                    accent: AppColors.teal,
+                    onTap: () => context.go('/cases/$caseId/vessel'),
+                  ),
+                  _NavItem(
+                    icon: Icons.handshake_outlined,
+                    label: 'Parties',
+                    accent: AppColors.midBlue,
+                    onTap: () => context.go('/cases/$caseId/parties'),
+                  ),
+                  _NavItem(
+                    icon: Icons.folder_outlined,
+                    label: 'Docs',
+                    accent: AppColors.amber,
+                    onTap: () => context.go('/cases/$caseId/documents'),
+                  ),
+                  _NavItem(
+                    icon: Icons.photo_library_outlined,
+                    label: 'Photos',
+                    accent: AppColors.purple,
+                    onTap: () => context.go('/cases/$caseId/photos'),
+                  ),
+                  _NavItem(
+                    icon: Icons.checklist_outlined,
+                    label: 'Checklist',
+                    accent: AppColors.green,
+                    onTap: () => context.go('/cases/$caseId/checklist'),
+                  ),
+                  _NavItem(
+                    icon: Icons.mail_outline,
+                    label: 'Mail',
+                    accent: const Color(0xFF2A6099),
+                    onTap: () => context.go('/cases/$caseId/correspondence'),
+                  ),
+                  _NavItem(
+                    icon: Icons.label_outline,
+                    label: 'Context',
+                    accent: const Color(0xFF4A7A5A),
+                    badgeCount: unallocatedCount,
+                    onTap: () => context.go('/cases/$caseId/notes'),
+                  ),
+                  _NavItem(
+                    icon: Icons.health_and_safety_outlined,
+                    label: 'HSE',
+                    accent: const Color(0xFFD4500A),
+                    onTap: () => context.go('/cases/$caseId/hse'),
+                  ),
+                  _NavItem(
+                    icon: Icons.auto_awesome_outlined,
+                    label: 'Analyst',
+                    accent: const Color(0xFF1E3A5F),
+                    onTap: () => context.go('/cases/$caseId/analyst'),
+                  ),
+                ],
+              ),
+            ),
           ),
-          _NavItem(
-            icon: Icons.handshake_outlined,
-            label: 'Parties',
-            accent: AppColors.midBlue,
-            onTap: () => context.go('/cases/$caseId/parties'),
-          ),
-          _NavItem(
-            icon: Icons.folder_outlined,
-            label: 'Docs',
-            accent: AppColors.amber,
-            onTap: () => context.go('/cases/$caseId/documents'),
-          ),
-          _NavItem(
-            icon: Icons.photo_library_outlined,
-            label: 'Photos',
-            accent: AppColors.purple,
-            onTap: () => context.go('/cases/$caseId/photos'),
-          ),
-          _NavItem(
-            icon: Icons.checklist_outlined,
-            label: 'Checklist',
-            accent: AppColors.green,
-            onTap: () => context.go('/cases/$caseId/checklist'),
-          ),
-          _NavItem(
-            icon: Icons.mail_outline,
-            label: 'Mail',
-            accent: const Color(0xFF2A6099),
-            onTap: () => context.go('/cases/$caseId/correspondence'),
-          ),
-          _NavItem(
-            icon: Icons.label_outline,
-            label: 'Context',
-            accent: const Color(0xFF4A7A5A),
-            badgeCount: unallocatedCount,
-            onTap: () => context.go('/cases/$caseId/notes'),
-          ),
-          _NavItem(
-            icon: Icons.health_and_safety_outlined,
-            label: 'HSE',
-            accent: const Color(0xFFD4500A),
-            onTap: () => context.go('/cases/$caseId/hse'),
-          ),
-          _NavItem(
-            icon: Icons.auto_awesome_outlined,
-            label: 'Analyst',
-            accent: const Color(0xFF1E3A5F),
-            onTap: () => context.go('/cases/$caseId/analyst'),
-          ),
-          const Spacer(),
         ],
       ),
     );
@@ -694,13 +702,13 @@ class _CaptureToolbar extends StatelessWidget {
             onTap: () => context.go('/cases/$caseId/camera'),
           ),
           _CaptureToolButton(
-            icon: Icons.mic_outlined,
-            label: 'Voice',
+            icon: Icons.record_voice_over_outlined,
+            label: 'Interview',
             accent: AppColors.purple,
-            onTap: () => context.go('/cases/$caseId/voice'),
+            onTap: () => context.go('/cases/$caseId/interview'),
           ),
           _CaptureToolButton(
-            icon: Icons.edit_outlined,
+            icon: Icons.draw_outlined,
             label: 'Stylus',
             accent: AppColors.navy,
             onTap: () {},
@@ -926,7 +934,7 @@ class _PseudoReport extends ConsumerWidget {
     Set<String> highlighted = const <String>{},
   }) {
     final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
-    final attendanceCount = visits.length + attendees.length;
+    final attendanceCount = visits.length;
     return [
       _SectionCard(
         accentColor: const Color(0xFFBF7E3A),

@@ -5,12 +5,16 @@ import 'dart:math' show min;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:intl/intl.dart';
+import 'package:photo_view/photo_view.dart';
+
+import 'package:image_picker/image_picker.dart';
 
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
-import '../widgets/photo_detail_sheet.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
 import '../../survey/providers/damage_provider.dart';
@@ -75,6 +79,16 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       return;
     }
 
+    // Gallery: handle separately to avoid buffering all bytes before progress shows.
+    if (source == PhotoPickSource.gallery) {
+      await _addPhotosFromGallery(
+        attendanceId: attendanceId,
+        linkedToType: linkedToType,
+        linkedToId:   linkedToId,
+      );
+      return;
+    }
+
     final bytesList = await PhotoPickerSheet.resolveBytes(source, context: context);
     if (bytesList.isEmpty || !mounted) return;
 
@@ -84,6 +98,45 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       linkedToType: linkedToType,
       linkedToId: linkedToId,
     );
+  }
+
+  /// Gallery import: reads XFile bytes one batch at a time so the progress
+  /// indicator appears immediately after the OS picker closes and peak memory
+  /// stays at (batchSize × photo_size) rather than all photos at once.
+  Future<void> _addPhotosFromGallery({
+    String? attendanceId,
+    String? linkedToType,
+    String? linkedToId,
+  }) async {
+    final xFiles = await ImagePicker().pickMultiImage(imageQuality: 90);
+    if (xFiles.isEmpty || !mounted) return;
+
+    setState(() {
+      _importing   = true;
+      _importDone  = 0;
+      _importTotal = xFiles.length;
+    });
+
+    // Batch size 2: each photo can be 3–8 MB uncompressed; 2 at a time is safe
+    // on low-memory devices without slowing import much vs. serial.
+    const batchSize = 2;
+    for (var i = 0; i < xFiles.length; i += batchSize) {
+      if (!mounted) break;
+      final batch = xFiles.sublist(i, min(i + batchSize, xFiles.length));
+      await Future.wait(batch.map((xFile) async {
+        final bytes = await xFile.readAsBytes();
+        await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
+          caseId:       widget.caseId,
+          bytes:        bytes,
+          attendanceId: attendanceId,
+          linkedToType: linkedToType,
+          linkedToId:   linkedToId,
+        );
+        if (mounted) setState(() => _importDone++);
+      }));
+    }
+
+    if (mounted) setState(() => _importing = false);
   }
 
   /// Folder import: resolves files then imports progressively (no up-front
@@ -658,22 +711,24 @@ class _PhotoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final alloc = photo.allocation;
+    final unclassified =
+        (photo.caption == null || photo.caption!.isEmpty) && alloc == null;
     return GestureDetector(
       onTap: onTap,
-      onLongPress: () => _showOptions(context),
+      onLongPress: () => _confirmDelete(context),
       child: Stack(
         fit: StackFit.expand,
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            // Use cached thumbnail for fast grid rendering; fall back to full-res.
             child: Image.file(
               File(photo.thumbnailPath ?? photo.localPath),
               fit: BoxFit.cover,
+              cacheWidth: 300,
               errorBuilder: (_, __, ___) => Image.file(
                 File(photo.localPath),
                 fit: BoxFit.cover,
-                cacheWidth: 200,
+                cacheWidth: 300,
                 errorBuilder: (_, __, ___) => Container(
                   color: AppColors.surface,
                   child: const Icon(Icons.broken_image_outlined,
@@ -682,11 +737,31 @@ class _PhotoTile extends StatelessWidget {
               ),
             ),
           ),
-          // Damage/occurrence link badge
+          // Damage/occurrence link badge (top-left)
           if (photo.linkedToType == 'damage_item')
             const _Badge('DMG', AppColors.coral),
           if (photo.linkedToType == 'occurrence')
             const _Badge('OCC', AppColors.amber),
+          // Date badge (top-right) — amber when photo has no caption/allocation
+          Positioned(
+            top: 4, right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: unclassified
+                    ? AppColors.amber.withValues(alpha: 0.9)
+                    : Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                DateFormat('d MMM').format(photo.takenAt),
+                style: const TextStyle(
+                    fontSize: 8,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
           // Allocation badge (bottom-left)
           if (alloc != null)
             Positioned(
@@ -706,7 +781,7 @@ class _PhotoTile extends StatelessWidget {
                 ),
               ),
             ),
-          // Sync status
+          // Sync status (bottom-right)
           if (photo.syncStatus == PhotoSyncStatus.localOnly)
             Positioned(
               bottom: 4, right: 4,
@@ -725,81 +800,27 @@ class _PhotoTile extends StatelessWidget {
     );
   }
 
-  void _showOptions(BuildContext context) {
-    showModalBottomSheet(
+  void _confirmDelete(BuildContext context) {
+    showDialog<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Material(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: _kColor.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.edit_outlined,
-                      color: _kColor, size: 18),
-                ),
-                title: const Text('Edit details',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                subtitle: Text(
-                  photo.caption?.isNotEmpty == true
-                      ? photo.caption!
-                      : photo.allocation != null
-                          ? photo.allocation!.label
-                          : 'Add caption or allocation',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textTertiary),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      fullscreenDialog: true,
-                      builder: (_) => PhotoDetailSheet(
-                        caseId: caseId,
-                        photo: photo,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              ListTile(
-                leading: Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.delete_outline,
-                      color: AppColors.error, size: 18),
-                ),
-                title: const Text('Delete photo',
-                    style: TextStyle(
-                        color: AppColors.error,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(context);
-                  onDelete();
-                },
-              ),
-            ],
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete photo?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
-        ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
-    );
+    ).then((confirmed) {
+      if (confirmed == true) onDelete();
+    });
   }
 }
 
@@ -819,6 +840,15 @@ Color _allocColor(PhotoAllocation a) => switch (a) {
       PhotoAllocation.certificate      => AppColors.amber,
       PhotoAllocation.damageEvidence   => AppColors.coral,
       PhotoAllocation.namePlate        => AppColors.textSecondary,
+    };
+
+IconData _allocIconFor(PhotoAllocation a) => switch (a) {
+      PhotoAllocation.coverPage        => Icons.home_outlined,
+      PhotoAllocation.logbook          => Icons.menu_book_outlined,
+      PhotoAllocation.maintenanceRecord => Icons.build_outlined,
+      PhotoAllocation.certificate      => Icons.verified_outlined,
+      PhotoAllocation.damageEvidence   => Icons.warning_amber_outlined,
+      PhotoAllocation.namePlate        => Icons.label_outlined,
     };
 
 class _Badge extends StatelessWidget {
@@ -844,7 +874,7 @@ class _Badge extends StatelessWidget {
   }
 }
 
-// ── Full-screen viewer ──────────────────────────────────────────────────────
+// ── Full-screen viewer with inline editing ──────────────────────────────────
 
 class _PhotoViewer extends ConsumerStatefulWidget {
   const _PhotoViewer({
@@ -861,30 +891,194 @@ class _PhotoViewer extends ConsumerStatefulWidget {
 }
 
 class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
-  late final PageController _controller;
-  late int _current;
+  late final TextEditingController _captionCtrl;
+  int _current = 0;
+  PhotoAllocation? _allocation;
+  bool _saving = false;
+  bool _busy = false;
+  // Incremented per photo after rotate/crop so PhotoViewGallery reloads the file.
+  final Map<String, int> _imgVersion = {};
 
   @override
   void initState() {
     super.initState();
-    _current    = widget.initialIndex;
-    _controller = PageController(initialPage: widget.initialIndex);
+    _current = widget.initialIndex;
+    final ph = widget.photos[widget.initialIndex];
+    _captionCtrl = TextEditingController(text: ph.caption ?? '');
+    _allocation = ph.allocation;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _captionCtrl.dispose();
     super.dispose();
+  }
+
+  PhotoModel _livePhoto([int? index]) {
+    final i = index ?? _current;
+    final photos = ref.read(photosProvider(widget.caseId)).value ?? widget.photos;
+    final id = widget.photos[i].id;
+    return photos.firstWhere((p) => p.id == id, orElse: () => widget.photos[i]);
+  }
+
+  void _navigateTo(int i) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final ph = _livePhoto(i);
+    setState(() {
+      _current = i;
+      _captionCtrl.text = ph.caption ?? '';
+      _allocation = ph.allocation;
+    });
+  }
+
+  void _prevPhoto() { if (_current > 0) _navigateTo(_current - 1); }
+  void _nextPhoto() { if (_current < widget.photos.length - 1) _navigateTo(_current + 1); }
+
+  Future<void> _save() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _saving = true);
+    final ph = _livePhoto();
+    final notifier = ref.read(photosProvider(widget.caseId).notifier);
+    await notifier.updateCaption(ph.id, _captionCtrl.text);
+    await notifier.updateAllocation(ph.id, _allocation);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Saved'),
+      duration: Duration(seconds: 1),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  Future<void> _rotate() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final ph = _livePhoto();
+      final f = File(ph.localPath);
+      debugPrint('[rotate] start — exists=${f.existsSync()} path=${ph.localPath}');
+      final bytes = await f.readAsBytes();
+      debugPrint('[rotate] read ${bytes.length} bytes, compressing...');
+      final rotated = await FlutterImageCompress.compressWithList(
+        bytes,
+        minWidth: 4096, minHeight: 4096,
+        quality: 92, rotate: 90,
+        format: CompressFormat.jpeg,
+      );
+      debugPrint('[rotate] compressed to ${rotated.length} bytes, writing...');
+      await f.writeAsBytes(rotated);
+      debugPrint('[rotate] file written');
+      if (ph.thumbnailPath != null) {
+        final thumb = await FlutterImageCompress.compressWithList(
+          rotated,
+          minWidth: 240, minHeight: 240,
+          quality: 72,
+          format: CompressFormat.jpeg,
+        );
+        await File(ph.thumbnailPath!).writeAsBytes(thumb);
+        debugPrint('[rotate] thumbnail updated');
+      }
+      // Evict old decoded image from Flutter cache so FileImage reloads from disk.
+      imageCache.evict(FileImage(f));
+      if (ph.thumbnailPath != null) imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+      _imgVersion[ph.id] = (_imgVersion[ph.id] ?? 0) + 1;
+      debugPrint('[rotate] done, version=${_imgVersion[ph.id]}');
+    } catch (e, st) {
+      debugPrint('[rotate] ERROR: $e\n$st');
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _crop() async {
+    if (_busy) return;
+    final ph = _livePhoto();
+    debugPrint('[crop] start — exists=${File(ph.localPath).existsSync()} path=${ph.localPath}');
+    setState(() => _busy = true);
+    try {
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: ph.localPath,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop',
+            toolbarColor: Colors.black87,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(title: 'Crop'),
+        ],
+      );
+      debugPrint('[crop] result=${cropped?.path}');
+      if (cropped != null) {
+        final croppedBytes = await File(cropped.path).readAsBytes();
+        debugPrint('[crop] read ${croppedBytes.length} bytes from cropped file');
+        await File(ph.localPath).writeAsBytes(croppedBytes);
+        debugPrint('[crop] overwrote original');
+        if (ph.thumbnailPath != null) {
+          final thumb = await FlutterImageCompress.compressWithList(
+            croppedBytes,
+            minWidth: 240, minHeight: 240,
+            quality: 72,
+            format: CompressFormat.jpeg,
+          );
+          await File(ph.thumbnailPath!).writeAsBytes(thumb);
+        }
+        imageCache.evict(FileImage(File(ph.localPath)));
+        if (ph.thumbnailPath != null) imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+        _imgVersion[ph.id] = (_imgVersion[ph.id] ?? 0) + 1;
+        debugPrint('[crop] done, version=${_imgVersion[ph.id]}');
+      }
+    } catch (e, st) {
+      debugPrint('[crop] ERROR: $e\n$st');
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _deleteCurrentPhoto() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete photo?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ref.read(photosProvider(widget.caseId).notifier)
+        .deletePhoto(_livePhoto().id);
+    if (mounted) Navigator.pop(context);
+  }
+
+  void _showAllocationPicker() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AllocationPickerSheet(
+        current: _allocation,
+        onSelected: (a) {
+          setState(() => _allocation = a);
+          Navigator.pop(context);
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Watch live so caption/allocation updates are reflected immediately.
-    final photos = ref.watch(photosProvider(widget.caseId)).value ?? widget.photos;
-    // Find current photo by id to survive list reorder.
-    final currentId = widget.photos[_current].id;
-    final ph = photos.firstWhere(
-      (p) => p.id == currentId,
+    final livePhotos =
+        ref.watch(photosProvider(widget.caseId)).value ?? widget.photos;
+    final currentPhoto = livePhotos.firstWhere(
+      (ph) => ph.id == widget.photos[_current].id,
       orElse: () => widget.photos[_current],
     );
 
@@ -893,70 +1087,187 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(
-            ph.caption?.isNotEmpty == true
-                ? ph.caption!
-                : '${_current + 1} / ${widget.photos.length}',
-            style: const TextStyle(fontSize: 14),
-          ),
-          if (ph.allocation != null)
-            Container(
-              margin: const EdgeInsets.only(top: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: _allocColor(ph.allocation!).withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(4),
+        titleSpacing: 0,
+        title: Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${_current + 1} / ${widget.photos.length}',
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600),
               ),
-              child: Text(
-                ph.allocation!.label,
-                style: TextStyle(
-                    fontSize: 10,
-                    color: _allocColor(ph.allocation!),
-                    fontWeight: FontWeight.w600),
+              Text(
+                DateFormat('dd MMM yyyy')
+                    .format(widget.photos[_current].takenAt),
+                style: const TextStyle(
+                    fontSize: 11, color: Colors.white60),
               ),
-            )
-          else if (ph.linkedToType != null)
-            Text(
-              switch (ph.linkedToType) {
-                'damage_item' => 'Linked to damage item',
-                'occurrence'  => 'Linked to occurrence',
-                _             => '',
-              },
-              style: const TextStyle(fontSize: 10, color: Colors.white54),
-            ),
-        ]),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, size: 20),
-            tooltip: 'Edit details',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                fullscreenDialog: true,
-                builder: (_) => PhotoDetailSheet(
-                  caseId: widget.caseId,
-                  photo: ph,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: PageView.builder(
-        controller: _controller,
-        itemCount: widget.photos.length,
-        onPageChanged: (i) => setState(() => _current = i),
-        itemBuilder: (_, i) => InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4,
-          child: Center(
-            child: Image.file(
-              File(widget.photos[i].localPath),
-              fit: BoxFit.contain,
-            ),
+            ],
           ),
         ),
+        actions: [
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: 18, height: 18,
+                child: CircularProgressIndicator(
+                    color: Colors.white, strokeWidth: 2),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 22),
+              tooltip: 'Delete photo',
+              onPressed: _deleteCurrentPhoto,
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // ── Photo (pinch-to-zoom via PhotoView, prev/next via arrows) ──
+          Expanded(
+            child: Stack(
+              children: [
+                PhotoView(
+                  key: ValueKey(
+                      '${currentPhoto.id}-${_imgVersion[currentPhoto.id] ?? 0}'),
+                  imageProvider: FileImage(File(currentPhoto.localPath)),
+                  initialScale: PhotoViewComputedScale.contained,
+                  minScale: PhotoViewComputedScale.contained * 0.8,
+                  maxScale: PhotoViewComputedScale.covered * 4.0,
+                  backgroundDecoration:
+                      const BoxDecoration(color: Colors.black),
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_outlined,
+                        color: Colors.white38, size: 64),
+                  ),
+                ),
+                if (_current > 0)
+                  _NavArrow(isLeft: true, onTap: _prevPhoto),
+                if (_current < widget.photos.length - 1)
+                  _NavArrow(isLeft: false, onTap: _nextPhoto),
+              ],
+            ),
+          ),
+
+          // ── Inline edit panel ─────────────────────────────────────────
+          // Collapse to single row when keyboard is open to maximise photo space.
+          Builder(builder: (ctx) {
+            final kbOpen = MediaQuery.of(ctx).viewInsets.bottom > 100;
+            final decoration = InputDecoration(
+              hintText: 'Caption…',
+              hintStyle: const TextStyle(
+                  color: AppColors.textTertiary, fontSize: 14),
+              isDense: true,
+              filled: true,
+              fillColor: AppColors.surface,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:
+                    const BorderSide(color: _kColor, width: 1.5),
+              ),
+            );
+            final saveBtn = FilledButton(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: _kColor,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Save',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13)),
+            );
+
+            return Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+              child: kbOpen
+                  // ── Compact: caption + save only ─────────────────────
+                  ? Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _captionCtrl,
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 14),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _save(),
+                          decoration: decoration,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      saveBtn,
+                    ])
+                  // ── Full: caption + tools + allocation ───────────────
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _captionCtrl,
+                                maxLines: 2,
+                                minLines: 1,
+                                style: const TextStyle(fontSize: 14),
+                                textInputAction: TextInputAction.done,
+                                decoration: decoration,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _ToolBtn(
+                              icon: Icons.rotate_90_degrees_cw_outlined,
+                              tooltip: 'Rotate 90°',
+                              enabled: !_busy,
+                              onTap: _rotate,
+                            ),
+                            const SizedBox(width: 6),
+                            _ToolBtn(
+                              icon: Icons.crop_outlined,
+                              tooltip: 'Crop',
+                              enabled: !_busy,
+                              onTap: _crop,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 7),
+                        Row(children: [
+                          GestureDetector(
+                            onTap: _showAllocationPicker,
+                            child:
+                                _AllocationBadge(allocation: _allocation),
+                          ),
+                          const Spacer(),
+                          saveBtn,
+                        ]),
+                      ],
+                    ),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -1008,6 +1319,235 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Viewer helper widgets ────────────────────────────────────────────────────
+
+class _ToolBtn extends StatelessWidget {
+  const _ToolBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.enabled,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String tooltip;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: enabled ? AppColors.textSecondary : AppColors.textTertiary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AllocationBadge extends StatelessWidget {
+  const _AllocationBadge({this.allocation});
+  final PhotoAllocation? allocation;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = allocation != null
+        ? _allocColor(allocation!)
+        : AppColors.textTertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: allocation != null
+              ? color.withValues(alpha: 0.35)
+              : AppColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            allocation != null ? _allocIconFor(allocation!) : Icons.label_outline,
+            size: 13, color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            allocation?.label ?? 'No allocation',
+            style: TextStyle(
+                fontSize: 12, color: color, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more, size: 14, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+class _AllocationPickerSheet extends StatelessWidget {
+  const _AllocationPickerSheet({
+    required this.current,
+    required this.onSelected,
+  });
+  final PhotoAllocation? current;
+  final void Function(PhotoAllocation?) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Allocate to Document',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _AllocChip(
+                  label: 'None',
+                  icon: Icons.block_outlined,
+                  selected: current == null,
+                  color: AppColors.textSecondary,
+                  onTap: () => onSelected(null),
+                ),
+                for (final a in PhotoAllocation.values)
+                  _AllocChip(
+                    label: a.label,
+                    icon: _allocIconFor(a),
+                    selected: current == a,
+                    color: _allocColor(a),
+                    onTap: () => onSelected(a),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AllocChip extends StatelessWidget {
+  const _AllocChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.12) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? color : AppColors.border,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14,
+                color: selected ? color : AppColors.textTertiary),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                color: selected ? color : AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavArrow extends StatelessWidget {
+  const _NavArrow({required this.isLeft, required this.onTap});
+  final bool isLeft;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: isLeft ? 8 : null,
+      right: isLeft ? null : 8,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.45),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isLeft ? Icons.chevron_left : Icons.chevron_right,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+        ),
       ),
     );
   }

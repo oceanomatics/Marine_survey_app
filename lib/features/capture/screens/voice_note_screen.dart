@@ -3,11 +3,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:speech_to_text/speech_to_text.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
 import '../providers/voice_note_provider.dart';
 import '../providers/quick_capture_provider.dart';
 import '../widgets/voice_note_card.dart';
+import '../../../core/services/model_manager.dart';
+import '../../../core/services/sherpa_service.dart';
+import '../../settings/providers/speech_settings_provider.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
@@ -21,70 +22,88 @@ class VoiceNoteScreen extends ConsumerStatefulWidget {
 }
 
 class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
-  final _stt = SpeechToText();
+  final _sherpa         = SherpaService.instance;
   final _transcriptCtrl = TextEditingController();
 
-  bool _sttReady       = false;
-  bool _isRecording    = false;
-  bool _saving         = false;
-  bool _done           = false;  // recording stopped, ready to review
-  String? _permissionError;
-  String  _liveWords   = '';     // interim words while recording
-  int     _seconds     = 0;
+  // Model readiness
+  bool    _modelReady   = false;
+  bool    _modelLoading = false;
+  double  _downloadProgress = 0;
+  String  _downloadFile     = '';
+
+  // Recording state
+  bool    _isRecording  = false;
+  bool    _saving       = false;
+  bool    _done         = false;
+  String  _liveWords    = '';
+  int     _seconds      = 0;
   Timer?  _timer;
+  StreamSubscription<SherpaResult>? _sherpaSub;
+
 
   @override
   void initState() {
     super.initState();
-    _initStt();
+    _initModel();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _stt.stop();
+    _sherpaSub?.cancel();
+    _sherpa.stop();
     _transcriptCtrl.dispose();
     ref.read(recordingStateProvider.notifier).reset();
     super.dispose();
   }
 
-  Future<void> _initStt() async {
-    final available = await _stt.initialize(
-      onError: (e) => setState(() =>
-          _permissionError = 'Speech recognition error: ${e.errorMsg}'),
-      onStatus: (status) {
-        // 'done' fires when the engine stops (e.g. silence timeout).
-        if (status == 'done' && _isRecording) _onEngineStopped();
-      },
-    );
-    setState(() => _sttReady = available);
-    if (!available) {
-      setState(() =>
-          _permissionError = 'Speech recognition not available on this device.');
+  // ── Model init ─────────────────────────────────────────────────────────────
+
+  Future<void> _initModel() async {
+    if (_sherpa.isInitialized) {
+      setState(() => _modelReady = true);
+      return;
+    }
+    setState(() => _modelLoading = true);
+    try {
+      final settings = await ref.read(speechSettingsProvider.future);
+      final paths = await ModelManager.instance.ensureModel(
+        settings.modelId,
+        onProgress: (p) {
+          if (mounted) {
+            setState(() {
+              _downloadProgress = p.totalFraction;
+              _downloadFile     = p.fileName;
+            });
+          }
+        },
+      );
+      await _sherpa.initialize(paths, settings);
+      if (mounted) setState(() { _modelReady = true; _modelLoading = false; });
+    } catch (e, st) {
+      if (mounted) {
+        setState(() => _modelLoading = false);
+        showError(context, 'Failed to load speech model: $e',
+            error: e, stack: st, tag: 'Voice');
+      }
     }
   }
 
   // ── Recording ──────────────────────────────────────────────────────────────
 
   Future<void> _startRecording() async {
-    if (!_sttReady) return;
+    if (!_modelReady) return;
     setState(() {
-      _permissionError = null;
-      _liveWords       = '';
-      _done            = false;
-      _seconds         = 0;
+      _liveWords = '';
+      _done      = false;
+      _seconds   = 0;
     });
     _transcriptCtrl.clear();
 
-    await _stt.listen(
-      onResult: _onResult,
-      listenOptions: SpeechListenOptions(
-        listenMode: ListenMode.dictation,
-        // Give long pauses — surveyor may stop to look at equipment.
-        pauseFor: const Duration(seconds: 6),
-        partialResults: true,
-      ),
-    );
+    final stream = _sherpa.startStreaming();
+
+    _sherpaSub?.cancel();
+    _sherpaSub = stream.listen(_onResult);
 
     setState(() => _isRecording = true);
     ref.read(recordingStateProvider.notifier).setRecording(0);
@@ -95,48 +114,36 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
     });
   }
 
-  void _onResult(SpeechRecognitionResult result) {
-    setState(() => _liveWords = result.recognizedWords);
-    if (result.finalResult) {
-      // Append finalised sentence to the editable field.
-      final existing = _transcriptCtrl.text.trimRight();
+  void _onResult(SherpaResult result) {
+    if (result.isFinal) {
+      final existing  = _transcriptCtrl.text.trimRight();
       final separator = existing.isEmpty ? '' : ' ';
-      _transcriptCtrl.text = '$existing$separator${result.recognizedWords}';
+      _transcriptCtrl.text =
+          '$existing$separator${result.text}';
       _transcriptCtrl.selection = TextSelection.fromPosition(
           TextPosition(offset: _transcriptCtrl.text.length));
       setState(() => _liveWords = '');
+    } else {
+      setState(() => _liveWords = result.text);
     }
   }
 
-  // Called when the STT engine stops due to silence — let the user decide.
-  void _onEngineStopped() {
-    _timer?.cancel();
-    setState(() {
-      _isRecording = false;
-      _done        = true;
-      if (_liveWords.isNotEmpty) {
-        final existing = _transcriptCtrl.text.trimRight();
-        final sep = existing.isEmpty ? '' : ' ';
-        _transcriptCtrl.text = '$existing$sep$_liveWords';
-        _liveWords = '';
-      }
-    });
-    ref.read(recordingStateProvider.notifier)
-        .setTranscript(_transcriptCtrl.text);
-  }
-
   Future<void> _stopRecording() async {
-    await _stt.stop();
     _timer?.cancel();
+    _sherpaSub?.cancel();
+    _sherpaSub = null;
+
+    final trailing = await _sherpa.stop();
+    if (trailing.isNotEmpty) {
+      final existing = _transcriptCtrl.text.trimRight();
+      final sep      = existing.isEmpty ? '' : ' ';
+      _transcriptCtrl.text = '$existing$sep$trailing';
+    }
+
     setState(() {
       _isRecording = false;
       _done        = true;
-      if (_liveWords.isNotEmpty) {
-        final existing = _transcriptCtrl.text.trimRight();
-        final sep = existing.isEmpty ? '' : ' ';
-        _transcriptCtrl.text = '$existing$sep$_liveWords';
-        _liveWords = '';
-      }
+      _liveWords   = '';
     });
     ref.read(recordingStateProvider.notifier)
         .setTranscript(_transcriptCtrl.text);
@@ -157,9 +164,9 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
       await ref
           .read(voiceNotesProvider(widget.caseId).notifier)
           .saveRecording(
-            caseId:      widget.caseId,
+            caseId:       widget.caseId,
             durationSecs: _seconds,
-            transcript:  transcript,
+            transcript:   transcript,
           );
 
       await ref
@@ -179,15 +186,19 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
         ));
       }
     } catch (e, st) {
-      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
+      if (mounted) {
+        showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   void _discard() {
-    _stt.cancel();
     _timer?.cancel();
+    _sherpaSub?.cancel();
+    _sherpaSub = null;
+    _sherpa.stop();
     setState(() {
       _isRecording = false;
       _done        = false;
@@ -215,26 +226,38 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Model loading indicator
+              if (_modelLoading) ...[
+                _DownloadBanner(
+                    progress: _downloadProgress, fileName: _downloadFile),
+                const SizedBox(height: 14),
+              ],
+
               // Mic button + timer row
               Row(children: [
                 GestureDetector(
-                  onTap: _isRecording ? _stopRecording : (_sttReady ? _startRecording : null),
+                  onTap: _isRecording
+                      ? _stopRecording
+                      : (_modelReady ? _startRecording : null),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     width: 72, height: 72,
                     decoration: BoxDecoration(
                       color: _isRecording
                           ? AppColors.error
-                          : _sttReady
+                          : _modelReady
                               ? AppColors.navy
                               : AppColors.textTertiary,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: (_isRecording ? AppColors.error : AppColors.navy)
-                              .withValues(alpha: _isRecording ? 0.3 : 0.15),
-                          blurRadius: _isRecording ? 20 : 8,
-                          spreadRadius: _isRecording ? 4 : 0,
+                          color: (_isRecording
+                                  ? AppColors.error
+                                  : AppColors.navy)
+                              .withValues(
+                                  alpha: _isRecording ? 0.3 : 0.15),
+                          blurRadius:  _isRecording ? 20 : 8,
+                          spreadRadius: _isRecording ? 4  : 0,
                         ),
                       ],
                     ),
@@ -272,12 +295,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
                 if (_isRecording) _PulseDot(),
               ]),
 
-              if (_permissionError != null) ...[
-                const SizedBox(height: 12),
-                _ErrorBanner(_permissionError!),
-              ],
-
-              // Live words bubble during recording
+              // Live words bubble
               if (_isRecording && _liveWords.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Container(
@@ -300,7 +318,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
                 ),
               ],
 
-              // Transcript editor — shown once stopped
+              // Transcript editor
               if (_done || _transcriptCtrl.text.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 const Row(children: [
@@ -415,20 +433,69 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
   }
 
   String _formatDuration(int s) {
-    final m = (s ~/ 60).toString().padLeft(2, '0');
+    final m   = (s ~/ 60).toString().padLeft(2, '0');
     final sec = (s % 60).toString().padLeft(2, '0');
     return '$m:$sec';
   }
 
   String _statusLabel() {
-    if (!_sttReady)    return 'Speech recognition unavailable';
-    if (_isRecording)  return 'Listening — tap to stop';
-    if (_done)         return 'Done — review and save';
+    if (_modelLoading)  return 'Loading speech model…';
+    if (!_modelReady)   return 'Speech model unavailable';
+    if (_isRecording)   return 'Listening — tap to stop';
+    if (_done)          return 'Done — review and save';
     return 'Tap to start recording';
   }
 }
 
-// ── Helper widgets ──────────────────────────────────────────────────────────
+// ── Download progress banner ──────────────────────────────────────────────────
+
+class _DownloadBanner extends StatelessWidget {
+  const _DownloadBanner({required this.progress, required this.fileName});
+  final double progress;
+  final String fileName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          const SizedBox(
+            width: 12, height: 12,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.teal),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            fileName.isEmpty
+                ? 'Downloading speech model…'
+                : 'Downloading $fileName',
+            style: const TextStyle(
+                fontSize: 11, color: AppColors.textSecondary),
+          ),
+          const Spacer(),
+          Text(
+            '${(progress * 100).toStringAsFixed(0)}%',
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.teal),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: progress,
+          backgroundColor: AppColors.lightTeal,
+          color: AppColors.teal,
+          minHeight: 3,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Helper widgets ─────────────────────────────────────────────────────────────
 
 class _PulseDot extends StatefulWidget {
   @override
@@ -438,15 +505,15 @@ class _PulseDot extends StatefulWidget {
 class _PulseDotState extends State<_PulseDot>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double> _anim;
+  late Animation<double>   _anim;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 800));
-    _anim = Tween<double>(begin: 0.3, end: 1.0).animate(
-        CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _anim = Tween<double>(begin: 0.3, end: 1.0)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     _ctrl.repeat(reverse: true);
   }
 
@@ -463,28 +530,6 @@ class _PulseDotState extends State<_PulseDot>
             shape: BoxShape.circle,
           ),
         ),
-      );
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner(this.message);
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: AppColors.lightCoral,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(children: [
-          const Icon(Icons.mic_off, color: AppColors.error, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(message,
-                style: const TextStyle(fontSize: 11, color: AppColors.error)),
-          ),
-        ]),
       );
 }
 
@@ -506,7 +551,8 @@ class _EmptyState extends StatelessWidget {
                     fontWeight: FontWeight.w500)),
             SizedBox(height: 6),
             Text(
-              'Tap the mic to record your first observation.\nWords appear as you speak.',
+              'Tap the mic to record your first observation.\n'
+              'Words appear as you speak.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
             ),

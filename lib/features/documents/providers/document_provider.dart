@@ -378,12 +378,40 @@ class DocumentNotifier
   }
 
   /// Persist the user-selected extraction result and mark the document extracted.
+  /// [selectedHardFields] are the doc-specific hard fields (cert number, dates…).
+  /// Optional [vesselData], [unmappedFields], and counts enrich the stored
+  /// payload so the "✓ Extracted" summary sheet can show the full picture.
   Future<void> saveExtracted(
     String docId,
-    Map<String, dynamic> selectedHardFields,
-  ) async {
+    Map<String, dynamic> selectedHardFields, {
+    Map<String, dynamic>? vesselData,
+    Map<String, dynamic>? unmappedFields,
+    List<Map<String, dynamic>> contextFindings = const [],
+    List<Map<String, dynamic>> detectedIncidents = const [],
+    List<Map<String, dynamic>> detectedMachinery = const [],
+    int findingsApplied = 0,
+    int incidentsApplied = 0,
+    int machineryApplied = 0,
+  }) async {
+    final storedData = <String, dynamic>{
+      if (selectedHardFields.isNotEmpty) 'hard_fields': selectedHardFields,
+      if (vesselData?.isNotEmpty == true) 'vessel_data': vesselData,
+      if (unmappedFields?.isNotEmpty == true) 'unmapped_fields': unmappedFields,
+      if (contextFindings.isNotEmpty) 'context_findings': contextFindings,
+      if (detectedIncidents.isNotEmpty) 'detected_incidents': detectedIncidents,
+      if (detectedMachinery.isNotEmpty) 'detected_machinery': detectedMachinery,
+      'meta': {
+        'findings_applied': findingsApplied,
+        'incidents_applied': incidentsApplied,
+        'machinery_applied': machineryApplied,
+        'findings_total': contextFindings.length,
+        'incidents_total': detectedIncidents.length,
+        'machinery_total': detectedMachinery.length,
+      },
+    };
+
     await SupabaseService.client.from('documents').update({
-      'extracted_data': selectedHardFields,
+      'extracted_data': storedData,
       'ai_extracted': true,
       'extraction_status': 'completed',
     }).eq('doc_id', docId);
@@ -392,7 +420,7 @@ class DocumentNotifier
     state = AsyncData(current.map((d) {
       if (d.docId != docId) return d;
       return d.copyWith(
-        extractedData: selectedHardFields,
+        extractedData: storedData,
         aiExtracted: true,
         extractionStatus: 'completed',
       );

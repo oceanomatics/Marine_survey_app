@@ -538,7 +538,6 @@ class SectionDraftNotifier
   String _fillOpeningClause(String template, AssembledReportData data) {
     final clientName =
         data.caseData['principals_clients']?['name'] as String? ?? '[CLIENT]';
-    final vessel = data.vessel;
     final occDate = data.occurrences.isNotEmpty
         ? data.occurrences.first['date_time'] as String? ?? '[DATE]'
         : '[DATE]';

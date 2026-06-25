@@ -30,6 +30,19 @@ import '../widgets/document_tile.dart';
 
 const _kColor = AppColors.amber;
 
+/// Vessel-data keys that VesselModel.applyExtraction() recognises.
+/// Any key returned by Claude that is NOT in this set is stored as
+/// "unmapped_fields" and shown in the extraction summary for diagnosis.
+const _kKnownVesselKeys = {
+  'vessel_name', 'imo_number', 'call_sign', 'mmsi', 'vessel_type', 'flag', 'port_of_registry',
+  'gross_tonnage', 'net_tonnage', 'deadweight', 'holds_count', 'tanks_count',
+  'length_oa', 'length_bp', 'breadth', 'breadth_qualifier', 'depth',
+  'max_draft', 'draft_qualifier', 'year_built', 'build_yard', 'build_country',
+  'owners', 'operators', 'class_society', 'class_notation', 'service_speed',
+  'propulsion_type', 'propeller_type', 'propulsion_drive_type',
+  'mcr_power_value', 'mcr_rpm', 'mcr_power_unit',
+};
+
 // ── Connectivity provider ──────────────────────────────────────────────────
 
 final _isOnlineProvider = StreamProvider<bool>((ref) => Connectivity()
@@ -90,6 +103,8 @@ class DocumentVaultScreen extends ConsumerWidget {
                   onExtract: (doc) => _runExtraction(context, ref, doc),
                   onExtractPhoto: (photo) =>
                       _runPhotoExtraction(context, ref, photo),
+                  onViewExtraction: (doc) =>
+                      showExtractionSummary(context, doc),
                 ),
               ),
       ),
@@ -482,10 +497,12 @@ class _DocImportSheetState extends ConsumerState<_DocImportSheet> {
         color: AppColors.background,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      child: Material(
+        type: MaterialType.transparency,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Handle
@@ -599,6 +616,7 @@ class _DocImportSheetState extends ConsumerState<_DocImportSheet> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -697,14 +715,68 @@ class _ExtractionResultSheetState
   Future<void> _apply() async {
     setState(() => _saving = true);
     try {
-      // 1. Save selected hard fields
+      // Pre-compute counts from current selection state.
+      final appliedFindingsCount = _findingSelected.where((b) => b).length;
+      final appliedIncidentsCount = _incidentSelected.where((b) => b).length;
+      final appliedMachineryCount = _machinerySelected.where((b) => b).length;
+
+      // Compute vessel fields: selected (will be applied) and unmapped (unknown to applyExtraction).
+      final selectedVesselForSave = Map<String, dynamic>.fromEntries(
+        widget.result.vesselFields.entries
+            .where((e) => _vesselSelected[e.key] == true && _kKnownVesselKeys.contains(e.key)),
+      );
+      final unmappedVesselFields = Map<String, dynamic>.fromEntries(
+        widget.result.vesselFields.entries
+            .where((e) => !_kKnownVesselKeys.contains(e.key) && e.value != null && e.value != ''),
+      );
+
+      // 1. Save selected hard fields + full extraction data for review.
       final selectedFields = Map<String, dynamic>.fromEntries(
         widget.result.hardFields.entries
             .where((e) => _hardSelected[e.key] == true),
       );
+
+      // Build full findings list with category for the summary view.
+      final allFindings = <Map<String, dynamic>>[
+        for (var i = 0; i < widget.result.contextFindings.length; i++) {
+          'text': widget.result.contextFindings[i],
+          'category': i < widget.result.findingCategories.length
+              ? widget.result.findingCategories[i]
+              : 'observation',
+          'applied': _findingSelected[i],
+        },
+      ];
+
+      // Include all incidents and machinery with applied flag.
+      final allIncidents = <Map<String, dynamic>>[
+        for (var i = 0; i < widget.result.detectedIncidents.length; i++)
+          {
+            ...widget.result.detectedIncidents[i],
+            'applied': _incidentSelected[i],
+          },
+      ];
+      final allMachinery = <Map<String, dynamic>>[
+        for (var i = 0; i < widget.result.detectedMachinery.length; i++)
+          {
+            ...widget.result.detectedMachinery[i],
+            'applied': _machinerySelected[i],
+          },
+      ];
+
       await ref
           .read(documentProvider(widget.caseId).notifier)
-          .saveExtracted(widget.result.docId, selectedFields);
+          .saveExtracted(
+            widget.result.docId,
+            selectedFields,
+            vesselData: selectedVesselForSave,
+            unmappedFields: unmappedVesselFields,
+            contextFindings: allFindings,
+            detectedIncidents: allIncidents,
+            detectedMachinery: allMachinery,
+            findingsApplied: appliedFindingsCount,
+            incidentsApplied: appliedIncidentsCount,
+            machineryApplied: appliedMachineryCount,
+          );
 
       // 2. Create context notes — preserve original indices for category lookup
       final selectedIndices = <int>[];
@@ -753,21 +825,15 @@ class _ExtractionResultSheetState
           .value
           ?.vesselId;
       if (vesselId != null && vesselId.isNotEmpty) {
-        // 4a. Apply selected vessel particulars
-        if (widget.result.hasVesselData) {
-          final selectedVessel = Map<String, dynamic>.fromEntries(
-            widget.result.vesselFields.entries
-                .where((e) => _vesselSelected[e.key] == true),
-          );
-          if (selectedVessel.isNotEmpty) {
-            await ref
-                .read(vesselForCaseProvider(widget.caseId).notifier)
-                .applyExtraction(
-                  caseId: widget.caseId,
-                  vesselId: vesselId,
-                  extracted: selectedVessel,
-                );
-          }
+        // 4a. Apply selected vessel particulars (only known keys).
+        if (widget.result.hasVesselData && selectedVesselForSave.isNotEmpty) {
+          await ref
+              .read(vesselForCaseProvider(widget.caseId).notifier)
+              .applyExtraction(
+                caseId: widget.caseId,
+                vesselId: vesselId,
+                extracted: selectedVesselForSave,
+              );
         }
 
         // 4b. Add machinery items
@@ -807,8 +873,10 @@ class _ExtractionResultSheetState
         color: AppColors.background,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+      child: Material(
+        type: MaterialType.transparency,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1097,6 +1165,7 @@ class _ExtractionResultSheetState
             ]),
           ],
         ),
+        ),
       ),
     );
   }
@@ -1203,6 +1272,7 @@ class _DocList extends StatelessWidget {
     required this.onPreview,
     required this.onExtract,
     required this.onExtractPhoto,
+    required this.onViewExtraction,
   });
   final List<DocumentModel> docs;
   final String caseId;
@@ -1212,6 +1282,7 @@ class _DocList extends StatelessWidget {
   final void Function(DocumentModel) onPreview;
   final void Function(DocumentModel) onExtract;
   final void Function(PhotoModel) onExtractPhoto;
+  final void Function(DocumentModel) onViewExtraction;
 
   @override
   Widget build(BuildContext context) {
@@ -1246,6 +1317,9 @@ class _DocList extends StatelessWidget {
                 onPreview: doc.hasFile ? () => onPreview(doc) : null,
                 onExtract: (canExtract && !isProcessing)
                     ? () => onExtract(doc)
+                    : null,
+                onViewExtraction: doc.aiExtracted
+                    ? () => onViewExtraction(doc)
                     : null,
               ),
             );
@@ -1650,3 +1724,527 @@ String _mimeFrom(String ext) => switch (ext) {
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       _ => 'image/jpeg',
     };
+
+// ── Extraction summary sheet ──────────────────────────────────────────────────
+// Shown when the user taps the "✓ Extracted" badge on a document tile.
+
+/// Pretty-label map for known field keys shown in the summary.
+const _kFieldLabels = <String, String>{
+  // Hard fields
+  'vessel_name':       'Vessel Name',
+  'imo_number':        'IMO Number',
+  'document_date':     'Document Date',
+  'document_number':   'Document No.',
+  'issuing_authority': 'Issuing Authority',
+  'expiry_date':       'Expiry Date',
+  'next_due_date':     'Next Due Date',
+  'survey_date':       'Survey Date',
+  'port_of_survey':    'Port of Survey',
+  'class_society':     'Class Society',
+  'class_notation':    'Class Notation',
+  'surveyor_name':     'Surveyor Name',
+  'component':         'Component',
+  'serial_number':     'Serial Number',
+  'manufacturer':      'Manufacturer',
+  'model_ref':         'Model / Ref',
+  'hours_run':         'Hours Run',
+  'next_service_hours': 'Next Service Hours',
+  'invoice_number':    'Invoice No.',
+  'supplier':          'Supplier',
+  'amount':            'Amount',
+  'currency':          'Currency',
+  // Vessel data
+  'flag':              'Flag',
+  'port_of_registry':  'Port of Registry',
+  'vessel_type':       'Vessel Type',
+  'gross_tonnage':     'Gross Tonnage (GT)',
+  'net_tonnage':       'Net Tonnage (NT)',
+  'deadweight':        'Deadweight (DWT)',
+  'length_oa':         'Length OA (m)',
+  'length_bp':         'Length BP (m)',
+  'breadth':           'Breadth (m)',
+  'breadth_qualifier': 'Breadth Qualifier',
+  'depth':             'Depth (m)',
+  'max_draft':         'Max Draft (m)',
+  'draft_qualifier':   'Draft Qualifier',
+  'year_built':        'Year Built',
+  'build_yard':        'Build Yard',
+  'build_country':     'Build Country',
+  'owners':            'Owners',
+  'operators':         'Operators',
+  'service_speed':     'Service Speed (kn)',
+  'propulsion_type':   'Propulsion Type',
+  'propeller_type':    'Propeller Type',
+  'propulsion_drive_type': 'Drive Type',
+  'mcr_power_value':   'MCR Power',
+  'mcr_rpm':           'MCR RPM',
+  'mcr_power_unit':    'MCR Unit',
+  // Unmapped fields likely from future Claude output
+  'call_sign':         'Call Sign',
+  'mmsi':              'MMSI',
+};
+
+void showExtractionSummary(BuildContext context, DocumentModel doc) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ExtractionSummarySheet(doc: doc),
+  );
+}
+
+class _ExtractionSummarySheet extends StatelessWidget {
+  const _ExtractionSummarySheet({required this.doc});
+  final DocumentModel doc;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = doc.extractedData ?? {};
+
+    // Detect format: new format has a 'hard_fields' or 'meta' key.
+    final isRich = data.containsKey('hard_fields') ||
+        data.containsKey('vessel_data') ||
+        data.containsKey('meta');
+
+    final hardFields = isRich
+        ? Map<String, dynamic>.from(data['hard_fields'] as Map? ?? {})
+        : data; // legacy: whole map IS the hard fields
+    final vesselData =
+        Map<String, dynamic>.from(data['vessel_data'] as Map? ?? {});
+    final unmapped =
+        Map<String, dynamic>.from(data['unmapped_fields'] as Map? ?? {});
+
+    final rawFindings = (data['context_findings'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final rawIncidents = (data['detected_incidents'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final rawMachinery = (data['detected_machinery'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final meta = data['meta'] as Map?;
+    final findingsApplied  = meta?['findings_applied']  as int? ??
+        meta?['findings_count'] as int? ?? 0;
+    final incidentsApplied = meta?['incidents_applied'] as int? ??
+        meta?['incidents_count'] as int? ?? 0;
+    final machineryApplied = meta?['machinery_applied'] as int? ??
+        meta?['machinery_count'] as int? ?? 0;
+
+    final hasContent = hardFields.isNotEmpty || vesselData.isNotEmpty ||
+        unmapped.isNotEmpty || rawFindings.isNotEmpty ||
+        rawIncidents.isNotEmpty || rawMachinery.isNotEmpty;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      maxChildSize: 0.95,
+      minChildSize: 0.35,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              const Icon(Icons.auto_awesome,
+                  size: 16, color: AppColors.success),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  doc.title,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 4),
+          const Divider(),
+          Expanded(
+            child: ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              children: [
+                if (!hasContent)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Text(
+                        'No detailed extraction data stored.\n'
+                        'Re-extract this document to capture full data.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 13, color: AppColors.textTertiary),
+                      ),
+                    ),
+                  ),
+
+                // ── Document fields ────────────────────────────────
+                if (hardFields.isNotEmpty) ...[
+                  _SummarySection(
+                    title: 'Document Fields',
+                    color: AppColors.midBlue,
+                    icon: Icons.description_outlined,
+                    fields: hardFields,
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Vessel particulars ─────────────────────────────
+                if (vesselData.isNotEmpty) ...[
+                  _SummarySection(
+                    title: 'Vessel Particulars',
+                    color: AppColors.teal,
+                    icon: Icons.directions_boat_outlined,
+                    fields: vesselData,
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Surveyor cues (context findings) ──────────────
+                if (rawFindings.isNotEmpty) ...[
+                  _SummarySectionHeader(
+                    title: 'Surveyor Cues'
+                        '  (${rawFindings.length} total'
+                        '${findingsApplied > 0 ? ', $findingsApplied added to notes' : ''})',
+                    color: AppColors.purple,
+                    icon: Icons.psychology_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  ...rawFindings.map((f) {
+                    final applied = f['applied'] as bool? ?? false;
+                    final cat = (f['category'] as String? ?? 'observation')
+                        .replaceAll('_', ' ');
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            applied
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 14,
+                            color: applied
+                                ? AppColors.success
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  f['text']?.toString() ?? '',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textPrimary,
+                                      height: 1.4),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  cat,
+                                  style: const TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.textTertiary,
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Incidents / occurrences ────────────────────────
+                if (rawIncidents.isNotEmpty) ...[
+                  _SummarySectionHeader(
+                    title: 'Incidents'
+                        '  (${rawIncidents.length} total'
+                        '${incidentsApplied > 0 ? ', $incidentsApplied created' : ''})',
+                    color: AppColors.coral,
+                    icon: Icons.warning_amber_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  ...rawIncidents.map((inc) {
+                    final applied = inc['applied'] as bool? ?? false;
+                    final title = inc['title']?.toString() ?? '(no title)';
+                    final date = inc['date']?.toString();
+                    final location = inc['location']?.toString();
+                    final desc = inc['description']?.toString();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            applied
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 14,
+                            color: applied
+                                ? AppColors.success
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(title,
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textPrimary)),
+                                if (date != null || location != null)
+                                  Text(
+                                    [
+                                      if (date != null) date,
+                                      if (location != null) location,
+                                    ].join(' · '),
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.textTertiary),
+                                  ),
+                                if (desc != null) ...[
+                                  const SizedBox(height: 3),
+                                  Text(desc,
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textSecondary,
+                                          height: 1.4)),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Machinery detected ─────────────────────────────
+                if (rawMachinery.isNotEmpty) ...[
+                  _SummarySectionHeader(
+                    title: 'Machinery'
+                        '  (${rawMachinery.length} total'
+                        '${machineryApplied > 0 ? ', $machineryApplied added' : ''})',
+                    color: AppColors.amber,
+                    icon: Icons.settings_outlined,
+                  ),
+                  const SizedBox(height: 8),
+                  ...rawMachinery.map((m) {
+                    final applied = m['applied'] as bool? ?? false;
+                    final type = m['machinery_type']?.toString() ?? '(unknown)';
+                    final specs = <String>[
+                      if (m['make'] != null) m['make'].toString(),
+                      if (m['model'] != null) m['model'].toString(),
+                      if (m['serial_number'] != null)
+                        'S/N ${m['serial_number']}',
+                      if (m['mcr_kw'] != null) '${m['mcr_kw']} kW',
+                      if (m['mcr_rpm'] != null) '${m['mcr_rpm']} RPM',
+                      if (m['fuel_type'] != null) m['fuel_type'].toString(),
+                    ];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            applied
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 14,
+                            color: applied
+                                ? AppColors.success
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(type,
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textPrimary)),
+                                if (specs.isNotEmpty)
+                                  Text(
+                                    specs.join(' · '),
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textSecondary),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Unmapped / ignored fields ─────────────────────
+                if (unmapped.isNotEmpty) ...[
+                  const _SummarySectionHeader(
+                    title: 'Unmapped Fields (debug)',
+                    color: AppColors.amber,
+                    icon: Icons.bug_report_outlined,
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.amber.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: AppColors.amber.withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Extracted but not mapped to any app field. '
+                          'Add to VesselModel + applyExtraction() to use.',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.amber.withValues(alpha: 0.9),
+                              fontStyle: FontStyle.italic),
+                        ),
+                        const SizedBox(height: 8),
+                        ...unmapped.entries.map((e) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(children: [
+                                Text(
+                                  e.key,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      fontFamily: 'monospace',
+                                      color: AppColors.amber,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                                const Text(' → ',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textTertiary)),
+                                Expanded(
+                                  child: Text(
+                                    '${e.value}',
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textPrimary),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ]),
+                            )),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _SummarySectionHeader extends StatelessWidget {
+  const _SummarySectionHeader({
+    required this.title,
+    required this.color,
+    required this.icon,
+  });
+  final String title;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 6),
+      Text(title,
+          style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+              letterSpacing: 0.4)),
+    ]);
+  }
+}
+
+class _SummarySection extends StatelessWidget {
+  const _SummarySection({
+    required this.title,
+    required this.color,
+    required this.icon,
+    required this.fields,
+  });
+  final String title;
+  final Color color;
+  final IconData icon;
+  final Map<String, dynamic> fields;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _SummarySectionHeader(title: title, color: color, icon: icon),
+      const SizedBox(height: 6),
+      ...fields.entries.map((e) {
+        final label = _kFieldLabels[e.key] ??
+            e.key.replaceAll('_', ' ').split(' ').map((w) =>
+                w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}'
+            ).join(' ');
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 140,
+                child: Text(label,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500)),
+              ),
+              Expanded(
+                child: Text(
+                  '${e.value}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    ]);
+  }
+}

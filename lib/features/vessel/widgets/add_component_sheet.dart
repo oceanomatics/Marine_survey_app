@@ -1,18 +1,22 @@
 // lib/features/vessel/widgets/add_component_sheet.dart
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/vessel_provider.dart';
+import '../../photos/providers/photo_provider.dart';
 import 'survey_field.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
-class AddComponentSheet extends StatefulWidget {
+class AddComponentSheet extends ConsumerStatefulWidget {
   const AddComponentSheet({
     super.key,
     required this.machineryId,
     required this.vesselId,
+    required this.caseId,
     required this.onSave,
     this.existing,
     this.nextSeqNo = 1,
@@ -20,15 +24,17 @@ class AddComponentSheet extends StatefulWidget {
 
   final String machineryId;
   final String vesselId;
+  final String caseId;
   final VesselComponentModel? existing;
   final int nextSeqNo;
-  final Future<void> Function(VesselComponentModel) onSave;
+  final Future<VesselComponentModel> Function(VesselComponentModel) onSave;
 
   @override
-  State<AddComponentSheet> createState() => _AddComponentSheetState();
+  ConsumerState<AddComponentSheet> createState() => _AddComponentSheetState();
 }
 
-class _AddComponentSheetState extends State<AddComponentSheet> {
+class _AddComponentSheetState extends ConsumerState<AddComponentSheet> {
+  String? _scannedPhotoId;
   final _nameCtrl         = TextEditingController();
   final _manufacturerCtrl = TextEditingController();
   final _modelCtrl        = TextEditingController();
@@ -71,22 +77,27 @@ class _AddComponentSheetState extends State<AddComponentSheet> {
   }
 
   Future<void> _scanNameplate() async {
-    final source = await _pickSource();
-    if (source == null || !mounted) return;
-
-    final picker = ImagePicker();
-    final xFile = await picker.pickImage(
-      source: source,
-      imageQuality: 90,
-      maxWidth: 2048,
+    final picked = await showModalBottomSheet<List<dynamic>>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => CasePhotoPickerSheet(
+        caseId: widget.caseId,
+        title: 'Select Nameplate Photo',
+        accentColor: AppColors.teal,
+      ),
     );
-    if (xFile == null || !mounted) return;
+    if (picked == null || picked.isEmpty || !mounted) return;
 
-    setState(() => _scanningPlate = true);
+    setState(() {
+      _scanningPlate = true;
+      _scannedPhotoId = picked.first.id as String;
+    });
     try {
-      final bytes = await xFile.readAsBytes();
+      final photo = picked.first;
+      final bytes = await File(photo.localPath as String).readAsBytes();
       final b64   = base64Encode(bytes);
-      final mime  = xFile.mimeType ?? 'image/jpeg';
+      const mime  = 'image/jpeg';
 
       final result = await ClaudeApi.extractNameplate(
         base64Image: b64,
@@ -141,24 +152,6 @@ class _AddComponentSheetState extends State<AddComponentSheet> {
     }
   }
 
-  Future<ImageSource?> _pickSource() => showModalBottomSheet<ImageSource>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Take photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ]),
-        ),
-      );
-
   Future<void> _save() async {
     if (_nameCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -189,7 +182,12 @@ class _AddComponentSheetState extends State<AddComponentSheet> {
         notes:             _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         sequenceNo:        widget.existing?.sequenceNo ?? widget.nextSeqNo,
       );
-      await widget.onSave(comp);
+      final saved = await widget.onSave(comp);
+      if (_scannedPhotoId != null) {
+        await ref
+            .read(photosProvider(widget.caseId).notifier)
+            .attachLink(_scannedPhotoId!, 'component_nameplate', saved.componentId);
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);

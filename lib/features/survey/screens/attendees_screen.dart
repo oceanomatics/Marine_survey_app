@@ -201,7 +201,6 @@ class _PreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const isLast = false; // simplified
     return Container(
       padding: const EdgeInsets.symmetric(
           horizontal: 14, vertical: 8),

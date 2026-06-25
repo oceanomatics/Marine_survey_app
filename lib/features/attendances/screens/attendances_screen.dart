@@ -51,9 +51,14 @@ class AttendancesScreen extends ConsumerWidget {
                 caseId: caseId,
                 attendances: attendances,
                 allAttendees: allAttendees,
-                onDelete: (id) => ref
-                    .read(attendancesProvider(caseId).notifier)
-                    .delete(id),
+                onDelete: (id) async {
+                  await ref
+                      .read(attendancesProvider(caseId).notifier)
+                      .delete(id);
+                  // Cascade deletes attendees in DB; invalidate so in-memory
+                  // state reflects the removal.
+                  ref.invalidate(attendeesProvider(caseId));
+                },
                 onEditAttendees: (attendance, attendees) =>
                     _showEditAttendeesSheet(
                         context, ref, attendance, attendees),

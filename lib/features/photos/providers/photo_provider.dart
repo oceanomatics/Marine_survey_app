@@ -3,8 +3,10 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:exif/exif.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -31,7 +33,77 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       whereArgs: [caseId],
       orderBy: 'taken_at DESC',
     );
-    return rows.map(PhotoModel.fromMap).toList();
+    final fromDb = rows.map(PhotoModel.fromMap).toList();
+    final recovered = await _recoverOrphanedFiles(caseId, fromDb, db);
+    if (recovered.isEmpty) return fromDb;
+    return [...recovered, ...fromDb]
+      ..sort((a, b) => b.takenAt.compareTo(a.takenAt));
+  }
+
+  /// Scans the on-disk photos directory for .jpg files whose UUID is not in
+  /// [existing]. Inserts a bare record for each so they reappear in the grid.
+  /// This re-attaches photos that survived a DB schema wipe (version bump).
+  Future<List<PhotoModel>> _recoverOrphanedFiles(
+    String caseId,
+    List<PhotoModel> existing,
+    Database db,
+  ) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory(p.join(dir.path, 'cases', caseId, 'photos'));
+    if (!photosDir.existsSync()) return [];
+
+    final knownIds = existing.map((ph) => ph.id).toSet();
+    final recovered = <PhotoModel>[];
+
+    for (final entity in photosDir.listSync()) {
+      if (entity is! File) continue;
+      final name = p.basenameWithoutExtension(entity.path);
+      if (!name.contains('-') || knownIds.contains(name)) continue;
+      final ext = p.extension(entity.path).toLowerCase();
+      if (ext != '.jpg' && ext != '.jpeg') continue;
+
+      final thumbPath = p.join(dir.path, 'cases', caseId, 'thumbnails', '$name.jpg');
+      final fileBytes = await entity.readAsBytes();
+      final takenAt = await _exifDate(fileBytes) ?? entity.statSync().modified;
+
+      final photo = PhotoModel(
+        id: name,
+        caseId: caseId,
+        localPath: entity.path,
+        thumbnailPath: File(thumbPath).existsSync() ? thumbPath : null,
+        takenAt: takenAt,
+      );
+      try {
+        await db.insert('photos', photo.toMap());
+        recovered.add(photo);
+      } catch (_) {
+        // Already inserted by a concurrent call — skip.
+      }
+    }
+    return recovered;
+  }
+
+  /// Extract DateTimeOriginal (or fallback fields) from EXIF.
+  /// Returns null if no valid EXIF date is present.
+  static Future<DateTime?> _exifDate(Uint8List bytes) async {
+    try {
+      final tags = await readExifFromBytes(bytes);
+      for (final key in [
+        'EXIF DateTimeOriginal',
+        'Image DateTime',
+        'EXIF DateTimeDigitized',
+      ]) {
+        final raw = tags[key]?.printable.trim();
+        if (raw == null || raw.isEmpty) continue;
+        // EXIF format: "2024:06:15 14:23:45"
+        final parts = raw.split(' ');
+        if (parts.length < 2) continue;
+        final iso = '${parts[0].replaceAll(':', '-')} ${parts[1]}';
+        final dt = DateTime.tryParse(iso);
+        if (dt != null) return dt;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Save bytes as a compressed JPEG locally, generate a thumbnail, and
@@ -47,6 +119,9 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   }) async {
     final dir = await getApplicationDocumentsDirectory();
     final id = _uuid.v4();
+
+    // Read EXIF date from originals bytes before compression strips metadata.
+    final takenAt = await _exifDate(bytes) ?? DateTime.now();
 
     // Compress full-res JPEG.
     final compressed = await FlutterImageCompress.compressWithList(
@@ -85,7 +160,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       linkedToType: linkedToType,
       linkedToId: linkedToId,
       attendanceId: attendanceId,
-      takenAt: DateTime.now(),
+      takenAt: takenAt,
       fileSizeKb: compressed.length / 1024,
     );
 
@@ -125,6 +200,12 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       String photoId, String occurrenceId) async {
     await _updateLink(photoId, 'occurrence', occurrenceId);
   }
+
+  /// General-purpose link: stores [type] + [id] on the photo so callers can
+  /// filter by (linkedToType, linkedToId) without needing named methods for
+  /// every entity type (e.g. 'machinery_nameplate', 'vessel_general_view').
+  Future<void> attachLink(String photoId, String type, String id) =>
+      _updateLink(photoId, type, id);
 
   Future<void> _updateLink(
       String photoId, String type, String linkedId) async {

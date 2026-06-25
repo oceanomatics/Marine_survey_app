@@ -31,6 +31,10 @@ import '../../features/timesheet/screens/timesheet_screen.dart';
 import '../../features/settings/screens/usage_screen.dart';
 import '../../features/settings/screens/account_screen.dart';
 import '../../features/settings/screens/debug_log_screen.dart';
+import '../../features/settings/screens/speech_settings_screen.dart';
+import '../../features/interviews/screens/interview_screen.dart';
+import '../../features/interviews/screens/interview_list_screen.dart';
+import '../../features/interviews/screens/record_interview_screen.dart';
 import '../../shared/screens/login_screen.dart';
 import '../../core/api/supabase_client.dart';
 
@@ -166,6 +170,21 @@ final appRouter = GoRouter(
                   CaseAnalystScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
+              path: 'interview',
+              builder: (context, state) =>
+                  InterviewScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'interviews',
+              builder: (context, state) =>
+                  InterviewListScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'interviews/record',
+              builder: (context, state) =>
+                  RecordInterviewScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'reports',
               builder: (context, state) =>
                   ReportBuilderScreen(caseId: state.pathParameters['caseId']!),
@@ -193,6 +212,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/debug-log',
       builder: (context, state) => const DebugLogScreen(),
+    ),
+    GoRoute(
+      path: '/speech-settings',
+      builder: (context, state) => const SpeechSettingsScreen(),
     ),
   ],
 );

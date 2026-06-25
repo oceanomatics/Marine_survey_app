@@ -11,7 +11,7 @@ import '../../photos/models/photo_model.dart';
 import '../../vessel/providers/vessel_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
-import '../../../shared/widgets/photo_picker_sheet.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -84,24 +84,22 @@ class DamageRegisterScreen extends ConsumerWidget {
     }
 
     Future<void> addPhotoForDamageItem(String damageId) async {
-      final source = await showModalBottomSheet<PhotoPickSource>(
+      final picked = await showModalBottomSheet<List<dynamic>>(
         context: context,
         backgroundColor: Colors.transparent,
-        builder: (_) => const PhotoPickerSheet(
+        isScrollControlled: true,
+        builder: (_) => CasePhotoPickerSheet(
+          caseId: caseId,
+          multiSelect: true,
+          title: 'Add Damage Photos',
           accentColor: AppColors.coral,
-          title: 'Add Damage Photo',
         ),
       );
-      if (source == null || !context.mounted) return;
-      final bytesList = await PhotoPickerSheet.resolveBytes(source, context: context);
-      if (bytesList.isEmpty || !context.mounted) return;
-      for (final bytes in bytesList) {
-        await ref.read(photosProvider(caseId).notifier).addPhoto(
-              caseId: caseId,
-              bytes: bytes,
-              linkedToType: 'damage_item',
-              linkedToId: damageId,
-            );
+      if (picked == null || picked.isEmpty || !context.mounted) return;
+      for (final photo in picked) {
+        await ref
+            .read(photosProvider(caseId).notifier)
+            .attachToDamageItem(photo.id as String, damageId);
       }
     }
 
@@ -213,8 +211,6 @@ class _DamageBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(child: _SummaryBanner(ds: ds)),
-
         for (final occ in ds.occurrences) ...[
           SliverToBoxAdapter(
             child: _OccurrenceHeader(
@@ -315,69 +311,6 @@ class _DamageBody extends StatelessWidget {
 }
 
 // ── Summary banner ─────────────────────────────────────────────────────────
-
-class _SummaryBanner extends StatelessWidget {
-  const _SummaryBanner({required this.ds});
-  final DamageState ds;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          _Stat('Occurrences', ds.occurrences.length.toString(),
-              AppColors.navy),
-          _Divider(),
-          _Stat('Total Items', ds.totalDamageItems.toString(),
-              AppColors.coral),
-          _Divider(),
-          _Stat('Avg. Items', ds.averageItems.toString(),
-              AppColors.midBlue),
-          _Divider(),
-          _Stat("Owner's", ds.ownerItems.toString(), AppColors.amber),
-        ],
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value, this.color);
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: color)),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 10,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w500)),
-      ]),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) =>
-      Container(width: 1, height: 36, color: AppColors.border);
-}
 
 // ── Occurrence header ──────────────────────────────────────────────────────
 

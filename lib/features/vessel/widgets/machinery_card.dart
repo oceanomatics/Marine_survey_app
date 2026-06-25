@@ -1,23 +1,27 @@
 // lib/features/vessel/widgets/machinery_card.dart
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import '../providers/vessel_provider.dart';
 import 'add_component_sheet.dart';
+import '../../photos/providers/photo_provider.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
 class MachineryCard extends ConsumerStatefulWidget {
   const MachineryCard({
     super.key,
     required this.machinery,
+    required this.caseId,
     required this.onEdit,
     required this.onDelete,
   });
 
   final MachineryModel machinery;
+  final String caseId;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -32,19 +36,24 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
   // ── Machinery nameplate scan ───────────────────────────────────────────────
 
   Future<void> _scanMachineryNameplate() async {
-    final source = await _pickSource();
-    if (source == null || !mounted) return;
-
-    final picker = ImagePicker();
-    final xFile  = await picker.pickImage(
-        source: source, imageQuality: 90, maxWidth: 2048);
-    if (xFile == null || !mounted) return;
+    final picked = await showModalBottomSheet<List<dynamic>>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => CasePhotoPickerSheet(
+        caseId: widget.caseId,
+        title: 'Select Nameplate Photo',
+        accentColor: AppColors.teal,
+      ),
+    );
+    if (picked == null || picked.isEmpty || !mounted) return;
 
     setState(() => _scanningPlate = true);
     try {
-      final bytes  = await xFile.readAsBytes();
+      final photo  = picked.first;
+      final bytes  = await File(photo.localPath as String).readAsBytes();
       final b64    = base64Encode(bytes);
-      final mime   = xFile.mimeType ?? 'image/jpeg';
+      const mime   = 'image/jpeg';
       final result = await ClaudeApi.extractNameplate(
           base64Image: b64, mediaType: mime);
       if (!mounted) return;
@@ -96,6 +105,12 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
           .read(machineryProvider(widget.machinery.vesselId).notifier)
           .updateMachinery(updated);
 
+      // Pin this photo as the nameplate reference for the card thumbnail.
+      await ref
+          .read(photosProvider(widget.caseId).notifier)
+          .attachLink(photo.id as String, 'machinery_nameplate',
+              widget.machinery.machineryId);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -131,9 +146,10 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       builder: (_) => AddComponentSheet(
         machineryId: widget.machinery.machineryId,
         vesselId:    widget.machinery.vesselId,
+        caseId:      widget.caseId,
         nextSeqNo:   nextSeq,
-        onSave: (comp) async {
-          await ref
+        onSave: (comp) {
+          return ref
               .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
               .addComponent(comp);
         },
@@ -150,13 +166,13 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       builder: (_) => AddComponentSheet(
         machineryId: widget.machinery.machineryId,
         vesselId:    widget.machinery.vesselId,
+        caseId:      widget.caseId,
         existing:    comp,
         onSave: (updated) async {
-          // Delete old + re-insert (simple approach since model has no update method)
           await ref
               .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
               .deleteComponent(comp.componentId);
-          await ref
+          return ref
               .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
               .addComponent(updated);
         },
@@ -189,24 +205,6 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
     }
   }
 
-  Future<ImageSource?> _pickSource() => showModalBottomSheet<ImageSource>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Take photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ]),
-        ),
-      );
-
   // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
@@ -214,6 +212,14 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
     final componentsAsync =
         ref.watch(vesselComponentsProvider(widget.machinery.machineryId));
     final components = componentsAsync.value ?? [];
+    final photos = ref.watch(photosProvider(widget.caseId)).value ?? [];
+
+    // Find the nameplate photo for this machinery item.
+    final nameplateMatches = photos.where((p) =>
+        p.linkedToType == 'machinery_nameplate' &&
+        p.linkedToId == widget.machinery.machineryId);
+    final nameplatePhoto =
+        nameplateMatches.isEmpty ? null : nameplateMatches.first;
 
     return Card(
       child: Padding(
@@ -282,40 +288,75 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
 
             const SizedBox(height: 8),
 
-            // ── Display name ───────────────────────────────────────
-            Text(
-              widget.machinery.displayName,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-
-            const SizedBox(height: 6),
-
-            // ── Spec chips ─────────────────────────────────────────
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
+            // ── Display name + nameplate thumbnail ─────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.machinery.mcrKw != null)
-                  _Spec('MCR',
-                      '${widget.machinery.mcrKw!.toStringAsFixed(0)} kW'),
-                if (widget.machinery.mcrRpm != null)
-                  _Spec('RPM', widget.machinery.mcrRpm!.toStringAsFixed(0)),
-                if (widget.machinery.fuelType != null)
-                  _Spec('Fuel', widget.machinery.fuelType!),
-                if (widget.machinery.cylinderCount != null)
-                  _Spec('Cyl.', widget.machinery.cylinderCount.toString()),
-                if (widget.machinery.serialNumber != null)
-                  _Spec('S/N', widget.machinery.serialNumber!),
-                if (widget.machinery.runHrsNew != null)
-                  _Spec('Hrs (new)',
-                      widget.machinery.runHrsNew!.toStringAsFixed(0)),
-                if (widget.machinery.runHrsOverhaul != null)
-                  _Spec('Hrs (O/H)',
-                      widget.machinery.runHrsOverhaul!.toStringAsFixed(0)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.machinery.displayName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // ── Spec chips ─────────────────────────────
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 4,
+                        children: [
+                          if (widget.machinery.mcrKw != null)
+                            _Spec('MCR',
+                                '${widget.machinery.mcrKw!.toStringAsFixed(0)} kW'),
+                          if (widget.machinery.mcrRpm != null)
+                            _Spec('RPM',
+                                widget.machinery.mcrRpm!.toStringAsFixed(0)),
+                          if (widget.machinery.fuelType != null)
+                            _Spec('Fuel', widget.machinery.fuelType!),
+                          if (widget.machinery.cylinderCount != null)
+                            _Spec('Cyl.',
+                                widget.machinery.cylinderCount.toString()),
+                          if (widget.machinery.serialNumber != null)
+                            _Spec('S/N', widget.machinery.serialNumber!),
+                          if (widget.machinery.runHrsNew != null)
+                            _Spec('Hrs (new)',
+                                widget.machinery.runHrsNew!.toStringAsFixed(0)),
+                          if (widget.machinery.runHrsOverhaul != null)
+                            _Spec('Hrs (O/H)',
+                                widget.machinery.runHrsOverhaul!
+                                    .toStringAsFixed(0)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Nameplate photo thumbnail
+                if (nameplatePhoto != null) ...[
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _scanMachineryNameplate,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.file(
+                        File(nameplatePhoto.thumbnailPath ??
+                            nameplatePhoto.localPath),
+                        width: 64, height: 64,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 64, height: 64,
+                          color: AppColors.surface,
+                          child: const Icon(Icons.broken_image_outlined,
+                              size: 20, color: AppColors.textTertiary),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
 
@@ -383,17 +424,36 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                     if (comp.serialNumber != null) 'S/N ${comp.serialNumber}',
                   ].join(' · ');
 
+                  // Find nameplate photo for this sub-component.
+                  final compPhotoMatches = photos.where((p) =>
+                      p.linkedToType == 'component_nameplate' &&
+                      p.linkedToId == comp.componentId);
+                  final compPhoto = compPhotoMatches.isEmpty
+                      ? null
+                      : compPhotoMatches.first;
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.only(top: 2),
-                          child: Icon(Icons.subdirectory_arrow_right,
-                              size: 14, color: AppColors.textTertiary),
-                        ),
+                        const Icon(Icons.subdirectory_arrow_right,
+                            size: 14, color: AppColors.textTertiary),
                         const SizedBox(width: 6),
+                        // Component nameplate thumbnail
+                        if (compPhoto != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.file(
+                              File(compPhoto.thumbnailPath ?? compPhoto.localPath),
+                              width: 36, height: 36,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const SizedBox(
+                                  width: 36, height: 36),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,

@@ -348,7 +348,12 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                         ),
                         const SizedBox(height: 3),
                         Row(children: [
-                          _StatusChip(status: item.status),
+                          item.status == CorrStatus.completed
+                              ? GestureDetector(
+                                  onTap: _showExtractionSummary,
+                                  child: _StatusChip(status: item.status),
+                                )
+                              : _StatusChip(status: item.status),
                           if (item.corrDate != null) ...[
                             const SizedBox(width: 6),
                             Text(
@@ -642,6 +647,15 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
           ],
         ],
       ),
+    );
+  }
+
+  void _showExtractionSummary() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CorrExtractionSummarySheet(item: item),
     );
   }
 
@@ -1338,5 +1352,232 @@ class _EmptyState extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ── Correspondence extraction summary sheet ───────────────────────────────────
+
+class _CorrExtractionSummarySheet extends StatelessWidget {
+  const _CorrExtractionSummarySheet({required this.item});
+  final CorrespondenceModel item;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      maxChildSize: 0.92,
+      minChildSize: 0.35,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              const Icon(Icons.auto_awesome, size: 16, color: AppColors.success),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.title,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 4),
+          const Divider(),
+          Expanded(
+            child: ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              children: [
+                // ── Identity fields ─────────────────────────────────
+                _CorrSummarySection(
+                  title: 'Header',
+                  color: _kColor,
+                  icon: Icons.email_outlined,
+                  rows: [
+                    if (item.sender != null)
+                      _CorrRow('From', item.sender!),
+                    if (item.recipient != null)
+                      _CorrRow('To', item.recipient!),
+                    if (item.corrDate != null)
+                      _CorrRow('Date',
+                          DateFormat('dd MMM yyyy').format(item.corrDate!)),
+                  ],
+                ),
+
+                // ── Summary ────────────────────────────────────────
+                if (item.summary != null && item.summary!.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _CorrSummarySection(
+                    title: 'Summary',
+                    color: AppColors.midBlue,
+                    icon: Icons.summarize_outlined,
+                    rows: const [],
+                    body: item.summary!,
+                  ),
+                ],
+
+                // ── Parties ────────────────────────────────────────
+                if (item.parties.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _CorrSummarySection(
+                    title: 'Parties (${item.parties.length})',
+                    color: AppColors.teal,
+                    icon: Icons.people_outline,
+                    rows: item.parties.map((p) {
+                      final detail = [
+                        if (p.company != null) p.company!,
+                        if (p.role != null) p.role!,
+                        if (p.email != null) p.email!,
+                      ].join(' · ');
+                      return _CorrRow(p.name, detail.isEmpty ? '—' : detail);
+                    }).toList(),
+                  ),
+                ],
+
+                // ── Action items ───────────────────────────────────
+                if (item.actions.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _CorrSummarySectionHeader(
+                    title: 'Action Items',
+                    color: AppColors.coral,
+                    icon: Icons.task_alt_outlined,
+                  ),
+                  const SizedBox(height: 6),
+                  ...item.actions.map((a) => Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('• ',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.coral,
+                                    fontWeight: FontWeight.w700)),
+                            Expanded(
+                              child: Text(a,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textPrimary)),
+                            ),
+                          ],
+                        ),
+                      )),
+                ],
+
+                // ── Key dates ──────────────────────────────────────
+                if (item.keyDates.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _CorrSummarySectionHeader(
+                    title: 'Key Dates',
+                    color: AppColors.purple,
+                    icon: Icons.calendar_today_outlined,
+                  ),
+                  const SizedBox(height: 6),
+                  ...item.keyDates.map((d) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text('• $d',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textPrimary)),
+                      )),
+                ],
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _CorrSummarySectionHeader extends StatelessWidget {
+  const _CorrSummarySectionHeader({
+    required this.title,
+    required this.color,
+    required this.icon,
+  });
+  final String title;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Text(title,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+                letterSpacing: 0.4)),
+      ]);
+}
+
+class _CorrRow {
+  const _CorrRow(this.label, this.value);
+  final String label;
+  final String value;
+}
+
+class _CorrSummarySection extends StatelessWidget {
+  const _CorrSummarySection({
+    required this.title,
+    required this.color,
+    required this.icon,
+    required this.rows,
+    this.body,
+  });
+  final String title;
+  final Color color;
+  final IconData icon;
+  final List<_CorrRow> rows;
+  final String? body;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty && body == null) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _CorrSummarySectionHeader(title: title, color: color, icon: icon),
+      const SizedBox(height: 6),
+      if (body != null)
+        Text(body!,
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textPrimary, height: 1.45)),
+      ...rows.map((r) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(
+                width: 110,
+                child: Text(r.label,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500)),
+              ),
+              Expanded(
+                child: Text(r.value,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textPrimary)),
+              ),
+            ]),
+          )),
+    ]);
   }
 }

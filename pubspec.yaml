@@ -29,6 +29,8 @@ dependencies:
 
   # Camera & media
   image_picker: ^1.1.2
+  image_cropper: ^12.2.1
+  exif: ^3.3.0
   camera: ^0.11.0+2
   photo_view: ^0.15.0
   flutter_image_compress: ^2.3.0
@@ -37,7 +39,7 @@ dependencies:
   record: ^7.1.0
   just_audio: ^0.9.40
   audio_waveforms: ^1.0.5
-  speech_to_text: ^7.0.0
+  sherpa_onnx: ^1.13.3
 
   # File handling
   archive: ^3.6.1

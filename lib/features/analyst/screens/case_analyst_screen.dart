@@ -1,10 +1,14 @@
 // lib/features/analyst/screens/case_analyst_screen.dart
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../../core/api/supabase_client.dart';
+import '../../../core/services/model_manager.dart';
+import '../../../core/services/sherpa_service.dart';
+import '../../settings/providers/speech_settings_provider.dart';
 import '../../../core/services/case_context_builder.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
@@ -29,23 +33,41 @@ class CaseAnalystScreen extends ConsumerStatefulWidget {
 class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
   final _controller = TextEditingController();
   final _scrollCtrl = ScrollController();
-  final _speech = SpeechToText();
+  final _sherpa     = SherpaService.instance;
 
   final List<_Msg> _messages = [];
-  bool _sending = false;
+  bool _sending   = false;
   bool _listening = false;
-  bool _speechAvailable = false;
+  bool _modelReady = false;
+
+  StreamSubscription<SherpaResult>? _sherpaSub;
+  String _committedText = '';
 
   @override
   void initState() {
     super.initState();
-    _speech.initialize().then((ok) {
-      if (mounted) setState(() => _speechAvailable = ok);
-    });
+    _initModel();
+  }
+
+  Future<void> _initModel() async {
+    if (_sherpa.isInitialized) {
+      if (mounted) setState(() => _modelReady = true);
+      return;
+    }
+    try {
+      final settings = await ref.read(speechSettingsProvider.future);
+      final paths    = await ModelManager.instance.ensureModel(settings.modelId);
+      await _sherpa.initialize(paths, settings);
+      if (mounted) setState(() => _modelReady = true);
+    } catch (_) {
+      // Voice input unavailable — chat still works
+    }
   }
 
   @override
   void dispose() {
+    _sherpaSub?.cancel();
+    _sherpa.stop();
     _controller.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -127,24 +149,35 @@ class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
 
   Future<void> _toggleVoice() async {
     if (_listening) {
-      await _speech.stop();
+      final trailing = await _sherpa.stop();
+      _sherpaSub?.cancel();
+      _sherpaSub = null;
+      if (trailing.isNotEmpty) {
+        final existing = _controller.text.trimRight();
+        _controller.text =
+            existing.isEmpty ? trailing : '$existing $trailing';
+      }
       setState(() => _listening = false);
       return;
     }
+
+    if (!_modelReady) return;
+
+    _committedText = _controller.text.trimRight();
     setState(() => _listening = true);
-    _speech.listen(
-      onResult: (result) {
-        _controller.text = result.recognizedWords;
-        if (result.finalResult) {
-          setState(() => _listening = false);
-        }
-      },
-      listenOptions: SpeechListenOptions(
-        listenMode: ListenMode.dictation,
-        pauseFor: const Duration(seconds: 3),
-        partialResults: true,
-      ),
-    );
+    _sherpaSub = _sherpa.startStreaming().listen((result) {
+      final sep = _committedText.isEmpty ? '' : ' ';
+      if (result.isFinal) {
+        _committedText = '$_committedText$sep${result.text}';
+        _controller.text = _committedText;
+      } else {
+        _controller.text = '$_committedText$sep${result.text}';
+      }
+      _controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: _controller.text.length));
+    }, onDone: () {
+      if (mounted) setState(() => _listening = false);
+    });
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -221,7 +254,7 @@ class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
             controller: _controller,
             listening: _listening,
             sending: _sending,
-            speechAvailable: _speechAvailable,
+            speechAvailable: _modelReady,
             enabled: allLoaded,
             onSend: _send,
             onVoice: _toggleVoice,

@@ -1,12 +1,13 @@
 // lib/features/vessel/widgets/add_machinery_sheet.dart
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../providers/vessel_provider.dart';
 import 'survey_field.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
 // ── Role catalogue ─────────────────────────────────────────────────────────
 
@@ -55,11 +56,13 @@ class AddMachinerySheet extends StatefulWidget {
   const AddMachinerySheet({
     super.key,
     required this.vesselId,
+    required this.caseId,
     required this.onSave,
     this.existing,
   });
 
   final String vesselId;
+  final String caseId;
   final MachineryModel? existing;
   final Future<void> Function(MachineryModel) onSave;
 
@@ -205,34 +208,24 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
   bool get _isGeneric   => !_isEngine && !_isThruster && !_isGearbox;
 
   Future<void> _scanNameplate() async {
-    final source = await showModalBottomSheet<ImageSource>(
+    final picked = await showModalBottomSheet<List<dynamic>>(
       context: context,
-      builder: (_) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.camera_alt_outlined),
-            title: const Text('Take photo'),
-            onTap: () => Navigator.pop(context, ImageSource.camera),
-          ),
-          ListTile(
-            leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Choose from gallery'),
-            onTap: () => Navigator.pop(context, ImageSource.gallery),
-          ),
-        ]),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => CasePhotoPickerSheet(
+        caseId: widget.caseId,
+        title: 'Select Nameplate Photo',
+        accentColor: AppColors.teal,
       ),
     );
-    if (source == null || !mounted) return;
-
-    final xFile = await ImagePicker().pickImage(
-        source: source, imageQuality: 90, maxWidth: 2048);
-    if (xFile == null || !mounted) return;
+    if (picked == null || picked.isEmpty || !mounted) return;
 
     setState(() => _scanningPlate = true);
     try {
-      final bytes  = await xFile.readAsBytes();
+      final photo  = picked.first;
+      final bytes  = await File(photo.localPath as String).readAsBytes();
       final b64    = base64Encode(bytes);
-      final mime   = xFile.mimeType ?? 'image/jpeg';
+      const mime   = 'image/jpeg';
       final result = await ClaudeApi.extractNameplate(
           base64Image: b64, mediaType: mime);
       if (!mounted) return;
