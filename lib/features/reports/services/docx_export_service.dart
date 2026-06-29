@@ -1,350 +1,429 @@
 // lib/features/reports/services/docx_export_service.dart
 //
-// Generates a .docx report file from assembled case data.
-// Uses the docx_template package for Flutter/Dart.
-// The template .docx files live in assets/templates/.
+// Builds a properly structured .docx from assembled case data using the
+// in-house OOXML builder (lib/core/docx/docx_builder.dart).
+// Replaces the previous docx_template approach.
 //
-// On web: downloads the file via dart:html
-// On native: saves to app documents directory
+// On web:    downloads via dart:html
+// On native: saves to getApplicationDocumentsDirectory()
 
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
-import 'package:flutter/services.dart' show rootBundle;
-import 'package:docx_template/docx_template.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../providers/report_provider.dart';
 import '../../../core/api/supabase_client.dart';
-
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html show AnchorElement, Blob, Url;
+import '../../../core/docx/docx_builder.dart';
+import 'report_delivery.dart';
 
 class DocxExportService {
-  /// Generate and download/save a .docx report.
-  /// Returns the filename on success.
+  static const String _docxMime =
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  /// Generate and deliver a .docx report. Returns the filename.
   static Future<String> export({
     required ReportOutput output,
     required AssembledReportData assembled,
     required Map<SectionType, ReportSection> sections,
   }) async {
-    final format = assembled.outputFormat; // 'abl' or 'nordic'
-    final templatePath = 'assets/templates/template_$format.docx';
-
-    // ── Load template ────────────────────────────────────────────────
-    Uint8List templateBytes;
-    try {
-      final data = await rootBundle.load(templatePath);
-      templateBytes = data.buffer.asUint8List();
-    } catch (_) {
-      // No template found — generate a basic document from scratch
-      templateBytes = await _buildBasicDocx(output, assembled, sections);
-      return _deliver(
-        bytes: templateBytes,
-        filename: _filename(output, assembled),
-      );
-    }
-
-    // ── Build content map for template substitution ──────────────────
-    final content = _buildContentMap(output, assembled, sections);
-
-    // ── Render template ──────────────────────────────────────────────
-    final doc = await DocxTemplate.fromBytes(templateBytes);
-    final rawBytes = await doc.generate(content);
-    if (rawBytes == null) {
-      throw Exception('Template rendering returned null');
-    }
-    final rendered = Uint8List.fromList(rawBytes);
-
+    final bytes = _buildDocx(output, assembled, sections);
     final filename = _filename(output, assembled);
 
-    // ── Upload to Supabase Storage ────────────────────────────────────
+    // Upload to Supabase Storage (non-fatal)
     try {
-      final storagePath =
-          '${assembled.caseData['case_id']}/exports/$filename';
+      final path = '${assembled.caseData['case_id']}/exports/$filename';
       await SupabaseService.uploadFile(
         bucket: 'exports',
-        path: storagePath,
-        bytes: rendered,
-        mimeType:
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        path: path,
+        bytes: bytes,
+        mimeType: _docxMime,
       );
-      // Save path to report_outputs
       await SupabaseService.client
           .from('report_outputs')
-          .update({'file_path': storagePath})
+          .update({'file_path': path})
           .eq('output_id', output.outputId);
     } catch (e) {
-      debugPrint('Storage upload failed (non-fatal): $e');
+      debugPrint('Storage upload skipped: $e');
     }
 
-    return _deliver(bytes: rendered, filename: filename);
+    return _deliver(bytes: bytes, filename: filename);
   }
 
-  // ── Content map — all substitution variables ───────────────────────
+  // ── Document builder ──────────────────────────────────────────────────────
 
-  static Content _buildContentMap(
+  static Uint8List _buildDocx(
     ReportOutput output,
     AssembledReportData assembled,
     Map<SectionType, ReportSection> sections,
   ) {
+    final doc = DocxBuilder();
     final v     = assembled.vessel ?? {};
-    final occ   = assembled.occurrences.isNotEmpty
-        ? assembled.occurrences.first
-        : <String, dynamic>{};
     final case_ = assembled.caseData;
-    final client = (case_['principals_clients']
-            as Map<String, dynamic>?)?['name'] as String? ??
-        '';
+    final org   = assembled.organisation;
+    final client = (case_['principals_clients'] as Map<String, dynamic>?)?['name']
+        as String? ?? '';
 
-    return Content()
-      // ── Report metadata ────────────────────────────────────────────
-      ..add(TextContent('report_number',
-          output.reportNumber ?? ''))
-      ..add(TextContent('report_date', _today()))
-      ..add(TextContent('job_number',
-          case_['job_number'] as String? ?? ''))
-      ..add(TextContent('report_type',
-          output.outputType.label.toUpperCase()))
-      ..add(TextContent('sequence_no',
-          output.sequenceNo > 1 ? ' No.${output.sequenceNo}' : ''))
-      ..add(TextContent('claim_reference',
-          case_['claim_reference'] as String? ?? ''))
-      ..add(TextContent('client_name', client))
+    // ── WP header (location 1: cover) ─────────────────────────────────
+    final wpHeader = org?['wp_header_text'] as String? ??
+        'WITHOUT PREJUDICE AND SUBJECT TO SURVEY';
+    doc.addParagraph(
+      wpHeader,
+      bold: true,
+      align: WAlignment.center,
+      colorHex: '1F3A5F',
+      halfPtSize: 20,
+    );
+    doc.addSpacer();
 
-      // ── Vessel particulars ─────────────────────────────────────────
-      ..add(TextContent('vessel_name',
-          v['name'] as String? ?? ''))
-      ..add(TextContent('imo_number',
-          v['imo_number'] as String? ?? ''))
-      ..add(TextContent('vessel_type',
-          v['vessel_type'] as String? ?? ''))
-      ..add(TextContent('flag',
-          v['flag'] as String? ?? ''))
-      ..add(TextContent('port_of_registry',
-          v['port_of_registry'] as String? ?? ''))
-      ..add(TextContent('gross_tonnage',
-          v['gross_tonnage']?.toString() ?? ''))
-      ..add(TextContent('net_tonnage',
-          v['net_tonnage']?.toString() ?? ''))
-      ..add(TextContent('deadweight',
-          v['deadweight']?.toString() ?? ''))
-      ..add(TextContent('length_oa',
-          v['length_oa']?.toString() ?? ''))
-      ..add(TextContent('length_bp',
-          v['length_bp']?.toString() ?? ''))
-      ..add(TextContent('breadth',
-          v['breadth']?.toString() ?? ''))
-      ..add(TextContent('depth',
-          v['depth']?.toString() ?? ''))
-      ..add(TextContent('max_draft',
-          v['max_draft']?.toString() ?? ''))
-      ..add(TextContent('year_built',
-          v['year_built']?.toString() ?? ''))
-      ..add(TextContent('build_yard',
-          v['build_yard'] as String? ?? ''))
-      ..add(TextContent('build_country',
-          v['build_country'] as String? ?? ''))
-      ..add(TextContent('owners',
-          v['owners'] as String? ?? ''))
-      ..add(TextContent('operators',
-          v['operators'] as String? ?? ''))
-      ..add(TextContent('class_society',
-          v['class_society'] as String? ?? ''))
-      ..add(TextContent('class_notation',
-          v['class_notation'] as String? ?? ''))
-      ..add(TextContent('service_speed',
-          v['service_speed']?.toString() ?? ''))
+    // ── Running page footer (WP location 1 — every page) ─────────────
+    final firmName = org?['name'] as String?;
+    final wpFooterNotice = org?['wp_footer_text'] as String?
+        ?? 'This report is supplied without prejudice to any or all parties '
+           'involved and shall not be copied or passed on to third parties '
+           'without the express permission of'
+           '${firmName != null && firmName.isNotEmpty ? ' $firmName' : ' the issuing firm'}.';
+    doc.setFooter(wpFooterNotice);
 
-      // ── Occurrence ─────────────────────────────────────────────────
-      ..add(TextContent('occurrence_title',
-          occ['title'] as String? ?? ''))
-      ..add(TextContent('occurrence_date',
-          _formatDate(occ['date_time'] as String? ?? '')))
-      ..add(TextContent('occurrence_location',
-          occ['location'] as String? ?? ''))
-
-      // ── Sections ───────────────────────────────────────────────────
-      ..add(TextContent('opening_text',
-          sections[SectionType.opening]?.content ?? ''))
-      ..add(TextContent('background_text',
-          sections[SectionType.background]?.content ?? ''))
-      ..add(TextContent('occurrence_text',
-          sections[SectionType.occurrence]?.content ?? ''))
-      ..add(TextContent('damage_text',
-          sections[SectionType.damageDescription]?.content ?? ''))
-      ..add(TextContent('repairs_text',
-          sections[SectionType.repairs]?.content ?? ''))
-      ..add(TextContent('cause_text',
-          sections[SectionType.causation]?.content ?? ''))
-      ..add(TextContent('allegation_text',
-          sections[SectionType.allegation]?.content ?? ''))
-      ..add(TextContent('closing_text',
-          sections[SectionType.closing]?.content ?? ''))
-
-      // ── Attendees table ────────────────────────────────────────────
-      ..add(ListContent('attendees',
-          assembled.attendees.map((a) => TableContent('', [
-                RowContent()
-                  ..add(TextContent('attendee_name',
-                      '${a['rank_position'] ?? ''} ${a['full_name'] ?? ''}'.trim()))
-                  ..add(TextContent('attendee_representing',
-                      a['representing'] as String? ??
-                          a['company'] as String? ?? '')),
-              ])).toList()))
-
-      // ── Certificates table ─────────────────────────────────────────
-      ..add(ListContent('certificates',
-          assembled.certificates.map((c) => TableContent('', [
-                RowContent()
-                  ..add(TextContent('cert_name',
-                      c['cert_name'] as String? ?? ''))
-                  ..add(TextContent('cert_issuer',
-                      c['issuing_authority'] as String? ?? ''))
-                  ..add(TextContent('cert_issue',
-                      _formatDate(c['issue_date'] as String? ?? '')))
-                  ..add(TextContent('cert_expiry',
-                      _formatDate(c['expiry_date'] as String? ?? ''))),
-              ])).toList()))
-
-      // ── Damage items table ─────────────────────────────────────────
-      ..add(ListContent('damage_items',
-          assembled.damageItems.map((d) => TableContent('', [
-                RowContent()
-                  ..add(TextContent('damage_component',
-                      d['component_name'] as String? ?? ''))
-                  ..add(TextContent('damage_description',
-                      d['damage_description'] as String? ?? ''))
-                  ..add(TextContent('damage_repair_type',
-                      d['repair_type'] as String? ?? ''))
-                  ..add(TextContent('damage_average',
-                      (d['is_concerning_average'] as bool? ?? true)
-                          ? 'Average'
-                          : "Owner's")),
-              ])).toList()));
-  }
-
-  // ── Fallback: build a basic .docx without a template ──────────────
-  // Used when no template asset exists. Produces a clean but unstyled doc.
-
-  static Future<Uint8List> _buildBasicDocx(
-    ReportOutput output,
-    AssembledReportData assembled,
-    Map<SectionType, ReportSection> sections,
-  ) async {
-    // Build plain text content structured as the report
-    final v = assembled.vessel ?? {};
-    final buf = StringBuffer();
-
-    buf.writeln(output.outputType.label.toUpperCase());
-    buf.writeln('M.V. "${v['name'] ?? 'VESSEL'}"');
-    buf.writeln('Report No.: ${output.reportNumber ?? ''}');
-    buf.writeln('Date: ${_today()}');
-    buf.writeln('Job No.: ${assembled.caseData['job_number'] ?? ''}');
-    buf.writeln();
-
-    for (final section in sections.values) {
-      if (section.content.isEmpty) continue;
-      buf.writeln(section.title.toUpperCase());
-      buf.writeln(section.content);
-      buf.writeln();
+    // Firm name on cover
+    if (firmName != null) {
+      doc.addParagraph(firmName,
+          bold: true, align: WAlignment.center, halfPtSize: 18);
+      doc.addSpacer();
     }
 
-    // Encode as a minimal .docx (XML-based)
-    final xmlContent = _wrapInDocxXml(buf.toString());
-    return Uint8List.fromList(xmlContent.codeUnits);
+    // ── WP cover block (location 2: below title on cover page) ────────
+    final wpCover = org?['wp_cover_text'] as String?;
+    if (wpCover != null && wpCover.isNotEmpty) {
+      doc.addParagraph(wpCover,
+          italic: true, halfPtSize: 18, colorHex: '6B7280',
+          align: WAlignment.center);
+      doc.addSpacer();
+    }
+
+    // ── Report title ──────────────────────────────────────────────────
+    doc.addHeading(output.outputType.label.toUpperCase(), 1);
+    final vesselName = v['name'] as String? ?? '';
+    if (vesselName.isNotEmpty) {
+      doc.addParagraph('M.V. "$vesselName"',
+          bold: true, halfPtSize: 26, colorHex: '374151');
+    }
+    doc.addSpacer();
+
+    // ── Report metadata table ─────────────────────────────────────────
+    final occFirst = assembled.occurrences.isNotEmpty
+        ? assembled.occurrences.first
+        : <String, dynamic>{};
+    doc.addTable([
+      ['Report No.',     output.reportNumber ?? ''],
+      ['Date Issued',    _today()],
+      ['Job / File No.', case_['job_number'] as String? ?? ''],
+      ['Claim Reference', case_['claim_reference'] as String? ?? ''],
+      ['Policy UCR',     case_['policy_ucr'] as String? ?? ''],
+      ['Client',         client],
+      ['Occurrence',     occFirst['title'] as String? ?? ''],
+      ['Location',       occFirst['location'] as String? ?? ''],
+    ].where((r) => r[1].isNotEmpty).toList(),
+      colWidths: [3000, 6355],
+    );
+    doc.addSpacer();
+
+    // ── Vessel Particulars ────────────────────────────────────────────
+    if (v.isNotEmpty) {
+      doc.addHeading('VESSEL PARTICULARS', 2);
+      final vpRows = [
+        ['Vessel Name',      v['name']             ?? ''],
+        ['IMO Number',       v['imo_number']        ?? ''],
+        ['Type',             v['vessel_type']       ?? ''],
+        ['Flag',             v['flag']              ?? ''],
+        ['Port of Registry', v['port_of_registry']  ?? ''],
+        ['Gross Tonnage',    v['gross_tonnage']?.toString() ?? ''],
+        ['Net Tonnage',      v['net_tonnage']?.toString()  ?? ''],
+        ['Deadweight',       v['deadweight']?.toString()   ?? ''],
+        ['LOA',              v['length_oa']?.toString()    ?? ''],
+        ['Year Built',       v['year_built']?.toString()   ?? ''],
+        ['Build Yard',       v['build_yard']        ?? ''],
+        ['Owners',           v['owners']            ?? ''],
+        ['Operators',        v['operators']         ?? ''],
+        ['Class Society',    v['class_society']     ?? ''],
+        ['Class Notation',   v['class_notation']    ?? ''],
+      ].where((r) => (r[1] as String).isNotEmpty)
+       .map((r) => [r[0] as String, r[1] as String])
+       .toList();
+      if (vpRows.isNotEmpty) {
+        doc.addTable(vpRows, colWidths: [3000, 6355]);
+      }
+      doc.addSpacer();
+    }
+
+    // ── Certificates ──────────────────────────────────────────────────
+    if (assembled.certificates.isNotEmpty) {
+      doc.addHeading('CERTIFICATES', 2);
+      final certRows = [
+        ['Certificate', 'Issuing Authority', 'Issue Date', 'Expiry'],
+        ...assembled.certificates.map((c) => [
+              c['cert_name'] as String? ?? c['cert_type'] as String? ?? '',
+              c['issuing_authority'] as String? ?? '',
+              _formatDate(c['issue_date'] as String? ?? ''),
+              _formatDate(c['expiry_date'] as String? ?? ''),
+            ]),
+      ];
+      doc.addTable(certRows, boldFirstRow: true, colWidths: [3000, 3000, 1500, 1855]);
+      doc.addSpacer();
+    }
+
+    // ── Attendance & Representatives ──────────────────────────────────
+    if (assembled.attendees.isNotEmpty) {
+      doc.addHeading('ATTENDANCE & REPRESENTATIVES', 2);
+      final attRows = [
+        ['Name / Rank', 'Representing'],
+        ...assembled.attendees.map((a) => [
+              '${a['rank_position'] ?? ''} ${a['full_name'] ?? ''}'.trim(),
+              a['representing'] as String? ?? a['company'] as String? ?? '',
+            ]),
+      ];
+      doc.addTable(attRows, boldFirstRow: true, colWidths: [4677, 4678]);
+      doc.addSpacer();
+    }
+
+    // ── Narrative sections (ordered) ──────────────────────────────────
+    const orderedSections = [
+      SectionType.opening,
+      SectionType.background,
+      SectionType.occurrence,
+      SectionType.damageDescription,
+      SectionType.repairs,
+      SectionType.causation,
+      SectionType.allegation,
+      SectionType.closing,
+    ];
+
+    for (final type in orderedSections) {
+      final section = sections[type];
+      if (section == null || section.content.trim().isEmpty) continue;
+      doc.addHeading(section.title.toUpperCase(), 2);
+      // Split on double-newlines for paragraph breaks
+      for (final para in section.content.split('\n\n')) {
+        final trimmed = para.trim();
+        if (trimmed.isNotEmpty) doc.addParagraph(trimmed);
+      }
+      doc.addSpacer();
+    }
+
+    // ── Chronology ────────────────────────────────────────────────────
+    final timeline = assembled.timelineEvents;
+    if (timeline.isNotEmpty) {
+      doc.addHeading('CHRONOLOGY', 2);
+      final chronoRows = [
+        ['Date', 'Event'],
+        ...timeline.map((e) => [
+              _formatDate(e['event_date'] as String? ?? ''),
+              e['description'] as String? ?? e['title'] as String? ?? '',
+            ]),
+      ];
+      doc.addTable(chronoRows, boldFirstRow: true, colWidths: [2000, 7355]);
+      doc.addSpacer();
+    }
+
+    // ── Accounts / Cost Section ───────────────────────────────────────
+    final docs = assembled.repairDocuments;
+    if (docs.isNotEmpty) {
+      doc.addHeading('ACCOUNTS', 2);
+
+      // ── WP cost note (location 3) ─────────────────────────────────
+      final wpCost = org?['wp_cost_section_text'] as String?
+          ?? 'The following costs are presented without prejudice to '
+             "Underwriters' rights and without admission of liability.";
+      doc.addParagraph(wpCost,
+          italic: true, halfPtSize: 18, colorHex: '6B7280');
+      doc.addSpacer();
+
+      final baseCurrency =
+          assembled.caseData['base_currency'] as String? ?? '';
+
+      double grandTotalBase = 0;
+      double grandTotalUw   = 0;
+      double grandTotalOwner = 0;
+
+      for (final repDoc in docs) {
+        final supplierName = repDoc['supplier_name'] as String? ?? '—';
+        final docRef       = repDoc['document_number'] as String? ?? '';
+        final docDate      = _formatDate(repDoc['document_date'] as String? ?? '');
+        final docCurrency  = repDoc['currency'] as String? ?? '';
+        final docTotal     = (repDoc['total_inc_tax'] as num?)?.toDouble();
+
+        // Document header row
+        final docLabel = [
+          supplierName,
+          if (docRef.isNotEmpty) 'Ref: $docRef',
+          if (docDate.isNotEmpty) docDate,
+        ].join(' — ');
+        doc.addParagraph(docLabel,
+            bold: true, halfPtSize: 20, colorHex: '1F3A5F');
+
+        // Line items
+        final lines =
+            (repDoc['account_lines'] as List? ?? [])
+                .cast<Map<String, dynamic>>();
+
+        if (lines.isNotEmpty) {
+          final lineRows = <List<String>>[
+            ['#', 'Description', 'Nature', 'Gross ($docCurrency)',
+             if (baseCurrency.isNotEmpty && baseCurrency != docCurrency)
+               'Base ($baseCurrency)',
+            ],
+          ];
+          for (final ln in lines) {
+            final gross = (ln['gross_amount'] as num?)?.toDouble() ?? 0;
+            final uw    = (ln['underwriters_portion'] as num?)?.toDouble() ?? 0;
+            final own   = (ln['owners_portion'] as num?)?.toDouble() ?? 0;
+            final baseAmt = (ln['base_currency_amount'] as num?)?.toDouble();
+            grandTotalUw    += uw;
+            grandTotalOwner += own;
+            if (baseAmt != null) grandTotalBase += baseAmt;
+
+            lineRows.add([
+              '${ln['item_number'] ?? ln['line_order'] ?? ''}',
+              ln['description'] as String? ?? '',
+              _costNatureLabel(ln['cost_nature'] as String?),
+              _fmtAmt(gross),
+              if (baseCurrency.isNotEmpty && baseCurrency != docCurrency)
+                baseAmt != null ? _fmtAmt(baseAmt) : '—',
+            ]);
+          }
+          final hasFx = baseCurrency.isNotEmpty && baseCurrency != docCurrency;
+          doc.addTable(lineRows,
+              boldFirstRow: true,
+              colWidths: hasFx
+                  ? [400, 4300, 1500, 1800, 1355]
+                  : [400, 5800, 1500, 1655]);
+        } else if (docTotal != null) {
+          doc.addParagraph(
+              'Total: $docCurrency ${_fmtAmt(docTotal)}',
+              halfPtSize: 18);
+        }
+        doc.addSpacer();
+      }
+
+      // ── Grand totals ──────────────────────────────────────────────
+      final totalsRows = <List<String>>[
+        ['', ''],
+        if (grandTotalUw > 0.005)
+          ["Underwriters' account",  _fmtAmt(grandTotalUw)],
+        if (grandTotalOwner > 0.005)
+          ["Owner's account",        _fmtAmt(grandTotalOwner)],
+        if (grandTotalBase > 0.005 && baseCurrency.isNotEmpty)
+          ['Grand total ($baseCurrency)', _fmtAmt(grandTotalBase)],
+      ].where((r) => r[0].isNotEmpty).toList();
+
+      if (totalsRows.isNotEmpty) {
+        doc.addTable(totalsRows, colWidths: [6355, 3000]);
+      }
+      doc.addSpacer();
+    }
+
+    // ── WP cost note fallback (location 3) — only when no account docs ──
+    if (docs.isEmpty) {
+      final wpCost = org?['wp_cost_section_text'] as String?;
+      if (wpCost != null && wpCost.isNotEmpty) {
+        doc.addParagraph(wpCost, italic: true, halfPtSize: 18, colorHex: '6B7280');
+        doc.addSpacer();
+      }
+    }
+
+    // ── Damage items ──────────────────────────────────────────────────
+    if (assembled.damageItems.isNotEmpty) {
+      doc.addHeading('DAMAGE SCHEDULE', 2);
+      final dmgRows = [
+        ['Component', 'Description', 'Repair Type', 'Average'],
+        ...assembled.damageItems.map((d) => [
+              d['component_name'] as String? ?? '',
+              d['damage_description'] as String? ?? '',
+              d['repair_type'] as String? ?? '',
+              (d['is_concerning_average'] as bool? ?? true) ? 'Average' : "Owner's",
+            ]),
+      ];
+      doc.addTable(dmgRows, boldFirstRow: true,
+          colWidths: [2500, 3500, 1700, 1655]);
+      doc.addSpacer();
+    }
+
+    // ── WP footer (location 4: end of report) ─────────────────────────
+    final wpFooter = org?['wp_footer_text'] as String?;
+    if (wpFooter != null && wpFooter.isNotEmpty) {
+      doc.addPageBreak();
+      doc.addParagraph(wpFooter,
+          italic: true, halfPtSize: 18, colorHex: '6B7280',
+          align: WAlignment.center);
+    }
+
+    // Disclaimer
+    final disclaimer = org?['disclaimer_text'] as String?;
+    if (disclaimer != null && disclaimer.isNotEmpty) {
+      doc.addSpacer();
+      doc.addParagraph(disclaimer,
+          halfPtSize: 16, colorHex: '9CA3AF', align: WAlignment.justify);
+    }
+
+    return doc.build();
   }
 
-  static String _wrapInDocxXml(String text) {
-    // Minimal valid OOXML — opens in Word as plain text
-    final escaped = text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-    final paragraphs = escaped
-        .split('\n')
-        .map((line) =>
-            '<w:p><w:r><w:t xml:space="preserve">$line</w:t></w:r></w:p>')
-        .join('\n');
-
-    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
-  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-$paragraphs
-  </w:body>
-</w:document>''';
-  }
-
-  // ── File delivery ─────────────────────────────────────────────────
+  // ── Delivery ──────────────────────────────────────────────────────────────
 
   static Future<String> _deliver({
     required Uint8List bytes,
     required String filename,
   }) async {
-    if (kIsWeb) {
-      _downloadWeb(bytes, filename);
-    } else {
-      await _saveNative(bytes, filename);
-    }
+    await deliverDocx(bytes, filename);
     return filename;
   }
 
-  /// Web: trigger browser download
-  static void _downloadWeb(Uint8List bytes, String filename) {
-    final blob = html.Blob([bytes],
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    final url  = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', filename)
-      ..click();
-    html.Url.revokeObjectUrl(url);
-  }
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /// Native: save to app documents directory
-  static Future<void> _saveNative(Uint8List bytes, String filename) async {
-    // import 'dart:io' and 'package:path_provider/path_provider.dart'
-    // when building for Android/iOS/tablet
-    // final dir = await getApplicationDocumentsDirectory();
-    // final file = File('${dir.path}/$filename');
-    // await file.writeAsBytes(bytes);
-    debugPrint('Native save: $filename (${bytes.length} bytes)');
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────
-
-  static String _filename(
-      ReportOutput output, AssembledReportData assembled) {
+  static String _filename(ReportOutput output, AssembledReportData assembled) {
     final jobNo  = assembled.caseData['job_number'] as String? ?? 'UNKNOWN';
     final vessel = (assembled.vessel?['name'] as String? ?? 'VESSEL')
         .replaceAll(' ', '_')
         .toUpperCase();
-    final type   = switch (output.outputType) {
+    final type = switch (output.outputType) {
       OutputType.preliminary => 'Prelim',
       OutputType.advice      => 'Advice${output.sequenceNo}',
       OutputType.final_      => 'Final',
     };
-    final date = DateTime.now();
-    final dateStr =
-        '${date.day.toString().padLeft(2, '0')}${date.month.toString().padLeft(2, '0')}${date.year}';
-    return '${jobNo}_${vessel}_${type}_$dateStr.docx';
+    final d = DateTime.now();
+    final ds = '${d.day.toString().padLeft(2, '0')}'
+        '${d.month.toString().padLeft(2, '0')}${d.year}';
+    return '${jobNo}_${vessel}_${type}_$ds.docx';
   }
 
   static String _today() {
     final d = DateTime.now();
-    const months = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${d.day.toString().padLeft(2, '0')}-${months[d.month]}-${d.year}';
+    const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${d.day.toString().padLeft(2, '0')}-${m[d.month]}-${d.year}';
   }
+
+  static String _fmtAmt(double v) {
+    final parts = v.toStringAsFixed(2).split('.');
+    final integral = parts[0].replaceAllMapped(
+        RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+    return '$integral.${parts[1]}';
+  }
+
+  static String _costNatureLabel(String? value) => switch (value) {
+        'repair'              => 'Repair',
+        'owners_maintenance'  => "Owner's",
+        'class_statutory'     => 'Class/Stat.',
+        'betterment'          => 'Betterment',
+        'sue_labour'          => 'Sue & Labour',
+        'general_average'     => 'GA',
+        _                     => value ?? '',
+      };
 
   static String _formatDate(String iso) {
     if (iso.isEmpty) return '';
     try {
       final d = DateTime.parse(iso);
-      const months = [
-        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-      return '${d.day.toString().padLeft(2, '0')}-${months[d.month]}-${d.year}';
+      const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${d.day.toString().padLeft(2, '0')}-${m[d.month]}-${d.year}';
     } catch (_) {
       return iso;
     }

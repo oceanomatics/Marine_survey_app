@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
+import '../services/ai_log_service.dart';
 import 'usage_tracker.dart';
 
 class ClaudeApi {
@@ -23,20 +24,64 @@ class ClaudeApi {
           final data = response.data as Map<String, dynamic>?;
           final usage = data?['usage'] as Map<String, dynamic>?;
           if (usage != null) {
-            final feature =
-                response.requestOptions.extra['feature'] as String? ??
-                    'api_call';
-            final model =
-                data?['model'] as String? ?? AppConfig.claudeModel;
+            final extra = response.requestOptions.extra;
+            final feature = extra['feature'] as String? ?? 'api_call';
+            final model   = data?['model'] as String? ?? AppConfig.claudeModel;
+            final inputTokens  = (usage['input_tokens']  as num?)?.toInt() ?? 0;
+            final outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
+
             // ignore: discarded_futures
             UsageTracker.log(
               feature: feature,
               model: model,
-              inputTokens:
-                  (usage['input_tokens'] as num?)?.toInt() ?? 0,
-              outputTokens:
-                  (usage['output_tokens'] as num?)?.toInt() ?? 0,
+              inputTokens:  inputTokens,
+              outputTokens: outputTokens,
             );
+
+            // GPN-AI audit log — only for calls tagged with a case_id
+            final caseId   = extra['case_id']   as String?;
+            final callType = extra['call_type']  as String?;
+            if (caseId != null && callType != null) {
+              // Extract prompt text from the last user message in the request
+              final reqData  = response.requestOptions.data as Map<String, dynamic>?;
+              final messages = reqData?['messages'] as List<dynamic>?;
+              final lastMsg  = messages?.lastWhere(
+                (m) => (m as Map<String, dynamic>)['role'] == 'user',
+                orElse: () => null,
+              ) as Map<String, dynamic>?;
+              final content = lastMsg?['content'];
+              final promptText = switch (content) {
+                String s => s,
+                List l => l
+                    .whereType<Map<String, dynamic>>()
+                    .where((c) => c['type'] == 'text')
+                    .map((c) => c['text'] as String? ?? '')
+                    .join('\n'),
+                _ => '',
+              };
+
+              // Extract response text
+              final respContent = data?['content'] as List<dynamic>?;
+              final responseText = respContent
+                      ?.whereType<Map<String, dynamic>>()
+                      .where((c) => c['type'] == 'text')
+                      .map((c) => c['text'] as String? ?? '')
+                      .join('\n') ??
+                  '';
+
+              // ignore: discarded_futures
+              AiLogService.log(
+                caseId:       caseId,
+                callType:     callType,
+                model:        model,
+                promptText:   promptText,
+                responseText: responseText,
+                sectionLabel: extra['section_label'] as String?,
+                documentId:   extra['document_id']   as String?,
+                inputTokens:  inputTokens,
+                outputTokens: outputTokens,
+              );
+            }
           }
         } catch (_) {}
         handler.next(response);
@@ -52,13 +97,20 @@ class ClaudeApi {
     required String base64Image,
     required String mediaType, // 'image/jpeg', 'image/png', 'application/pdf'
     String? documentHint, // e.g. 'class certificate', 'SMC'
+    String? caseId,
+    String? documentId,
   }) async {
     final hint = documentHint != null
         ? 'This appears to be a $documentHint. '
         : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'certificate_extraction'}),
+      options: Options(extra: {
+        'feature':  'certificate_extraction',
+        if (caseId != null) 'case_id':    caseId,
+        if (caseId != null) 'call_type':  'extraction',
+        if (documentId != null) 'document_id': documentId,
+      }),
       data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
@@ -140,9 +192,16 @@ For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA
   static Future<Map<String, dynamic>> extractNameplate({
     required String base64Image,
     required String mediaType,
+    String? caseId,
+    String? documentId,
   }) async {
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'nameplate_extraction'}),
+      options: Options(extra: {
+        'feature': 'nameplate_extraction',
+        if (caseId != null) 'case_id':    caseId,
+        if (caseId != null) 'call_type':  'extraction',
+        if (documentId != null) 'document_id': documentId,
+      }),
       data: {
         'model': AppConfig.claudeModel,
         'max_tokens': 600,
@@ -198,9 +257,17 @@ Rules:
 
   /// Extract vessel particulars from a class society or DNV PDF report
   static Future<Map<String, dynamic>> extractVesselParticulars(
-      String pdfText) async {
+    String pdfText, {
+    String? caseId,
+    String? documentId,
+  }) async {
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'vessel_particulars'}),
+      options: Options(extra: {
+        'feature': 'vessel_particulars',
+        if (caseId != null) 'case_id':    caseId,
+        if (caseId != null) 'call_type':  'extraction',
+        if (documentId != null) 'document_id': documentId,
+      }),
       data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
@@ -286,6 +353,7 @@ Dates in ISO format. Return null for missing fields.''',
     required List<String> damageItems,
     required String? interviewTranscript,
     required String reportFormat, // 'nordic' or 'abl'
+    String? caseId,
   }) async {
     final damages = damageItems.join('\n- ');
     final transcriptSection = interviewTranscript != null
@@ -293,7 +361,12 @@ Dates in ISO format. Return null for missing fields.''',
         : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'occurrence_narrative'}),
+      options: Options(extra: {
+        'feature':  'occurrence_narrative',
+        if (caseId != null) 'case_id':   caseId,
+        if (caseId != null) 'call_type': 'report_section',
+        if (caseId != null) 'section_label': 'occurrence_narrative',
+      }),
       data: {
       'model': AppConfig.claudeModel,
       'max_tokens': 1500,
@@ -416,6 +489,8 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
     required String base64Content,
     required String mediaType,
     required String categoryHint,
+    String? caseId,
+    String? documentId,
   }) async {
     final isPdf = mediaType == 'application/pdf';
     final contentBlock = isPdf
@@ -439,7 +514,12 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
     final response = await _dio.post(
       '/messages',
       options: Options(
-        extra: {'feature': 'document_extraction'},
+        extra: {
+          'feature': 'document_extraction',
+          if (caseId != null) 'case_id':    caseId,
+          if (caseId != null) 'call_type':  'extraction',
+          if (documentId != null) 'document_id': documentId,
+        },
         headers: isPdf ? {'anthropic-beta': 'pdfs-2024-09-25'} : null,
       ),
       data: {
@@ -581,6 +661,8 @@ Rules:
   static Future<Map<String, dynamic>> extractInvoiceData({
     required String base64Content,
     required String mediaType,
+    String? caseId,
+    String? documentId,
   }) async {
     final isImage = mediaType.startsWith('image/');
     final contentBlock = isImage
@@ -602,7 +684,12 @@ Rules:
           };
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'invoice_extraction'}),
+      options: Options(extra: {
+        'feature': 'invoice_extraction',
+        if (caseId != null) 'case_id':    caseId,
+        if (caseId != null) 'call_type':  'invoice_extraction',
+        if (documentId != null) 'document_id': documentId,
+      }),
       data: {
       'model': AppConfig.claudeModel,
       'max_tokens': AppConfig.claudeMaxTokens,
@@ -828,13 +915,20 @@ Rules:
   static Future<Map<String, dynamic>> extractCorrespondence({
     required String base64Pdf,
     String? filename,
+    String? caseId,
+    String? documentId,
   }) async {
     final hint = filename != null ? 'Filename: $filename.\n' : '';
 
     final response = await _dio.post(
       '/messages',
       options: Options(
-        extra: {'feature': 'correspondence_extraction'},
+        extra: {
+          'feature': 'correspondence_extraction',
+          if (caseId != null) 'case_id':    caseId,
+          if (caseId != null) 'call_type':  'extraction',
+          if (documentId != null) 'document_id': documentId,
+        },
         headers: {'anthropic-beta': 'pdfs-2024-09-25'},
       ),
       data: {

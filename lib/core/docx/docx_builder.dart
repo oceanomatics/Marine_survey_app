@@ -1,0 +1,108 @@
+// lib/core/docx/docx_builder.dart
+//
+// Thin in-house OOXML builder. Produces valid .docx (Office Open XML) bytes
+// without any external template dependency. Used by all report export flows.
+
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:archive/archive.dart';
+
+part 'ooxml_helpers.dart';
+
+// ── Public API ─────────────────────────────────────────────────────────────
+
+class DocxBuilder {
+  final StringBuffer _body = StringBuffer();
+  final List<_Img> _images = [];
+  int _rId = 3; // rId1=styles, rId2=settings; images start at rId3
+  int _drawId = 1;
+  String? _footerWpText;
+
+  // A4 usable width at 2.54 cm margins ≈ 5 040 000 EMU (14 cm)
+  static const int kPageWidthEmu = 5040000;
+
+  void addHeading(String text, int level) {
+    assert(level >= 1 && level <= 4, 'Heading level must be 1–4');
+    _body.write(_para(text, styleId: 'Heading$level'));
+  }
+
+  void addParagraph(
+    String text, {
+    bool bold = false,
+    bool italic = false,
+    int? halfPtSize,
+    String? colorHex,
+    WAlignment align = WAlignment.left,
+  }) {
+    _body.write(_para(text,
+        bold: bold,
+        italic: italic,
+        halfPtSize: halfPtSize,
+        colorHex: colorHex,
+        align: align));
+  }
+
+  /// Empty paragraph — useful for vertical spacing.
+  void addSpacer() => _body.write('<w:p/>');
+
+  void addPageBreak() => _body.write(_pageBreakPara());
+
+  /// [rows] is a list of rows; each row is a list of cell strings.
+  /// [colWidths] in twips (1/1440 inch). A4 usable ≈ 9355 twips total.
+  void addTable(
+    List<List<String>> rows, {
+    bool boldFirstRow = false,
+    List<int>? colWidths,
+  }) {
+    _body.write(_table(rows, boldFirstRow: boldFirstRow, colWidths: colWidths));
+  }
+
+  /// Sets the running page footer. [wpText] is the WP notice prefix;
+  /// "Page N of Total" is appended automatically.
+  void setFooter(String wpText) => _footerWpText = wpText;
+
+  /// Adds an inline image. [widthEmu] defaults to full page width (14 cm).
+  /// [heightEmu] defaults to maintaining a 4:3 ratio if not provided.
+  void addImage(
+    Uint8List bytes,
+    String ext, {
+    int widthEmu = kPageWidthEmu,
+    int? heightEmu,
+  }) {
+    final h = heightEmu ?? (widthEmu * 3 ~/ 4);
+    final rid = 'rId${_rId++}';
+    _images.add(_Img(rid: rid, bytes: bytes, ext: ext.toLowerCase()));
+    _body.write(_inlineImage(rid, _drawId++, widthEmu, h));
+  }
+
+  /// Builds and returns the raw .docx ZIP bytes.
+  Uint8List build() {
+    final archive = Archive();
+
+    void addText(String name, String content) {
+      final bytes = utf8.encode(content);
+      archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    }
+
+    void addBin(String name, Uint8List bytes) {
+      archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    }
+
+    final hasFooter = _footerWpText != null;
+    addText('[Content_Types].xml', _contentTypes(_images, hasFooter: hasFooter));
+    addText('_rels/.rels', _rootRels);
+    addText('word/document.xml', _wrapDocument(_body.toString(), hasFooter: hasFooter));
+    addText('word/_rels/document.xml.rels', _documentRels(_images, hasFooter: hasFooter));
+    addText('word/styles.xml', _stylesXml);
+    addText('word/settings.xml', _settingsXml);
+    if (hasFooter) {
+      addText('word/footer1.xml', _footerXml(_footerWpText!));
+    }
+
+    for (final img in _images) {
+      addBin('word/media/${img.rid}.${img.ext}', img.bytes);
+    }
+
+    return Uint8List.fromList(ZipEncoder().encode(archive)!);
+  }
+}

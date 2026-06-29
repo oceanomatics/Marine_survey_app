@@ -28,8 +28,18 @@ import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../accounts/providers/accounts_provider.dart';
 import '../../accounts/models/accounts_models.dart';
+import '../../settings/providers/organisations_provider.dart';
+import '../../vessel/providers/certificates_provider.dart';
+import '../../vessel/providers/vessel_provider.dart';
+import '../../vessel/screens/certificates_screen.dart';
+import '../../reports/providers/report_provider.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
+
+const _kCurrencies = [
+  'AUD', 'USD', 'GBP', 'EUR', 'SGD', 'NZD',
+  'JPY', 'HKD', 'AED', 'NOK', 'DKK', 'SEK',
+];
 
 // ── Shell ─────────────────────────────────────────────────────────────────
 
@@ -441,29 +451,54 @@ class _CaseEditorSheet extends ConsumerStatefulWidget {
 class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
   late final TextEditingController _jobCtrl;
   late final TextEditingController _claimCtrl;
+  late final TextEditingController _policyUcrCtrl;
+  late final TextEditingController _policyNumberCtrl;
+  late final TextEditingController _instructingPartyCtrl;
+  late final TextEditingController _assuredCtrl;
+  late final TextEditingController _surveyLocationCtrl;
   DateTime? _instructionDate;
+  DateTime? _dateOfFirstAttendance;
   CaseStatus? _status;
   CaseType? _caseType;
   OutputFormat? _outputFormat;
+  PolicyType? _policyType;
+  InstructingPartyRole? _instructingPartyRole;
+  String? _organisationId;
+  String? _baseCurrency;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     final c = ref.read(caseProvider(widget.caseId)).value;
-    _jobCtrl   = TextEditingController(
+    _jobCtrl               = TextEditingController(
         text: c?.hasPlaceholderJobNumber == true ? '' : (c?.jobNumber ?? ''));
-    _claimCtrl = TextEditingController(text: c?.claimReference ?? '');
-    _instructionDate = c?.instructionDate;
-    _status      = c?.status;
-    _caseType    = c?.caseType;
-    _outputFormat = c?.outputFormat;
+    _claimCtrl             = TextEditingController(text: c?.claimReference ?? '');
+    _policyUcrCtrl         = TextEditingController(text: c?.policyUcr ?? '');
+    _policyNumberCtrl      = TextEditingController(text: c?.policyNumber ?? '');
+    _instructingPartyCtrl  = TextEditingController(text: c?.instructingParty ?? '');
+    _assuredCtrl           = TextEditingController(text: c?.assured ?? '');
+    _surveyLocationCtrl    = TextEditingController(text: c?.surveyLocation ?? '');
+    _instructionDate       = c?.instructionDate;
+    _dateOfFirstAttendance = c?.dateOfFirstAttendance;
+    _status                = c?.status;
+    _caseType              = c?.caseType;
+    _outputFormat          = c?.outputFormat;
+    _policyType            = c?.policyType;
+    _instructingPartyRole  = c?.instructingPartyRole;
+    _organisationId        = c?.organisationId;
+    _baseCurrency          = c?.baseCurrency;
   }
 
   @override
   void dispose() {
     _jobCtrl.dispose();
     _claimCtrl.dispose();
+    _policyUcrCtrl.dispose();
+    _policyNumberCtrl.dispose();
+    _instructingPartyCtrl.dispose();
+    _assuredCtrl.dispose();
+    _surveyLocationCtrl.dispose();
     super.dispose();
   }
 
@@ -477,12 +512,22 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
     try {
       final rawJob = _v(_jobCtrl);
       await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
-        jobNumber:       rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
-        claimReference:  _v(_claimCtrl),
-        status:          _status,
-        caseType:        _caseType,
-        instructionDate: _instructionDate,
-        outputFormat:    _outputFormat,
+        jobNumber:             rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
+        claimReference:        _v(_claimCtrl),
+        status:                _status,
+        caseType:              _caseType,
+        instructionDate:       _instructionDate,
+        outputFormat:          _outputFormat,
+        organisationId:        _organisationId,
+        baseCurrency:          _baseCurrency,
+        policyUcr:             _v(_policyUcrCtrl),
+        policyNumber:          _v(_policyNumberCtrl),
+        policyType:            _policyType,
+        instructingParty:      _v(_instructingPartyCtrl),
+        instructingPartyRole:  _instructingPartyRole,
+        assured:               _v(_assuredCtrl),
+        dateOfFirstAttendance: _dateOfFirstAttendance,
+        surveyLocation:        _v(_surveyLocationCtrl),
       );
       if (mounted) Navigator.pop(context);
     } finally {
@@ -533,6 +578,12 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
             const SizedBox(height: 10),
             _field('Claim Reference', _claimCtrl,
                 hint: 'e.g. GARD-2025-0123456'),
+            const SizedBox(height: 10),
+            _field('Policy / UCR Reference', _policyUcrCtrl,
+                hint: 'TBC'),
+            const SizedBox(height: 10),
+            _field('Policy Number', _policyNumberCtrl,
+                hint: 'TBC'),
             const SizedBox(height: 10),
 
             // Instruction date
@@ -585,7 +636,7 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
 
             // Survey type
             DropdownButtonFormField<CaseType>(
-              value: _caseType,
+              initialValue: _caseType,
               decoration: _inputDeco('Survey Type'),
               items: CaseType.values
                   .map((t) => DropdownMenuItem(
@@ -600,7 +651,7 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
 
             // Status
             DropdownButtonFormField<CaseStatus>(
-              value: _status,
+              initialValue: _status,
               decoration: _inputDeco('Status'),
               items: CaseStatus.values
                   .map((s) => DropdownMenuItem(
@@ -615,7 +666,7 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
 
             // Report format
             DropdownButtonFormField<OutputFormat>(
-              value: _outputFormat,
+              initialValue: _outputFormat,
               decoration: _inputDeco('Report Format'),
               items: OutputFormat.values
                   .map((f) => DropdownMenuItem(
@@ -625,6 +676,162 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
                       ))
                   .toList(),
               onChanged: (v) => setState(() => _outputFormat = v),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Survey Details ───────────────────────────────────────────
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            const Text('Survey Details',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+            const SizedBox(height: 10),
+
+            _field('Instructing Party', _instructingPartyCtrl,
+                hint: 'e.g. Gard AS, Swedish Club'),
+            const SizedBox(height: 10),
+
+            DropdownButtonFormField<InstructingPartyRole>(
+              initialValue: _instructingPartyRole,
+              decoration: _inputDeco('Instructing Party Role'),
+              items: InstructingPartyRole.values
+                  .map((r) => DropdownMenuItem(
+                        value: r,
+                        child: Text(r.label,
+                            style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _instructingPartyRole = v),
+            ),
+            const SizedBox(height: 10),
+
+            _field('Assured', _assuredCtrl,
+                hint: 'e.g. Shipowner Pty Ltd'),
+            const SizedBox(height: 10),
+
+            DropdownButtonFormField<PolicyType>(
+              initialValue: _policyType,
+              decoration: _inputDeco('Policy Type'),
+              items: PolicyType.values
+                  .map((p) => DropdownMenuItem(
+                        value: p,
+                        child: Text(p.label,
+                            style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _policyType = v),
+            ),
+            const SizedBox(height: 10),
+
+            _field('Survey Location', _surveyLocationCtrl,
+                hint: 'e.g. Port of Brisbane, Qld'),
+            const SizedBox(height: 10),
+
+            // Date of first attendance
+            GestureDetector(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _dateOfFirstAttendance ?? DateTime.now(),
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) {
+                  setState(() => _dateOfFirstAttendance = picked);
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.event_outlined,
+                      size: 15, color: AppColors.textTertiary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _dateOfFirstAttendance != null
+                          ? '${_dateOfFirstAttendance!.day.toString().padLeft(2, '0')}/'
+                              '${_dateOfFirstAttendance!.month.toString().padLeft(2, '0')}/'
+                              '${_dateOfFirstAttendance!.year}'
+                          : 'Date of First Attendance',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _dateOfFirstAttendance != null
+                            ? AppColors.textPrimary
+                            : AppColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                  if (_dateOfFirstAttendance != null)
+                    GestureDetector(
+                      onTap: () => setState(() => _dateOfFirstAttendance = null),
+                      child: const Icon(Icons.clear,
+                          size: 16, color: AppColors.textTertiary),
+                    ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Organisation ─────────────────────────────────────────────
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            const Text('Organisation',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+            const SizedBox(height: 10),
+
+            Consumer(builder: (context, ref, _) {
+              final orgsAsync = ref.watch(organisationsProvider);
+              return orgsAsync.when(
+                loading: () => const SizedBox(height: 56,
+                    child: Center(child: LinearProgressIndicator())),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (orgs) => DropdownButtonFormField<String?>(
+                  initialValue: orgs.any((o) => o.organisationId == _organisationId)
+                      ? _organisationId
+                      : null,
+                  decoration: _inputDeco('Firm / Organisation'),
+                  items: [
+                    const DropdownMenuItem(
+                        value: null,
+                        child: Text('— None —',
+                            style: TextStyle(fontSize: 13,
+                                color: AppColors.textTertiary))),
+                    ...orgs.map((o) => DropdownMenuItem(
+                          value: o.organisationId,
+                          child: Text(o.name,
+                              style: const TextStyle(fontSize: 13),
+                              overflow: TextOverflow.ellipsis),
+                        )),
+                  ],
+                  onChanged: (v) => setState(() => _organisationId = v),
+                ),
+              );
+            }),
+            const SizedBox(height: 16),
+
+            // ── Financials ───────────────────────────────────────────────
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            const Text('Financials',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+            const SizedBox(height: 10),
+
+            DropdownButtonFormField<String>(
+              initialValue: _kCurrencies.contains(_baseCurrency) ? _baseCurrency : null,
+              decoration: _inputDeco('Base Currency'),
+              items: _kCurrencies
+                  .map((c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(c, style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _baseCurrency = v),
             ),
             const SizedBox(height: 18),
 
@@ -899,6 +1106,9 @@ class _PseudoReport extends ConsumerWidget {
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
     final repairDocs = ref.watch(repairDocumentsProvider(caseId)).value ?? [];
+    final certs = ref.watch(certificatesProvider(caseId)).value ?? [];
+    final outputs = ref.watch(reportOutputsProvider(caseId)).value ?? [];
+    final vessel = ref.watch(vesselForCaseProvider(caseId)).value;
 
     // Show amber left-border highlight on sections touched by the latest import.
     final review = ref.watch(importReviewProvider);
@@ -908,7 +1118,7 @@ class _PseudoReport extends ConsumerWidget {
 
     final List<Widget> sections = _sections(
         context, damage, attendees, voices, visits, timeline, repairPeriods,
-        repairDocs,
+        repairDocs, certs, outputs, vessel,
         highlighted: highlighted);
 
     return SingleChildScrollView(
@@ -916,8 +1126,6 @@ class _PseudoReport extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _CaseBanner(survey: survey),
-          const SizedBox(height: 10),
           for (final s in sections) ...[s, const SizedBox(height: 8)],
           const SizedBox(height: 40),
         ],
@@ -935,7 +1143,10 @@ class _PseudoReport extends ConsumerWidget {
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
     List<RepairPeriodModel> repairPeriods,
-    List<RepairDocumentModel> repairDocs, {
+    List<RepairDocumentModel> repairDocs,
+    List<CertificateModel> certs,
+    List<ReportOutput> outputs,
+    VesselModel? vessel, {
     Set<String> highlighted = const <String>{},
   }) {
     final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
@@ -950,6 +1161,28 @@ class _PseudoReport extends ConsumerWidget {
         highlighted: highlighted.contains('attendees'),
         onOpen: () => ctx.go('/cases/$caseId/attendances'),
         child: _attendanceContent(visits, attendees),
+      ),
+      _SectionCard(
+        accentColor: AppColors.purple,
+        icon: Icons.verified_outlined,
+        title: 'Certificates',
+        countLabel: certs.isEmpty ? null : '${certs.length}',
+        initiallyExpanded: certs.isNotEmpty,
+        onOpen: () => Navigator.push(ctx,
+            MaterialPageRoute(builder: (_) => CertificatesScreen(caseId: caseId))),
+        child: _certificatesContent(certs),
+      ),
+      _SectionCard(
+        accentColor: const Color(0xFF4A7FA5),
+        icon: Icons.shield_outlined,
+        title: 'Class & Statutory',
+        onOpen: () => showModalBottomSheet(
+          context: ctx,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _StatutoryEditSheet(caseId: caseId, vessel: vessel),
+        ),
+        child: _statutoryContent(vessel),
       ),
       _SectionCard(
         accentColor: _kTimelineColor,
@@ -1054,13 +1287,90 @@ class _PseudoReport extends ConsumerWidget {
         accentColor: AppColors.midBlue,
         icon: Icons.description_outlined,
         title: 'Report Status',
+        countLabel: outputs.isEmpty ? null : '${outputs.length}',
+        initiallyExpanded: outputs.isNotEmpty,
         onOpen: () => ctx.go('/cases/$caseId/reports'),
-        child: _reportStatusContent(),
+        child: _reportStatusContent(outputs),
       ),
     ];
   }
 
   // ── Content builders ──────────────────────────────────────────────────────
+
+  Widget _certificatesContent(List<CertificateModel> certs) {
+    if (certs.isEmpty) {
+      return const _SectionEmpty('No certificates recorded — tap Open to add');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: certs.map((c) {
+        final status = c.effectiveStatus;
+        final statusColor = switch (status) {
+          CertStatus.valid       => AppColors.success,
+          CertStatus.expired     => AppColors.error,
+          CertStatus.suspended   => AppColors.warning,
+          CertStatus.notSighted  => AppColors.textSecondary,
+          CertStatus.tbc         => AppColors.textTertiary,
+        };
+        final expiry = c.expiryDate != null
+            ? '${c.expiryDate!.day.toString().padLeft(2, '0')}/'
+              '${c.expiryDate!.month.toString().padLeft(2, '0')}/'
+              '${c.expiryDate!.year}'
+            : null;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 7),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 6, height: 6,
+                margin: const EdgeInsets.only(top: 5, right: 8),
+                decoration: BoxDecoration(
+                    color: statusColor, shape: BoxShape.circle),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(c.certName ?? c.certType.label,
+                            style: const TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w500,
+                                color: AppColors.textPrimary)),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(status.label,
+                            style: TextStyle(
+                                fontSize: 9, color: statusColor,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ]),
+                    if (expiry != null || c.certNumber != null)
+                      Text(
+                        [
+                          if (c.certNumber != null) c.certNumber!,
+                          if (expiry != null) 'Exp: $expiry',
+                        ].join('  ·  '),
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
 
   Widget _attendanceContent(
     List<SurveyAttendanceModel> visits,
@@ -1837,125 +2147,193 @@ class _PseudoReport extends ConsumerWidget {
       );
 
 
-  Widget _reportStatusContent() {
-    final stages = <(String, bool)>[
-      ('Preliminary', survey.status != CaseStatus.open),
-      (
-        'Advice',
-        survey.status == CaseStatus.adviceIssued ||
-            survey.status == CaseStatus.finalIssued ||
-            survey.status == CaseStatus.closed
-      ),
-      (
-        'Final',
-        survey.status == CaseStatus.finalIssued ||
-            survey.status == CaseStatus.closed
-      ),
-    ];
-    return Row(
-      children: stages
-          .map((s) => Expanded(
-                child: Row(
-                  children: [
-                    Icon(
-                      s.$2
-                          ? Icons.check_circle_outline
-                          : Icons.radio_button_unchecked,
-                      size: 14,
-                      color:
-                          s.$2 ? AppColors.success : AppColors.textTertiary,
-                    ),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        s.$1,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: s.$2
-                              ? AppColors.success
-                              : AppColors.textTertiary,
-                          fontWeight:
-                              s.$2 ? FontWeight.w600 : FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ))
-          .toList(),
+  Widget _reportStatusContent(List<ReportOutput> outputs) {
+    if (outputs.isEmpty) {
+      return const _SectionEmpty('No reports created yet — tap Open to start');
+    }
+
+    // Sort oldest first so version numbers read top-to-bottom
+    final sorted = [...outputs]
+      ..sort((a, b) => (a.createdAt ?? DateTime(2000))
+          .compareTo(b.createdAt ?? DateTime(2000)));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header row
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(children: [
+            _vColHeader('Version', flex: 2),
+            _vColHeader('Type',    flex: 3),
+            _vColHeader('Status',  flex: 3),
+            _vColHeader('Date',    flex: 3),
+          ]),
+        ),
+        const Divider(height: 1),
+        ...sorted.map((o) => _VersionRow(output: o)),
+      ],
     );
   }
 
-}
-
-// ── Case info banner ──────────────────────────────────────────────────────
-
-class _CaseBanner extends StatelessWidget {
-  const _CaseBanner({required this.survey});
-  final CaseModel survey;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.lightPurple,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              survey.caseType.label,
-              style: const TextStyle(
-                  color: AppColors.purple,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600),
-            ),
+  static Widget _vColHeader(String label, {int flex = 1}) => Expanded(
+        flex: flex,
+        child: Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textTertiary,
+            letterSpacing: 0.6,
           ),
-          if (survey.outputFormat != null) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.lightBlue,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                survey.outputFormat!.label,
-                style: const TextStyle(
-                    color: AppColors.midBlue,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
+        ),
+      );
+
+  Widget _statutoryContent(VesselModel? vessel) {
+    if (vessel == null) return const _SectionEmpty('No vessel linked yet');
+    final hasAny = vessel.classStatus != null ||
+        vessel.classConditions != null ||
+        vessel.lastDrydockDate != null ||
+        vessel.pscLastInspection != null ||
+        vessel.ispsStatus != null ||
+        (vessel.ismIncidentReported ?? false) ||
+        (vessel.classIncidentReported ?? false);
+    if (!hasAny) return const _SectionEmpty('Tap Open to add class & statutory details');
+
+    String fmtDate(DateTime? d) =>
+        d == null ? '—' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (vessel.classStatus != null) ...[
+            _StatutoryRow(
+              label: 'Class status',
+              child: _StatusChip(
+                label: vessel.classStatus!.value.replaceAll('_', ' ').toUpperCase(),
+                color: vessel.classStatus == ClassStatus.classed
+                    ? AppColors.success
+                    : vessel.classStatus == ClassStatus.conditional
+                        ? AppColors.amber
+                        : AppColors.coral,
               ),
             ),
           ],
-          const Spacer(),
-          if (survey.clientName != null)
-            Text(survey.clientName!,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
-          if (survey.instructionDate != null) ...[
-            const SizedBox(width: 10),
-            Text(
-              _fmtDate(survey.instructionDate!),
-              style: const TextStyle(
-                  fontSize: 11, color: AppColors.textTertiary),
+          if (vessel.classConditions != null && vessel.classConditions!.isNotEmpty)
+            _StatutoryRow(label: 'Conditions', value: vessel.classConditions!),
+          if (vessel.lastDrydockDate != null)
+            _StatutoryRow(
+              label: 'Last drydock',
+              value: '${fmtDate(vessel.lastDrydockDate)}'
+                  '${vessel.lastDrydockYard != null ? " — ${vessel.lastDrydockYard}" : ""}',
             ),
-          ],
+          if (vessel.pscLastInspection != null)
+            _StatutoryRow(
+              label: 'PSC inspection',
+              value: '${fmtDate(vessel.pscLastInspection)}'
+                  '${vessel.pscLastResult != null ? " — ${vessel.pscLastResult!.value.replaceAll("_", " ")}" : ""}',
+            ),
+          if (vessel.ispsStatus != null)
+            _StatutoryRow(label: 'ISPS', value: vessel.ispsStatus!.value.replaceAll('_', ' ')),
+          if (vessel.ismIncidentReported == true)
+            _StatutoryRow(label: 'ISM incident', value: 'Reported to flag/class'),
+          if (vessel.classIncidentReported == true)
+            _StatutoryRow(label: 'Class incident', value: 'Reported'),
         ],
       ),
     );
   }
 
-  String _fmtDate(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+}
+
+// ── Report version row ────────────────────────────────────────────────────
+
+class _VersionRow extends StatelessWidget {
+  const _VersionRow({required this.output});
+  final ReportOutput output;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _statusColor(output.status);
+    final date = output.issuedDate ?? output.createdAt;
+    final dateStr = date != null
+        ? '${date.day.toString().padLeft(2, '0')}-'
+          '${_month(date.month)}-${date.year}'
+        : '—';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(children: [
+        // Version code
+        Expanded(
+          flex: 2,
+          child: Text(
+            output.versionCode,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              fontFamily: 'monospace',
+              color: AppColors.midBlue,
+            ),
+          ),
+        ),
+        // Type
+        Expanded(
+          flex: 3,
+          child: Text(
+            output.outputType.label,
+            style: const TextStyle(fontSize: 11, color: AppColors.textPrimary),
+          ),
+        ),
+        // Status badge
+        Expanded(
+          flex: 3,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                output.status.label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: statusColor,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Date
+        Expanded(
+          flex: 3,
+          child: Text(
+            dateStr,
+            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Color _statusColor(ReportStatus s) => switch (s) {
+        ReportStatus.issued  => AppColors.success,
+        ReportStatus.locked  => AppColors.navy,
+        ReportStatus.approved => AppColors.teal,
+        ReportStatus.submittedQc || ReportStatus.qcComments => AppColors.amber,
+        _ => AppColors.textTertiary,
+      };
+
+  static String _month(int m) => const [
+        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ][m];
 }
 
 // ── Section card shell ────────────────────────────────────────────────────
@@ -2297,6 +2675,295 @@ class _CausationChip extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w600,
           color: color,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Statutory helpers ─────────────────────────────────────────────────────
+
+class _StatutoryRow extends StatelessWidget {
+  const _StatutoryRow({required this.label, this.value, this.child});
+  final String label;
+  final String? value;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w500)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: child ??
+                Text(value ?? '—',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textPrimary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Class & Statutory edit sheet ──────────────────────────────────────────
+
+class _StatutoryEditSheet extends ConsumerStatefulWidget {
+  const _StatutoryEditSheet({required this.caseId, this.vessel});
+  final String caseId;
+  final VesselModel? vessel;
+
+  @override
+  ConsumerState<_StatutoryEditSheet> createState() => _StatutoryEditSheetState();
+}
+
+class _StatutoryEditSheetState extends ConsumerState<_StatutoryEditSheet> {
+  final _classConditionsCtrl  = TextEditingController();
+  final _drydockYardCtrl      = TextEditingController();
+
+  ClassStatus?  _classStatus;
+  PscResult?    _pscResult;
+  IspsStatus?   _ispsStatus;
+  DateTime?     _drydockDate;
+  DateTime?     _pscDate;
+  bool          _ismIncident   = false;
+  bool          _classIncident = false;
+  bool          _saving        = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final v = widget.vessel;
+    if (v == null) return;
+    _classStatus           = v.classStatus;
+    _classConditionsCtrl.text = v.classConditions ?? '';
+    _drydockDate           = v.lastDrydockDate;
+    _drydockYardCtrl.text  = v.lastDrydockYard ?? '';
+    _pscDate               = v.pscLastInspection;
+    _pscResult             = v.pscLastResult;
+    _ispsStatus            = v.ispsStatus;
+    _ismIncident           = v.ismIncidentReported  ?? false;
+    _classIncident         = v.classIncidentReported ?? false;
+  }
+
+  @override
+  void dispose() {
+    _classConditionsCtrl.dispose();
+    _drydockYardCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final v = widget.vessel;
+    if (v == null) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(vesselForCaseProvider(widget.caseId).notifier).saveVessel(
+        vesselId: v.vesselId,
+        fields: {
+          'class_status':           _classStatus?.value,
+          'class_conditions':       _classConditionsCtrl.text.trim().isEmpty ? null : _classConditionsCtrl.text.trim(),
+          'last_drydock_date':      _drydockDate?.toIso8601String().split('T').first,
+          'last_drydock_yard':      _drydockYardCtrl.text.trim().isEmpty ? null : _drydockYardCtrl.text.trim(),
+          'psc_last_inspection':    _pscDate?.toIso8601String().split('T').first,
+          'psc_last_result':        _pscResult?.value,
+          'isps_status':            _ispsStatus?.value,
+          'ism_incident_reported':  _ismIncident,
+          'class_incident_reported': _classIncident,
+        },
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e, st) {
+      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Statutory');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _pickDate(DateTime? current, ValueChanged<DateTime?> onPicked) async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: current ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (d != null) onPicked(d);
+  }
+
+  String _fmtDate(DateTime? d) =>
+      d == null ? 'Not set' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.vessel == null) {
+      return Container(
+        decoration: const BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: const Text('No vessel linked to this case yet.',
+            style: TextStyle(color: AppColors.textTertiary)),
+      );
+    }
+
+    Widget sectionHeader(String title) => Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 8),
+      child: Text(title,
+          style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textTertiary,
+              letterSpacing: 0.8)),
+    );
+
+    Widget chipRow<T>(List<T> values, T? selected, String Function(T) label,
+        ValueChanged<T?> onChanged) {
+      return Wrap(
+        spacing: 8,
+        children: values.map((v) {
+          final active = v == selected;
+          return ChoiceChip(
+            label: Text(label(v),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: active ? Colors.white : AppColors.textSecondary)),
+            selected: active,
+            selectedColor: AppColors.midBlue,
+            backgroundColor: AppColors.surface,
+            onSelected: (_) => setState(() => onChanged(active ? null : v)),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+          );
+        }).toList(),
+      );
+    }
+
+    Widget dateRow(String label, DateTime? date, ValueChanged<DateTime?> onPicked) {
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        title: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        trailing: TextButton(
+          onPressed: () => _pickDate(date, onPicked),
+          child: Text(_fmtDate(date),
+              style: const TextStyle(fontSize: 13, color: AppColors.midBlue)),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Class & Statutory',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            sectionHeader('CLASSIFICATION'),
+            chipRow(
+              ClassStatus.values, _classStatus,
+              (s) => s.value.replaceAll('_', ' ').toUpperCase(),
+              (v) { _classStatus = v; },
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _classConditionsCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Class conditions',
+                hintText: 'Any conditions attached to class',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              maxLines: 2,
+            ),
+            sectionHeader('DRYDOCKING'),
+            dateRow('Last drydock date', _drydockDate,
+                (d) => setState(() => _drydockDate = d)),
+            TextField(
+              controller: _drydockYardCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Drydock yard',
+                hintText: 'e.g. Sembcorp Marine, Singapore',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            sectionHeader('PORT STATE CONTROL'),
+            dateRow('Last PSC inspection', _pscDate,
+                (d) => setState(() => _pscDate = d)),
+            chipRow(
+              PscResult.values, _pscResult,
+              (r) => r.value.replaceAll('_', ' ').toUpperCase(),
+              (v) { _pscResult = v; },
+            ),
+            sectionHeader('ISPS'),
+            chipRow(
+              IspsStatus.values, _ispsStatus,
+              (s) => s.value.replaceAll('_', ' ').toUpperCase(),
+              (v) { _ispsStatus = v; },
+            ),
+            sectionHeader('INCIDENTS'),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('ISM incident reported to flag/class',
+                  style: TextStyle(fontSize: 13)),
+              value: _ismIncident,
+              onChanged: (v) => setState(() => _ismIncident = v),
+              activeThumbColor: AppColors.midBlue,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Class incident reported',
+                  style: TextStyle(fontSize: 13)),
+              value: _classIncident,
+              onChanged: (v) => setState(() => _classIncident = v),
+              activeThumbColor: AppColors.midBlue,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _saving ? null : _save,
+                style: FilledButton.styleFrom(backgroundColor: AppColors.midBlue),
+                child: _saving
+                    ? const SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Save'),
+              ),
+            ),
+          ],
         ),
       ),
     );

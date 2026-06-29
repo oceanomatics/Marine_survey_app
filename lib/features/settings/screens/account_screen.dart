@@ -132,6 +132,17 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
               const SizedBox(height: 24),
 
+              // ── FX Rates ──────────────────────────────────────────────
+              const _SectionHeader(
+                icon: Icons.currency_exchange_outlined,
+                color: AppColors.teal,
+                title: 'FX Rates',
+              ),
+              const SizedBox(height: 10),
+              _FxApiKeyCard(currentKey: account.fxApiKey),
+
+              const SizedBox(height: 24),
+
               // ── Speech & Transcription ────────────────────────────────
               const _SectionHeader(
                 icon: Icons.mic_outlined,
@@ -144,6 +155,22 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 label:    'Speech Models & Settings',
                 subtitle: 'Choose model, decoding method, endpoint sensitivity',
                 onTap:    () => context.go('/speech-settings'),
+              ),
+
+              const SizedBox(height: 24),
+
+              // ── Organisations ─────────────────────────────────────────
+              const _SectionHeader(
+                icon: Icons.business_outlined,
+                color: AppColors.navy,
+                title: 'Organisations',
+              ),
+              const SizedBox(height: 10),
+              _NavTile(
+                icon:     Icons.domain_outlined,
+                label:    'Manage Organisations',
+                subtitle: 'Firm profiles, branding, legal text, surveyor sign-off',
+                onTap:    () => context.push('/organisations'),
               ),
 
               const SizedBox(height: 24),
@@ -405,6 +432,183 @@ class _ApiKeyCard extends StatelessWidget {
           ),
         ),
       ]),
+    );
+  }
+}
+
+// ── FX API key card ────────────────────────────────────────────────────────
+
+class _FxApiKeyCard extends ConsumerStatefulWidget {
+  const _FxApiKeyCard({required this.currentKey});
+  final String currentKey;
+
+  @override
+  ConsumerState<_FxApiKeyCard> createState() => _FxApiKeyCardState();
+}
+
+class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
+  final _ctrl = TextEditingController();
+  bool _editing = false;
+  bool _obscure = true;
+  bool _saving  = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(accountProvider.notifier).saveFxApiKey(_ctrl.text.trim());
+      if (mounted) setState(() => _editing = false);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final key = widget.currentKey;
+    final masked = key.length > 6
+        ? '••••••••••${key.substring(key.length - 6)}'
+        : key.isEmpty
+            ? 'Not configured'
+            : '••••••';
+
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: AppColors.border),
+    );
+    final focusBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: const BorderSide(color: AppColors.teal, width: 1.5),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.teal.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.currency_exchange_outlined,
+                  size: 18, color: AppColors.teal),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('openexchangerates.org',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text(
+                    masked,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: AppColors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: key.isNotEmpty ? AppColors.lightTeal : AppColors.lightCoral,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                key.isNotEmpty ? 'Active' : 'Missing',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: key.isNotEmpty ? AppColors.teal : AppColors.coral,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(
+                _editing ? Icons.close : Icons.edit_outlined,
+                size: 18,
+                color: AppColors.textSecondary,
+              ),
+              onPressed: () {
+                setState(() {
+                  _editing = !_editing;
+                  if (_editing) _ctrl.text = key;
+                });
+              },
+            ),
+          ]),
+          if (_editing) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Free-tier App ID from openexchangerates.org — stored on device only.',
+              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _ctrl,
+              obscureText: _obscure,
+              style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+              decoration: InputDecoration(
+                labelText: 'App ID',
+                labelStyle: const TextStyle(fontSize: 12),
+                border: border,
+                enabledBorder: border,
+                focusedBorder: focusBorder,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    size: 18,
+                    color: AppColors.textTertiary,
+                  ),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.teal,
+                  foregroundColor: Colors.white,
+                ),
+                child: _saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text('Save API Key'),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

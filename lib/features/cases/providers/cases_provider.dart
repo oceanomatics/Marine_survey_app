@@ -168,17 +168,39 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     CaseType? caseType,
     DateTime? instructionDate,
     OutputFormat? outputFormat,
+    String? organisationId,
+    String? baseCurrency,
+    String? policyUcr,
+    String? policyNumber,
+    PolicyType? policyType,
+    String? instructingParty,
+    InstructingPartyRole? instructingPartyRole,
+    String? assured,
+    DateTime? dateOfFirstAttendance,
+    String? surveyLocation,
   }) async {
     final updates = <String, dynamic>{};
-    if (jobNumber != null)       updates['job_number']       = jobNumber;
-    if (claimReference != null)  updates['claim_reference']  = claimReference;
-    if (status != null)          updates['status']           = status.value;
-    if (caseType != null)        updates['case_type']        = caseType.value;
-    if (outputFormat != null)    updates['output_format']    = outputFormat.value;
+    if (jobNumber != null)            updates['job_number']               = jobNumber;
+    if (claimReference != null)       updates['claim_reference']          = claimReference;
+    if (status != null)               updates['status']                   = status.value;
+    if (caseType != null)             updates['case_type']                = caseType.value;
+    if (outputFormat != null)         updates['output_format']            = outputFormat.value;
     if (instructionDate != null) {
-      updates['instruction_date'] =
-          instructionDate.toIso8601String().split('T').first;
+      updates['instruction_date'] = instructionDate.toIso8601String().split('T').first;
     }
+    if (organisationId != null)       updates['organisation_id']          = organisationId;
+    if (baseCurrency != null)         updates['base_currency']            = baseCurrency;
+    if (policyUcr != null)            updates['policy_ucr']               = policyUcr;
+    if (policyNumber != null)         updates['policy_number']            = policyNumber;
+    if (policyType != null)           updates['policy_type']              = policyType.value;
+    if (instructingParty != null)     updates['instructing_party']        = instructingParty;
+    if (instructingPartyRole != null) updates['instructing_party_role']   = instructingPartyRole.value;
+    if (assured != null)              updates['assured']                  = assured;
+    if (dateOfFirstAttendance != null) {
+      updates['date_of_first_attendance'] =
+          dateOfFirstAttendance.toIso8601String().split('T').first;
+    }
+    if (surveyLocation != null)       updates['survey_location']          = surveyLocation;
     if (updates.isEmpty) return;
     await SupabaseService.client
         .from('cases')

@@ -6,6 +6,9 @@ import '../providers/accounts_provider.dart';
 import '../widgets/edit_account_line_sheet.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../../core/services/fx_rate_service.dart';
+import '../../../features/cases/providers/cases_provider.dart';
+import '../../../features/settings/providers/account_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/survey/providers/repair_period_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
@@ -266,6 +269,53 @@ class _DetailViewState extends ConsumerState<_DetailView> {
           : _presentationCtrl.text.trim(),
     });
     if (mounted) setState(() => _editingHeader = false);
+    _applyFxRates();
+  }
+
+  /// Auto-fetches FX rate for the document currency → case base currency
+  /// and updates all account lines with converted amounts.
+  Future<void> _applyFxRates() async {
+    final doc = widget.doc;
+    if (doc.documentDate == null) return;
+
+    final baseCurrency = ref.read(caseProvider(widget.caseId)).value?.baseCurrency;
+    if (baseCurrency == null || baseCurrency == doc.currency) return;
+
+    final apiKey = ref.read(accountProvider).value?.fxApiKey ?? '';
+    if (apiKey.isEmpty) return;
+
+    final d = doc.documentDate!;
+    final dateStr =
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+    final rate = await FxRateService.getRate(
+      from: doc.currency,
+      to: baseCurrency,
+      apiKey: apiKey,
+      date: dateStr,
+    );
+    if (rate == null || !mounted) return;
+
+    final notifier = ref.read(repairDocumentsProvider(widget.caseId).notifier);
+    for (final line in doc.accountLines) {
+      await notifier.updateAccountLine(line.copyWith(
+        invoiceCurrency: doc.currency,
+        fxRateToBase: rate,
+        fxRateDate: d,
+        baseCurrencyAmount: line.grossAmount * rate,
+      ));
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          '${doc.currency} → $baseCurrency @ ${rate.toStringAsFixed(4)} '
+          '(${doc.accountLines.length} line${doc.accountLines.length == 1 ? '' : 's'} updated)',
+        ),
+        backgroundColor: AppColors.teal,
+        duration: const Duration(seconds: 3),
+      ));
+    }
   }
 
   void _addLine(BuildContext context) {
@@ -814,6 +864,7 @@ class _AccountLinesSection extends ConsumerWidget {
     final repairPeriods = ref
         .watch(repairPeriodsProvider(caseId))
         .value ?? const [];
+    final baseCurrency = ref.watch(caseProvider(caseId)).value?.baseCurrency;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -846,6 +897,7 @@ class _AccountLinesSection extends ConsumerWidget {
             lines: lines,
             occurrences: occurrences,
             currency: doc.currency,
+            baseCurrency: baseCurrency,
           ),
           const SizedBox(height: 8),
           ...lines.asMap().entries.map((e) => _LineCard(
@@ -1042,10 +1094,12 @@ class _AccountSummaryBanner extends StatelessWidget {
     required this.lines,
     required this.occurrences,
     required this.currency,
+    this.baseCurrency,
   });
   final List<AccountLineModel> lines;
   final List<OccurrenceModel> occurrences;
   final String currency;
+  final String? baseCurrency;
 
   @override
   Widget build(BuildContext context) {
@@ -1132,6 +1186,26 @@ class _AccountSummaryBanner extends StatelessWidget {
       ));
     }
 
+    // ── FX conversion total ───────────────────────────────────────────────
+    final fxBase = baseCurrency;
+    if (fxBase != null && fxBase != currency) {
+      final fxTotal = lines.fold(0.0, (s, l) => s + (l.baseCurrencyAmount ?? 0));
+      final rate = lines
+          .where((l) => l.fxRateToBase != null)
+          .map((l) => l.fxRateToBase!)
+          .firstOrNull;
+      if (fxTotal > 0.005 && rate != null) {
+        rows.add(Divider(
+            height: 14, color: AppColors.border.withValues(alpha: 0.4)));
+        rows.add(_FxSummaryRow(
+          invoiceCurrency: currency,
+          baseCurrency: fxBase,
+          rate: rate,
+          baseTotal: fxTotal,
+        ));
+      }
+    }
+
     // ── Total ─────────────────────────────────────────────────────────────
     rows.add(Divider(
         height: 14, color: AppColors.border.withValues(alpha: 0.6)));
@@ -1207,6 +1281,43 @@ class _SummaryRow extends StatelessWidget {
             ),
           ],
         ),
+      );
+}
+
+class _FxSummaryRow extends StatelessWidget {
+  const _FxSummaryRow({
+    required this.invoiceCurrency,
+    required this.baseCurrency,
+    required this.rate,
+    required this.baseTotal,
+  });
+  final String invoiceCurrency;
+  final String baseCurrency;
+  final double rate;
+  final double baseTotal;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(children: [
+          const Icon(Icons.currency_exchange_outlined,
+              size: 12, color: AppColors.teal),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              '$invoiceCurrency → $baseCurrency @ ${rate.toStringAsFixed(4)}',
+              style: const TextStyle(
+                  color: AppColors.teal, fontSize: 11),
+            ),
+          ),
+          Text(
+            _fmtMoney(baseTotal, baseCurrency),
+            style: const TextStyle(
+                color: AppColors.teal,
+                fontSize: 12,
+                fontWeight: FontWeight.w600),
+          ),
+        ]),
       );
 }
 

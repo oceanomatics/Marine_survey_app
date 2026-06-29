@@ -6,6 +6,7 @@ import '../providers/report_provider.dart';
 import '../widgets/report_preview.dart';
 import '../widgets/section_editor.dart';
 import '../widgets/new_output_sheet.dart';
+import '../widgets/export_button.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
@@ -158,10 +159,29 @@ class _ReportBuilderScreenState
                     buildingDraft: _buildingDraft,
                   ),
                   // ── Preview tab ─────────────────────────────────
-                  ReportPreview(
-                    output: _activeOutput!,
-                    assembled: assembled,
-                    sections: sections,
+                  Column(
+                    children: [
+                      Expanded(
+                        child: ReportPreview(
+                          output: _activeOutput!,
+                          assembled: assembled,
+                          sections: sections,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          border: Border(
+                              top: BorderSide(color: AppColors.border)),
+                        ),
+                        child: ExportButton(
+                          output:   _activeOutput!,
+                          assembled: assembled,
+                          sections: sections,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -429,10 +449,10 @@ class _EditorTab extends ConsumerWidget {
                             .read(sectionDraftProvider(caseId)
                                 .notifier)
                             .updateContent(entry.key, content),
-                        onToggleApproved: () => ref
+                        onSurveyorReviewChanged: (review) => ref
                             .read(sectionDraftProvider(caseId)
                                 .notifier)
-                            .toggleApproved(entry.key),
+                            .setSurveyorReview(entry.key, review),
                       ),
                     );
                   },

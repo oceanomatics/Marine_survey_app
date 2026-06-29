@@ -49,6 +49,36 @@ enum OutputFormat {
       values.firstWhere((e) => e.value == v, orElse: () => OutputFormat.abl);
 }
 
+enum PolicyType {
+  hm('hm', 'H&M'),
+  pi('pi', 'P&I'),
+  both('both', 'H&M + P&I');
+
+  const PolicyType(this.value, this.label);
+  final String value;
+  final String label;
+
+  static PolicyType fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => PolicyType.hm);
+}
+
+enum InstructingPartyRole {
+  hmInsurer('hm_insurer', 'H&M Insurer'),
+  piClub('pi_club', 'P&I Club'),
+  owner('owner', 'Owner'),
+  manager('manager', 'Manager'),
+  broker('broker', 'Broker'),
+  other('other', 'Other');
+
+  const InstructingPartyRole(this.value, this.label);
+  final String value;
+  final String label;
+
+  static InstructingPartyRole fromValue(String v) =>
+      values.firstWhere((e) => e.value == v,
+          orElse: () => InstructingPartyRole.other);
+}
+
 // ── Case Model ────────────────────────────────────────────────────────────
 
 @immutable
@@ -71,6 +101,18 @@ class CaseModel {
     this.notes,
     this.createdAt,
     this.updatedAt,
+    // Report / org fields
+    this.organisationId,
+    this.baseCurrency,
+    this.policyUcr,
+    this.policyNumber,
+    this.policyType,
+    // Survey details
+    this.instructingParty,
+    this.instructingPartyRole,
+    this.assured,
+    this.dateOfFirstAttendance,
+    this.surveyLocation,
     // Joined fields
     this.vesselName,
     this.clientName,
@@ -94,6 +136,20 @@ class CaseModel {
   final String? notes;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  // Report / org / policy fields
+  final String? organisationId;
+  final String? baseCurrency;        // ISO 4217 e.g. 'USD', 'AUD'
+  final String? policyUcr;           // Lloyd's Unique Claims Reference
+  final String? policyNumber;
+  final PolicyType? policyType;
+
+  // Survey details
+  final String? instructingParty;
+  final InstructingPartyRole? instructingPartyRole;
+  final String? assured;
+  final DateTime? dateOfFirstAttendance;
+  final String? surveyLocation;
 
   // Computed / joined
   final String? vesselName;
@@ -127,6 +183,23 @@ class CaseModel {
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
+      organisationId: json['organisation_id'] as String?,
+      baseCurrency:   json['base_currency']   as String?,
+      policyUcr:      json['policy_ucr']      as String?,
+      policyNumber:   json['policy_number']   as String?,
+      policyType:     json['policy_type'] != null
+          ? PolicyType.fromValue(json['policy_type'] as String)
+          : null,
+      instructingParty:     json['instructing_party']      as String?,
+      instructingPartyRole: json['instructing_party_role'] != null
+          ? InstructingPartyRole.fromValue(
+              json['instructing_party_role'] as String)
+          : null,
+      assured:              json['assured']                as String?,
+      dateOfFirstAttendance: json['date_of_first_attendance'] != null
+          ? DateTime.tryParse(json['date_of_first_attendance'] as String)
+          : null,
+      surveyLocation:       json['survey_location']        as String?,
       vesselName: json['vessel_name'] as String?,
       clientName: json['client_name'] as String?,
     );
@@ -148,6 +221,17 @@ class CaseModel {
     if (inboxEmailTag != null)     'inbox_email_tag':     inboxEmailTag,
     if (storageFolderPath != null) 'storage_folder_path': storageFolderPath,
     if (notes != null)             'notes':               notes,
+    if (organisationId != null)       'organisation_id':          organisationId,
+    if (baseCurrency != null)         'base_currency':            baseCurrency,
+    if (policyUcr != null)            'policy_ucr':               policyUcr,
+    if (policyNumber != null)         'policy_number':            policyNumber,
+    if (policyType != null)           'policy_type':              policyType!.value,
+    if (instructingParty != null)     'instructing_party':        instructingParty,
+    if (instructingPartyRole != null) 'instructing_party_role':   instructingPartyRole!.value,
+    if (assured != null)              'assured':                  assured,
+    if (dateOfFirstAttendance != null)
+      'date_of_first_attendance': dateOfFirstAttendance!.toIso8601String().split('T').first,
+    if (surveyLocation != null)       'survey_location':          surveyLocation,
   };
 
   bool get hasPlaceholderJobNumber =>
@@ -164,32 +248,94 @@ class CaseModel {
     String? title,
     String? claimReference,
     String? notes,
+    String? organisationId,
+    String? baseCurrency,
+    String? policyUcr,
+    String? policyNumber,
+    PolicyType? policyType,
+    String? instructingParty,
+    InstructingPartyRole? instructingPartyRole,
+    String? assured,
+    DateTime? dateOfFirstAttendance,
+    String? surveyLocation,
     String? vesselName,
     String? clientName,
   }) {
     return CaseModel(
-      caseId:          caseId,
-      jobNumber:       jobNumber       ?? this.jobNumber,
-      caseType:        caseType        ?? this.caseType,
-      status:          status          ?? this.status,
-      outputFormat:    outputFormat    ?? this.outputFormat,
-      clientId:        clientId        ?? this.clientId,
-      vesselId:        vesselId        ?? this.vesselId,
-      instructionDate: instructionDate ?? this.instructionDate,
-      title:           title           ?? this.title,
-      claimReference:  claimReference  ?? this.claimReference,
-      principalId:     principalId,
-      assignedSurveyor: assignedSurveyor,
-      inboxEmailTag:   inboxEmailTag,
-      storageFolderPath: storageFolderPath,
-      notes:           notes           ?? this.notes,
-      createdAt:       createdAt,
-      updatedAt:       updatedAt,
-      vesselName:      vesselName      ?? this.vesselName,
-      clientName:      clientName      ?? this.clientName,
-      checklistProgress: checklistProgress,
+      caseId:                caseId,
+      jobNumber:             jobNumber             ?? this.jobNumber,
+      caseType:              caseType              ?? this.caseType,
+      status:                status                ?? this.status,
+      outputFormat:          outputFormat          ?? this.outputFormat,
+      clientId:              clientId              ?? this.clientId,
+      vesselId:              vesselId              ?? this.vesselId,
+      instructionDate:       instructionDate       ?? this.instructionDate,
+      title:                 title                 ?? this.title,
+      claimReference:        claimReference        ?? this.claimReference,
+      principalId:           principalId,
+      assignedSurveyor:      assignedSurveyor,
+      inboxEmailTag:         inboxEmailTag,
+      storageFolderPath:     storageFolderPath,
+      notes:                 notes                 ?? this.notes,
+      createdAt:             createdAt,
+      updatedAt:             updatedAt,
+      organisationId:        organisationId        ?? this.organisationId,
+      baseCurrency:          baseCurrency          ?? this.baseCurrency,
+      policyUcr:             policyUcr             ?? this.policyUcr,
+      policyNumber:          policyNumber          ?? this.policyNumber,
+      policyType:            policyType            ?? this.policyType,
+      instructingParty:      instructingParty      ?? this.instructingParty,
+      instructingPartyRole:  instructingPartyRole  ?? this.instructingPartyRole,
+      assured:               assured               ?? this.assured,
+      dateOfFirstAttendance: dateOfFirstAttendance ?? this.dateOfFirstAttendance,
+      surveyLocation:        surveyLocation        ?? this.surveyLocation,
+      vesselName:            vesselName            ?? this.vesselName,
+      clientName:            clientName            ?? this.clientName,
+      checklistProgress:     checklistProgress,
     );
   }
+}
+
+// ── Vessel statutory enums ────────────────────────────────────────────────
+
+enum ClassStatus {
+  classed('classed', 'Classed'),
+  conditional('conditional', 'Conditional'),
+  suspended('suspended', 'Suspended'),
+  notClassed('not_classed', 'Not Classed');
+
+  const ClassStatus(this.value, this.label);
+  final String value;
+  final String label;
+
+  static ClassStatus fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => ClassStatus.classed);
+}
+
+enum PscResult {
+  clear('clear', 'Clear'),
+  deficiencies('deficiencies', 'Deficiencies'),
+  detained('detained', 'Detained');
+
+  const PscResult(this.value, this.label);
+  final String value;
+  final String label;
+
+  static PscResult fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => PscResult.clear);
+}
+
+enum IspsStatus {
+  compliant('compliant', 'Compliant'),
+  nonCompliant('non_compliant', 'Non-compliant'),
+  tbc('tbc', 'TBC');
+
+  const IspsStatus(this.value, this.label);
+  final String value;
+  final String label;
+
+  static IspsStatus fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => IspsStatus.tbc);
 }
 
 // ── Vessel Model ──────────────────────────────────────────────────────────
@@ -231,6 +377,20 @@ class VesselModel {
     this.mcrPowerValue,
     this.mcrRpm,
     this.mcrPowerUnit,
+    // Statutory fields
+    this.officialNumber,
+    this.classStatus,
+    this.constructionStandard,
+    this.registeredOwner,
+    this.lastDrydockDate,
+    this.lastDrydockYard,
+    this.ismIncidentReported,
+    this.classIncidentReported,
+    this.pscLastInspection,
+    this.pscLastResult,
+    this.pscSummary,
+    this.piClub,
+    this.ispsStatus,
     this.createdAt,
     this.updatedAt,
   });
@@ -269,6 +429,20 @@ class VesselModel {
   final double? mcrPowerValue;
   final int? mcrRpm;
   final String? mcrPowerUnit;
+  // Statutory
+  final String? officialNumber;
+  final ClassStatus? classStatus;
+  final String? constructionStandard;
+  final String? pscSummary;
+  final String? registeredOwner;
+  final DateTime? lastDrydockDate;
+  final String? lastDrydockYard;
+  final bool? ismIncidentReported;
+  final bool? classIncidentReported;
+  final DateTime? pscLastInspection;
+  final PscResult? pscLastResult;
+  final String? piClub;
+  final IspsStatus? ispsStatus;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -308,6 +482,29 @@ class VesselModel {
       mcrPowerValue:       (json['mcr_power_value'] as num?)?.toDouble(),
       mcrRpm:              json['mcr_rpm'] as int?,
       mcrPowerUnit:        json['mcr_power_unit'] as String?,
+      officialNumber:      json['official_number'] as String?,
+      classStatus:         json['class_status'] != null
+          ? ClassStatus.fromValue(json['class_status'] as String)
+          : null,
+      constructionStandard: json['construction_standard'] as String?,
+      registeredOwner:     json['registered_owner'] as String?,
+      lastDrydockDate:     json['last_drydock_date'] != null
+          ? DateTime.tryParse(json['last_drydock_date'] as String)
+          : null,
+      lastDrydockYard:     json['last_drydock_yard'] as String?,
+      ismIncidentReported: json['ism_incident_reported'] as bool?,
+      classIncidentReported: json['class_incident_reported'] as bool?,
+      pscLastInspection:   json['psc_last_inspection'] != null
+          ? DateTime.tryParse(json['psc_last_inspection'] as String)
+          : null,
+      pscLastResult:       json['psc_last_result'] != null
+          ? PscResult.fromValue(json['psc_last_result'] as String)
+          : null,
+      pscSummary:          json['psc_summary'] as String?,
+      piClub:              json['pi_club'] as String?,
+      ispsStatus:          json['isps_status'] != null
+          ? IspsStatus.fromValue(json['isps_status'] as String)
+          : null,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -348,9 +545,24 @@ class VesselModel {
     if (propulsionType != null)       'propulsion_type':       propulsionType,
     if (propellerType != null)        'propeller_type':        propellerType,
     if (propulsionDriveType != null)  'propulsion_drive_type': propulsionDriveType,
-    if (mcrPowerValue != null)        'mcr_power_value':       mcrPowerValue,
-    if (mcrRpm != null)               'mcr_rpm':               mcrRpm,
-    if (mcrPowerUnit != null)         'mcr_power_unit':        mcrPowerUnit,
+    if (mcrPowerValue != null)        'mcr_power_value':        mcrPowerValue,
+    if (mcrRpm != null)               'mcr_rpm':                mcrRpm,
+    if (mcrPowerUnit != null)         'mcr_power_unit':         mcrPowerUnit,
+    if (officialNumber != null)       'official_number':        officialNumber,
+    if (classStatus != null)          'class_status':           classStatus!.value,
+    if (constructionStandard != null) 'construction_standard':  constructionStandard,
+    if (registeredOwner != null)      'registered_owner':       registeredOwner,
+    if (lastDrydockDate != null)
+      'last_drydock_date': lastDrydockDate!.toIso8601String().split('T').first,
+    if (lastDrydockYard != null)      'last_drydock_yard':      lastDrydockYard,
+    if (ismIncidentReported != null)  'ism_incident_reported':  ismIncidentReported,
+    if (classIncidentReported != null)'class_incident_reported':classIncidentReported,
+    if (pscLastInspection != null)
+      'psc_last_inspection': pscLastInspection!.toIso8601String().split('T').first,
+    if (pscLastResult != null)        'psc_last_result':        pscLastResult!.value,
+    if (pscSummary != null)           'psc_summary':            pscSummary,
+    if (piClub != null)               'pi_club':                piClub,
+    if (ispsStatus != null)           'isps_status':            ispsStatus!.value,
   };
 
   /// Apply AI-extracted fields on top of existing data
@@ -390,6 +602,20 @@ class VesselModel {
       mcrPowerValue: (extracted['mcr_power_value'] as num?)?.toDouble() ?? mcrPowerValue,
       mcrRpm:        extracted['mcr_rpm'] as int? ?? mcrRpm,
       mcrPowerUnit:  extracted['mcr_power_unit'] as String? ?? mcrPowerUnit,
+      // Statutory — not overwritten by AI extraction; preserved as-is
+      officialNumber:        officialNumber,
+      classStatus:           classStatus,
+      constructionStandard:  constructionStandard,
+      registeredOwner:       registeredOwner,
+      lastDrydockDate:       lastDrydockDate,
+      lastDrydockYard:       lastDrydockYard,
+      ismIncidentReported:   ismIncidentReported,
+      classIncidentReported: classIncidentReported,
+      pscLastInspection:     pscLastInspection,
+      pscLastResult:         pscLastResult,
+      pscSummary:            pscSummary,
+      piClub:                piClub,
+      ispsStatus:            ispsStatus,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

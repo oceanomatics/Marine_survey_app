@@ -100,6 +100,7 @@ class AccountState {
     this.phone = '',
     this.address = '',
     this.externalAccounts = const [],
+    this.fxApiKey = '',
   });
 
   final String name;
@@ -107,6 +108,10 @@ class AccountState {
   final String phone;
   final String address;
   final List<ExternalAccount> externalAccounts;
+  /// openexchangerates.org App ID (free tier).
+  final String fxApiKey;
+
+  bool get hasFxApiKey => fxApiKey.isNotEmpty;
 
   AccountState copyWith({
     String? name,
@@ -114,6 +119,7 @@ class AccountState {
     String? phone,
     String? address,
     List<ExternalAccount>? externalAccounts,
+    String? fxApiKey,
   }) =>
       AccountState(
         name: name ?? this.name,
@@ -121,6 +127,7 @@ class AccountState {
         phone: phone ?? this.phone,
         address: address ?? this.address,
         externalAccounts: externalAccounts ?? this.externalAccounts,
+        fxApiKey: fxApiKey ?? this.fxApiKey,
       );
 
   ExternalAccount? get equasisAccount =>
@@ -141,6 +148,7 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
     final prefs = await SharedPreferences.getInstance();
     final accountsJson =
         await _storage.read(key: 'external_accounts') ?? '[]';
+    final fxApiKey = await _storage.read(key: 'fx_api_key') ?? '';
     final accounts = (jsonDecode(accountsJson) as List)
         .map((e) => ExternalAccount.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -194,7 +202,14 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       phone: phone,
       address: address,
       externalAccounts: remoteAccounts,
+      fxApiKey: fxApiKey,
     );
+  }
+
+  Future<void> saveFxApiKey(String key) async {
+    await _storage.write(key: 'fx_api_key', value: key);
+    final cur = state.value ?? const AccountState();
+    state = AsyncData(cur.copyWith(fxApiKey: key));
   }
 
   Future<void> saveProfile({

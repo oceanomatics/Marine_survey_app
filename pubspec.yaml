@@ -75,6 +75,7 @@ dependencies:
   timeago: ^3.6.1
 
   # Utilities
+  crypto: ^3.0.3
   uuid: ^4.4.0
   json_annotation: ^4.9.0
   freezed_annotation: ^2.4.1
@@ -82,9 +83,6 @@ dependencies:
   permission_handler: ^11.3.1
   device_info_plus: ^10.1.0
   package_info_plus: ^8.0.0
-
-  # Document export
-  docx_template: ^0.4.0
 
   # Icons
   cupertino_icons: ^1.0.8

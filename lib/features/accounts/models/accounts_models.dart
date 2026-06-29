@@ -166,6 +166,10 @@ class AccountLineModel {
     this.repairPeriodId,
     this.occurrenceId,
     this.createdAt,
+    this.invoiceCurrency,
+    this.fxRateToBase,
+    this.fxRateDate,
+    this.baseCurrencyAmount,
   });
 
   final String id;
@@ -188,6 +192,14 @@ class AccountLineModel {
   final String? repairPeriodId;       // UUID or 'preliminary_expense'
   final String? occurrenceId;
   final DateTime? createdAt;
+  /// ISO 4217 currency of the original invoice (e.g. 'USD', 'SGD').
+  final String? invoiceCurrency;
+  /// Rate to convert invoiceCurrency → case base currency, locked at invoice date.
+  final double? fxRateToBase;
+  /// Date the FX rate was locked.
+  final DateTime? fxRateDate;
+  /// grossAmount converted to the case base currency.
+  final double? baseCurrencyAmount;
 
   bool get isOwnersAccount =>
       costNature == CostNature.ownersMaintenance ||
@@ -216,6 +228,12 @@ class AccountLineModel {
         createdAt:            j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
+        invoiceCurrency:      j['invoice_currency'] as String?,
+        fxRateToBase:         (j['fx_rate_to_base'] as num?)?.toDouble(),
+        fxRateDate:           j['fx_rate_date'] != null
+            ? DateTime.tryParse(j['fx_rate_date'] as String)
+            : null,
+        baseCurrencyAmount:   (j['base_currency_amount'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toInsertJson() => {
@@ -238,6 +256,11 @@ class AccountLineModel {
           'presentation_statement': presentationStatement,
         if (repairPeriodId != null) 'repair_period_id': repairPeriodId,
         if (occurrenceId != null) 'occurrence_id': occurrenceId,
+        if (invoiceCurrency != null) 'invoice_currency': invoiceCurrency,
+        if (fxRateToBase != null) 'fx_rate_to_base': fxRateToBase,
+        if (fxRateDate != null)
+          'fx_rate_date': fxRateDate!.toIso8601String().split('T').first,
+        if (baseCurrencyAmount != null) 'base_currency_amount': baseCurrencyAmount,
       };
 
   AccountLineModel copyWith({
@@ -255,6 +278,10 @@ class AccountLineModel {
     Object? presentationStatement = _sentinel,
     Object? repairPeriodId = _sentinel,
     Object? occurrenceId = _sentinel,
+    Object? invoiceCurrency = _sentinel,
+    Object? fxRateToBase = _sentinel,
+    Object? fxRateDate = _sentinel,
+    Object? baseCurrencyAmount = _sentinel,
   }) =>
       AccountLineModel(
         id: id,
@@ -283,6 +310,14 @@ class AccountLineModel {
         occurrenceId: occurrenceId == _sentinel
             ? this.occurrenceId : occurrenceId as String?,
         createdAt: createdAt,
+        invoiceCurrency: invoiceCurrency == _sentinel
+            ? this.invoiceCurrency : invoiceCurrency as String?,
+        fxRateToBase: fxRateToBase == _sentinel
+            ? this.fxRateToBase : fxRateToBase as double?,
+        fxRateDate: fxRateDate == _sentinel
+            ? this.fxRateDate : fxRateDate as DateTime?,
+        baseCurrencyAmount: baseCurrencyAmount == _sentinel
+            ? this.baseCurrencyAmount : baseCurrencyAmount as double?,
       );
 }
 

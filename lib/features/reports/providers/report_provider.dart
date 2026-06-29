@@ -87,6 +87,14 @@ class ClauseModel {
       );
 }
 
+// ── Surveyor review status (GPN-AI compliance) ────────────────────────────
+
+enum SurveyorReview {
+  reviewedAccepted,   // AI draft — reviewed and accepted as-is
+  reviewedAmended,    // AI draft — reviewed and amended by surveyor
+  surveyorAuthored,   // No AI — written entirely by the surveyor
+}
+
 // ── Report section model ───────────────────────────────────────────────────
 
 @immutable
@@ -98,7 +106,7 @@ class ReportSection {
     this.clauseId,
     this.isLocked = false,
     this.aiDrafted = false,
-    this.approved = false,
+    this.surveyorReview,
     this.sectionId,
   });
 
@@ -108,23 +116,31 @@ class ReportSection {
   final String? clauseId;
   final bool isLocked;   // clause text — cannot be edited by surveyor
   final bool aiDrafted;
-  final bool approved;
+  /// GPN-AI: surveyor must set this before export is allowed.
+  final SurveyorReview? surveyorReview;
   final String? sectionId;
+
+  /// True once the surveyor has set any review status.
+  bool get approved => surveyorReview != null;
+
+  static const _sentinel = Object();
 
   ReportSection copyWith({
     String? content,
-    bool? approved,
+    Object? surveyorReview = _sentinel,
     String? sectionId,
   }) =>
       ReportSection(
-        type:      type,
-        title:     title,
-        content:   content   ?? this.content,
-        clauseId:  clauseId,
-        isLocked:  isLocked,
-        aiDrafted: aiDrafted,
-        approved:  approved  ?? this.approved,
-        sectionId: sectionId ?? this.sectionId,
+        type:           type,
+        title:          title,
+        content:        content        ?? this.content,
+        clauseId:       clauseId,
+        isLocked:       isLocked,
+        aiDrafted:      aiDrafted,
+        surveyorReview: surveyorReview == _sentinel
+            ? this.surveyorReview
+            : surveyorReview as SurveyorReview?,
+        sectionId:      sectionId      ?? this.sectionId,
       );
 }
 
@@ -162,6 +178,16 @@ class ReportOutput {
   bool get allApproved => sections.every((s) => s.approved);
   bool get isLocked => status == ReportStatus.locked;
 
+  /// R001, R002… extracted from the trailing segment of reportNumber,
+  /// or formatted from sequenceNo as a fallback.
+  String get versionCode {
+    if (reportNumber != null) {
+      final m = RegExp(r'R\d{3,}$').firstMatch(reportNumber!);
+      if (m != null) return m.group(0)!;
+    }
+    return 'R${sequenceNo.toString().padLeft(3, '0')}';
+  }
+
   factory ReportOutput.fromJson(Map<String, dynamic> j,
       List<ReportSection> sections) =>
       ReportOutput(
@@ -197,6 +223,9 @@ class AssembledReportData {
     required this.repairRecords,
     required this.clauses,
     required this.outputFormat,
+    required this.repairDocuments,
+    required this.timelineEvents,
+    this.organisation,
   });
 
   final Map<String, dynamic> caseData;
@@ -208,6 +237,12 @@ class AssembledReportData {
   final List<Map<String, dynamic>> repairRecords;
   final List<ClauseModel> clauses;
   final String outputFormat;
+  /// Repair documents with nested account lines — for cost section assembly.
+  final List<Map<String, dynamic>> repairDocuments;
+  /// Chronological events ordered by event_date — for timeline table.
+  final List<Map<String, dynamic>> timelineEvents;
+  /// Org config — present when the case has an organisation_id set.
+  final Map<String, dynamic>? organisation;
 
   ClauseModel? clauseByType(String type) =>
       clauses.where((c) => c.clauseType == type).firstOrNull;
@@ -334,16 +369,50 @@ final assembledDataProvider =
 
   final vessel = caseData['vessels'] as Map<String, dynamic>?;
 
+  // Fetch repair documents with nested account lines
+  final repairDocData = await SupabaseService.client
+      .from('repair_documents')
+      .select('*, account_lines(*)')
+      .eq('case_id', caseId)
+      .order('created_at');
+  final repairDocuments =
+      (repairDocData as List).cast<Map<String, dynamic>>();
+
+  // Fetch timeline events ordered by date
+  final timelineData = await SupabaseService.client
+      .from('timeline_events')
+      .select()
+      .eq('case_id', caseId)
+      .order('event_date');
+  final timelineEvents =
+      (timelineData as List).cast<Map<String, dynamic>>();
+
+  // Fetch org config if the case has one
+  Map<String, dynamic>? organisation;
+  final orgId = caseData['organisation_id'] as String?;
+  if (orgId != null) {
+    try {
+      organisation = await SupabaseService.client
+          .from('organisations')
+          .select('*, surveyor_profiles(*)')
+          .eq('id', orgId)
+          .maybeSingle();
+    } catch (_) {}
+  }
+
   return AssembledReportData(
-    caseData:      caseData,
-    vessel:        vessel,
-    occurrences:   occurrences,
-    damageItems:   damageItems,
-    attendees:     attendees,
-    certificates:  certificates,
-    repairRecords: repairs,
-    clauses:       clauses,
-    outputFormat:  outputFormat,
+    caseData:       caseData,
+    vessel:         vessel,
+    occurrences:    occurrences,
+    damageItems:    damageItems,
+    attendees:      attendees,
+    certificates:   certificates,
+    repairRecords:  repairs,
+    clauses:        clauses,
+    outputFormat:   outputFormat,
+    repairDocuments: repairDocuments,
+    timelineEvents:  timelineEvents,
+    organisation:   organisation,
   );
 });
 
@@ -372,12 +441,12 @@ class SectionDraftNotifier
     }
   }
 
-  void toggleApproved(SectionType type) {
+  void setSurveyorReview(SectionType type, SurveyorReview review) {
     final existing = state[type];
     if (existing != null) {
       state = {
         ...state,
-        type: existing.copyWith(approved: !existing.approved)
+        type: existing.copyWith(surveyorReview: review),
       };
     }
   }

@@ -123,6 +123,10 @@ class _VesselParticularsScreenState
   final _tanksCtrl        = TextEditingController();
   final _mcrValueCtrl     = TextEditingController();
   final _mcrRpmCtrl       = TextEditingController();
+  // Fields moved to Identity tab
+  final _officialNumberCtrl       = TextEditingController();
+  final _constructionStandardCtrl = TextEditingController();
+  final _piClubCtrl               = TextEditingController();
 
   // Dropdown / chip selections
   String? _vesselType;
@@ -152,6 +156,7 @@ class _VesselParticularsScreenState
       _buildYardCtrl, _buildCountryCtrl, _ownersCtrl, _operatorsCtrl,
       _notationCtrl, _speedCtrl, _holdsCtrl, _tanksCtrl,
       _mcrValueCtrl, _mcrRpmCtrl,
+      _officialNumberCtrl, _constructionStandardCtrl, _piClubCtrl,
     ]) {
       c.dispose();
     }
@@ -193,6 +198,9 @@ class _VesselParticularsScreenState
     _mcrValueCtrl.text      = v.mcrPowerValue?.toString() ?? '';
     _mcrRpmCtrl.text        = v.mcrRpm?.toString()        ?? '';
     _mcrPowerUnit           = v.mcrPowerUnit ?? 'kW';
+    _officialNumberCtrl.text       = v.officialNumber       ?? '';
+    _constructionStandardCtrl.text = v.constructionStandard ?? '';
+    _piClubCtrl.text               = v.piClub               ?? '';
   }
 
   Map<String, dynamic> _collectFields() => {
@@ -229,6 +237,9 @@ class _VesselParticularsScreenState
     'mcr_power_value':      double.tryParse(_mcrValueCtrl.text.trim()),
     'mcr_rpm':              int.tryParse(_mcrRpmCtrl.text.trim()),
     'mcr_power_unit':       _mcrPowerUnit,
+    'official_number':       _officialNumberCtrl.text.trim().isEmpty       ? null : _officialNumberCtrl.text.trim(),
+    'construction_standard': _constructionStandardCtrl.text.trim().isEmpty ? null : _constructionStandardCtrl.text.trim(),
+    'pi_club':               _piClubCtrl.text.trim().isEmpty               ? null : _piClubCtrl.text.trim(),
   };
 
   Future<void> _save(String vesselId) async {
@@ -466,26 +477,29 @@ class _VesselParticularsScreenState
         controller: _tabController,
         children: [
           _IdentityTab(
-            caseId:           widget.caseId,
-            nameCtrl:         _nameCtrl,
-            imoCtrl:          _imoCtrl,
-            callSignCtrl:     _callSignCtrl,
-            mmsiCtrl:         _mmsiCtrl,
-            vesselType:       _vesselType,
-            flagCtrl:         _flagCtrl,
-            portCtrl:         _portCtrl,
-            ownersCtrl:       _ownersCtrl,
-            operatorsCtrl:    _operatorsCtrl,
-            classSociety:     _classSociety,
-            notationCtrl:     _notationCtrl,
-            yearBuiltCtrl:    _yearBuiltCtrl,
-            buildYardCtrl:    _buildYardCtrl,
-            buildCountryCtrl: _buildCountryCtrl,
-            onChanged:              _markChanged,
-            onVesselTypeChanged:    (v) { setState(() { _vesselType = v; _hasChanges = true; }); },
-            onClassSocietyChanged:  (v) { setState(() { _classSociety = v; _hasChanges = true; }); },
-            onEquasisFetch:   _fetchFromEquasis,
-            fetchingEquasis:  _fetchingEquasis,
+            caseId:                  widget.caseId,
+            nameCtrl:                _nameCtrl,
+            imoCtrl:                 _imoCtrl,
+            callSignCtrl:            _callSignCtrl,
+            mmsiCtrl:                _mmsiCtrl,
+            vesselType:              _vesselType,
+            flagCtrl:                _flagCtrl,
+            portCtrl:                _portCtrl,
+            officialNumberCtrl:      _officialNumberCtrl,
+            ownersCtrl:              _ownersCtrl,
+            operatorsCtrl:           _operatorsCtrl,
+            classSociety:            _classSociety,
+            notationCtrl:            _notationCtrl,
+            piClubCtrl:              _piClubCtrl,
+            yearBuiltCtrl:           _yearBuiltCtrl,
+            buildYardCtrl:           _buildYardCtrl,
+            buildCountryCtrl:        _buildCountryCtrl,
+            constructionStandardCtrl: _constructionStandardCtrl,
+            onChanged:               _markChanged,
+            onVesselTypeChanged:     (v) { setState(() { _vesselType = v; _hasChanges = true; }); },
+            onClassSocietyChanged:   (v) { setState(() { _classSociety = v; _hasChanges = true; }); },
+            onEquasisFetch:          _fetchFromEquasis,
+            fetchingEquasis:         _fetchingEquasis,
           ),
           _DimensionsTab(
             gtCtrl:      _gtCtrl,
@@ -541,13 +555,16 @@ class _IdentityTab extends ConsumerStatefulWidget {
     required this.vesselType,
     required this.flagCtrl,
     required this.portCtrl,
+    required this.officialNumberCtrl,
     required this.ownersCtrl,
     required this.operatorsCtrl,
     required this.classSociety,
     required this.notationCtrl,
+    required this.piClubCtrl,
     required this.yearBuiltCtrl,
     required this.buildYardCtrl,
     required this.buildCountryCtrl,
+    required this.constructionStandardCtrl,
     required this.onChanged,
     required this.onVesselTypeChanged,
     required this.onClassSocietyChanged,
@@ -559,10 +576,13 @@ class _IdentityTab extends ConsumerStatefulWidget {
   final TextEditingController nameCtrl, imoCtrl, callSignCtrl, mmsiCtrl;
   final String? vesselType;
   final TextEditingController flagCtrl, portCtrl;
+  final TextEditingController officialNumberCtrl;
   final TextEditingController ownersCtrl, operatorsCtrl;
   final String? classSociety;
   final TextEditingController notationCtrl;
+  final TextEditingController piClubCtrl;
   final TextEditingController yearBuiltCtrl, buildYardCtrl, buildCountryCtrl;
+  final TextEditingController constructionStandardCtrl;
   final VoidCallback onChanged;
   final ValueChanged<String?> onVesselTypeChanged;
   final ValueChanged<String?> onClassSocietyChanged;
@@ -777,6 +797,12 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
             ),
           ),
         ]),
+        SurveyField(
+          label: 'Official Number',
+          controller: widget.officialNumberCtrl,
+          hint: 'National registration number',
+          onChanged: (_) => widget.onChanged(),
+        ),
         const SizedBox(height: 20),
 
         const VesselSectionHeader(
@@ -818,6 +844,12 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           hint: 'e.g. A1, ATB, Towing vessel, AMS',
           onChanged: (_) => widget.onChanged(),
         ),
+        SurveyField(
+          label: 'P&I Club',
+          controller: widget.piClubCtrl,
+          hint: 'e.g. Gard, Skuld, West of England',
+          onChanged: (_) => widget.onChanged(),
+        ),
         const SizedBox(height: 20),
 
         const VesselSectionHeader(
@@ -846,6 +878,12 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           label: 'Build Yard',
           controller: widget.buildYardCtrl,
           hint: 'e.g. Hin Lee Shipyard',
+          onChanged: (_) => widget.onChanged(),
+        ),
+        SurveyField(
+          label: 'Construction Standard',
+          controller: widget.constructionStandardCtrl,
+          hint: 'e.g. SOLAS, Load Line Convention',
           onChanged: (_) => widget.onChanged(),
         ),
         const SizedBox(height: 32),
@@ -1640,3 +1678,4 @@ class _UnitToggle extends StatelessWidget {
     );
   }
 }
+

@@ -10,13 +10,13 @@ class SectionEditor extends StatefulWidget {
     required this.section,
     required this.isLocked,
     required this.onContentChanged,
-    required this.onToggleApproved,
+    required this.onSurveyorReviewChanged,
   });
 
   final ReportSection section;
   final bool isLocked;          // report-level lock (issued/locked status)
   final ValueChanged<String> onContentChanged;
-  final VoidCallback onToggleApproved;
+  final ValueChanged<SurveyorReview> onSurveyorReviewChanged;
 
   @override
   State<SectionEditor> createState() => _SectionEditorState();
@@ -49,9 +49,9 @@ class _SectionEditorState extends State<SectionEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final section   = widget.section;
-    final approved  = section.approved;
-    final locked    = section.isLocked || widget.isLocked;
+    final section  = widget.section;
+    final approved = section.approved;
+    final locked   = section.isLocked || widget.isLocked;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
@@ -76,31 +76,8 @@ class _SectionEditorState extends State<SectionEditor> {
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
               child: Row(children: [
-                // Approve checkbox
-                GestureDetector(
-                  onTap: locked ? null : widget.onToggleApproved,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: approved
-                          ? AppColors.success
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: approved
-                            ? AppColors.success
-                            : AppColors.textTertiary,
-                        width: approved ? 0 : 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: approved
-                        ? const Icon(Icons.check,
-                            color: Colors.white, size: 13)
-                        : null,
-                  ),
-                ),
+                // Review status indicator
+                _ReviewDot(review: section.surveyorReview),
                 const SizedBox(width: 10),
 
                 // Section title
@@ -117,7 +94,6 @@ class _SectionEditorState extends State<SectionEditor> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    // Badges
                     if (section.isLocked)
                       const _Badge('LOCKED', AppColors.purple,
                           AppColors.lightPurple),
@@ -214,24 +190,14 @@ class _SectionEditorState extends State<SectionEditor> {
                       ),
                     ),
             ),
-            // Approve button (only when not locked and not yet approved)
-            if (!section.isLocked && !widget.isLocked && !approved)
+
+            // ── Surveyor review chips ─────────────────────────────
+            if (!locked)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: widget.onToggleApproved,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.success,
-                      side:
-                          const BorderSide(color: AppColors.success),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text('Approve section ✓',
-                        style: TextStyle(fontSize: 12)),
-                  ),
+                child: _ReviewChips(
+                  current: section.surveyorReview,
+                  onChanged: widget.onSurveyorReviewChanged,
                 ),
               ),
           ],
@@ -240,6 +206,89 @@ class _SectionEditorState extends State<SectionEditor> {
     );
   }
 }
+
+// ── Review chips ──────────────────────────────────────────────────────────
+
+class _ReviewChips extends StatelessWidget {
+  const _ReviewChips({required this.current, required this.onChanged});
+
+  final SurveyorReview? current;
+  final ValueChanged<SurveyorReview> onChanged;
+
+  static const _chips = [
+    (SurveyorReview.reviewedAccepted, 'ACCEPTED',       Icons.check_circle_outline, AppColors.success),
+    (SurveyorReview.reviewedAmended,  'AMENDED',        Icons.edit_outlined,        Color(0xFFD97706)),
+    (SurveyorReview.surveyorAuthored, 'MY OWN',         Icons.person_outline,       AppColors.midBlue),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: _chips.map((chip) {
+        final (review, label, icon, color) = chip;
+        final selected = current == review;
+        return Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: GestureDetector(
+            onTap: () => onChanged(review),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected ? color.withValues(alpha: 0.12) : Colors.transparent,
+                border: Border.all(
+                  color: selected ? color : AppColors.border,
+                  width: selected ? 1.5 : 1,
+                ),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 11,
+                    color: selected ? color : AppColors.textTertiary),
+                const SizedBox(width: 4),
+                Text(label,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? color : AppColors.textTertiary,
+                    )),
+              ]),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ── Review status dot in header ───────────────────────────────────────────
+
+class _ReviewDot extends StatelessWidget {
+  const _ReviewDot({required this.review});
+  final SurveyorReview? review;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, icon) = switch (review) {
+      SurveyorReview.reviewedAccepted => (AppColors.success,   Icons.check),
+      SurveyorReview.reviewedAmended  => (const Color(0xFFD97706), Icons.edit),
+      SurveyorReview.surveyorAuthored => (AppColors.midBlue,   Icons.person),
+      null                            => (AppColors.border,    Icons.radio_button_unchecked),
+    };
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: review != null ? color.withValues(alpha: 0.15) : Colors.transparent,
+        border: Border.all(color: color, width: review != null ? 0 : 1.5),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Icon(icon, size: 13, color: color),
+    );
+  }
+}
+
+// ── Badge ─────────────────────────────────────────────────────────────────
 
 class _Badge extends StatelessWidget {
   const _Badge(this.label, this.color, this.bgColor);

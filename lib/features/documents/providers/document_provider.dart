@@ -55,6 +55,9 @@ enum DocAvailability {
 
 // ── Document model ─────────────────────────────────────────────────────────
 
+// Sentinel: distinguishes "not provided" from null in copyWith / updateMetadata
+const _sentinel = Object();
+
 @immutable
 class DocumentModel {
   const DocumentModel({
@@ -76,6 +79,9 @@ class DocumentModel {
     this.language = 'en',
     this.notes,
     this.createdAt,
+    this.annexureAssignment,
+    this.surveyorConfirmed = false,
+    this.isCoverPhoto = false,
   });
 
   final String docId;
@@ -96,6 +102,9 @@ class DocumentModel {
   final String language;
   final String? notes;
   final DateTime? createdAt;
+  final String? annexureAssignment;
+  final bool surveyorConfirmed;
+  final bool isCoverPhoto;
 
   bool get hasFile => filePath != null && filePath!.isNotEmpty;
   bool get isImage =>
@@ -138,6 +147,9 @@ class DocumentModel {
         createdAt: j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
+        annexureAssignment: j['annexure_assignment'] as String?,
+        surveyorConfirmed: j['surveyor_confirmed'] as bool? ?? false,
+        isCoverPhoto: j['is_cover_photo'] as bool? ?? false,
       );
 
   DocumentModel copyWith({
@@ -148,6 +160,9 @@ class DocumentModel {
     Map<String, dynamic>? extractedData,
     bool? aiExtracted,
     String? notes,
+    Object? annexureAssignment = _sentinel,
+    bool? surveyorConfirmed,
+    bool? isCoverPhoto,
   }) =>
       DocumentModel(
         docId: docId,
@@ -168,6 +183,11 @@ class DocumentModel {
         language: language,
         notes: notes ?? this.notes,
         createdAt: createdAt,
+        annexureAssignment: identical(annexureAssignment, _sentinel)
+            ? this.annexureAssignment
+            : annexureAssignment as String?,
+        surveyorConfirmed: surveyorConfirmed ?? this.surveyorConfirmed,
+        isCoverPhoto: isCoverPhoto ?? this.isCoverPhoto,
       );
 }
 
@@ -485,10 +505,17 @@ class DocumentNotifier
     String docId, {
     String? title,
     DocCategory? category,
+    Object? annexureAssignment = _sentinel,
+    bool? surveyorConfirmed,
+    bool? isCoverPhoto,
   }) async {
     final updates = <String, dynamic>{
       if (title != null) 'title': title,
       if (category != null) 'doc_category': category.value,
+      if (!identical(annexureAssignment, _sentinel))
+        'annexure_assignment': annexureAssignment as String?,
+      if (surveyorConfirmed != null) 'surveyor_confirmed': surveyorConfirmed,
+      if (isCoverPhoto != null) 'is_cover_photo': isCoverPhoto,
     };
     if (updates.isEmpty) return;
     await SupabaseService.client
@@ -501,8 +528,43 @@ class DocumentNotifier
       return d.copyWith(
         title: title ?? d.title,
         docCategory: category ?? d.docCategory,
+        annexureAssignment: annexureAssignment,
+        surveyorConfirmed: surveyorConfirmed,
+        isCoverPhoto: isCoverPhoto,
       );
     }).toList());
+  }
+
+  /// Sets this document as the sole cover photo for the case.
+  /// Clears the flag on every other doc first (DB + local state).
+  Future<void> setCoverPhoto(String docId) async {
+    // Clear the flag on any previously designated cover photo
+    await SupabaseService.client
+        .from('documents')
+        .update({'is_cover_photo': false})
+        .eq('case_id', arg)
+        .neq('doc_id', docId);
+    // Set on the chosen doc
+    await SupabaseService.client
+        .from('documents')
+        .update({'is_cover_photo': true})
+        .eq('doc_id', docId);
+    final current = state.value ?? [];
+    state = AsyncData(current.map((d) {
+      return d.copyWith(isCoverPhoto: d.docId == docId);
+    }).toList());
+  }
+
+  /// Clears the cover photo flag on all docs for this case.
+  Future<void> clearCoverPhoto() async {
+    await SupabaseService.client
+        .from('documents')
+        .update({'is_cover_photo': false})
+        .eq('case_id', arg);
+    final current = state.value ?? [];
+    state = AsyncData(current
+        .map((d) => d.copyWith(isCoverPhoto: false))
+        .toList());
   }
 
   Future<void> renameDocument(String docId, String newTitle) async {

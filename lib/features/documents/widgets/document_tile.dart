@@ -56,12 +56,16 @@ class DocumentTile extends ConsumerWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 3),
-                  Row(children: [
+                  Wrap(spacing: 6, runSpacing: 4, children: [
                     _Badge(doc.availability.label,
                         _availColor(doc.availability)),
-                    const SizedBox(width: 6),
                     if (doc.extractionProcessing)
                       const _Badge('Extracting…', AppColors.amber)
+                    else if (doc.aiExtracted && doc.surveyorConfirmed)
+                      GestureDetector(
+                        onTap: onViewExtraction,
+                        child: const _Badge('✓ Confirmed', AppColors.success),
+                      )
                     else if (doc.aiExtracted)
                       GestureDetector(
                         onTap: onViewExtraction,
@@ -74,10 +78,12 @@ class DocumentTile extends ConsumerWidget {
                       )
                     else if (doc.extractionFailed)
                       const _Badge('Extraction failed', AppColors.error),
-                    if (doc.isDocx) ...[
-                      const SizedBox(width: 6),
+                    if (doc.isDocx)
                       const _Badge('DOCX', AppColors.midBlue),
-                    ],
+                    if (doc.isCoverPhoto)
+                      const _Badge('Cover photo', AppColors.coral),
+                    if (doc.annexureAssignment != null)
+                      _Badge('Annex ${doc.annexureAssignment}', AppColors.navy),
                   ]),
                   if (doc.docDate != null) ...[
                     const SizedBox(height: 3),
@@ -166,6 +172,9 @@ class DocumentTile extends ConsumerWidget {
   void _showEditMetadata(BuildContext context, WidgetRef ref) {
     final titleCtrl = TextEditingController(text: doc.title);
     DocCategory? selectedCat = doc.docCategory;
+    String? selectedAnnexure = doc.annexureAssignment;
+    bool surveyorConfirmed = doc.surveyorConfirmed;
+    bool isCoverPhoto = doc.isCoverPhoto;
 
     showModalBottomSheet(
       context: context,
@@ -240,6 +249,98 @@ class DocumentTile extends ConsumerWidget {
                 );
               }).toList(),
             ),
+            const SizedBox(height: 16),
+            Row(children: [
+              const Text('Report Annexure',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary)),
+              const SizedBox(width: 8),
+              if (_categorySuggestion(selectedCat) != null &&
+                  selectedAnnexure == null)
+                Text('Suggested: ${_categorySuggestion(selectedCat)}',
+                    style: const TextStyle(
+                        fontSize: 10, color: AppColors.textTertiary)),
+            ]),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                // None chip
+                GestureDetector(
+                  onTap: () => setState(() => selectedAnnexure = null),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: selectedAnnexure == null
+                          ? AppColors.textSecondary.withValues(alpha: 0.1)
+                          : Colors.white,
+                      border: Border.all(
+                          color: selectedAnnexure == null
+                              ? AppColors.textSecondary
+                              : AppColors.border,
+                          width: selectedAnnexure == null ? 1.5 : 1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text('None',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: selectedAnnexure == null
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: selectedAnnexure == null
+                                ? AppColors.textSecondary
+                                : AppColors.textTertiary)),
+                  ),
+                ),
+                // A–I chips
+                ...['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].map((letter) {
+                  final sel = selectedAnnexure == letter;
+                  return GestureDetector(
+                    onTap: () => setState(() => selectedAnnexure = letter),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: sel ? AppColors.navy.withValues(alpha: 0.1) : Colors.white,
+                        border: Border.all(
+                            color: sel ? AppColors.navy : AppColors.border,
+                            width: sel ? 1.5 : 1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(letter,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                              color: sel ? AppColors.navy : AppColors.textSecondary)),
+                    ),
+                  );
+                }),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Surveyor confirmed toggle (AI-extracted docs only) ────
+            if (doc.aiExtracted)
+              _ToggleRow(
+                icon: Icons.verified_outlined,
+                label: 'AI extraction reviewed & confirmed',
+                value: surveyorConfirmed,
+                color: AppColors.success,
+                onChanged: (v) => setState(() => surveyorConfirmed = v),
+              ),
+
+            // ── Cover photo toggle (images only) ─────────────────────
+            if (doc.isImage) ...[
+              const SizedBox(height: 6),
+              _ToggleRow(
+                icon: Icons.photo_camera_outlined,
+                label: 'Use as report cover photo',
+                value: isCoverPhoto,
+                color: AppColors.coral,
+                onChanged: (v) => setState(() => isCoverPhoto = v),
+              ),
+            ],
+
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -252,13 +353,24 @@ class DocumentTile extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(10))),
                 onPressed: () async {
                   final newTitle = titleCtrl.text.trim();
+                  final capturedAnnexure = selectedAnnexure;
+                  final capturedConfirmed = surveyorConfirmed;
+                  final capturedCover = isCoverPhoto;
                   Navigator.pop(ctx);
                   try {
-                    await ref
-                        .read(documentProvider(doc.caseId).notifier)
-                        .updateMetadata(doc.docId,
-                            title: newTitle.isNotEmpty ? newTitle : null,
-                            category: selectedCat);
+                    final notifier =
+                        ref.read(documentProvider(doc.caseId).notifier);
+                    // Cover photo uses a dedicated method to enforce exclusivity
+                    if (capturedCover && !doc.isCoverPhoto) {
+                      await notifier.setCoverPhoto(doc.docId);
+                    } else if (!capturedCover && doc.isCoverPhoto) {
+                      await notifier.clearCoverPhoto();
+                    }
+                    await notifier.updateMetadata(doc.docId,
+                        title: newTitle.isNotEmpty ? newTitle : null,
+                        category: selectedCat,
+                        annexureAssignment: capturedAnnexure,
+                        surveyorConfirmed: capturedConfirmed);
                   } catch (e, st) {
                     if (context.mounted) {
                       showError(context, 'Update failed: $e',
@@ -388,6 +500,27 @@ class DocumentTile extends ConsumerWidget {
   String _formatDate(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/'
       '${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  String? _categorySuggestion(DocCategory? cat) => switch (cat) {
+        DocCategory.invoice => 'A',
+        DocCategory.correspondence => 'B',
+        DocCategory.certificate ||
+        DocCategory.classSurveyReport ||
+        DocCategory.conditionOfClass =>
+          'C',
+        DocCategory.previousSurveyReport ||
+        DocCategory.inspectionReport ||
+        DocCategory.serviceReport =>
+          'D',
+        DocCategory.logbookExtract ||
+        DocCategory.maintenanceRecord ||
+        DocCategory.statementOfFacts =>
+          'E',
+        DocCategory.incidentReport => 'F',
+        DocCategory.oilAnalysis => 'G',
+        DocCategory.intelligenceReport => 'H',
+        _ => null,
+      };
 }
 
 class _Badge extends StatelessWidget {
@@ -407,5 +540,41 @@ class _Badge extends StatelessWidget {
           style: TextStyle(
               fontSize: 9, color: color, fontWeight: FontWeight.w600)),
     );
+  }
+}
+
+class _ToggleRow extends StatelessWidget {
+  const _ToggleRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.onChanged,
+  });
+  final IconData icon;
+  final String label;
+  final bool value;
+  final Color color;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Icon(icon, size: 16, color: value ? color : AppColors.textTertiary),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                color: value ? color : AppColors.textSecondary,
+                fontWeight: value ? FontWeight.w600 : FontWeight.normal)),
+      ),
+      Switch(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: color,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    ]);
   }
 }
