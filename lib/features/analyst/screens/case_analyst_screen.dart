@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/supabase_client.dart';
@@ -10,6 +11,7 @@ import '../../../core/services/model_manager.dart';
 import '../../../core/services/sherpa_service.dart';
 import '../../settings/providers/speech_settings_provider.dart';
 import '../../../core/services/case_context_builder.dart';
+import '../../../features/accounts/providers/accounts_provider.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
@@ -81,6 +83,7 @@ class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
       vessel: ref.read(vesselForCaseProvider(widget.caseId)).valueOrNull,
       damage: ref.read(damageProvider(widget.caseId)).valueOrNull,
       notes: ref.read(surveyorNotesProvider(widget.caseId)).valueOrNull,
+      repairDocuments: ref.read(repairDocumentsProvider(widget.caseId)).valueOrNull,
     );
   }
 
@@ -185,15 +188,17 @@ class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
   @override
   Widget build(BuildContext context) {
     // Watch providers so we know when they're loaded
-    final caseAsync = ref.watch(caseProvider(widget.caseId));
-    final vesselAsync = ref.watch(vesselForCaseProvider(widget.caseId));
-    final damageAsync = ref.watch(damageProvider(widget.caseId));
-    final notesAsync = ref.watch(surveyorNotesProvider(widget.caseId));
+    final caseAsync    = ref.watch(caseProvider(widget.caseId));
+    final vesselAsync  = ref.watch(vesselForCaseProvider(widget.caseId));
+    final damageAsync  = ref.watch(damageProvider(widget.caseId));
+    final notesAsync   = ref.watch(surveyorNotesProvider(widget.caseId));
+    final accountsAsync = ref.watch(repairDocumentsProvider(widget.caseId));
 
     final allLoaded = caseAsync.hasValue &&
         vesselAsync.hasValue &&
         damageAsync.hasValue &&
-        notesAsync.hasValue;
+        notesAsync.hasValue &&
+        accountsAsync.hasValue;
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -325,18 +330,101 @@ class _Bubble extends StatelessWidget {
                         ? Border.all(color: AppColors.border)
                         : null,
               ),
-              child: Text(
-                msg.content,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: isUser
-                      ? Colors.white
-                      : isError
-                          ? Colors.red.shade700
-                          : AppColors.textPrimary,
-                ),
-              ),
+              child: isUser || isError
+                  ? Text(
+                      msg.content,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: isUser
+                            ? Colors.white
+                            : Colors.red.shade700,
+                      ),
+                    )
+                  : MarkdownBody(
+                      data: msg.content,
+                      shrinkWrap: true,
+                      styleSheet: MarkdownStyleSheet(
+                        p: const TextStyle(
+                          fontSize: 13,
+                          height: 1.5,
+                          color: AppColors.textPrimary,
+                        ),
+                        h1: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          height: 1.4,
+                        ),
+                        h2: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          height: 1.4,
+                        ),
+                        h3: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                          height: 1.4,
+                        ),
+                        strong: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                        em: const TextStyle(
+                          fontStyle: FontStyle.italic,
+                          color: AppColors.textPrimary,
+                        ),
+                        code: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          color: _kAccent,
+                          backgroundColor:
+                              _kAccent.withValues(alpha: 0.08),
+                        ),
+                        codeblockDecoration: BoxDecoration(
+                          color: _kAccent.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                              color: _kAccent.withValues(alpha: 0.15)),
+                        ),
+                        blockquoteDecoration: BoxDecoration(
+                          border: Border(
+                            left: BorderSide(
+                                color: _kAccent.withValues(alpha: 0.4),
+                                width: 3),
+                          ),
+                        ),
+                        blockquote: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        listBullet: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textPrimary,
+                        ),
+                        tableHead: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                        tableBody: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                        ),
+                        horizontalRuleDecoration: const BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: AppColors.border),
+                          ),
+                        ),
+                        pPadding: const EdgeInsets.only(bottom: 4),
+                        h1Padding: const EdgeInsets.only(top: 8, bottom: 4),
+                        h2Padding: const EdgeInsets.only(top: 6, bottom: 4),
+                        h3Padding: const EdgeInsets.only(top: 4, bottom: 2),
+                      ),
+                    ),
             ),
           ),
           if (isUser) const SizedBox(width: 36),

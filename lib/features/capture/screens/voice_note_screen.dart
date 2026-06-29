@@ -1,6 +1,7 @@
 // lib/features/capture/screens/voice_note_screen.dart
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/voice_note_provider.dart';
@@ -60,6 +61,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
   // ── Model init ─────────────────────────────────────────────────────────────
 
   Future<void> _initModel() async {
+    if (kIsWeb) return; // sherpa-onnx requires dart:ffi, not available on web
     if (_sherpa.isInitialized) {
       setState(() => _modelReady = true);
       return;

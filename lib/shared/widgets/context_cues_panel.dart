@@ -22,6 +22,7 @@ Color _catColor(NoteCategory cat) => switch (cat) {
       NoteCategory.operations    => const Color(0xFF0F766E),
       NoteCategory.previousWorks => const Color(0xFF6B7280),
       NoteCategory.policy        => const Color(0xFF4338CA),
+      NoteCategory.invoicing     => const Color(0xFF0284C7),
       NoteCategory.general       => const Color(0xFF4A7A5A),
     };
 
@@ -58,6 +59,7 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
 
 class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   bool _expanded = true;
+  int _tab = 0; // 0 = active, 1 = ignored
 
   @override
   Widget build(BuildContext context) {
@@ -68,10 +70,16 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
             .toList() ??
         [];
 
+    final activeNotes =
+        sectionNotes.where((n) => n.priority != CuePriority.ignored).toList();
+    final ignoredNotes =
+        sectionNotes.where((n) => n.priority == CuePriority.ignored).toList();
+    final visibleNotes = _tab == 0 ? activeNotes : ignoredNotes;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
-      height: _expanded ? 230 : 44,
+      height: _expanded ? 268 : 44,
       decoration: const BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border, width: 1)),
@@ -105,7 +113,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary),
                   ),
-                  if (sectionNotes.isNotEmpty) ...[
+                  if (activeNotes.isNotEmpty) ...[
                     const SizedBox(width: 7),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -115,7 +123,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '${sectionNotes.length}',
+                        '${activeNotes.length}',
                         style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -156,31 +164,60 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
             ),
           ),
 
-          // ── Notes list ───────────────────────────────────────────────
-          if (_expanded)
+          // ── Tab bar + list ───────────────────────────────────────────
+          if (_expanded) ...[
+            // Tab pills
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+              child: Row(
+                children: [
+                  _CueTabPill(
+                    label: 'Active',
+                    count: activeNotes.length,
+                    selected: _tab == 0,
+                    accent: accent,
+                    onTap: () => setState(() => _tab = 0),
+                  ),
+                  const SizedBox(width: 6),
+                  _CueTabPill(
+                    label: 'Ignored',
+                    count: ignoredNotes.length,
+                    selected: _tab == 1,
+                    accent: AppColors.textSecondary,
+                    onTap: () => setState(() => _tab = 1),
+                  ),
+                ],
+              ),
+            ),
+
+            // Notes list
             Expanded(
               child: notesAsync.when(
                 loading: () => const Center(
                     child: CircularProgressIndicator(strokeWidth: 2)),
                 error: (e, _) => Center(child: Text('Error: $e')),
-                data: (_) => sectionNotes.isEmpty
-                    ? _CuesPanelEmpty(section: widget.section)
+                data: (_) => visibleNotes.isEmpty
+                    ? _CuesPanelEmpty(
+                        section: widget.section,
+                        isIgnoredTab: _tab == 1,
+                      )
                     : ListView.builder(
                         padding:
                             const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                        itemCount: sectionNotes.length,
+                        itemCount: visibleNotes.length,
                         itemBuilder: (_, i) => _CuePanelTile(
-                          note: sectionNotes[i],
-                          accent: accent,
-                          onEdit: () => _editNote(context, sectionNotes[i]),
+                          note: visibleNotes[i],
+                          accent: _tab == 0 ? accent : AppColors.textSecondary,
+                          onEdit: () => _editNote(context, visibleNotes[i]),
                           onDelete: () => ref
                               .read(surveyorNotesProvider(widget.caseId)
                                   .notifier)
-                              .delete(sectionNotes[i].id),
+                              .delete(visibleNotes[i].id),
                         ),
                       ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -224,6 +261,73 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   }
 }
 
+// ── Tab pill ──────────────────────────────────────────────────────────────────
+
+class _CueTabPill extends StatelessWidget {
+  const _CueTabPill({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected ? accent : accent.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: selected ? accent : accent.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : accent),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 5),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.25)
+                      : accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? Colors.white : accent),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Tile ──────────────────────────────────────────────────────────────────────
 
 class _CuePanelTile extends StatelessWidget {
@@ -242,81 +346,75 @@ class _CuePanelTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final catColor = _catColor(note.category);
-    final isIgnored = note.priority == CuePriority.ignored;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
-      child: Opacity(
-        opacity: isIgnored ? 0.45 : 1.0,
-        child: GestureDetector(
-          onTap: onEdit,
-          child: Container(
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(8),
-              border:
-                  Border.all(color: accent.withValues(alpha: 0.15)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: catColor,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(8),
-                      bottomLeft: Radius.circular(8),
-                    ),
+      child: GestureDetector(
+        onTap: onEdit,
+        child: Container(
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: accent.withValues(alpha: 0.15)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: catColor,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(8),
+                    bottomLeft: Radius.circular(8),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 7),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: catColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            note.category.label,
-                            style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: catColor),
-                          ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: catColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
                         ),
-                        const SizedBox(width: 7),
-                        Flexible(
-                          child: Text(
-                            note.content,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: isIgnored
-                                    ? AppColors.textTertiary
-                                    : AppColors.textPrimary),
-                          ),
+                        child: Text(
+                          note.category.label,
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: catColor),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          note.content,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12, color: accent == AppColors.textSecondary
+                                  ? AppColors.textTertiary
+                                  : AppColors.textPrimary),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                GestureDetector(
-                  onTap: onDelete,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Icon(Icons.close,
-                        size: 13, color: AppColors.textTertiary),
-                  ),
+              ),
+              GestureDetector(
+                onTap: onDelete,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.close,
+                      size: 13, color: AppColors.textTertiary),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -532,15 +630,18 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 class _CuesPanelEmpty extends StatelessWidget {
-  const _CuesPanelEmpty({required this.section});
+  const _CuesPanelEmpty({required this.section, this.isIgnoredTab = false});
   final ReportSection section;
+  final bool isIgnoredTab;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
       child: Text(
-        'No context cues for ${section.label} yet. Tap + Add to capture a cue.',
+        isIgnoredTab
+            ? 'No ignored cues for ${section.label}.'
+            : 'No context cues for ${section.label} yet. Tap + Add to capture a cue.',
         style: const TextStyle(
             fontSize: 12,
             color: AppColors.textTertiary,

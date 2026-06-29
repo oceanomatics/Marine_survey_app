@@ -1,8 +1,11 @@
 // lib/features/survey/screens/repair_periods_screen.dart
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+
 import '../providers/damage_provider.dart';
 import '../providers/repair_period_provider.dart';
 import '../models/repair_period_model.dart';
@@ -10,8 +13,12 @@ import '../widgets/add_repair_period_sheet.dart';
 import '../widgets/assign_repair_items_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 
 const _kRepairColor = Color(0xFF1A6B9E);
+const _kTimesColor  = Color(0xFF0F766E);
+const _kBudgetColor = Color(0xFF7B5EA7);
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -30,7 +37,7 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
   @override
   Widget build(BuildContext context) {
     final repairsAsync = ref.watch(repairPeriodsProvider(caseId));
-    final damageAsync = ref.watch(damageProvider(caseId));
+    final damageAsync  = ref.watch(damageProvider(caseId));
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -132,35 +139,33 @@ class _RepairPeriodsBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (periods.isEmpty) {
-      return _EmptyRepairs(onAdd: onAddPeriod);
+      return Column(
+        children: [
+          Expanded(child: _EmptyRepairs(onAdd: onAddPeriod)),
+          ContextCuesPanel(caseId: caseId, section: ReportSection.repairs),
+        ],
+      );
     }
 
-    final totalAssigned = periods
-        .expand((p) => p.assignments)
-        .map((a) => a.damageId)
-        .toSet()
-        .length;
-    final totalItems = ds.totalDamageItems;
-
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: _RepairSummaryBanner(
-            periods: periods.length,
-            assignedItems: totalAssigned,
-            totalItems: totalItems,
-          ),
-        ),
-        for (final period in periods)
-          SliverToBoxAdapter(
-            child: _PeriodCard(
-              period: period,
-              ds: ds,
-              onDelete: () => _confirmDelete(context, period),
-              onAssign: () => onAssignItems(period),
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
+            itemCount: periods.length,
+            itemBuilder: (_, i) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _PeriodCard(
+                caseId: caseId,
+                period: periods[i],
+                ds: ds,
+                onDelete: () => _confirmDelete(context, periods[i]),
+                onAssign: () => onAssignItems(periods[i]),
+              ),
             ),
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ),
+        ContextCuesPanel(caseId: caseId, section: ReportSection.repairs),
       ],
     );
   }
@@ -191,91 +196,28 @@ class _RepairPeriodsBody extends StatelessWidget {
   }
 }
 
-// ── Summary banner ─────────────────────────────────────────────────────────
-
-class _RepairSummaryBanner extends StatelessWidget {
-  const _RepairSummaryBanner({
-    required this.periods,
-    required this.assignedItems,
-    required this.totalItems,
-  });
-
-  final int periods;
-  final int assignedItems;
-  final int totalItems;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          _RStat('Periods', '$periods', _kRepairColor),
-          _RDivider(),
-          _RStat('Items Assigned', '$assignedItems', AppColors.success),
-          _RDivider(),
-          _RStat('Total Items', '$totalItems', AppColors.coral),
-        ],
-      ),
-    );
-  }
-}
-
-class _RStat extends StatelessWidget {
-  const _RStat(this.label, this.value, this.color);
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 22, fontWeight: FontWeight.w700, color: color)),
-        Text(label,
-            style: const TextStyle(
-                fontSize: 10,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w500)),
-      ]),
-    );
-  }
-}
-
-class _RDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) =>
-      Container(width: 1, height: 36, color: AppColors.border);
-}
-
 // ── Period card ────────────────────────────────────────────────────────────
 
-class _PeriodCard extends StatefulWidget {
+class _PeriodCard extends ConsumerStatefulWidget {
   const _PeriodCard({
+    required this.caseId,
     required this.period,
     required this.ds,
     required this.onDelete,
     required this.onAssign,
   });
 
+  final String caseId;
   final RepairPeriodModel period;
   final DamageState ds;
   final VoidCallback onDelete;
   final VoidCallback onAssign;
 
   @override
-  State<_PeriodCard> createState() => _PeriodCardState();
+  ConsumerState<_PeriodCard> createState() => _PeriodCardState();
 }
 
-class _PeriodCardState extends State<_PeriodCard> {
+class _PeriodCardState extends ConsumerState<_PeriodCard> {
   bool _expanded = true;
 
   @override
@@ -284,7 +226,7 @@ class _PeriodCardState extends State<_PeriodCard> {
     final df = DateFormat('dd/MM/yyyy');
     final dateStr = [
       if (period.startDate != null) df.format(period.startDate!),
-      if (period.endDate != null) df.format(period.endDate!),
+      if (period.endDate   != null) df.format(period.endDate!),
     ].join(' → ');
 
     final contextColor = period.portContext == PortContext.planned
@@ -305,7 +247,6 @@ class _PeriodCardState extends State<_PeriodCard> {
     }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -319,7 +260,7 @@ class _PeriodCardState extends State<_PeriodCard> {
       ),
       child: Column(
         children: [
-          // ── Card header ────────────────────────────────────────────────
+          // ── Card header ──────────────────────────────────────────────
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
             borderRadius: BorderRadius.circular(12),
@@ -335,13 +276,11 @@ class _PeriodCardState extends State<_PeriodCard> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Center(
-                      child: Text(
-                        '${period.periodNo}',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700),
-                      ),
+                      child: Text('${period.periodNo}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700)),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -351,13 +290,11 @@ class _PeriodCardState extends State<_PeriodCard> {
                       children: [
                         Row(children: [
                           Expanded(
-                            child: Text(
-                              period.displayTitle,
-                              style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary),
-                            ),
+                            child: Text(period.displayTitle,
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary)),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -366,8 +303,7 @@ class _PeriodCardState extends State<_PeriodCard> {
                               color: contextColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(5),
                               border: Border.all(
-                                  color:
-                                      contextColor.withValues(alpha: 0.3)),
+                                  color: contextColor.withValues(alpha: 0.3)),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -436,8 +372,7 @@ class _PeriodCardState extends State<_PeriodCard> {
                                 SizedBox(width: 8),
                                 Text('Delete period',
                                     style: TextStyle(
-                                        color: AppColors.error,
-                                        fontSize: 13)),
+                                        color: AppColors.error, fontSize: 13)),
                               ])),
                         ],
                       ),
@@ -455,9 +390,11 @@ class _PeriodCardState extends State<_PeriodCard> {
             ),
           ),
 
-          // ── Assignments (expandable) ──────────────────────────────────
+          // ── Expandable body ──────────────────────────────────────────
           if (_expanded) ...[
-            const Divider(height: 1, thickness: 0.5, indent: 12),
+            const Divider(height: 1, thickness: 0.5),
+
+            // ── Assignments ──────────────────────────────────────────
             if (period.assignments.isEmpty)
               const Padding(
                 padding: EdgeInsets.fromLTRB(14, 12, 14, 4),
@@ -500,7 +437,7 @@ class _PeriodCardState extends State<_PeriodCard> {
               ),
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -517,12 +454,1601 @@ class _PeriodCardState extends State<_PeriodCard> {
                 ),
               ),
             ),
+
+            // ── Repair Times ─────────────────────────────────────────
+            const Divider(height: 1, thickness: 0.5),
+            _RepairTimesSection(
+              period: period,
+              occurrences: widget.ds.occurrences,
+              onEditRow: (key, current) => _editRepairTimeRow(key, current),
+            ),
+
+            // ── Work Not Concerning Average ──────────────────────────
+            const Divider(height: 1, thickness: 0.5),
+            _NotAverageSection(
+              items: period.notAverageItems,
+              onAdd: () => _addNotAverageItem(),
+              onRemove: (itemId) => ref
+                  .read(repairPeriodsProvider(widget.caseId).notifier)
+                  .removeNotAverageItem(period.periodId, itemId),
+            ),
+
+            // ── Budget Estimate ──────────────────────────────────────
+            const Divider(height: 1, thickness: 0.5),
+            _BudgetSection(
+              caseId: widget.caseId,
+              period: period,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Repair time edit ────────────────────────────────────────────────────
+
+  void _editRepairTimeRow(String key, RepairTimeEntry current) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditRepairTimeSheet(
+        rowLabel: _repairTimeLabel(key, widget.ds.occurrences),
+        current: current,
+        onSave: (entry) async {
+          final updated = Map<String, RepairTimeEntry>.from(
+              widget.period.repairTimes);
+          if (entry.isEmpty) {
+            updated.remove(key);
+          } else {
+            updated[key] = entry;
+          }
+          await ref
+              .read(repairPeriodsProvider(widget.caseId).notifier)
+              .saveRepairTimes(widget.period.periodId, updated);
+        },
+      ),
+    );
+  }
+
+  String _repairTimeLabel(String key, List<OccurrenceModel> occs) {
+    if (key == 'owners') return "Owner's Work";
+    final no = int.tryParse(key.replaceFirst('occ_', ''));
+    if (no == null) return key;
+    final occ = occs.where((o) => o.occurrenceNo == no).firstOrNull;
+    return occ?.title != null && occ!.title!.isNotEmpty
+        ? 'Occ. $no — ${occ.title}'
+        : 'Occurrence $no';
+  }
+
+  // ── Not-average item add ────────────────────────────────────────────────
+
+  void _addNotAverageItem() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Work Item',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            hintText: 'Describe the work item…',
+            border: OutlineInputBorder(),
+            contentPadding:
+                EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final text = ctrl.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(ctx);
+              ref
+                  .read(repairPeriodsProvider(widget.caseId).notifier)
+                  .addNotAverageItem(widget.period.periodId, text);
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: _kRepairColor,
+                foregroundColor: Colors.white),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Repair Times section ──────────────────────────────────────────────────
+
+class _RepairTimesSection extends StatelessWidget {
+  const _RepairTimesSection({
+    required this.period,
+    required this.occurrences,
+    required this.onEditRow,
+  });
+
+  final RepairPeriodModel period;
+  final List<OccurrenceModel> occurrences;
+  final void Function(String key, RepairTimeEntry current) onEditRow;
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedOccs = [...occurrences]
+      ..sort((a, b) => a.occurrenceNo.compareTo(b.occurrenceNo));
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section title
+          Row(children: [
+            const Icon(Icons.schedule_outlined,
+                size: 13, color: _kTimesColor),
+            const SizedBox(width: 5),
+            const Text('REPAIR TIMES',
+                style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: _kTimesColor)),
+          ]),
+          const SizedBox(height: 8),
+
+          // Table header
+          Container(
+            decoration: BoxDecoration(
+              color: _kTimesColor.withValues(alpha: 0.06),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(6)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+            child: Row(
+              children: [
+                const Expanded(child: SizedBox()),
+                _TableHeader('DRY-DOCK'),
+                _TableHeader('ALONGSIDE'),
+                const SizedBox(width: 28),
+              ],
+            ),
+          ),
+
+          // Occurrence rows
+          for (int i = 0; i < sortedOccs.length; i++) ...[
+            _RepairTimeRow(
+              label: _rowLabel(sortedOccs[i]),
+              entry: period.repairTimes['occ_${sortedOccs[i].occurrenceNo}'] ??
+                  const RepairTimeEntry(),
+              isLast: false,
+              isAlt: i.isOdd,
+              onTap: () => onEditRow(
+                'occ_${sortedOccs[i].occurrenceNo}',
+                period.repairTimes['occ_${sortedOccs[i].occurrenceNo}'] ??
+                    const RepairTimeEntry(),
+              ),
+            ),
+          ],
+
+          // Owner's Work row
+          _RepairTimeRow(
+            label: "Owner's Work",
+            entry: period.repairTimes['owners'] ?? const RepairTimeEntry(),
+            isLast: true,
+            isAlt: sortedOccs.length.isOdd,
+            onTap: () => onEditRow(
+              'owners',
+              period.repairTimes['owners'] ?? const RepairTimeEntry(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _rowLabel(OccurrenceModel occ) {
+    if (occ.title != null && occ.title!.isNotEmpty) {
+      return 'Occ. ${occ.occurrenceNo} — ${occ.title}';
+    }
+    return 'Occurrence ${occ.occurrenceNo}';
+  }
+}
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+            color: _kTimesColor,
+            letterSpacing: 0.5),
+      ),
+    );
+  }
+}
+
+class _RepairTimeRow extends StatelessWidget {
+  const _RepairTimeRow({
+    required this.label,
+    required this.entry,
+    required this.isLast,
+    required this.isAlt,
+    required this.onTap,
+  });
+
+  final String label;
+  final RepairTimeEntry entry;
+  final bool isLast;
+  final bool isAlt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isAlt
+        ? _kTimesColor.withValues(alpha: 0.03)
+        : Colors.white;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: isLast
+              ? const BorderRadius.vertical(bottom: Radius.circular(6))
+              : null,
+          border: Border(
+            left: BorderSide(
+                color: _kTimesColor.withValues(alpha: 0.2), width: 0.5),
+            right: BorderSide(
+                color: _kTimesColor.withValues(alpha: 0.2), width: 0.5),
+            bottom: BorderSide(
+                color: _kTimesColor.withValues(alpha: 0.2), width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textPrimary)),
+            ),
+            _DayCell(entry.drydockDays),
+            _DayCell(entry.alongsideDays),
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Icon(Icons.edit_outlined,
+                  size: 13, color: AppColors.textTertiary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DayCell extends StatelessWidget {
+  const _DayCell(this.days);
+  final double? days;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      child: Text(
+        days != null ? '${_fmt(days!)} d' : '—',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+            fontSize: 12,
+            fontWeight: days != null ? FontWeight.w600 : FontWeight.w400,
+            color: days != null ? AppColors.textPrimary : AppColors.textTertiary),
+      ),
+    );
+  }
+
+  String _fmt(double d) =>
+      d == d.truncateToDouble() ? d.toInt().toString() : d.toStringAsFixed(1);
+}
+
+// ── Edit repair time sheet ─────────────────────────────────────────────────
+
+class _EditRepairTimeSheet extends StatefulWidget {
+  const _EditRepairTimeSheet({
+    required this.rowLabel,
+    required this.current,
+    required this.onSave,
+  });
+
+  final String rowLabel;
+  final RepairTimeEntry current;
+  final Future<void> Function(RepairTimeEntry) onSave;
+
+  @override
+  State<_EditRepairTimeSheet> createState() => _EditRepairTimeSheetState();
+}
+
+class _EditRepairTimeSheetState extends State<_EditRepairTimeSheet> {
+  late final TextEditingController _drydock;
+  late final TextEditingController _alongside;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _drydock = TextEditingController(
+        text: widget.current.drydockDays?.toString() ?? '');
+    _alongside = TextEditingController(
+        text: widget.current.alongsideDays?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _drydock.dispose();
+    _alongside.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text('Repair Times — ${widget.rowLabel}',
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 4),
+            const Text('Enter number of days (decimals allowed)',
+                style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                child: _DaysField(
+                    label: 'Dry-Dock Days',
+                    controller: _drydock,
+                    color: _kTimesColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _DaysField(
+                    label: 'Alongside Days',
+                    controller: _alongside,
+                    color: _kTimesColor),
+              ),
+            ]),
+            const SizedBox(height: 20),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: _kTimesColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12)),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Save'),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final entry = RepairTimeEntry(
+        drydockDays: double.tryParse(_drydock.text.trim()),
+        alongsideDays: double.tryParse(_alongside.text.trim()),
+      );
+      await widget.onSave(entry);
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+class _DaysField extends StatelessWidget {
+  const _DaysField(
+      {required this.label, required this.controller, required this.color});
+  final String label;
+  final TextEditingController controller;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary)),
+        const SizedBox(height: 5),
+        TextField(
+          controller: controller,
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+          ],
+          decoration: InputDecoration(
+            hintText: '0',
+            hintStyle:
+                const TextStyle(color: AppColors.textTertiary),
+            suffixText: 'd',
+            suffixStyle: TextStyle(
+                color: color, fontWeight: FontWeight.w600),
+            filled: true,
+            fillColor: color.withValues(alpha: 0.05),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: color.withValues(alpha: 0.3))),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: color.withValues(alpha: 0.3))),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: color, width: 1.5)),
+          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Not Concerning Average section ─────────────────────────────────────────
+
+class _NotAverageSection extends StatelessWidget {
+  const _NotAverageSection({
+    required this.items,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<NotAverageItem> items;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.remove_circle_outline,
+                  size: 13, color: AppColors.textSecondary),
+              const SizedBox(width: 5),
+              const Expanded(
+                child: Text('WORK NOT CONCERNING AVERAGE',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: AppColors.textSecondary)),
+              ),
+              GestureDetector(
+                onTap: onAdd,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.textSecondary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                        color:
+                            AppColors.textSecondary.withValues(alpha: 0.2)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add, size: 11, color: AppColors.textSecondary),
+                      SizedBox(width: 3),
+                      Text('Add',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (items.isEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'No items added. Tap Add to record work done at owner\'s account.',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            for (final item in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 3, right: 6),
+                      child: Icon(Icons.circle,
+                          size: 5, color: AppColors.textSecondary),
+                    ),
+                    Expanded(
+                      child: Text(item.text,
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.textPrimary)),
+                    ),
+                    GestureDetector(
+                      onTap: () => onRemove(item.itemId),
+                      child: const Padding(
+                        padding: EdgeInsets.only(left: 8),
+                        child: Icon(Icons.close,
+                            size: 14, color: AppColors.textTertiary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ],
       ),
     );
   }
 }
+
+// ── Budget Estimate section ────────────────────────────────────────────────
+
+class _BudgetSection extends ConsumerStatefulWidget {
+  const _BudgetSection({required this.caseId, required this.period});
+  final String caseId;
+  final RepairPeriodModel period;
+
+  @override
+  ConsumerState<_BudgetSection> createState() => _BudgetSectionState();
+}
+
+class _BudgetSectionState extends ConsumerState<_BudgetSection> {
+  bool _fetchingRate = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final period = widget.period;
+    final items  = period.budgetItems;
+    final fmt    = NumberFormat('#,##0.00');
+
+    final totalBase = items.fold(0.0, (s, i) => s + i.amount);
+    final converted = (period.budgetExchangeRate != null && !_sameCurrency(period))
+        ? totalBase * period.budgetExchangeRate!
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section header
+          Row(
+            children: [
+              const Icon(Icons.calculate_outlined,
+                  size: 13, color: _kBudgetColor),
+              const SizedBox(width: 5),
+              const Expanded(
+                child: Text('BUDGET ESTIMATE',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: _kBudgetColor)),
+              ),
+              GestureDetector(
+                onTap: () => _showDisplaySettings(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _kBudgetColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                        color: _kBudgetColor.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.currency_exchange,
+                          size: 11, color: _kBudgetColor),
+                      const SizedBox(width: 3),
+                      Text(
+                        _sameCurrency(period)
+                            ? period.budgetBaseCurrency
+                            : '${period.budgetBaseCurrency} → ${period.budgetDisplayCurrency}',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: _kBudgetColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (items.isEmpty)
+            const Text(
+              'No budget items yet. Tap + to add cost estimates for the underwriter.',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic),
+            )
+          else ...[
+            // Table header
+            Container(
+              decoration: BoxDecoration(
+                color: _kBudgetColor.withValues(alpha: 0.06),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(6)),
+              ),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('DESCRIPTION',
+                        style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: _kBudgetColor,
+                            letterSpacing: 0.5)),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: Text('AMOUNT',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: _kBudgetColor,
+                            letterSpacing: 0.5)),
+                  ),
+                  const SizedBox(width: 26),
+                ],
+              ),
+            ),
+
+            // Item rows
+            for (int i = 0; i < items.length; i++)
+              _BudgetItemRow(
+                item: items[i],
+                isAlt: i.isOdd,
+                isLast: i == items.length - 1,
+                onTap: () => _editItem(items[i]),
+                onDelete: () => ref
+                    .read(repairPeriodsProvider(widget.caseId).notifier)
+                    .removeBudgetItem(period.periodId, items[i].itemId),
+              ),
+
+            // Total row
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              decoration: BoxDecoration(
+                color: _kBudgetColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6),
+                border:
+                    Border.all(color: _kBudgetColor.withValues(alpha: 0.25)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text('TOTAL',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: _kBudgetColor)),
+                      const Spacer(),
+                      Text(
+                        '${period.budgetBaseCurrency} ${fmt.format(totalBase)}',
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _kBudgetColor),
+                      ),
+                    ],
+                  ),
+                  if (!_sameCurrency(period)) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            period.budgetExchangeRate != null
+                                ? '@ ${period.budgetExchangeRate!.toStringAsFixed(4)}'
+                                    '${period.budgetRateDate != null ? ' — ${DateFormat('dd MMM yyyy').format(period.budgetRateDate!)}' : ''}'
+                                : 'Exchange rate not set',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: period.budgetExchangeRate != null
+                                    ? AppColors.textSecondary
+                                    : AppColors.textTertiary,
+                                fontStyle: period.budgetExchangeRate == null
+                                    ? FontStyle.italic
+                                    : FontStyle.normal),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: _fetchingRate ? null : () => _fetchRate(),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _fetchingRate
+                                  ? AppColors.border
+                                  : _kBudgetColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: _fetchingRate
+                                ? const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 1.5,
+                                        color: _kBudgetColor))
+                                : const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.refresh,
+                                          size: 11, color: _kBudgetColor),
+                                      SizedBox(width: 3),
+                                      Text('Fetch Rate',
+                                          style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w600,
+                                              color: _kBudgetColor)),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (converted != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '≈ ${period.budgetDisplayCurrency} ${fmt.format(converted)}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _addItem(),
+              icon: const Icon(Icons.add, size: 15),
+              label: const Text('Add Budget Item'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kBudgetColor,
+                side: const BorderSide(color: _kBudgetColor),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _sameCurrency(RepairPeriodModel p) =>
+      p.budgetBaseCurrency == p.budgetDisplayCurrency;
+
+  void _addItem() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BudgetItemSheet(
+        defaultCurrency: widget.period.budgetBaseCurrency,
+        onSave: (item) async {
+          await ref
+              .read(repairPeriodsProvider(widget.caseId).notifier)
+              .addBudgetItem(widget.period.periodId, item);
+        },
+      ),
+    );
+  }
+
+  void _editItem(BudgetItem item) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BudgetItemSheet(
+        existing: item,
+        defaultCurrency: widget.period.budgetBaseCurrency,
+        onSave: (updated) async {
+          await ref
+              .read(repairPeriodsProvider(widget.caseId).notifier)
+              .updateBudgetItem(widget.period.periodId, updated);
+        },
+      ),
+    );
+  }
+
+  void _showDisplaySettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _BudgetDisplaySheet(
+        period: widget.period,
+        onSave: (base, display, rate, date) async {
+          await ref
+              .read(repairPeriodsProvider(widget.caseId).notifier)
+              .saveBudgetDisplay(
+                periodId: widget.period.periodId,
+                displayCurrency: display,
+                baseCurrency: base,
+                exchangeRate: rate,
+                rateDate: date,
+              );
+        },
+      ),
+    );
+  }
+
+  Future<void> _fetchRate() async {
+    final base    = widget.period.budgetBaseCurrency;
+    final display = widget.period.budgetDisplayCurrency;
+    if (base == display) return;
+
+    setState(() => _fetchingRate = true);
+    try {
+      final rate = await _fetchExchangeRate(base, display);
+      if (rate != null && mounted) {
+        await ref
+            .read(repairPeriodsProvider(widget.caseId).notifier)
+            .saveBudgetDisplay(
+              periodId: widget.period.periodId,
+              displayCurrency: display,
+              baseCurrency: base,
+              exchangeRate: rate,
+              rateDate: DateTime.now(),
+            );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Rate updated: 1 $base = ${rate.toStringAsFixed(4)} $display'),
+            duration: const Duration(seconds: 3),
+          ));
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not fetch rate — check your connection.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _fetchingRate = false);
+    }
+  }
+}
+
+Future<double?> _fetchExchangeRate(String base, String display) async {
+  try {
+    final response = await Dio().get(
+      'https://open.er-api.com/v6/latest/$base',
+      options: Options(receiveTimeout: const Duration(seconds: 10)),
+    );
+    if (response.statusCode == 200) {
+      final rates = (response.data as Map<String, dynamic>)['rates']
+          as Map<String, dynamic>?;
+      return (rates?[display] as num?)?.toDouble();
+    }
+  } catch (_) {}
+  return null;
+}
+
+// ── Budget item row ────────────────────────────────────────────────────────
+
+class _BudgetItemRow extends StatelessWidget {
+  const _BudgetItemRow({
+    required this.item,
+    required this.isAlt,
+    required this.isLast,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final BudgetItem item;
+  final bool isAlt;
+  final bool isLast;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _statusColor(item.status);
+    final fmt = NumberFormat('#,##0.00');
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: isAlt
+              ? _kBudgetColor.withValues(alpha: 0.03)
+              : Colors.white,
+          borderRadius: isLast
+              ? const BorderRadius.vertical(bottom: Radius.circular(6))
+              : null,
+          border: Border(
+            left: BorderSide(
+                color: _kBudgetColor.withValues(alpha: 0.2), width: 0.5),
+            right: BorderSide(
+                color: _kBudgetColor.withValues(alpha: 0.2), width: 0.5),
+            bottom: BorderSide(
+                color: _kBudgetColor.withValues(alpha: 0.2), width: 0.5),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item.description,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: Text(item.status.label,
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            color: statusColor)),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(fmt.format(item.amount),
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary)),
+                Text(item.currency,
+                    style: const TextStyle(
+                        fontSize: 9, color: AppColors.textSecondary)),
+              ],
+            ),
+            GestureDetector(
+              onTap: onDelete,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(Icons.close,
+                    size: 14, color: AppColors.textTertiary),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(BudgetItemStatus s) => switch (s) {
+        BudgetItemStatus.estimated => AppColors.warning,
+        BudgetItemStatus.quoted    => AppColors.info,
+        BudgetItemStatus.incurred  => AppColors.success,
+      };
+}
+
+// ── Budget item add/edit sheet ─────────────────────────────────────────────
+
+const _kCurrencies = [
+  'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY', 'CHF',
+  'NOK', 'DKK', 'SEK', 'SGD', 'HKD', 'NZD', 'CNY',
+];
+
+class _BudgetItemSheet extends StatefulWidget {
+  const _BudgetItemSheet({
+    this.existing,
+    required this.defaultCurrency,
+    required this.onSave,
+  });
+
+  final BudgetItem? existing;
+  final String defaultCurrency;
+  final Future<void> Function(BudgetItem) onSave;
+
+  @override
+  State<_BudgetItemSheet> createState() => _BudgetItemSheetState();
+}
+
+class _BudgetItemSheetState extends State<_BudgetItemSheet> {
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _amountCtrl;
+  late String _currency;
+  late BudgetItemStatus _status;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _descCtrl = TextEditingController(text: e?.description ?? '');
+    _amountCtrl = TextEditingController(
+        text: e != null ? e.amount.toStringAsFixed(2) : '');
+    _currency = e?.currency ?? widget.defaultCurrency;
+    _status   = e?.status ?? BudgetItemStatus.estimated;
+  }
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.existing == null;
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.92,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (_, ctrl) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 4),
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+                child: Row(
+                  children: [
+                    Text(isNew ? 'Add Budget Item' : 'Edit Budget Item',
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 0.5),
+              Expanded(
+                child: ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                  children: [
+                    _sheetLabel('Description'),
+                    TextField(
+                      controller: _descCtrl,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: _sheetDec(hint: 'e.g. Hull plating repairs'),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+
+                    _sheetLabel('Amount'),
+                    Row(children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: _amountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d*')),
+                          ],
+                          decoration:
+                              _sheetDec(hint: '0.00'),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _kCurrencies.contains(_currency)
+                              ? _currency
+                              : _kCurrencies.first,
+                          decoration: _sheetDec(),
+                          items: _kCurrencies
+                              .map((c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Text(c,
+                                      style: const TextStyle(fontSize: 13))))
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _currency = v ?? _currency),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 14),
+
+                    _sheetLabel('Status'),
+                    Wrap(
+                      spacing: 8,
+                      children: BudgetItemStatus.values.map((s) {
+                        final selected = _status == s;
+                        final color = _statusColor(s);
+                        return GestureDetector(
+                          onTap: () => setState(() => _status = s),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 140),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? color
+                                  : color.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: color.withValues(
+                                      alpha: selected ? 1.0 : 0.3)),
+                            ),
+                            child: Text(s.label,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: selected ? Colors.white : color)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 24),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _saving ? null : _save,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _kBudgetColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: _saving
+                            ? const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : Text(isNew ? 'Add Item' : 'Save Changes',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(BudgetItemStatus s) => switch (s) {
+        BudgetItemStatus.estimated => AppColors.warning,
+        BudgetItemStatus.quoted    => AppColors.info,
+        BudgetItemStatus.incurred  => AppColors.success,
+      };
+
+  Widget _sheetLabel(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary)),
+      );
+
+  InputDecoration _sheetDec({String? hint}) => InputDecoration(
+        hintText: hint,
+        hintStyle:
+            const TextStyle(fontSize: 13, color: AppColors.textTertiary),
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.border)),
+      );
+
+  Future<void> _save() async {
+    final desc = _descCtrl.text.trim();
+    if (desc.isEmpty) return;
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    setState(() => _saving = true);
+    try {
+      final item = BudgetItem(
+        itemId: widget.existing?.itemId ?? '',
+        description: desc,
+        amount: amount,
+        currency: _currency,
+        status: _status,
+      );
+      await widget.onSave(item);
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+// ── Budget display / currency settings sheet ───────────────────────────────
+
+class _BudgetDisplaySheet extends StatefulWidget {
+  const _BudgetDisplaySheet({required this.period, required this.onSave});
+
+  final RepairPeriodModel period;
+  final Future<void> Function(
+      String base, String display, double? rate, DateTime? date) onSave;
+
+  @override
+  State<_BudgetDisplaySheet> createState() => _BudgetDisplaySheetState();
+}
+
+class _BudgetDisplaySheetState extends State<_BudgetDisplaySheet> {
+  late String _base;
+  late String _display;
+  late final TextEditingController _rateCtrl;
+  DateTime? _rateDate;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _base    = widget.period.budgetBaseCurrency;
+    _display = widget.period.budgetDisplayCurrency;
+    _rateCtrl = TextEditingController(
+        text: widget.period.budgetExchangeRate?.toStringAsFixed(4) ?? '');
+    _rateDate = widget.period.budgetRateDate;
+  }
+
+  @override
+  void dispose() {
+    _rateCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text('Currency & Exchange Rate',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 16),
+
+            // Base currency
+            Row(children: [
+              Expanded(
+                child: _currencyDropdown(
+                    label: 'Input Currency', value: _base,
+                    onChanged: (v) => setState(() => _base = v!)),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 18),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Icon(Icons.arrow_forward,
+                      size: 18, color: AppColors.textTertiary),
+                ),
+              ),
+              Expanded(
+                child: _currencyDropdown(
+                    label: 'Display Currency', value: _display,
+                    onChanged: (v) => setState(() => _display = v!)),
+              ),
+            ]),
+            const SizedBox(height: 14),
+
+            if (_base != _display) ...[
+              // Rate field
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Exchange Rate (1 $_base = ? $_display)',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _rateCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d*')),
+                    ],
+                    decoration: InputDecoration(
+                      hintText: '1.0000',
+                      hintStyle: const TextStyle(
+                          color: AppColors.textTertiary),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 11),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppColors.border)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppColors.border)),
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Rate date
+              GestureDetector(
+                onTap: () => _pickDate(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _rateDate != null
+                        ? _kBudgetColor.withValues(alpha: 0.05)
+                        : AppColors.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _rateDate != null
+                          ? _kBudgetColor.withValues(alpha: 0.4)
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today_outlined,
+                          size: 14,
+                          color: _rateDate != null
+                              ? _kBudgetColor
+                              : AppColors.textTertiary),
+                      const SizedBox(width: 8),
+                      Text(
+                        _rateDate != null
+                            ? 'Rate Date: ${DateFormat('dd MMM yyyy').format(_rateDate!)}'
+                            : 'Select Rate Date',
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: _rateDate != null
+                                ? AppColors.textPrimary
+                                : AppColors.textTertiary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ] else
+              const SizedBox(height: 6),
+
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: _kBudgetColor,
+                      foregroundColor: Colors.white,
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 12)),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Save'),
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _currencyDropdown({
+    required String label,
+    required String value,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary)),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          value: _kCurrencies.contains(value) ? value : _kCurrencies.first,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: AppColors.surface,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.border)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.border)),
+          ),
+          items: _kCurrencies
+              .map((c) => DropdownMenuItem(
+                  value: c,
+                  child:
+                      Text(c, style: const TextStyle(fontSize: 13))))
+              .toList(),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _rateDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2050),
+    );
+    if (picked != null) setState(() => _rateDate = picked);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final rate = double.tryParse(_rateCtrl.text.trim());
+      await widget.onSave(_base, _display, rate, _rateDate);
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+// ── Assignment sub-widgets ─────────────────────────────────────────────────
 
 class _AssignmentCategoryHeader extends StatelessWidget {
   const _AssignmentCategoryHeader({required this.cat});
@@ -551,7 +2077,7 @@ class _AssignmentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _outcomeColor(assignment.outcome);
+    final color  = _outcomeColor(assignment.outcome);
     final isOwners = !assignment.isConcerningAverage;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -579,7 +2105,8 @@ class _AssignmentRow extends StatelessWidget {
             ),
             if (isOwners) ...[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 margin: const EdgeInsets.only(right: 4),
                 decoration: BoxDecoration(
                   color: AppColors.textSecondary.withValues(alpha: 0.1),
@@ -593,19 +2120,22 @@ class _AssignmentRow extends StatelessWidget {
               ),
             ],
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: isOwners ? 0.05 : 0.1),
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                    color: color.withValues(alpha: isOwners ? 0.15 : 0.3)),
+                    color:
+                        color.withValues(alpha: isOwners ? 0.15 : 0.3)),
               ),
               child: Text(
                 assignment.outcome.label,
                 style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
-                    color: color.withValues(alpha: isOwners ? 0.5 : 1.0)),
+                    color:
+                        color.withValues(alpha: isOwners ? 0.5 : 1.0)),
               ),
             ),
           ]),

@@ -385,7 +385,37 @@ class _VesselParticularsScreenState
 
     return vesselAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
-      error: (e, _) => _buildScaffold(null, error: e.toString()),
+      error: (e, _) => Scaffold(
+        appBar: AppBar(title: const Text('Vessel Particulars')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const SizedBox(height: 16),
+                Text(
+                  'Failed to load vessel data',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  e.toString(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: () => ref.invalidate(vesselForCaseProvider(widget.caseId)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
       data: (vessel) {
         if (vessel != null && _vesselId != vessel.vesselId) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -398,7 +428,7 @@ class _VesselParticularsScreenState
     );
   }
 
-  Widget _buildScaffold(VesselModel? vessel, {String? error}) {
+  Widget _buildScaffold(VesselModel? vessel) {
     final vesselId = vessel?.vesselId ?? _vesselId;
 
     return Scaffold(

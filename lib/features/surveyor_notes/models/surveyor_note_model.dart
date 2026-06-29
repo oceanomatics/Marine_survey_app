@@ -35,6 +35,7 @@ enum NoteCategory {
   operations,
   previousWorks,
   policy,
+  invoicing,
   general;
 
   static NoteCategory fromValue(String v) => switch (v) {
@@ -46,6 +47,7 @@ enum NoteCategory {
         'operations'     => operations,
         'previous_works' => previousWorks,
         'policy'         => policy,
+        'invoicing'      => invoicing,
         _                => general,
       };
 
@@ -64,6 +66,7 @@ enum NoteCategory {
         operations    => 'Operations',
         previousWorks => 'Prev. Works',
         policy        => 'Policy',
+        invoicing     => 'Invoicing',
         general       => 'General',
       };
 }

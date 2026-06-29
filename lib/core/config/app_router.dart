@@ -35,6 +35,8 @@ import '../../features/settings/screens/speech_settings_screen.dart';
 import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
 import '../../features/interviews/screens/record_interview_screen.dart';
+import '../../features/accounts/screens/accounts_screen.dart';
+import '../../features/accounts/screens/invoice_detail_screen.dart';
 import '../../shared/screens/login_screen.dart';
 import '../../core/api/supabase_client.dart';
 
@@ -188,6 +190,18 @@ final appRouter = GoRouter(
               path: 'reports',
               builder: (context, state) =>
                   ReportBuilderScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'accounts',
+              builder: (context, state) =>
+                  AccountsScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'accounts/:documentId',
+              builder: (context, state) => InvoiceDetailScreen(
+                caseId: state.pathParameters['caseId']!,
+                documentId: state.pathParameters['documentId']!,
+              ),
             ),
           ],
         ),

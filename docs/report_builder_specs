@@ -1,0 +1,1049 @@
+# Marine Survey Platform — H&M Report Builder Specification
+
+**Prepared by:** Oceanoservices Pty Ltd (Marine Engineering Projects & Survey)  
+**Reviewed by:** Andrew Marsh — MIMarEST, IEng, MAIMS — Principal Surveyor, Marsh Maritime Pty Ltd  
+**Date:** June 2026  
+**Version:** 1.0  
+**Purpose:** Reference specification for Claude Code to analyse the current state of the survey app, determine the gap between the current implementation and the ideal target state, and produce a prioritised to-do list covering the data input front end and the report builder.
+
+---
+
+## 0. Overview & Technology Context
+
+### 0.1 Current State (as understood)
+The platform currently functions as a **DOCX builder**: it collects structured field data from a surveyor and assembles it into a Word-compatible `.docx` report file. The core pipeline is approximately:
+
+```
+Field data input (form/UI)
+        ↓
+Structured data store (case/claim record)
+        ↓
+Report Builder (docx assembly via Anthropic API + template logic)
+        ↓
+Output: .docx file
+```
+
+Key known characteristics:
+- Report assembly uses the **Anthropic Messages API** (Claude, private API deployment — not the consumer interface)
+- AI assists with: drafting narrative sections from surveyor field notes, extracting structured data from source documents, formatting
+- A **Document Vault** concept exists (or is planned) for storing source documents per case
+- An **audit log** per API call is required (model version, section ID, prompt hash, AI output, surveyor review action)
+- Case data storage architecture is under review (managed cloud / self-hosted / local-first options — see Section 6 of the H&M Analysis document)
+
+### 0.2 Target Architecture (Flutter Integration)
+The eventual target is a **Flutter-native module** that:
+1. Provides the data input front end (mobile/tablet-first for field use)
+2. Drives the report builder
+3. Outputs either a `.docx` or a native **PDF** directly
+
+The current docx-builder approach is a valid intermediate state. The specification below is written to be format-agnostic where possible, so that the same data model and section structure support both docx and PDF output.
+
+> **Claude Code instruction:** Analyse the current codebase against this specification. For each section, identify what exists, what is partially implemented, and what is missing. Produce a delta report and prioritised to-do list.
+
+---
+
+## 1. Account & Branding Configuration
+
+This is a **prerequisite** for all report output. Before any report can be built, the platform must know which survey firm is producing it and how it should look.
+
+### 1.1 Account Settings (per survey firm / organisation)
+
+Every account must store:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `firm_name` | string | Full legal name of the survey firm |
+| `firm_address_line1` | string | |
+| `firm_address_line2` | string | Optional |
+| `firm_city` | string | |
+| `firm_state` | string | |
+| `firm_postcode` | string | |
+| `firm_country` | string | |
+| `firm_phone` | string | |
+| `firm_email` | string | |
+| `firm_website` | string | Optional |
+| `firm_abn` | string | Australian Business Number or equivalent |
+| `firm_logo` | binary / URL | PNG or SVG, transparent background preferred. Used in cover page, running header, sign-off block |
+| `firm_logo_width_px` | int | Display width in pixels at standard DPI (for consistent sizing in output) |
+| `primary_colour` | hex string | e.g. `#3D1A6E` — used for section headings, table headers, callout borders |
+| `secondary_colour` | hex string | Used for sub-headings, accent lines |
+| `accent_colour` | hex string | Optional third colour for callout fills, alternating rows |
+| `body_font` | enum | `Arial` \| `Calibri` \| `Helvetica` — default Arial |
+| `heading_font` | enum | Same options — can differ from body |
+| `report_footer_text` | string | e.g. "Confidential — [Firm Name] — Page {n} of {total}" |
+| `default_disclaimer_text` | text | Full liability disclaimer paragraph (see Section 8 of H&M Analysis) |
+| `default_waiver_text` | text | Without-prejudice waiver paragraph |
+| `default_confidentiality_text` | text | Page 2 confidentiality notice |
+| `ai_disclosure_enabled` | bool | Whether AI declaration appears in reports |
+| `ai_disclosure_text_template` | text | Template with placeholders: `{sections_used}`, `{model_version}`, `{annexure_ref}` |
+
+### 1.2 Branding Application Rules
+
+The branding configuration is applied consistently across the entire report. The cover page uses a **separate template** from the body pages. Body pages (page 2 onwards) share a common header and footer.
+
+---
+
+#### 1.2.1 Cover Page Architecture
+
+The cover page is a distinct, visually rich template. It does **not** use the running header. The Oceanomatics project report template (used for technical reports such as the Reef Keeper DP upgrade) is the reference design. The following zones are defined:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  [TOP BAR]                                          │
+│  Left: Client / underwriter reference block         │
+│  Right: Year or document type label                 │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│         [VESSEL NAME — large title band]            │
+│         Background: primary_colour                  │
+│         [REPORT TYPE / STATUS BAND below]           │
+│         Background: secondary_colour or dark grey   │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│              [VESSEL PHOTOGRAPH]                    │
+│              Full width, centred                    │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  [BOTTOM INFO BOX — two columns]                    │
+│  Left: Occurrence (date + nature of casualty)       │
+│  Right: Claim's Reference | File No. | Report No.   │
+├─────────────────────────────────────────────────────┤
+│  Left: [REPORT STATUS BADGE]                        │
+│  e.g. ● PRELIMINARY  or  ● FINAL                   │
+│                                                     │
+│  Right: Report Date: DD/MM/YYYY                     │
+│         Prepared by: [Surveyor Name], [Firm]        │
+│                                                     │
+│  [FIRM LOGO] — bottom left, at full configured      │
+│  display width                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+**Cover page element rules:**
+
+| Element | Rule |
+|---------|------|
+| Vessel name band | `primary_colour` background, white bold text, large font (≥32pt equivalent). Full width. |
+| Report type band | Sits directly below the vessel name band. `secondary_colour` or dark charcoal background, white text. Contains the report subtitle (e.g. "H&M DAMAGE SURVEY REPORT — FINAL"). |
+| Report status badge | Coloured pill or tag: PRELIMINARY = amber background; PROGRESS = blue; INTERIM = grey-blue; FINAL = green; SUPPLEMENTARY = orange. Must be prominent — not buried in body text. |
+| Vessel photograph | Full content width, proportionally scaled, centred. Sourced from Document Vault (`is_cover_photo = true`). If no photo is tagged, the image zone is replaced by a coloured placeholder band. |
+| Bottom info box | Light grey or lavender background. Two-column layout. Left: Occurrence. Right: Claim's Reference / Technical File No. / Report Version No. |
+| Firm logo | `firm_logo`, displayed at `firm_logo_width_px`. Positioned bottom left. If the logo has a dark background, use the reverse/white version if provided. |
+| Client reference block (top left) | Underwriter name and claim reference (not the vessel owner's logo — this is an insurance report, not a delivery receipt). Plain text, small font. |
+| No running header | The cover page does **not** include the header that appears on body pages. |
+
+---
+
+#### 1.2.2 Running Header (Pages 2 Onwards)
+
+Every body page carries a consistent three-element header, as established in the H&M report best practice analysis. This is the standard format applied across all report types produced by the platform.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [LOGO]              [Vessel Name — Report Type — Claim Ref]  │
+│ top left            right-aligned, italic, secondary_colour  │
+├──────────────────────────────────────────────────────────────┤
+│ (full-width rule in primary_colour, 1–2pt)                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- **Logo:** `firm_logo` at approximately 30–35% of cover page display size. Top left. The header row height must accommodate the logo unclipped.
+- **Document title text:** Right-aligned. Format: `[Vessel Name] — [Report Type] — [Claim Reference]`. Small font (9–10pt equivalent), `secondary_colour`, italics.
+- **Separator rule:** Full content width below the header row in `primary_colour`, 1–2pt.
+- **Implementation note:** Render as a single paragraph with a right-aligned tab stop — not as a table. A table structure risks clipping the logo and introduces inconsistent widths relative to the body content.
+
+---
+
+#### 1.2.3 Footer (All Pages)
+
+```
+─────────────────────────────────────────────────────────────
+This report is supplied without prejudice. Confidential — [Firm Name] — Page N of Total
+```
+
+- Horizontal rule above, in `primary_colour` or light grey
+- Centred text, 8–9pt, grey (#757575)
+- Page number format: `Page N of Total`
+- The footer carries a passive **"without prejudice"** notice on every page. This is in addition to — not a substitute for — the formal WP designations at the cost approval points and in the Waiver section. Its purpose is to ensure that no individual page of the report, if extracted in isolation, can be read as a statement made without reservation.
+- Full recommended footer text: *"This report is supplied without prejudice to any or all parties involved and shall not be copied or passed on to third parties without the express permission of [Firm Name]. — Page N of Total"*
+
+> **See Section 8.3 for the full Without Prejudice placement protocol.** The footer line is a passive every-page notice. The three mandatory active placements are on Page 2, at the cost summary, and in the Waiver section.
+
+---
+
+#### 1.2.4 Body Page Branding
+
+| Element | Branding Rule |
+|---------|--------------|
+| Section headings (H1) | `primary_colour` text; bottom border rule in `primary_colour`, 4pt, spanning text width only (not full page — achieved via paragraph border, not a table) |
+| Sub-headings (H2) | `secondary_colour` text, no border |
+| Sub-sub-headings (H3) | `secondary_colour` or `accent_colour` text, italic, no border |
+| Primary table headers | `primary_colour` background, white bold text |
+| Secondary table headers | `secondary_colour` or `#555555` (dark grey) background, white text |
+| Table alternating rows | White and `accent_colour` (very light tint) or white and `#F7F7F7` (near-white grey) |
+| Table borders | 1pt `#CCCCCC` (light grey) — never black borders |
+| Callout boxes | Left-border or full-border in `primary_colour`; fill in `accent_colour` at 15–20% opacity or a fixed very-light tint; title text in `secondary_colour`, bold |
+| Advice Summary box header row | `primary_colour` background, white text |
+| Chronology table header | `primary_colour` background, white text |
+| Score/status indicators (H/M/L) | Fixed traffic-light: H = `#C8E6C9` (green), M = `#FFF9C4` (amber), L = `#FFCDD2` (red) — these are not branded, they are semantic |
+| Bullet points | Body font, no colour decoration |
+| Bold inline text | `#212121` (near black) — never primary colour for inline bold |
+| Sign-off block top border | `primary_colour`, 2pt |
+| Footer rule | Light grey or `primary_colour`, 1pt |
+
+> **Critical rule for the report builder:** All colour and font references in the report assembly code must be resolved from the account branding config at render time. They must **never** be hardcoded. This allows any survey firm to apply their own brand without a code change.
+
+---
+
+#### 1.2.5 Logo Handling Rules
+
+1. Store as **PNG with transparent background** (preferred) or SVG. A white/reversed version may be stored separately for use on dark backgrounds.
+2. Never stretch the logo — always scale proportionally.
+3. **Cover page:** Display at `firm_logo_width_px` (configured in account settings). Positioned bottom left.
+4. **Running header:** Computed automatically as 30–35% of `firm_logo_width_px`. Positioned inline left within the header paragraph, not in a table cell.
+5. **If no logo is configured:** Render the firm name in the heading font at the equivalent size.
+6. **If the cover background behind the logo is dark** (e.g. primary_colour band): use the reversed/white logo variant if stored, otherwise ensure the logo zone has a white or light background.
+
+---
+
+#### 1.2.6 Cover Page vs Body: What Changes
+
+| Element | Cover Page | Body Pages (2+) |
+|---------|-----------|-----------------|
+| Logo position | Bottom left, full size | Top left in header, ~33% size |
+| Header bar | None | Logo + title text + rule |
+| Background | White with coloured bands | White |
+| Vessel name | Large, in `primary_colour` band | Not repeated |
+| Report status | Prominent badge | In header text (abbreviated) |
+| Page number | None | In footer |
+
+> **Note for report builder:** The cover page is rendered separately from the body page loop. Body pages all use the same header/footer template. The cover page is page 1; the AI Declaration + Advice Summary is page 2; section content begins page 3.
+
+---
+
+> **Note for report builder:** All colour and font references in the report assembly code must be resolved from the account branding config at render time — they must **not** be hardcoded. This allows any survey firm using the platform to apply their own brand identity without any code change.
+
+---
+
+## 2. Data Model — Claim / Case Record
+
+Each survey engagement maps to a **case record**. The case record is the master data container from which the report is assembled. All field input screens write to this record.
+
+### 2.1 Case Header
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `case_id` | UUID | Platform-generated |
+| `technical_file_no` | string | e.g. `24-0177` — user-entered or auto-generated |
+| `claim_reference` | string | Underwriter's claim reference |
+| `policy_ucr` | string | Unique Claim Reference (Lloyd's / underwriter) |
+| `instructing_party` | string | Name of instructing underwriter / broker / P&I club |
+| `instructing_party_role` | enum | `H&M Underwriter` \| `H&M Broker` \| `P&I Club` \| `Other` |
+| `assured` | string | Insured party name |
+| `policy_type` | enum | `H&M` \| `P&I` \| `Both` |
+| `report_status` | enum | `Preliminary` \| `Progress` \| `Interim` \| `Supplementary` \| `Final` |
+| `report_version` | string | Auto-generated: `R001`, `R002`, etc. — increments on each new report in this case |
+| `date_of_instruction` | date | |
+| `date_of_first_attendance` | date | |
+| `survey_location` | string | Port / yard / vessel location |
+| `case_created_at` | timestamp | |
+| `case_updated_at` | timestamp | |
+| `assigned_surveyor_id` | FK | Attending surveyor user account |
+| `reviewing_surveyor_id` | FK | Reviewing surveyor user account |
+| `signed_off` | bool | Locked after dual sign-off |
+| `signed_off_at` | timestamp | |
+
+### 2.2 Vessel Particulars
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `vessel_name` | string | |
+| `vessel_type` | string | e.g. Fishing Vessel, Tug, General Cargo, AHTS |
+| `owner` | string | |
+| `registered_owner` | string | May differ from operator |
+| `operator_manager` | string | |
+| `builder` | string | |
+| `year_built` | int | |
+| `imo_number` | string | |
+| `official_number` | string | |
+| `call_sign` | string | |
+| `flag` | string | |
+| `port_of_registry` | string | |
+| `class_society` | string | |
+| `class_status` | enum | `Classed` \| `Conditional` \| `Suspended` \| `Not Classed` |
+| `class_conditions` | text | Outstanding conditions of class, if any |
+| `loa_m` | decimal | Length Overall (metres) |
+| `lbp_m` | decimal | Length Between Perpendiculars |
+| `breadth_mld_m` | decimal | |
+| `depth_mld_m` | decimal | |
+| `gross_tonnage` | decimal | |
+| `net_tonnage` | decimal | |
+| `deadweight_mt` | decimal | |
+| `construction_standard` | string | e.g. USL Code Class 3B, NSCV, SOLAS |
+| `survey_cert_no` | string | |
+| `equipment_due` | date | |
+| `hull_due` | date | |
+| `tailshaft_due` | date | |
+| `doc_issuer` | string | Document of Compliance issuing authority |
+| `doc_expiry` | date | |
+| `smc_issuer` | string | Safety Management Certificate |
+| `smc_expiry` | date | |
+| `isps_status` | string | |
+| `last_drydock_date` | date | |
+| `last_drydock_yard` | string | |
+| `ism_incident_reported` | bool | Was casualty reported under SMS? |
+| `class_incident_reported` | bool | Was casualty reported to Class / Flag? |
+| `psc_last_inspection` | date | |
+| `psc_last_result` | string | |
+| `pi_club` | string | P&I Club name |
+| `propulsion_prime_mover_make` | string | |
+| `propulsion_prime_mover_model` | string | |
+| `propulsion_prime_mover_type` | string | e.g. 4-stroke diesel, turbocharged |
+| `propulsion_mcr_kw` | decimal | Maximum Continuous Rating |
+| `propulsion_rpm` | int | |
+| `propulsion_fuel_type` | string | |
+| `propulsion_unit_type` | string | e.g. Fixed pitch propeller, CPP, azimuth thruster |
+| `propulsion_drive_type` | string | e.g. Direct drive, reduction gearbox |
+
+### 2.3 Equipment / Machinery Particulars
+*(Used for machinery casualty types only)*
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `equipment_description` | string | e.g. Main propulsion gearbox, Azimuth thruster |
+| `equipment_make` | string | |
+| `equipment_model` | string | |
+| `equipment_serial_no` | string | |
+| `equipment_date_of_manufacture` | date | |
+| `equipment_rated_power` | string | |
+| `equipment_hours_since_new` | decimal | |
+| `equipment_hours_since_overhaul` | decimal | |
+| `equipment_last_maintenance_date` | date | |
+| `equipment_last_maintenance_nature` | text | |
+
+### 2.4 Attending Representatives
+
+Array of records:
+
+| Field | Type |
+|-------|------|
+| `rep_name` | string |
+| `rep_company` | string |
+| `rep_function` | string |
+| `rep_attendance_type` | enum: `In person` \| `By telephone` \| `By correspondence` |
+| `rep_date` | date |
+
+### 2.5 Available Information Sources
+
+Array of records (documents reviewed):
+
+| Field | Type |
+|-------|------|
+| `source_description` | string | e.g. "Owner's Incident Report dated 16/12/2024" |
+| `source_type` | enum | `Incident Report` \| `Logbook` \| `Maintenance Record` \| `Oil Analysis` \| `Diver Report` \| `Third-party Investigation` \| `Correspondence` \| `Other` |
+| `source_date` | date | |
+| `source_from` | string | Who provided it |
+| `source_received_date` | date | |
+
+### 2.6 Chronology of Events
+
+Array of records:
+
+| Field | Type |
+|-------|------|
+| `event_date` | date | |
+| `event_time` | time | Optional |
+| `event_description` | string | |
+
+### 2.7 Background
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `background_text` | text | Owner's account — attributed. AI may draft from field notes; surveyor must review and confirm attribution. |
+| `background_source` | string | e.g. "Master's statement dated 17/12/2024" |
+
+### 2.8 Damage Description
+
+Array of damage items, grouped by system:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `damage_id` | UUID | |
+| `damage_system` | enum | `Hull Structure` \| `Propulsion/Machinery` \| `Electrical` \| `Safety Systems` \| `Deck/Superstructure` \| `Pre-existing` |
+| `damage_location` | string | Frame reference or position description |
+| `damage_nature` | string | e.g. deformation, fracture, corrosion, water ingress |
+| `damage_extent` | string | Dimensions / extent |
+| `damage_pre_existing` | bool | True if pre-existing, not caused by this casualty |
+| `damage_description` | text | Surveyor's own findings |
+| `damage_photo_refs` | array[string] | References to photo IDs in Document Vault |
+
+### 2.9 Cause Consideration
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `owner_allegation_text` | text | Verbatim or closely paraphrased owner's stated cause |
+| `owner_allegation_source` | string | e.g. "Incident report dated 17/12/2024" |
+| `formal_allegation_made` | bool | Has a formal written allegation been received? |
+| `technical_analysis_text` | text | Surveyor's technical assessment of causation chain |
+| `surveyor_opinion_text` | text | Surveyor's independent conclusion on probable cause |
+| `remediation_actions_text` | text | Steps taken or recommended to prevent recurrence |
+| `without_prejudice_applied` | bool | WP notation applied to this section |
+
+### 2.10 Repairs
+
+Array of repair items:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `repair_id` | UUID | |
+| `repair_type` | enum | `Temporary` \| `Permanent` \| `Deferred` |
+| `repair_description` | text | Scope, method, materials |
+| `repair_date_start` | date | |
+| `repair_date_end` | date | |
+| `repair_class_approved` | bool | |
+| `repair_witnessed_by_surveyor` | bool | |
+| `repair_sea_trial_conducted` | bool | |
+| `repair_notes` | text | |
+
+### 2.11 Repair Costs
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `cost_currency` | string | ISO 4217 currency code, e.g. `AUD`, `USD`, `GBP` |
+| `cost_without_prejudice` | bool | Must be true for all approved costs |
+
+Cost line items (array):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `cost_item_id` | UUID | |
+| `cost_item_description` | string | |
+| `cost_item_amount` | decimal | |
+| `cost_item_allocation` | enum | `Claim` \| `Owner's Account` \| `Subject to Adjustment` |
+| `cost_item_invoice_ref` | string | Reference to invoice in Document Vault |
+| `cost_item_approved` | bool | |
+
+Summary totals (computed from line items):
+- `total_claim`
+- `total_owners_account`
+- `total_subject_to_adjustment`
+- `grand_total`
+
+### 2.12 Repair Times
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `repair_days_damage_drydock` | decimal | Damage repairs only, in drydock |
+| `repair_days_damage_alongside` | decimal | Damage repairs only, alongside |
+| `repair_days_owners_work` | decimal | Owner's maintenance work |
+| `repair_days_combined` | decimal | Combined if overlap |
+| `repair_time_basis` | text | Note on basis of estimate |
+
+### 2.13 Surveyor's Notes
+
+| Field | Type |
+|-------|------|
+| `surveyor_notes_text` | text |
+
+### 2.14 Documents Retained on File
+
+Array:
+
+| Field | Type |
+|-------|------|
+| `retained_doc_description` | string |
+| `retained_doc_source` | string |
+| `retained_doc_date_obtained` | date |
+| `retained_doc_vault_id` | FK | Reference to Document Vault entry |
+
+### 2.15 Documents Requested
+
+Array:
+
+| Field | Type |
+|-------|------|
+| `requested_doc_description` | string |
+| `requested_from` | string |
+| `requested_date` | date |
+| `requested_expected_receipt` | date |
+| `requested_status` | enum | `Outstanding` \| `Received` \| `Waived` |
+
+### 2.16 Principal Dates
+
+Array:
+
+| Field | Type |
+|-------|------|
+| `milestone_date` | date |
+| `milestone_time` | time | Optional |
+| `milestone_description` | string |
+
+### 2.17 Advice Summary (computed + editable)
+
+The Advice Summary is auto-populated from case data but must be editable by the surveyor before export:
+
+| Field | Source |
+|-------|--------|
+| `summary_policy_ucr` | → `policy_ucr` |
+| `summary_assured` | → `assured` |
+| `summary_instructing_party` | → `instructing_party` |
+| `summary_date_nature` | → `event_date` + `event_description` (first entry in chronology) |
+| `summary_damage_description` | Editable text — AI draft from damage items |
+| `summary_probable_cause` | Editable text — AI draft from cause section |
+| `summary_repair_status` | Editable text — derived from repair items |
+| `summary_cost_claim` | → `total_claim` |
+| `summary_cost_owners` | → `total_owners_account` |
+| `summary_cost_adjustment` | → `total_subject_to_adjustment` |
+| `summary_loh_implication` | enum: `Yes` \| `No` \| `TBD` |
+| `summary_outstanding_actions` | Editable text |
+| `summary_remarks` | Editable text |
+
+---
+
+## 3. AI Processing Requirements
+
+### 3.1 API Configuration
+
+- **Provider:** Anthropic Messages API (private, closed API — not claude.ai)
+- **Model:** Must be explicitly pinned per call — never resolved from an alias
+  - Example: `claude-sonnet-4-6-20251001`
+- **Zero data retention:** Anthropic standard API terms — prompts and responses are transient
+- **DPA:** A Data Processing Agreement with Anthropic must be executed before live deployment
+
+### 3.2 AI Use Cases in Report Builder
+
+| Report Section | AI Function | Human Review Required |
+|----------------|-------------|----------------------|
+| Background | Draft narrative from surveyor field notes / voice transcript | Yes — surveyor confirms attribution |
+| Damage Description | Structure and draft from field notes, organise by system | Yes — surveyor verifies each item |
+| Cause Consideration | Draft technical analysis from surveyor's notes | Yes — surveyor edits and confirms opinion |
+| Advice Summary | Auto-populate from case data; draft editable text fields | Yes — surveyor reviews before export |
+| Surveyor's Notes | Optional drafting assistance | Yes |
+| Document Vault | Extract structured data from uploaded source documents (invoices, reports) | Yes — surveyor confirms extracted data |
+
+### 3.3 AI Audit Log Schema
+
+Every AI API call must write a record to `ai_generation_log`:
+
+```sql
+CREATE TABLE ai_generation_log (
+  log_id            UUID PRIMARY KEY,
+  case_id           UUID REFERENCES cases(case_id),
+  report_section_id TEXT NOT NULL,        -- e.g. 'background', 'damage_description'
+  model_version     TEXT NOT NULL,        -- e.g. 'claude-sonnet-4-6-20251001' — PINNED, never alias
+  source_doc_ids    TEXT[],              -- Array of Document Vault IDs used as context
+  prompt_hash       TEXT NOT NULL,        -- SHA-256 of the full prompt
+  prompt_text       TEXT NOT NULL,        -- Full prompt (stored for auditability)
+  ai_output_text    TEXT NOT NULL,        -- Raw AI response
+  surveyor_review   TEXT,                -- 'reviewed_accepted' | 'reviewed_amended' | 'surveyor_authored'
+  reviewer_user_id  UUID,
+  reviewed_at       TIMESTAMP,
+  created_at        TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 3.4 AI Audit Record Annexure
+
+At report export time, the platform auto-generates **Annexure I — AI Audit Record** from the `ai_generation_log` for the case. It contains:
+
+- One row per section where AI was engaged
+- Columns: Report Section | AI Function | Model & Version | Source Documents | Surveyor Review Action
+- Signed by the attending surveyor at finalisation (signature block appended)
+- This annexure is **locked** at sign-off and cannot be edited post-export
+
+### 3.5 AI Disclosure Paragraph
+
+At export time, the platform inserts an auto-generated disclosure paragraph on Page 2 of the report (after legal designations, before the Advice Summary). The paragraph:
+
+- Identifies the AI system used by name
+- Lists the report sections where AI was engaged (from audit log)
+- States that all content was reviewed and confirmed by the signing surveyor
+- References the AI Audit Record annexure
+- Is **locked** on signing and cannot be edited post-export
+
+Sections where `surveyor_review = 'surveyor_authored'` are excluded from the sections list in the disclosure paragraph.
+
+If **no AI was used** in the report (all sections surveyor-authored), the disclosure paragraph is suppressed and Annexure I is omitted.
+
+---
+
+## 4. Report Builder — Section Assembly Rules
+
+The report builder assembles the case record into a structured document. The rules below apply to both docx and PDF output.
+
+### 4.1 Section Order
+
+Pages assemble in this order:
+
+1. **Cover Page** (always)
+2. **Page 2:** Legal Designations → AI Declaration (if applicable) → Advice Summary
+3. **Table of Contents**
+4. **Section 1:** Introduction / Scope of Work
+5. **Section 2:** Attending Representatives
+6. **Section 3:** Vessel's Particulars
+7. **Section 4:** Machinery / Equipment Particulars *(include only if `casualty_type` = machinery-related)*
+8. **Section 5:** Class & Statutory Certification
+9. **Section 6:** Available Information Sources
+10. **Section 7:** Chronology of Events
+11. **Section 8:** Background
+12. **Section 9:** Damage Description
+13. **Section 10:** Cause Consideration
+14. **Section 11:** Repairs
+15. **Section 12:** General Services & Access *(optional — include if `general_services` array is non-empty)*
+16. **Section 13:** Repair Costs
+17. **Section 14:** Repair Times
+18. **Section 15:** Surveyor's Notes *(include only if non-empty)*
+19. **Section 16:** Documents Retained on File
+20. **Section 17:** Documents Requested
+21. **Section 18:** Principal Dates
+22. **Section 19:** Waiver *(always — use account `default_waiver_text`)*
+23. **Sign-off Block** (attending + reviewing surveyor, date)
+24. **Liability Disclaimer** *(always — use account `default_disclaimer_text`)*
+25. **Annexure A:** Assessment of Repair Costs
+26. **Annexure B:** Repair Invoices
+27. **Annexure C:** Survey Certificate(s)
+28. **Annexure D:** Incident / Insurance Claim Report
+29. **Annexure E:** Photographs (with photo register index)
+30. **Annexure F:** Third-party Reports
+31. **Annexure G:** Chronological Correspondence
+32. **Annexure H:** Prior Reports (if supplementary/final)
+33. **Annexure I:** AI Audit Record *(include only if AI was used)*
+
+### 4.2 Cover Page Assembly Rules
+
+- Logo: from `account.firm_logo`, centred, at configured display width
+- Title band: background = `account.primary_colour`; text white
+- Report status banner: derived from `case.report_status` — styled prominently (bold, coloured)
+- Info box (2-column):
+  - LEFT: "Occurrence: [date] — [nature of casualty]"
+  - RIGHT: "Claim's Reference: [claim_reference]" / "Technical File No.: [technical_file_no]" / "Report No.: [report_version]"
+- Cover photo: sourced from Document Vault, tagged `cover_photo = true`. If none tagged, section is omitted (no placeholder shown)
+- Footer: `account.firm_name` | phone | email | website — small text
+
+### 4.3 Chronology Table Format
+
+The Chronology of Events must render as a **table**, never as narrative prose:
+
+| Date | Time | Movement / Event |
+|------|------|-----------------|
+
+- Header row: `account.primary_colour` background, white text
+- Rows: alternating white / `account.accent_colour` or light grey
+- Date format: DD/MM/YYYY
+- Time format: HHMM (24h)
+- Events sorted ascending by date/time
+
+### 4.4 Attending Representatives Table
+
+Three-column table: Name | Company | Function/Role
+
+Additional note for remote contacts: append "(by telephone)" or "(by correspondence)" to the Function field.
+
+### 4.5 Causation — Mandatory Separation
+
+The report builder must enforce that the three cause sub-sections are clearly labelled and separated:
+
+- **11.1 Owner's Allegation** — must open with: *"The following cause of loss has been alleged by [source]:"* or *"No formal written allegation of cause has been made at the time of this report."*
+- **11.2 Technical Analysis** — must open with: *"In the opinion of the Undersigned..."* (or equivalent)
+- **11.3 Remediation Actions**
+
+The builder must **refuse to export** a Final Report if `owner_allegation_text` and `surveyor_opinion_text` are identical strings (copy-paste without separation).
+
+### 4.6 Cost Table Format
+
+The cost section must render as a formal accounts table:
+
+| Item | Description | Invoice Ref. | Amount | Allocation |
+|------|-------------|--------------|--------|-----------|
+
+Followed by a summary:
+
+| | |
+|-|-|
+| **Total — Claim Items** | $X,XXX.XX |
+| **Total — Owner's Account** | $X,XXX.XX |
+| **Total — Subject to Adjustment** | $X,XXX.XX |
+| **GRAND TOTAL** | $X,XXX.XX |
+
+All amounts must include the currency code from `cost_currency`.
+
+The summary must be followed by: *"The above costs are approved/noted without prejudice to Underwriters' rights and without admission of liability."*
+
+### 4.7 Without Prejudice Notation
+
+The builder must insert a `WITHOUT PREJUDICE` notation:
+1. At the top of Page 2 (before Advice Summary)
+2. Immediately below the cost summary table
+3. In the Waiver section
+
+### 4.8 Photo Register
+
+Annexure E must open with a **photo register** — a thumbnail index:
+
+| Photo No. | Location / Component | Direction / Context | Date | Significance |
+|-----------|---------------------|---------------------|------|-------------|
+
+Thumbnails at ~120px wide. Full-size captioned photos follow after the register.
+
+Caption format: `[Photo N] — [component/location] — [direction/context] — [date] — [significance to claim]`
+
+### 4.9 Report Version Numbering
+
+- Each new report generated for a case increments `report_version`: R001, R002, R003, etc.
+- The report header and Advice Summary must both display the version number
+- A Final Report must state: *"This report supersedes all prior survey reports for this casualty for the purposes of the survey record. All prior reports are incorporated by reference."*
+- A Progress or Supplementary report must state: *"This report supplements Report [prior version] dated [date] and does not supersede it."*
+
+### 4.10 Sign-off Block
+
+Two-column layout:
+
+```
+ATTENDING SURVEYOR          |  REVIEWED BY
+--------------------------- | ---------------------------
+[Full Name]                 |  [Full Name]
+[Qualifications]            |  [Qualifications]
+[Role / Title]              |  [Role / Title]
+[Company]                   |  [Company]
+[Location]                  |  [Location]
+Date: ___________           |  Date: ___________
+```
+
+Both columns must be signed digitally or by wet signature before the report is exported as Final.
+
+The builder must **block Final Report export** unless both `signed_off_attending` and `signed_off_reviewing` are true.
+
+---
+
+## 5. Data Input Front End — Requirements
+
+### 5.1 General Principles
+
+- **Mobile / tablet first:** Surveyors complete most data entry in the field, often on an iPad. The UI must be optimised for touch interaction and offline capability.
+- **Section-by-section workflow:** The input UI should mirror the report section structure. The surveyor moves through sections in order but can return to earlier sections at any time.
+- **Field-level AI assistance:** AI drafting is available per section (field notes → narrative), triggered explicitly by the surveyor — never automatic.
+- **Voice input:** The platform should support voice transcription for narrative fields (Background, Damage Description, Cause, Surveyor's Notes). Transcript is fed to AI for structuring, surveyor reviews.
+- **Offline mode:** Core data entry must work offline. Sync to cloud when connection is restored.
+- **Progress tracking:** Visual indicator showing which sections are complete, in progress, or empty.
+
+### 5.2 Screen / Flow Map
+
+```
+Case List
+  └── New Case / Open Case
+        ├── Case Header (report status, references, instructing party)
+        ├── Vessel Particulars
+        ├── Machinery Particulars (conditional on casualty type)
+        ├── Class & Statutory Certification
+        ├── Attending Representatives
+        ├── Document Vault (upload source docs)
+        │     └── AI Data Extraction (per uploaded document)
+        ├── Available Information Sources (auto-populated from Vault + manual)
+        ├── Chronology of Events
+        │     └── Add Event (date / time / description)
+        ├── Background
+        │     ├── Field notes input (text / voice)
+        │     └── AI Draft → Review → Confirm
+        ├── Damage Description
+        │     ├── Add Damage Item (system → location → nature → extent → photos)
+        │     └── AI Draft Narrative → Review → Confirm
+        ├── Cause Consideration
+        │     ├── Owner Allegation (text input, source field)
+        │     ├── Technical Analysis (text / voice / AI draft)
+        │     └── Remediation Actions (text / voice / AI draft)
+        ├── Repairs
+        │     └── Add Repair Item (type → description → dates → approvals)
+        ├── General Services & Access (checklist)
+        ├── Repair Costs
+        │     ├── Add Cost Line Item (description → amount → allocation → invoice ref)
+        │     └── Cost Summary (computed totals)
+        ├── Repair Times
+        ├── Surveyor's Notes
+        ├── Documents Retained on File (auto-populated from Vault + manual)
+        ├── Documents Requested
+        ├── Principal Dates (milestone log)
+        ├── Advice Summary (auto-populated, editable)
+        ├── Photo Manager (organise, caption, set cover photo)
+        └── Export
+              ├── Preview Report
+              ├── AI Audit Record review
+              ├── Sign-off (attending + reviewing)
+              └── Export as .docx / PDF
+```
+
+### 5.3 Document Vault
+
+The Document Vault is the central repository for all source documents attached to a case:
+
+| Field | Type |
+|-------|------|
+| `vault_id` | UUID |
+| `case_id` | FK |
+| `file_name` | string |
+| `file_type` | enum: `PDF` \| `Image` \| `DOCX` \| `XLSX` \| `Other` |
+| `document_category` | enum: `Incident Report` \| `Invoice` \| `Survey Certificate` \| `Logbook` \| `Diver Report` \| `Investigation Report` \| `Correspondence` \| `Photograph` \| `Other` |
+| `is_cover_photo` | bool | If true, used on cover page |
+| `annexure_assignment` | enum: `A` through `I` \| `None` | Which annexure this document belongs to |
+| `uploaded_at` | timestamp |
+| `ai_extracted` | bool | Whether AI data extraction has been run on this doc |
+| `ai_extracted_data` | JSON | Structured data extracted by AI (e.g. cost line items from invoice) |
+| `surveyor_confirmed` | bool | Surveyor has reviewed AI extraction |
+
+### 5.4 Key Validation Rules (Export Gate)
+
+The system must prevent export of specific report types unless these conditions are met:
+
+| Rule | Applies To |
+|------|-----------|
+| All mandatory sections completed (non-empty) | All report types |
+| Owner allegation text ≠ surveyor opinion text | Final, Interim |
+| Both sign-off records confirmed | Final only |
+| Cost total > 0 or explicitly marked "costs TBD" | Final only |
+| AI audit log entries have `surveyor_review` set | All reports where AI was used |
+| Advice Summary reviewed and confirmed | All report types |
+
+---
+
+## 6. Report Format Output — docx vs PDF
+
+### 6.1 Current State
+
+The current implementation outputs **`.docx`** using the Anthropic API + document assembly code. This is a valid and deliverable format for most H&M underwriters who expect Word documents for annotation and claims file management.
+
+### 6.2 Target State — Flutter PDF Module
+
+The target Flutter module will support **native PDF output** in addition to docx. The PDF renderer should:
+
+- Reproduce all styling (fonts, colours, tables, logos) from the account branding config
+- Embed fonts (Arial or configured font) to ensure consistent rendering across devices
+- Support page numbering in format: `Page N of Total`
+- Support photo embedding at consistent DPI
+- Support digital signature fields in the sign-off block
+- Lock the document against editing post-export (PDF/A or similar)
+
+### 6.3 Shared Data Model
+
+Both docx and PDF output consume the **same case data model** (Section 2). The output renderer is the only layer that differs. This means:
+
+- All business logic (section assembly rules, validation, causation separation, WP notation) lives in the platform layer, not the renderer
+- Switching from docx to PDF output requires only a renderer swap, not a data model change
+- AI audit log, disclosure paragraph, and annexure structure apply identically to both formats
+
+### 6.4 Intermediate Milestone: Clean docx Output
+
+Before the Flutter PDF module is built, the docx output must be brought to production quality:
+
+- [ ] Account branding applied (logo, colours, fonts) — not hardcoded
+- [ ] All 25 sections + annexures A–I supported
+- [ ] Chronology rendered as a table (not prose)
+- [ ] `WITHOUT PREJUDICE` notation in all four required locations: footer (every page), Page 2 formal designation, cost summary at each approval, and Waiver section
+- [ ] Photo register in Annexure E
+- [ ] AI Audit Record in Annexure I (auto-generated from audit log)
+- [ ] AI disclosure paragraph auto-generated and locked on export
+- [ ] Sign-off block with dual-signature gate
+- [ ] Report version numbering (R001, R002, etc.)
+- [ ] Report status banner on cover page
+- [ ] cantSplit on table rows to prevent header/content separation at page breaks
+
+---
+
+## 7. Successive Reporting Rules
+
+The platform enforces the following report sequence logic:
+
+| Report Type | Can Create If | Previous Report Required |
+|-------------|--------------|--------------------------|
+| Preliminary (R001) | Case opened, date of attendance set | None |
+| Progress (R002+) | At least one prior report exists | Yes — reference prior version |
+| Interim | At least one prior report exists; milestone defined | Yes |
+| Supplementary | At least one prior report exists; new material info documented | Yes |
+| Final | All mandatory sections complete; both sign-offs confirmed | At least one prior report |
+
+Rules for the report builder:
+- **Preliminary report:** Exports with `[PRELIMINARY — SUBJECT TO REVISION]` banner. All cost figures annotated as estimates.
+- **Progress report:** Header states: *"This report supplements Report [R00N] dated [date]."* Only changed sections need to be complete; unchanged sections carry forward with a reference note.
+- **Final report:** States that it supersedes all prior reports. Locks the case record after export.
+- **Supplementary report:** Explicitly documents what new information was received and how it changes earlier findings.
+
+---
+
+## 8. Compliance & Legal Requirements
+
+### 8.1 GPN-AI Compliance (Federal Court of Australia, April 2026)
+
+The following platform behaviours are required for GPN-AI compliance:
+
+- [ ] AI model version pinned and stored per API call
+- [ ] Full prompt text stored per API call in `ai_generation_log`
+- [ ] AI output stored per API call in `ai_generation_log`
+- [ ] Surveyor review action stored per section (reviewed_accepted / reviewed_amended / surveyor_authored)
+- [ ] AI disclosure paragraph auto-generated from audit log at export time
+- [ ] Disclosure paragraph locked post-signing (cannot be edited)
+- [ ] AI Audit Record annexure locked post-signing
+- [ ] Platform does not use consumer AI interfaces — API only
+- [ ] No confidential case data transmitted to publicly accessible AI systems
+
+### 8.2 Professional Standards
+
+- The attending surveyor's professional opinions must be explicitly attributed to the surveyor, not to the AI
+- The platform must not allow AI-generated text to appear in the report without surveyor review confirmation
+- The sign-off block must include a declaration: *"I confirm that the professional opinions and technical findings in this report are my own and that all AI-assisted content has been reviewed and confirmed by me."*
+
+### 8.3 Without Prejudice Protocol
+
+"Without Prejudice" serves different legal functions depending on where it appears in the report. There are **four distinct placement locations**, each with a separate purpose. All four are required.
+
+| Location | Purpose | Form |
+|----------|---------|------|
+| **Page footer — every page** | Passive notice ensuring no extracted page can be read as an unqualified statement. Established practice in Marsh Maritime and other Australian H&M formats. | Short line: *"This report is supplied without prejudice to any or all parties involved."* Combined with confidentiality notice in footer. |
+| **Page 2 — formal designation** | The primary, prominent WP declaration. Appears before the Advice Summary, immediately after legal designations. Makes clear that the entire report — including all cost approvals that follow — is issued without prejudice. | Standalone bold line: *"WITHOUT PREJUDICE"* followed by a sentence of explanation. |
+| **Cost summary — at each approval** | The operationally critical WP notation. Applied to each section of the cost account as it is approved, preserving underwriters' right to contest coverage while permitting repairs to proceed. Failure to apply WP here is the most legally dangerous omission. | Inline at each approved section: *"The above costs are approved without prejudice to Underwriters' rights and without admission of liability."* |
+| **Waiver section** | The closing WP statement, confirming that no acts of the Undersigned or Underwriters in attending the vessel, approving repairs, or preparing the report shall constitute a waiver or acceptance of liability. | Full waiver paragraph — see Section 4.1, item 20. |
+
+**Implementation rules:**
+
+- All four locations must be present in every report that approves any costs. Preliminary reports with no cost approvals still require the footer, Page 2, and Waiver placements.
+- The footer WP line is **not** a substitute for the Page 2 designation or cost approval notations — it is an additional passive reminder.
+- All cost line items must have `cost_without_prejudice = true` before export is permitted.
+- The builder must log a warning and block export if any approved cost items lack the WP flag.
+- The score of M (partial) given to Marsh Maritime in the format analysis reflects the fact that their footer carries a partial WP notice but WP notation is absent from the cost approval sections — a gap the platform must close.
+
+---
+
+## 9. Branding & Theming — Implementation Notes
+
+### 9.1 Where Branding Is Applied (complete list)
+
+The cover page and body pages are rendered with different templates. See Section 1.2 for the full architectural specification.
+
+| Location | Branding Element | Cover Page | Body Pages |
+|----------|-----------------|-----------|------------|
+| Firm logo | `firm_logo` | Bottom left, full `firm_logo_width_px` | Top left in header, ~33% size |
+| Vessel name band | `primary_colour` background, white text | ✓ | ✗ |
+| Report type/status band | `secondary_colour` or dark charcoal | ✓ | ✗ (abbreviated in header text) |
+| Report status badge | Semantic colour (amber/green/blue — see §1.2.1) | ✓ | ✗ |
+| Running header rule | `primary_colour` bottom border, full content width | ✗ | ✓ |
+| Running header text | `secondary_colour`, italic, right-aligned | ✗ | ✓ |
+| Section headings (H1) | `primary_colour` text + bottom paragraph border | ✗ | ✓ |
+| Sub-headings (H2) | `secondary_colour` text | ✗ | ✓ |
+| Sub-sub-headings (H3) | `secondary_colour` or `accent_colour` text, italic | ✗ | ✓ |
+| Primary table headers | `primary_colour` background, white text | ✗ | ✓ |
+| Secondary table headers | `secondary_colour` or dark grey (#555555) background, white text | ✗ | ✓ |
+| Table alternating rows | White + `accent_colour` tint or `#F7F7F7` | ✗ | ✓ |
+| Table borders | 1pt `#CCCCCC` light grey — never black | ✗ | ✓ |
+| Callout box | `accent_colour` fill, `primary_colour` or `secondary_colour` border and title | ✗ | ✓ |
+| Advice Summary box header | `primary_colour` background | ✗ | ✓ |
+| Chronology table header | `primary_colour` background | ✗ | ✓ |
+| Score/status indicators | Fixed semantic: H=green, M=amber, L=red (not branded) | ✗ | ✓ |
+| Sign-off block | `primary_colour` top border, 2pt | ✗ | ✓ |
+| Footer text | WP notice + confidentiality + firm name + page number, grey `#757575` | ✗ | ✓ |
+| Footer rule | Light grey or `primary_colour`, 1pt, above footer | ✗ | ✓ |
+| Cover photo | Vessel image, full width, from Document Vault | ✓ | ✗ |
+| Bottom info box | Light grey / `accent_colour` fill, two columns | ✓ | ✗ |
+
+### 9.2 Logo Position Summary
+
+| Context | Position | Size |
+|---------|----------|------|
+| Cover page | Bottom left | `firm_logo_width_px` (full, as configured) |
+| Running header (pages 2+) | Top left, inline in header paragraph | ~33% of cover size, computed automatically |
+| Sign-off block | Not repeated — firm name in text only | n/a |
+
+**Logo rendering rules:**
+- Always scale proportionally — never stretch or distort
+- PNG with transparent background is the preferred format; SVG also accepted
+- A reversed/white variant may be stored separately for use on dark `primary_colour` backgrounds
+- The header paragraph must be tall enough to show the logo unclipped — do not use nested table structures that crop the image
+- If no logo is configured: render `firm_name` in `heading_font` at the equivalent size
+
+### 9.3 Cover Page Template Note
+
+The cover page follows the Oceanomatics technical report template as the reference design (as seen in technical project reports produced by Oceanomatics). This template style applies to the **cover page only** — the running header, footer, and all body page elements follow the H&M report best practice standard established in the format analysis, independent of the cover page design.
+
+Key adaptations for H&M use on the cover page:
+
+- The **client reference block** (top left) shows the underwriter's name and claim reference — not the vessel owner's logo
+- A **report status badge** (PRELIMINARY / FINAL etc.) must be added — mandatory for H&M, not present in the technical report template
+- The **bottom info box** (two-column) adds Occurrence, Claim Reference, File No., and Report Version No.
+- The **vessel name** appears in the large title band
+- The **Oceanoservices logo** is anchored bottom left on the cover page
+
+### 9.4 Default Theme (Oceanoservices)
+
+For the Oceanoservices account specifically:
+
+```
+primary_colour:    #3D1A6E   (deep corporate purple)
+secondary_colour:  #6A3D9A   (mid purple)
+accent_colour:     #F0ECF7   (very light lavender)
+body_font:         Arial
+heading_font:      Arial
+firm_logo:         oceanoservices_logo.png (transparent background)
+firm_logo_width_px: 300
+```
+
+The cover page title band uses `primary_colour`; the report type band uses `secondary_colour`. Body page headers, section headings, and table headers all follow the branding rules in Section 1.2.
+
+### 9.5 Theming Architecture Requirement
+
+- Branding config must be stored as a **named theme** in the account settings
+- A survey firm can define multiple themes (e.g. one for H&M reports, one for P&I reports, one for technical/engineering reports)
+- The theme is selected at case creation and stored on the case record
+- The report builder resolves **all** colour and font references from the selected theme at render time
+- Hardcoded colours anywhere in the report assembly code are a **defect** — every colour must trace back to a theme config field
+- The cover page template layout (zone positions, band structure) is fixed by the platform; only the colours, logo, and content fields are variable
+
+---
+
+## 10. Delta Analysis Instructions for Claude Code
+
+When analysing the current codebase against this specification, produce output in the following format:
+
+### 10.1 Current State Assessment
+
+For each numbered section of this spec (1–9), assess:
+- `IMPLEMENTED` — fully present and working
+- `PARTIAL` — present but incomplete (describe gap)
+- `MISSING` — not yet implemented
+- `DIFFERENT` — implemented differently from spec (describe divergence)
+
+### 10.2 To-Do List Format
+
+Group to-do items into three tiers:
+
+**Tier 1 — Blocking (required for production export of any report)**
+- Items without which the output is not legally or professionally acceptable
+
+**Tier 2 — Important (required for full feature parity with spec)**
+- Items that are significant gaps but don't block basic operation
+
+**Tier 3 — Future (planned future phases)**
+- Flutter PDF module
+- P&I integration
+- Offline mode
+- Voice transcription pipeline
+
+### 10.3 Specific Questions to Answer
+
+1. Does the current report builder resolve colours and fonts from a config object, or are they hardcoded?
+2. Is the account logo embedded in the running header on every page?
+3. Is the AI audit log implemented? Does it store `model_version`, `prompt_hash`, `prompt_text`, `ai_output_text`, and `surveyor_review`?
+4. Is the AI disclosure paragraph auto-generated from the audit log?
+5. Is the Advice Summary auto-populated from case data and editable?
+6. Is the Chronology of Events rendered as a table?
+7. Is the cost section rendered as a formal accounts table with computed totals and WP notation?
+8. Is the sign-off block gating the Final Report export?
+9. Is report version numbering (R001, R002...) implemented?
+10. Does the Document Vault track `annexure_assignment` per document?
+11. Is `cantSplit` (or equivalent row-break prevention) applied to table rows in the docx output?
+12. Is the `WITHOUT PREJUDICE` notation present in all **four** required locations: (a) page footer on every page, (b) Page 2 formal designation, (c) cost summary at each approved section, (d) Waiver section?
+13. Is the cover page rendered as a **separate template** from body pages, with no running header on page 1?
+14. Does the cover page include: (a) vessel name in a coloured title band, (b) report status badge, (c) bottom two-column info box with Occurrence / Claim Reference / File No. / Report Version, (d) vessel photograph from Document Vault tagged `is_cover_photo`, (e) firm logo bottom left?
+15. Is the logo in the running header rendered as an inline image within a single header paragraph (with tab stop for right-aligned text) — not inside a nested table cell that could clip or misalign the image?
+
+---
+
+*End of specification.*
+
+*This document is maintained by Oceanoservices Pty Ltd. Updates should be versioned and reviewed by Andrew Marsh (Marsh Maritime Pty Ltd) before implementation.*

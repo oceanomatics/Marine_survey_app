@@ -19,69 +19,150 @@ class SurveyorNotesScreen extends ConsumerStatefulWidget {
       _SurveyorNotesScreenState();
 }
 
-class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen> {
-  ReportSection? _sectionFilter;
-  bool _hideIgnored = false;
+class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final notesAsync = ref.watch(surveyorNotesProvider(widget.caseId));
 
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      appBar: AppBar(
-        title: const Text('Context Cues'),
-        actions: [
-          // Toggle ignored visibility
-          IconButton(
-            tooltip: _hideIgnored ? 'Show ignored' : 'Hide ignored',
-            icon: Icon(
-              _hideIgnored ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-              color: _hideIgnored ? AppColors.textSecondary : null,
-            ),
-            onPressed: () => setState(() => _hideIgnored = !_hideIgnored),
-          ),
-          _SectionFilterButton(
-            current: _sectionFilter,
-            onSelected: (s) => setState(() => _sectionFilter = s),
-          ),
-        ],
+    return notesAsync.when(
+      loading: () => Scaffold(
+        backgroundColor: AppColors.surface,
+        appBar: AppBar(title: const Text('Context Cues')),
+        body: const AppLoadingWidget(message: 'Loading cues…'),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showNoteEditor(context, ref),
-        backgroundColor: _kColor,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Cue',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+      error: (e, _) => Scaffold(
+        backgroundColor: AppColors.surface,
+        appBar: AppBar(title: const Text('Context Cues')),
+        body: Center(child: Text('Error: $e')),
       ),
-      body: notesAsync.when(
-        loading: () => const AppLoadingWidget(message: 'Loading cues…'),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (notes) {
-          var filtered = _sectionFilter == null
-              ? notes
-              : notes.where((n) => n.reportSection == _sectionFilter).toList();
-          if (_hideIgnored) {
-            filtered = filtered
-                .where((n) => n.priority != CuePriority.ignored)
-                .toList();
-          }
+      data: (notes) {
+        final retained    = notes.where((n) =>
+            n.priority != CuePriority.ignored &&
+            n.reportSection != null).toList();
+        final unallocated = notes.where((n) =>
+            n.priority != CuePriority.ignored &&
+            n.reportSection == null).toList();
+        final ignored     = notes.where((n) =>
+            n.priority == CuePriority.ignored).toList();
 
-          if (filtered.isEmpty) {
-            return _EmptyState(
-              onAdd: () => _showNoteEditor(context, ref),
-              filtered: _sectionFilter != null || _hideIgnored,
-            );
-          }
-          return _NotesList(
-            notes: filtered,
-            onEdit: (note) => _showNoteEditor(context, ref, note: note),
-            onDelete: (id) =>
-                ref.read(surveyorNotesProvider(widget.caseId).notifier).delete(id),
-          );
-        },
-      ),
+        return Scaffold(
+          backgroundColor: AppColors.surface,
+          appBar: AppBar(
+            title: const Text('Context Cues'),
+            bottom: TabBar(
+              controller: _tabCtrl,
+              labelColor: _kColor,
+              unselectedLabelColor: AppColors.textSecondary,
+              indicatorColor: _kColor,
+              labelStyle: const TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600),
+              tabs: [
+                const Tab(text: 'Retained'),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Unallocated',
+                          style: TextStyle(fontSize: 12)),
+                      if (unallocated.isNotEmpty) ...[
+                        const SizedBox(width: 5),
+                        _Badge(count: unallocated.length),
+                      ],
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Ignored',
+                          style: TextStyle(fontSize: 12)),
+                      if (ignored.isNotEmpty) ...[
+                        const SizedBox(width: 5),
+                        _Badge(
+                            count: ignored.length,
+                            color: AppColors.textTertiary),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showNoteEditor(context, ref),
+            backgroundColor: _kColor,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add),
+            label: const Text('Add Cue',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          body: TabBarView(
+            controller: _tabCtrl,
+            children: [
+              // ── Retained ──────────────────────────────────────────────
+              retained.isEmpty
+                  ? _EmptyState(
+                      message: 'No retained cues yet',
+                      sub: 'Assign a report section to a cue to retain it here',
+                      onAdd: () => _showNoteEditor(context, ref),
+                    )
+                  : _RetainedList(
+                      notes: retained,
+                      onEdit: (n) => _showNoteEditor(context, ref, note: n),
+                      onDelete: (id) => ref
+                          .read(surveyorNotesProvider(widget.caseId).notifier)
+                          .delete(id),
+                    ),
+
+              // ── Unallocated ───────────────────────────────────────────
+              unallocated.isEmpty
+                  ? _EmptyState(
+                      message: 'No unallocated cues',
+                      sub: 'New cues without a report section appear here',
+                      onAdd: () => _showNoteEditor(context, ref),
+                    )
+                  : _FlatList(
+                      notes: unallocated,
+                      onEdit: (n) => _showNoteEditor(context, ref, note: n),
+                      onDelete: (id) => ref
+                          .read(surveyorNotesProvider(widget.caseId).notifier)
+                          .delete(id),
+                    ),
+
+              // ── Ignored ───────────────────────────────────────────────
+              ignored.isEmpty
+                  ? _EmptyState(
+                      message: 'No ignored cues',
+                      sub: 'Cues marked as ignored appear here',
+                      onAdd: () => _showNoteEditor(context, ref),
+                    )
+                  : _FlatList(
+                      notes: ignored,
+                      onEdit: (n) => _showNoteEditor(context, ref, note: n),
+                      onDelete: (id) => ref
+                          .read(surveyorNotesProvider(widget.caseId).notifier)
+                          .delete(id),
+                    ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -95,7 +176,6 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen> {
       builder: (_) => _NoteEditorSheet(
         caseId: widget.caseId,
         existing: note,
-        initialSection: note?.reportSection ?? _sectionFilter,
         onSave: (content, category, section, priority,
             updateResolvedAt, resolvedAt) async {
           final notifier =
@@ -126,85 +206,50 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen> {
   }
 }
 
-// ── Section filter button ──────────────────────────────────────────────────
+// ── Tab badge ──────────────────────────────────────────────────────────────
 
-class _SectionFilterButton extends StatelessWidget {
-  const _SectionFilterButton({
-    required this.current,
-    required this.onSelected,
-  });
-
-  final ReportSection? current;
-  final void Function(ReportSection?) onSelected;
+class _Badge extends StatelessWidget {
+  const _Badge({required this.count, this.color = _kColor});
+  final int count;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<ReportSection?>(
-      icon: Icon(
-        Icons.filter_list,
-        color: current != null ? AppColors.midBlue : null,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(8),
       ),
-      tooltip: 'Filter by section',
-      initialValue: current,
-      onSelected: onSelected,
-      itemBuilder: (_) => [
-        const PopupMenuItem<ReportSection?>(
-          value: null,
-          child: Text('All sections',
-              style: TextStyle(fontStyle: FontStyle.italic)),
-        ),
-        const PopupMenuDivider(),
-        ...ReportSection.ordered.map(
-          (s) => PopupMenuItem<ReportSection?>(
-            value: s,
-            child: Row(children: [
-              Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: _sectionColor(s),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              Text(s.label, style: const TextStyle(fontSize: 13)),
-            ]),
-          ),
-        ),
-      ],
+      child: Text(
+        '$count',
+        style: const TextStyle(
+            fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
     );
   }
 }
 
-// ── Cues list grouped by section ──────────────────────────────────────────
+// ── Retained list (grouped by report section) ─────────────────────────────
 
-class _NotesList extends StatelessWidget {
-  const _NotesList({
-    required this.notes,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
+class _RetainedList extends StatelessWidget {
+  const _RetainedList(
+      {required this.notes, required this.onEdit, required this.onDelete});
   final List<SurveyorNote> notes;
   final void Function(SurveyorNote) onEdit;
   final void Function(String) onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final grouped = <ReportSection?, List<SurveyorNote>>{};
+    final grouped = <ReportSection, List<SurveyorNote>>{};
     for (final n in notes) {
-      grouped.putIfAbsent(n.reportSection, () => []).add(n);
+      grouped.putIfAbsent(n.reportSection!, () => []).add(n);
     }
-
-    // Sort within each group: important → normal → ignored
     for (final list in grouped.values) {
       list.sort((a, b) => a.priority.index.compareTo(b.priority.index));
     }
 
-    final sections = [
-      if (grouped.containsKey(null)) null,
-      ...ReportSection.ordered.where(grouped.containsKey),
-    ];
+    final sections = ReportSection.ordered.where(grouped.containsKey).toList();
 
     final items = <Widget>[];
     for (var i = 0; i < sections.length; i++) {
@@ -217,10 +262,9 @@ class _NotesList extends StatelessWidget {
         items.add(Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _NoteCard(
-            note: note,
-            onEdit: () => onEdit(note),
-            onDelete: () => onDelete(note.id),
-          ),
+              note: note,
+              onEdit: () => onEdit(note),
+              onDelete: () => onDelete(note.id)),
         ));
       }
     }
@@ -232,17 +276,60 @@ class _NotesList extends StatelessWidget {
   }
 }
 
-// ── Section header ─────────────────────────────────────────────────────────
+// ── Flat list (unallocated + ignored) ────────────────────────────────────
+
+class _FlatList extends StatelessWidget {
+  const _FlatList(
+      {required this.notes, required this.onEdit, required this.onDelete});
+  final List<SurveyorNote> notes;
+  final void Function(SurveyorNote) onEdit;
+  final void Function(String) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    // Group by category for unallocated; flat for ignored
+    final grouped = <NoteCategory, List<SurveyorNote>>{};
+    for (final n in notes) {
+      grouped.putIfAbsent(n.category, () => []).add(n);
+    }
+
+    final items = <Widget>[];
+    var first = true;
+    for (final cat in NoteCategory.values) {
+      final list = grouped[cat];
+      if (list == null) continue;
+      if (!first) items.add(const SizedBox(height: 18));
+      first = false;
+      items.add(_CategoryHeader(category: cat, count: list.length));
+      items.add(const SizedBox(height: 8));
+      for (final note in list) {
+        items.add(Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _NoteCard(
+              note: note,
+              onEdit: () => onEdit(note),
+              onDelete: () => onDelete(note.id)),
+        ));
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+      children: items,
+    );
+  }
+}
+
+// ── Section header ────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.section, required this.count});
-  final ReportSection? section;
+  final ReportSection section;
   final int count;
 
   @override
   Widget build(BuildContext context) {
-    final color = section != null ? _sectionColor(section!) : const Color(0xFFD97706);
-    final label = section?.label ?? 'Unallocated';
+    final color = _sectionColor(section);
     return Row(children: [
       Container(
         width: 8,
@@ -251,7 +338,7 @@ class _SectionHeader extends StatelessWidget {
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
       Text(
-        label.toUpperCase(),
+        section.label.toUpperCase(),
         style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
@@ -265,17 +352,55 @@ class _SectionHeader extends StatelessWidget {
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          '$count',
-          style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.w700, color: color),
-        ),
+        child: Text('$count',
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w700, color: color)),
       ),
     ]);
   }
 }
 
-// ── Note card ──────────────────────────────────────────────────────────────
+// ── Category header ───────────────────────────────────────────────────────
+
+class _CategoryHeader extends StatelessWidget {
+  const _CategoryHeader({required this.category, required this.count});
+  final NoteCategory category;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _categoryColor(category);
+    return Row(children: [
+      Container(
+        width: 8,
+        height: 8,
+        margin: const EdgeInsets.only(right: 7),
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      Text(
+        category.label.toUpperCase(),
+        style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: color,
+            letterSpacing: 0.8),
+      ),
+      const SizedBox(width: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text('$count',
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+      ),
+    ]);
+  }
+}
+
+// ── Note card ─────────────────────────────────────────────────────────────
 
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
@@ -323,7 +448,6 @@ class _NoteCard extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // Category chip + priority badge
                               Row(children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
@@ -356,7 +480,6 @@ class _NoteCard extends StatelessWidget {
                                     height: 1.45),
                               ),
                               const SizedBox(height: 6),
-                              // Footer: date + source + resolved indicator
                               Row(children: [
                                 Text(
                                   _formatDate(note.updatedAt),
@@ -473,7 +596,7 @@ class _NoteCard extends StatelessWidget {
   ];
 }
 
-// ── Priority badge ─────────────────────────────────────────────────────────
+// ── Priority badge ────────────────────────────────────────────────────────
 
 class _PriorityBadge extends StatelessWidget {
   const _PriorityBadge({required this.priority});
@@ -505,17 +628,15 @@ class _PriorityBadge extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 9, color: color),
         const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-              fontSize: 9, fontWeight: FontWeight.w700, color: color),
-        ),
+        Text(label,
+            style: TextStyle(
+                fontSize: 9, fontWeight: FontWeight.w700, color: color)),
       ]),
     );
   }
 }
 
-// ── Note editor sheet ──────────────────────────────────────────────────────
+// ── Note editor sheet ─────────────────────────────────────────────────────
 
 typedef _OnSave = Future<void> Function(
   String content,
@@ -531,12 +652,10 @@ class _NoteEditorSheet extends StatefulWidget {
     required this.caseId,
     required this.onSave,
     this.existing,
-    this.initialSection,
   });
 
   final String caseId;
   final SurveyorNote? existing;
-  final ReportSection? initialSection;
   final _OnSave onSave;
 
   @override
@@ -559,7 +678,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
     _category = widget.existing?.category ?? NoteCategory.general;
     _priority = widget.existing?.priority ?? CuePriority.normal;
     _resolvedAt = widget.existing?.resolvedAt;
-    _section = widget.existing?.reportSection ?? widget.initialSection;
+    _section = widget.existing?.reportSection;
   }
 
   @override
@@ -615,20 +734,18 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Report section quick pick ────────────────────────────
+            // Report section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'REPORT SECTION',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textTertiary,
-                        letterSpacing: 0.7),
-                  ),
+                  const Text('REPORT SECTION',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.7)),
                   const SizedBox(height: 6),
                   _SectionChips(
                     value: _section,
@@ -639,20 +756,18 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Category chips ───────────────────────────────────────
+            // Category
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'NOTE TYPE',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textTertiary,
-                        letterSpacing: 0.7),
-                  ),
+                  const Text('NOTE TYPE',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.7)),
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 6,
@@ -692,20 +807,18 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Priority picker ──────────────────────────────────────
+            // Priority
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'PRIORITY',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textTertiary,
-                        letterSpacing: 0.7),
-                  ),
+                  const Text('PRIORITY',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.7)),
                   const SizedBox(height: 6),
                   Row(
                     children: CuePriority.values.map((p) {
@@ -718,7 +831,8 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
                             onTap: () => setState(() => _priority = p),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
-                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 8),
                               decoration: BoxDecoration(
                                 color: selected
                                     ? color.withValues(alpha: 0.12)
@@ -754,7 +868,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Text input ───────────────────────────────────────────
+            // Text input
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
@@ -784,19 +898,17 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // ── Resolved date ────────────────────────────────────────
+            // Resolved date
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  const Text(
-                    'RESOLVED',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textTertiary,
-                        letterSpacing: 0.7),
-                  ),
+                  const Text('RESOLVED',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.7)),
                   const SizedBox(width: 10),
                   GestureDetector(
                     onTap: () async {
@@ -857,7 +969,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 14),
 
-            // ── Save button ──────────────────────────────────────────
+            // Save button
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: SizedBox(
@@ -910,7 +1022,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
   ];
 }
 
-// ── Section quick-pick chips ───────────────────────────────────────────────
+// ── Section quick-pick chips ──────────────────────────────────────────────
 
 class _SectionChips extends StatelessWidget {
   const _SectionChips({required this.value, required this.onChanged});
@@ -923,13 +1035,11 @@ class _SectionChips extends StatelessWidget {
       spacing: 6,
       runSpacing: 6,
       children: [
-        // "None" chip
         GestureDetector(
           onTap: () => onChanged(null),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: value == null
                   ? AppColors.textTertiary.withValues(alpha: 0.18)
@@ -962,8 +1072,7 @@ class _SectionChips extends StatelessWidget {
             onTap: () => onChanged(selected ? null : s),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 120),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: selected ? color : color.withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(20),
@@ -976,8 +1085,7 @@ class _SectionChips extends StatelessWidget {
                 s.shortLabel,
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight:
-                      selected ? FontWeight.w700 : FontWeight.w400,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
                   color: selected ? Colors.white : color,
                 ),
               ),
@@ -989,12 +1097,14 @@ class _SectionChips extends StatelessWidget {
   }
 }
 
-// ── Empty state ────────────────────────────────────────────────────────────
+// ── Empty state ───────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onAdd, required this.filtered});
+  const _EmptyState(
+      {required this.message, required this.sub, required this.onAdd});
+  final String message;
+  final String sub;
   final VoidCallback onAdd;
-  final bool filtered;
 
   @override
   Widget build(BuildContext context) {
@@ -1011,23 +1121,16 @@ class _EmptyState extends StatelessWidget {
             child: const Icon(Icons.edit_note, color: _kColor, size: 30),
           ),
           const SizedBox(height: 16),
-          Text(
-            filtered ? 'No cues match current filter' : 'No context cues yet',
-            style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary),
-          ),
+          Text(message,
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary)),
           const SizedBox(height: 6),
-          Text(
-            filtered
-                ? 'Adjust the filter or add a new cue'
-                : 'Capture observations, measurements, interview notes\n'
-                    'and tag them to a report section',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 13, color: AppColors.textSecondary),
-          ),
+          Text(sub,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary)),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onAdd,
@@ -1046,7 +1149,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 Color _sectionColor(ReportSection s) => switch (s) {
       ReportSection.background      => const Color(0xFF2A6B9E),
@@ -1072,6 +1175,7 @@ Color _categoryColor(NoteCategory cat) => switch (cat) {
       NoteCategory.operations    => const Color(0xFF0F766E),
       NoteCategory.previousWorks => const Color(0xFF6B7280),
       NoteCategory.policy        => const Color(0xFF4338CA),
+      NoteCategory.invoicing     => const Color(0xFF0284C7),
       NoteCategory.general       => const Color(0xFF4A7A5A),
     };
 

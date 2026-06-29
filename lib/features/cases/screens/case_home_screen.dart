@@ -26,6 +26,8 @@ import '../../survey/providers/repair_period_provider.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../accounts/providers/accounts_provider.dart';
+import '../../accounts/models/accounts_models.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
 
@@ -896,6 +898,7 @@ class _PseudoReport extends ConsumerWidget {
     final visits = ref.watch(attendancesProvider(caseId)).value ?? [];
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
+    final repairDocs = ref.watch(repairDocumentsProvider(caseId)).value ?? [];
 
     // Show amber left-border highlight on sections touched by the latest import.
     final review = ref.watch(importReviewProvider);
@@ -905,6 +908,7 @@ class _PseudoReport extends ConsumerWidget {
 
     final List<Widget> sections = _sections(
         context, damage, attendees, voices, visits, timeline, repairPeriods,
+        repairDocs,
         highlighted: highlighted);
 
     return SingleChildScrollView(
@@ -930,7 +934,8 @@ class _PseudoReport extends ConsumerWidget {
     List<VoiceNoteModel> voices,
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
-    List<RepairPeriodModel> repairPeriods, {
+    List<RepairPeriodModel> repairPeriods,
+    List<RepairDocumentModel> repairDocs, {
     Set<String> highlighted = const <String>{},
   }) {
     final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
@@ -1007,26 +1012,14 @@ class _PseudoReport extends ConsumerWidget {
         onOpen: () => ctx.go('/cases/$caseId/repairs'),
         child: _repairsContent(repairPeriods),
       ),
-      _SectionCard(
-        accentColor: AppColors.teal,
-        icon: Icons.anchor_outlined,
-        title: 'Dry Docking / Temporary Repairs',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Drydock details — enter in Damage Register'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.navy,
-        icon: Icons.schedule_outlined,
-        title: 'Repair Times',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Drydock / afloat days — enter in Damage Register'),
-      ),
+
       _SectionCard(
         accentColor: AppColors.green,
         icon: Icons.receipt_outlined,
         title: 'Accounts',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Invoices module — Phase 1.1'),
+        countLabel: repairDocs.isEmpty ? null : '${repairDocs.length}',
+        onOpen: () => ctx.go('/cases/$caseId/accounts'),
+        child: _accountsContent(repairDocs, damage?.occurrences ?? []),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -1691,6 +1684,158 @@ class _PseudoReport extends ConsumerWidget {
           .toList(),
     );
   }
+
+  Widget _accountsContent(
+    List<RepairDocumentModel> docs,
+    List<OccurrenceModel> occurrences,
+  ) {
+    if (docs.isEmpty) return const _SectionEmpty('No invoices imported yet');
+    final summary  = AccountsSummary.fromDocuments(docs);
+    final allLines = docs.expand((d) => d.accountLines).toList();
+    final cur      = summary.primaryCurrency;
+
+    String fmt(double v) {
+      final parts = v.toStringAsFixed(0).split('.');
+      return '$cur ${parts[0].replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',')}';
+    }
+
+    final finRows = <Widget>[];
+
+    for (int i = 0; i < occurrences.length; i++) {
+      final occ = occurrences[i];
+      final uw  = allLines
+          .where((l) =>
+              l.occurrenceId == occ.occurrenceId &&
+              l.status != LineItemStatus.betterment)
+          .fold(0.0, (s, l) => s + l.underwritersPortion);
+      if (uw > 0.005) {
+        finRows.add(_accountAmountRow(
+          'Occ. ${i + 1} — ${occ.title ?? 'Occurrence ${i + 1}'}',
+          fmt(uw), AppColors.green));
+      }
+    }
+
+    final unallocated = allLines
+        .where((l) =>
+            l.occurrenceId == null &&
+            l.status != LineItemStatus.betterment)
+        .fold(0.0, (s, l) => s + l.underwritersPortion);
+    if (unallocated > 0.005) {
+      finRows.add(_accountAmountRow('Unallocated', fmt(unallocated), AppColors.green));
+    }
+
+    final betterment = allLines
+        .where((l) => l.status == LineItemStatus.betterment)
+        .fold(0.0, (s, l) => s + l.grossAmount);
+    if (betterment > 0.005) {
+      finRows.add(_accountAmountRow('Betterment', fmt(betterment), Colors.brown));
+    }
+
+    if (summary.totalApprovedOwners > 0.005) {
+      finRows.add(_accountAmountRow(
+          "Owner's account", fmt(summary.totalApprovedOwners), Colors.orange));
+    }
+
+    final deferred = allLines
+        .where((l) => l.apportionmentType == 'defer')
+        .fold(0.0, (s, l) => s + l.grossAmount);
+    if (deferred > 0.005) {
+      finRows.add(_accountAmountRow(
+          'Deferred to adjuster', fmt(deferred), Colors.blueGrey));
+    }
+
+    if (summary.totalSubmitted > 0.005) {
+      finRows.add(Divider(height: 10, color: AppColors.border.withValues(alpha: 0.4)));
+      finRows.add(_accountAmountRow(
+        'Total (gross)', fmt(summary.totalSubmitted), AppColors.textPrimary,
+        bold: true));
+    }
+
+    // ── Flags ────────────────────────────────────────────────────────────
+    final pendingLines = allLines
+        .where((l) => l.status == LineItemStatus.pendingReview)
+        .length;
+    final queriedLines = allLines
+        .where((l) => l.status == LineItemStatus.queried)
+        .length;
+    final unallocatedLines = occurrences.isNotEmpty
+        ? allLines.where((l) => l.occurrenceId == null).length
+        : 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Summary',
+            style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4)),
+        if (finRows.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          ...finRows,
+        ],
+        if (pendingLines > 0 || queriedLines > 0 || unallocatedLines > 0) ...[
+          const SizedBox(height: 4),
+          Divider(height: 1, color: AppColors.border.withValues(alpha: 0.3)),
+          const SizedBox(height: 4),
+          if (pendingLines > 0)
+            _accountFlagRow(
+                Icons.hourglass_empty_outlined,
+                '$pendingLines line${pendingLines == 1 ? '' : 's'} pending review',
+                Colors.orange),
+          if (queriedLines > 0)
+            _accountFlagRow(
+                Icons.help_outline,
+                '$queriedLines line${queriedLines == 1 ? '' : 's'} queried',
+                Colors.red),
+          if (unallocatedLines > 0)
+            _accountFlagRow(
+                Icons.link_off_outlined,
+                '$unallocatedLines line${unallocatedLines == 1 ? '' : 's'} not allocated',
+                AppColors.textSecondary),
+        ],
+      ],
+    );
+  }
+
+  Widget _accountFlagRow(IconData icon, String text, Color color) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(
+          children: [
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(text,
+                  style: TextStyle(color: color, fontSize: 10)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _accountAmountRow(String label, String value, Color color,
+      {bool bold = false}) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight:
+                          bold ? FontWeight.w600 : FontWeight.normal)),
+            ),
+            Text(value,
+                style: TextStyle(
+                    color: color,
+                    fontSize: bold ? 12 : 11,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+
 
   Widget _reportStatusContent() {
     final stages = <(String, bool)>[

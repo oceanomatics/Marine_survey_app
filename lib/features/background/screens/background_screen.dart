@@ -693,5 +693,6 @@ Color _catColor(NoteCategory cat) => switch (cat) {
       NoteCategory.operations    => const Color(0xFF0F766E),
       NoteCategory.previousWorks => const Color(0xFF6B7280),
       NoteCategory.policy        => const Color(0xFF4338CA),
+      NoteCategory.invoicing     => const Color(0xFF0284C7),
       NoteCategory.general       => const Color(0xFF4A7A5A),
     };

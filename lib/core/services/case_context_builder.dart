@@ -1,5 +1,6 @@
 // lib/core/services/case_context_builder.dart
 
+import '../../features/accounts/models/accounts_models.dart';
 import '../../features/cases/models/case_model.dart';
 import '../../features/survey/providers/damage_provider.dart';
 import '../../features/surveyor_notes/models/surveyor_note_model.dart';
@@ -12,6 +13,7 @@ class CaseContextBuilder {
     required VesselModel? vessel,
     required DamageState? damage,
     required List<SurveyorNote>? notes,
+    List<RepairDocumentModel>? repairDocuments,
   }) {
     final buf = StringBuffer();
 
@@ -144,7 +146,85 @@ class CaseContextBuilder {
       }
     }
 
+    // ── Repair accounts (invoices + line items) ──────────────────────────────
+    if (repairDocuments != null && repairDocuments.isNotEmpty) {
+      buf.writeln('## REPAIR ACCOUNTS');
+      buf.writeln('Total documents: ${repairDocuments.length}');
+      buf.writeln();
+
+      // Summarise financials across all docs
+      double totalSubmitted = 0, totalUW = 0, totalOwners = 0;
+      for (final d in repairDocuments) {
+        totalSubmitted += d.totalIncTax ?? 0;
+        totalUW       += d.totalApprovedUW;
+        totalOwners   += d.totalApprovedOwners;
+      }
+      final currency = repairDocuments.first.currency;
+      buf.writeln('Total submitted: $currency ${_fmtAmt(totalSubmitted)}');
+      buf.writeln('Approved (underwriters): $currency ${_fmtAmt(totalUW)}');
+      buf.writeln('Owner\'s account: $currency ${_fmtAmt(totalOwners)}');
+      buf.writeln();
+
+      for (final doc in repairDocuments) {
+        final docType = doc.documentType.label;
+        final supplier = doc.supplierName ?? 'Unknown supplier';
+        final docNo = doc.documentNumber != null ? ' No. ${doc.documentNumber}' : '';
+        final date = doc.documentDate != null ? ' dated ${_fmtDate(doc.documentDate!)}' : '';
+        final total = doc.totalIncTax != null
+            ? ' — ${doc.currency} ${_fmtAmt(doc.totalIncTax!)}'
+            : '';
+        buf.writeln('### $docType$docNo — $supplier$date$total');
+        buf.writeln('Status: ${doc.status.label}');
+        if (doc.surveyorNotes != null && doc.surveyorNotes!.isNotEmpty) {
+          buf.writeln('Surveyor notes: ${doc.surveyorNotes}');
+        }
+        if (doc.presentationStatement != null &&
+            doc.presentationStatement!.isNotEmpty) {
+          buf.writeln('Presentation: ${doc.presentationStatement}');
+        }
+
+        if (doc.accountLines.isNotEmpty) {
+          buf.writeln('Line items:');
+          for (final line in doc.accountLines) {
+            final desc = line.description ?? '(no description)';
+            final nature = line.costNature.label;
+            final gross = '${doc.currency} ${_fmtAmt(line.grossAmount)}';
+            final status = line.status.label;
+            buf.write('  - [$nature] $desc — $gross — $status');
+            if (line.underwritersPortion > 0) {
+              buf.write(' (UW: ${doc.currency} ${_fmtAmt(line.underwritersPortion)})');
+            }
+            if (line.ownersPortion > 0) {
+              buf.write(' (Owner: ${doc.currency} ${_fmtAmt(line.ownersPortion)})');
+            }
+            if (line.bettermentDeduction > 0) {
+              buf.write(' (Betterment: ${doc.currency} ${_fmtAmt(line.bettermentDeduction)})');
+            }
+            if (line.apportionmentNotes != null &&
+                line.apportionmentNotes!.isNotEmpty) {
+              buf.write(' — Note: ${line.apportionmentNotes}');
+            }
+            buf.writeln();
+          }
+        }
+        buf.writeln();
+      }
+    }
+
     return buf.toString().trim();
+  }
+
+  static String _fmtAmt(double v) {
+    final abs = v.abs();
+    final s = abs.toStringAsFixed(2);
+    final parts = s.split('.');
+    final intPart = parts[0];
+    final grouped = StringBuffer();
+    for (var i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) grouped.write(',');
+      grouped.write(intPart[i]);
+    }
+    return v < 0 ? '-$grouped.${parts[1]}' : '$grouped.${parts[1]}';
   }
 
   static String _fmtDate(DateTime d) =>

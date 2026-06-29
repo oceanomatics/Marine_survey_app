@@ -582,6 +582,25 @@ Rules:
     required String base64Content,
     required String mediaType,
   }) async {
+    final isImage = mediaType.startsWith('image/');
+    final contentBlock = isImage
+        ? {
+            'type': 'image',
+            'source': {
+              'type': 'base64',
+              'media_type': mediaType,
+              'data': base64Content,
+            },
+          }
+        : {
+            'type': 'document',
+            'source': {
+              'type': 'base64',
+              'media_type': mediaType,
+              'data': base64Content,
+            },
+          };
+
     final response = await _dio.post('/messages',
       options: Options(extra: {'feature': 'invoice_extraction'}),
       data: {
@@ -591,37 +610,47 @@ Rules:
         {
           'role': 'user',
           'content': [
-            {
-              'type': 'image',
-              'source': {
-                'type': 'base64',
-                'media_type': mediaType,
-                'data': base64Content,
-              },
-            },
+            contentBlock,
             {
               'type': 'text',
-              'text': '''Extract all invoice data and return ONLY a JSON object:
+              'text': '''You are a marine insurance claims assistant. Extract all data from this invoice/document for a marine survey case account and return ONLY a JSON object.
 
 {
-  "supplier_name": "",
-  "invoice_number": "",
-  "invoice_date": "",
-  "currency": "AUD",
-  "total_amount": null,
-  "gst_amount": null,
-  "gst_excluded_amount": null,
-  "description": "",
-  "line_items": [
+  "document_type": "invoice|estimate|credit_note|proforma|quotation|purchase_order|delivery_note",
+  "document_number": "invoice or document reference number, or null",
+  "document_date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD or null",
+  "contract_ref": "any PO, contract, or work-order reference, or null",
+  "supplier_name": "company name issuing the document, or null",
+  "supplier_category": "oem_dealer|oem_direct|independent_workshop|electrical_specialist|hydraulic_specialist|ndt_specialist|diving_services|dry_dock_operator|port_authority|port_services_co|shipping_agency|freight_domestic|freight_international|tool_hire_co|industrial_supply|class_society|naval_architect|legal_professional|other",
+  "currency": "3-letter ISO code, default AUD",
+  "subtotal_ex_tax": null,
+  "tax_total": null,
+  "total_inc_tax": null,
+  "mixed_nature_flag": false,
+  "account_lines": [
     {
-      "item_ref": "",
-      "description": "",
-      "amount": null
+      "item_number": 1,
+      "description": "exact verbatim text from the invoice line item as it appears on the document — do not paraphrase",
+      "cost_nature": "service_technician|specialist_engineer|repairer_workshop|dry_dock_slipway|diving_contractor|inspection_survey|superintendency|access_staging|mobilisation|demobilisation|surface_treatment|testing_commissioning|tool_hire|spare_parts|equipment|freight_domestic|freight_international|port_services|waste_disposal|accommodation|catering|crew_expenses|professional_fees|owners_maintenance|class_statutory|other",
+      "gross_amount": 0.0,
+      "owners_note": "brief reason if this line might be owner's maintenance, or null"
     }
-  ]
+  ],
+  "raw_lines": [
+    {"description": "exact line item text", "amount": null}
+  ],
+  "ai_presentation_draft": "Start with 'This invoice appears to be' then describe in 1–2 sentences what this document covers in general terms; plain factual prose; do NOT include monetary amounts, currencies, or numeric figures",
+  "confidence": 0.9
 }
 
-Dates in ISO format. Return null for missing fields.''',
+Rules:
+- account_lines: list items in the SAME ORDER they appear in the invoice from top to bottom; item_number matches the printed line number or sequential order as on document
+- description: copy the EXACT text from each line item — verbatim, not summarized
+- cost_nature: classify by the TYPE of service/work (who/what is doing it), not whether repair is permanent or temporary
+- mixed_nature_flag: true when line items span both U/W damage repair and owner maintenance
+- confidence: 0.0-1.0 reflecting extraction certainty
+- Dates in ISO format. Null for missing fields.''',
             },
           ],
         },
@@ -630,6 +659,85 @@ Dates in ISO format. Return null for missing fields.''',
 
     final text = _extractText(response.data);
     return _parseJson(text);
+  }
+
+  // ── Multi-invoice PDF analysis ────────────────────────────────────────────
+
+  /// Analyse a PDF that may contain multiple individual invoices/documents.
+  /// Returns a JSON array of invoice segments with page ranges and relevance.
+  static Future<List<Map<String, dynamic>>> analyzeMultiInvoicePdf({
+    required String base64Content,
+    required String mediaType,
+  }) async {
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'batch_invoice_analysis'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': AppConfig.claudeMaxTokens,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'document',
+                'source': {
+                  'type': 'base64',
+                  'media_type': mediaType,
+                  'data': base64Content,
+                },
+              },
+              {
+                'type': 'text',
+                'text': '''You are a marine insurance claims assistant. This PDF may contain multiple individual invoices or documents bundled together.
+
+Identify each distinct invoice or document and return ONLY a JSON array. Each element:
+
+[
+  {
+    "page_start": 1,
+    "page_end": 2,
+    "supplier_name": "Acme Marine Pty Ltd",
+    "invoice_number": "INV-2024-001",
+    "date": "2024-03-15",
+    "currency": "AUD",
+    "total_amount": 12500.00,
+    "submitted_to_insurance": true,
+    "reason": "Direct damage repair — plating and welding work on hull",
+    "confidence": 0.92
+  }
+]
+
+Rules:
+- page_start / page_end: 1-based page numbers for this document
+- submitted_to_insurance: true if the document appears to have been submitted as part of a claim (look for claim references, highlighting, cover letter inclusions, damage-related descriptions). false if it appears to be context only (routine maintenance, unrelated work, owner's expense items explicitly marked as such)
+- reason: one sentence explaining the submitted_to_insurance decision
+- confidence: 0.0–1.0 for your overall extraction certainty
+- If the entire PDF is a single invoice, return an array with one element
+- Do not merge separate invoices even if from the same supplier
+- Return ONLY the JSON array, no other text''',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data);
+    try {
+      var clean = text
+          .replaceAll(RegExp(r'```json\s*'), '')
+          .replaceAll(RegExp(r'```\s*'), '')
+          .trim();
+      final start = clean.indexOf('[');
+      final end   = clean.lastIndexOf(']');
+      if (start != -1 && end != -1 && end > start) {
+        clean = clean.substring(start, end + 1);
+      }
+      final list = jsonDecode(clean) as List;
+      return list.cast<Map<String, dynamic>>();
+    } catch (e) {
+      return [];
+    }
   }
 
   // ── Photo Classification ──────────────────────────────────────────────────
@@ -881,6 +989,240 @@ Return empty string if field not found.''',
 
     final text = _extractText(response.data);
     return _parseJson(text);
+  }
+
+  // ── Image Orientation Detection ──────────────────────────────────────────
+
+  /// Returns the number of clockwise quarter-turns (0–3) needed to make a
+  /// document image upright and readable. Downloads the image from [signedUrl],
+  /// sends it to Claude Haiku (cheap/fast), and parses the result.
+  static Future<int> detectImageOrientation({
+    required String signedUrl,
+    required String mediaType,
+  }) async {
+    final fetchDio = Dio();
+    final fetchResp = await fetchDio.get<List<int>>(
+      signedUrl,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final b64 = base64Encode(fetchResp.data!);
+
+    final aiResp = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'image_orientation'}),
+      data: {
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 10,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'image',
+                'source': {
+                  'type': 'base64',
+                  'media_type': mediaType,
+                  'data': b64,
+                },
+              },
+              {
+                'type': 'text',
+                'text': 'This is a document image (invoice, letter, or form). '
+                    'Reply with ONLY a single integer — the number of degrees '
+                    'clockwise this image must be rotated to appear upright '
+                    'and readable. Choose from: 0, 90, 180, 270.',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(aiResp.data).trim();
+    final match = RegExp(r'\d+').firstMatch(text);
+    final angle = int.tryParse(match?.group(0) ?? '0') ?? 0;
+    return switch (angle) {
+      90  => 1,
+      180 => 2,
+      270 => 3,
+      _   => 0,
+    };
+  }
+
+  // ── Document Corner Detection ─────────────────────────────────────────────
+
+  /// Detects the four corners of a document / paper visible in a photo.
+  ///
+  /// [base64Image] – already-encoded image bytes.
+  /// [mediaType]   – e.g. 'image/jpeg'.
+  ///
+  /// Returns [TL, TR, BR, BL] as `[x, y]` pairs (normalized 0–1) or null if
+  /// the document could not be reliably detected.
+  static Future<List<List<double>>?> detectDocumentCorners({
+    required String base64Image,
+    required String mediaType,
+  }) async {
+    final aiResp = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'document_corner_detection'}),
+      data: {
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 60,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'image',
+                'source': {
+                  'type': 'base64',
+                  'media_type': mediaType,
+                  'data': base64Image,
+                },
+              },
+              {
+                'type': 'text',
+                'text': 'Find the four corners of the flat document, paper, '
+                    'invoice, or form photographed here. '
+                    'Reply with ONLY the corner coordinates as decimal '
+                    'fractions of image width (x) and height (y), '
+                    'in this exact order: top-left, top-right, bottom-right, '
+                    'bottom-left. Format: x1,y1 x2,y2 x3,y3 x4,y4\n'
+                    'Values must be between 0.0 and 1.0. '
+                    'If a corner is off-screen or unclear, estimate its '
+                    'position rather than omitting it. '
+                    'If no document is visible at all, reply with: none',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(aiResp.data).trim().toLowerCase();
+    if (text == 'none' || text.isEmpty) return null;
+
+    try {
+      final parts = text.trim().split(RegExp(r'\s+'));
+      if (parts.length < 3) return null;
+
+      List<double> parseXY(String s) {
+        final xy = s.split(',');
+        return [double.parse(xy[0]), double.parse(xy[1])];
+      }
+
+      final corners = parts.take(4).map(parseXY).toList();
+
+      // If only 3 corners came back, recover BL via parallelogram:
+      // BL = TL + BR − TR  (works well for near-rectangular documents)
+      if (corners.length == 3) {
+        final tl = corners[0], tr = corners[1], br = corners[2];
+        final blX = (tl[0] + br[0] - tr[0]).clamp(0.0, 1.0);
+        final blY = (tl[1] + br[1] - tr[1]).clamp(0.0, 1.0);
+        corners.add([blX, blY]);
+      }
+
+      return corners;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Surveyor Note Polish ──────────────────────────────────────────────────
+
+  /// Clean up a dictated or rough surveyor note into polished professional prose.
+  /// Reads an invoice/document and extracts non-accounting observations
+  /// (timesheets, hours, scope descriptions, certifications, etc.)
+  /// Returns a list of maps: {content, priority ('important'|'normal')}
+  static Future<List<Map<String, dynamic>>> extractInvoiceContextCues({
+    required String base64Content,
+    required String mediaType,
+  }) async {
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'invoice_context_cues'}),
+      data: {
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 1200,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {
+                'type': 'image',
+                'source': {
+                  'type': 'base64',
+                  'media_type': mediaType,
+                  'data': base64Content,
+                },
+              },
+              {
+                'type': 'text',
+                'text': '''You are assisting a marine insurance surveyor reviewing a repair invoice or document.
+
+Your task: identify any NON-ACCOUNTING information present in this document that would be useful context for the survey. Focus on:
+- Hours worked / timesheets / labour breakdown
+- Scope of work descriptions or repair narratives
+- Certification numbers, class approvals, or warranty references
+- Delivery dates, mobilisation/demobilisation details
+- Specialist equipment or techniques mentioned
+- Any notes from the repairer about findings or conditions
+- Anomalies, additional observations, or qualifications
+
+Do NOT extract financial figures, totals, invoice numbers, supplier names, or dates — those are already captured.
+
+If you find relevant context cues, return them as a JSON array. Each item must have:
+- "content": the cue text (concise, factual, professional)
+- "priority": "important" if it has significant claim implications, otherwise "normal"
+
+If there is nothing non-accounting to extract, return an empty array.
+
+Return ONLY valid JSON — no preamble, no explanation. Example:
+[{"content": "Labour breakdown: 8 hours at standard rate, 4 hours overtime.", "priority": "normal"}]''',
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data).trim();
+    try {
+      var clean = text
+          .replaceAll(RegExp(r'```json\s*'), '')
+          .replaceAll(RegExp(r'```\s*'), '')
+          .trim();
+      final start = clean.indexOf('[');
+      final end   = clean.lastIndexOf(']');
+      if (start < 0 || end < 0) return [];
+      clean = clean.substring(start, end + 1);
+      final list = jsonDecode(clean) as List;
+      return list.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<String> polishSurveyorNote(String rawText) async {
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'surveyor_note_polish'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 600,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''You are assisting a marine surveyor. Clean up the following dictated or rough note into polished, professional prose suitable for a marine insurance survey report. Preserve all factual content and meaning. Correct grammar, punctuation, and sentence structure. Do not add information not present. Do not use bullet points — write flowing prose. Return ONLY the cleaned-up text, no preamble or explanation.
+
+NOTE TO POLISH:
+$rawText''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data).trim();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
