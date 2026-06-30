@@ -707,8 +707,8 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
   void initState() {
     super.initState();
     final c = widget.currentCase;
-    _applyJob    = widget.refs.jobNumber != null &&
-        (c == null || (c.hasPlaceholderJobNumber as bool));
+    _applyJob    = widget.refs.technicalFileNo != null &&
+        (c == null || (c.hasPlaceholderFileNo as bool));
     _applyClaim  = widget.refs.claimReference != null &&
         (c == null || (c.claimReference == null));
     _applyVessel = widget.refs.vesselName != null;
@@ -721,7 +721,7 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
     try {
       final notifier = ref.read(caseProvider(widget.caseId).notifier);
       await notifier.updateCaseRefs(
-        jobNumber:       _applyJob    ? widget.refs.jobNumber       : null,
+        technicalFileNo:       _applyJob    ? widget.refs.technicalFileNo       : null,
         claimReference:  _applyClaim  ? widget.refs.claimReference  : null,
         instructionDate: _applyDate   ? widget.refs.instructionDate : null,
       );
@@ -756,12 +756,12 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 12),
-            if (refs.jobNumber != null)
+            if (refs.technicalFileNo != null)
               _RefRow(
-                label: 'Job Number',
-                extracted: refs.jobNumber!,
-                current: (c?.hasPlaceholderJobNumber == true || c?.jobNumber == null)
-                    ? null : c?.jobNumber as String?,
+                label: 'Technical File No.',
+                extracted: refs.technicalFileNo!,
+                current: (c?.hasPlaceholderFileNo == true || c?.technicalFileNo == null)
+                    ? null : c?.technicalFileNo as String?,
                 checked: _applyJob,
                 onChanged: (v) => setState(() => _applyJob = v ?? false),
               ),

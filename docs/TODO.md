@@ -1,6 +1,6 @@
 # Marine Survey App — Master To-Do List
 
-**Last updated:** June 2026  
+**Last updated:** 30 June 2026 — codebase re-audited; many items marked Done  
 **Spec reference:** `docs/report_builder_specs`  
 **Schema reference:** `docs/SCHEMA.md`  
 **Test sheet:** `TEST_SHEET.md` (110 items, all untested)
@@ -23,88 +23,65 @@ Status legend: `[ ]` Not started · `[~]` In progress · `[✓]` Done · `[!]` B
 Nothing here is optional. A report that misses these items is not professionally or legally acceptable for H&M submission.
 
 ### 1.1 Dual Sign-Off Gate
-- [ ] Add `reviewing_surveyor_id`, `signed_off_attending`, `signed_off_reviewing`, `signed_off_at` fields to `cases` table and `CaseModel`
-- [ ] Build Sign-Off Block UI: two-column block (Attending Surveyor | Reviewed By), name/qualifications/date
-- [ ] Add surveyor declaration text: *"I confirm that the professional opinions and technical findings in this report are my own and that all AI-assisted content has been reviewed and confirmed by me."*
-- [ ] Block Final Report export unless both `signed_off_attending` AND `signed_off_reviewing` are `true`
+- [✓] `signed_off_attending`, `signed_off_reviewing`, `signed_off_at`, `dualSignOffComplete` on `CaseModel` — **DONE**
+- [✓] Export button (`export_button.dart`) hard-blocks Final export unless both flags true — **DONE**
+- [ ] Build Sign-Off UI screen: drawn signature (touch) / PNG upload (desktop); captured at sign-off time only — **MISSING**
+- [ ] Notification to reviewing surveyor when attending surveyor submits for QC — **MISSING**
+- [ ] Surveyor declaration text embedded in sign-off block — **MISSING**
 
 **Spec:** §2.1, §4.10, §5.4
 
 ### 1.2 WITHOUT PREJUDICE — All Four Required Locations
-Currently: WP flag exists on `RepairDocumentModel` but is **never rendered in report output**.
+- [✓] Page footer (every page): `wpFooterText` from org config, fallback text — rendered via `doc.setFooter()` — **DONE**
+- [✓] Cover page header: `wpHeaderText` from org config — **DONE**
+- [✓] Cover block (location 2, below title): `wpCoverText` from org config — **DONE**
+- [✓] Cost section (location 3): `wpCostSectionText` from org config, with fallback — **DONE**
+- [✓] Waiver (closing): `waiverText` from org config, assembled as `SectionType.waiver` — **DONE**
 
-- [ ] Page footer (every page): passive notice — *"This report is supplied without prejudice to any or all parties involved and shall not be copied or passed on to third parties without the express permission of [Firm Name]. — Page N of Total"*
-- [ ] Page 2 formal designation (before Advice Summary): standalone bold *"WITHOUT PREJUDICE"* + one-sentence explanation
-- [ ] Cost summary: inline below each approved section — *"The above costs are approved without prejudice to Underwriters' rights and without admission of liability."*
-- [ ] Waiver section (closing): full waiver paragraph from account branding `default_waiver_text`
-
-**Spec:** §4.7, §8.3 — all four locations required even for Preliminary reports
+**All four WP locations are done. Spec:** §4.7, §8.3
 
 ### 1.3 AI Audit Log (GPN-AI Compliance — Federal Court of Australia, April 2026)
-Currently: only `token_usage` table (cost tracking). **No compliance-grade log exists.**
-
-- [ ] Create `ai_generation_log` Supabase table:
-  ```sql
-  log_id, case_id, report_section_id, model_version, source_doc_ids[],
-  prompt_hash (SHA-256), prompt_text, ai_output_text,
-  surveyor_review (reviewed_accepted | reviewed_amended | surveyor_authored),
-  reviewer_user_id, reviewed_at, created_at
-  ```
-- [ ] Modify all `ClaudeApi` call sites to write to `ai_generation_log` after each response (model pinned, full prompt, full response, section id)
-- [ ] Add per-section review UI in `section_editor.dart`: surveyor marks each AI-drafted section as `reviewed_accepted`, `reviewed_amended`, or `surveyor_authored`
-- [ ] Gate export on: all AI-generated sections having a `surveyor_review` value set
+- [✓] `AiGenerationLogModel` with all required fields: `promptSha256`, `promptText`, `responseText`, `humanReviewed`, `humanEdited`, `reviewedAt`, `reviewedBy` — **DONE** (`lib/core/models/ai_generation_log_model.dart`)
+- [✓] `AiLogService` writes to `ai_generation_log` Supabase table — **DONE** (`lib/core/services/ai_log_service.dart`)
+- [✓] `ClaudeApi` wired to `AiLogService` on every call — **DONE**
+- [✓] Per-section review UI in `section_editor.dart`: `SurveyorReview` (reviewedAccepted / reviewedAmended / surveyorAuthored) — **DONE**
+- [ ] Gate export on: all AI-generated sections having a `surveyor_review` value set — **MISSING**
 
 **Spec:** §3.3, §8.1
 
 ### 1.4 AI Disclosure Paragraph + Annexure I (AI Audit Record)
-Depends on 1.3 being done first.
-
-- [ ] Auto-generate disclosure paragraph on export: lists sections where AI was engaged, model version, statement that surveyor reviewed all
-- [ ] Auto-build Annexure I table from `ai_generation_log` (Report Section | AI Function | Model & Version | Source Docs | Surveyor Review Action)
-- [ ] Lock both elements post-signing (cannot be edited after `signed_off = true`)
-- [ ] Suppress Annexure I and disclosure if no AI was used (`all sections = surveyor_authored`)
+- [ ] Auto-generate disclosure paragraph on export — **MISSING**
+- [ ] Auto-build Annexure I table from `ai_generation_log` at export — **MISSING**
+- [ ] Snapshot `ai_generation_log` entries into JSON field on `report_outputs` at sign-off (per decision C4) — **MISSING**
+- [ ] Suppress if all sections are `surveyor_authored` — **MISSING**
 
 **Spec:** §3.4, §3.5, §4.1 item 33
 
 ### 1.5 Cost Section Rendered in Report
-Currently: `account_lines` and `repair_documents` exist but are **not assembled into the report output**.
+- [✓] Repair documents + account lines fetched and assembled in docx export — **DONE**
+- [✓] Formal accounts table with Item / Supplier / Invoice Ref / Amount / Allocation — **DONE**
+- [✓] Totals: Owner's Account + Underwriters' Account + Grand Total — **DONE**
+- [✓] WP notation below cost table (`wpCostSectionText`) — **DONE**
+- [✓] Multi-currency via `FxRateService` (openexchangerates.org, locked to invoice date) — **DONE** (`lib/core/services/fx_rate_service.dart`)
 
-- [ ] Fetch repair documents + account lines for case at export time
-- [ ] Render formal accounts table: Item | Description | Invoice Ref. | Amount (currency) | Allocation
-- [ ] Compute totals: Total Claim | Owner's Account | Subject to Adjustment | **GRAND TOTAL**
-- [ ] Insert WP notation below summary (see §1.2 above)
-- [ ] Currency from `RepairDocumentModel.currency`
+**Spec:** §4.6 — fully done
 
-**Spec:** §4.6
-
-### 1.6 Cover Page as Separate Template
-Currently: all pages rendered the same way; no distinct cover page.
-
-- [ ] Modify docx export to detect page 1 and render separately
-- [ ] Cover page elements:
-  - [ ] Vessel name in large title band (`primary_colour` background, white bold text)
-  - [ ] Report type/status band below vessel name (`secondary_colour` or dark charcoal)
-  - [ ] Report status badge (PRELIMINARY=amber, PROGRESS=blue, INTERIM=grey-blue, FINAL=green, SUPPLEMENTARY=orange)
-  - [ ] Vessel photograph (from Document Vault with `is_cover_photo = true`; if none, skip — no placeholder)
-  - [ ] Bottom info box (2-column): Occurrence date+nature | Claim Reference / File No. / Report Version No.
-  - [ ] Firm logo bottom left at `firm_logo_width_px`
-  - [ ] **No running header on page 1**
-- [ ] Body pages (2+): running header with logo (~33% size) + right-aligned title text + rule below; footer with WP notice + page N of Total
+### 1.6 Cover Page
+- [✓] Programmatic OOXML builder in place — no external `.docx` templates — **DONE** (`lib/core/docx/docx_builder.dart`)
+- [✓] Cover content: WP header, firm name, metadata table (Report No., Claim Ref., Policy UCR, Occurrence, Location) — **DONE**
+- [✓] Vessel Particulars table on cover — **DONE**
+- [✓] Machinery & Equipment table on cover (conditional) — **DONE**
+- [✓] Certificates & Class Conditions tables on cover — **DONE**
+- [ ] Distinct visual cover page design: vessel name in large coloured title band, status badge, vessel cover photo, 2-column info box, firm logo — **MISSING**
+- [ ] Running header on body pages (2+): logo + right-aligned title text + rule — **MISSING**
+- [ ] No running header on page 1 (cover) — **MISSING**
 
 **Spec:** §1.2.1, §1.2.2, §4.2
 
 ### 1.7 Export Validation Gate
-Currently: export proceeds regardless of completeness or review status.
-
-- [ ] Before export dialog, validate and show checklist:
-  - [ ] All mandatory sections non-empty
-  - [ ] Owner allegation text ≠ surveyor opinion text (Final & Interim only)
-  - [ ] Both sign-offs confirmed (Final only)
-  - [ ] Cost total > 0 OR explicit "costs TBD" flag (Final only)
-  - [ ] All AI audit log entries have `surveyor_review` set
-  - [ ] Advice Summary has been confirmed
-- [ ] Show user-friendly error summary for any failing checks
-- [ ] Hard-block export for Tier 1 failures; soft-warn for Tier 2
+- [✓] Hard-blocks Final export if dual sign-off incomplete — **DONE**
+- [ ] Full validation checklist before export (empty mandatory sections, allegation vs. opinion check, cost total, all AI sections reviewed, Advice Summary confirmed) — **MISSING**
+- [ ] User-friendly error summary sheet — **MISSING**
 
 **Spec:** §5.4
 
@@ -113,36 +90,31 @@ Currently: export proceeds regardless of completeness or review status.
 ## PHASE 1 — Report Builder: Tier 2 (Full Feature Parity with Spec)
 
 ### 2.1 Account Branding Configuration
-Currently: **entire section missing**. No org table, no branding config, no theme resolution.
-
-- [ ] Create `organisations` Supabase table with full field set from §1.1:
-  - firm_name, firm_address_*, firm_phone/email/website/abn
-  - firm_logo_url, firm_logo_width_px
-  - primary_colour, secondary_colour, accent_colour
-  - body_font, heading_font (enum: Arial | Calibri | Helvetica)
-  - report_footer_text, default_disclaimer_text, default_waiver_text, default_confidentiality_text
-  - ai_disclosure_enabled, ai_disclosure_text_template
-- [ ] Build Account Branding Settings UI in Settings module (logo upload, colour pickers, font selector, text editors for disclaimer/waiver/footer)
-- [ ] Modify docx export to resolve **all** colours, fonts, and text from org config — zero hardcoded values
-- [ ] Store `org_id` on case at creation; report builder fetches branding from that org
-- [ ] Default Oceanoservices theme pre-populated: `#3D1A6E` / `#6A3D9A` / `#F0ECF7`, Arial
+- [✓] `OrganisationModel` with full fields: firm identity, ABN, address, contact, logo path, primary/secondary colour, all 4 WP text blocks, disclaimer, waiver — **DONE** (`lib/features/settings/models/organisation_model.dart`)
+- [✓] `SurveyorProfileModel` with name, title, qualifications, signature storage path — **DONE**
+- [✓] Organisation list screen + detail screen (3-tab: Identity / Legal Text / Surveyor Profiles) — **DONE** (`lib/features/settings/screens/`)
+- [✓] Docx export reads all branding from org config — zero hardcoded values — **DONE**
+- [✓] `org_id` on `CaseModel`, resolved at report build time — **DONE**
+- [ ] Logo file upload to Supabase Storage in org detail screen — **MISSING**
+- [ ] Colour picker UI (currently text hex fields only) — **MISSING**
+- [ ] Logo embedded in running header of body pages — **MISSING**
 
 **Spec:** §1.1, §1.2, §9.4
 
 ### 2.2 Document Vault Enhancement
-- [ ] Add `is_cover_photo` bool to `documents` table and `DocumentModel`
-- [ ] Add `annexure_assignment` enum (A | B | C | D | E | F | G | H | I | None) to `documents` table
-- [ ] Add `surveyor_confirmed` bool (default false; set to true when surveyor reviews AI extraction)
-- [ ] Update DocumentVaultScreen: allow tapping a doc to mark as cover photo, assign to annexure, confirm AI extraction
-- [ ] Report builder uses `annexure_assignment` to auto-sort documents into correct annexures
+- [✓] `is_cover_photo` on `DocumentModel` — **DONE**
+- [✓] `annexure_assignment` (String: A–I or null) on `DocumentModel` — **DONE**
+- [✓] `surveyor_confirmed` bool on `DocumentModel` — **DONE**
+- [✓] Document tile shows cover photo badge and annexure badge inline — **DONE**
+- [✓] Document tile edit sheet allows cover photo toggle and annexure assignment — **DONE**
+- [ ] Report builder sorts documents into annexures by `annexure_assignment` at export — **MISSING**
 
 **Spec:** §5.3
 
 ### 2.3 Chronology as Formal Table
-- [ ] In report assembly, render `TimelineEventModel` list as a formal two-column table (Date | Time | Movement/Event)
-- [ ] Header row: `primary_colour` background, white text
-- [ ] Alternating rows: white / `accent_colour` tint
-- [ ] Events sorted ascending by date/time
+- [✓] Timeline events rendered as formal two-column table (Date | Event) in docx output — **DONE**
+- [✓] Events sorted ascending by `event_date` — **DONE**
+- [ ] Coloured header row using `primary_colour` from org config — **MISSING** (uses standard bold row)
 
 **Spec:** §4.3
 
@@ -155,64 +127,59 @@ Currently: **entire section missing**. No org table, no branding config, no them
 **Spec:** §4.8
 
 ### 2.5 Report Version Numbering (R001, R002…)
-- [ ] Replace/augment `sequenceNo` (int) with formatted version string `report_version_number` (e.g. `R001`)
-- [ ] Auto-increment on each new report created for a case
-- [ ] Display in report header text and Advice Summary
-- [ ] Final Report to state: *"This report supersedes all prior survey reports for this casualty…"*
-- [ ] Progress/Supplementary to state: *"This report supplements Report [R00N] dated [date]…"*
-- [ ] Enforce: Progress/Interim/Supplementary/Final must reference a prior report version
+- [✓] `sequenceNo` int on `ReportOutput`; `versionString` computed as `R001` format — **DONE**
+- [✓] Auto-increment picker in `new_output_sheet.dart` — **DONE**
+- [ ] Final Report "this report supersedes all prior…" statement — **MISSING**
+- [ ] Progress/Supplementary "this report supplements Report [R00N]…" statement — **MISSING**
+- [ ] Version Control Block showing document management history (version, date, type, attending surveyor, "changes from previous" field) — **MISSING**
 
 **Spec:** §4.9, §7
 
 ### 2.6 Advice Summary Editor Screen
-- [ ] Create `AdviceSummaryModel` with fields: policy_ucr, assured, instructing_party, date_nature, damage_description_summary, probable_cause, repair_status, cost_claim, cost_owners, cost_adjustment, loh_implication (enum: Yes | No | TBD), outstanding_actions, remarks
-- [ ] Auto-populate from case data on first build (AI draft for narrative fields)
-- [ ] Build `AdviceSummaryScreen` for surveyor to edit and confirm
-- [ ] Assemble as formatted section on Page 2 (after WP designation, before ToC)
-- [ ] Gate export on Advice Summary having been confirmed
+- [ ] `AdviceSummaryModel` (policy_ucr, assured, instructing_party, date_nature, damage_description_summary, probable_cause, repair_status, cost_claim, cost_owners, cost_adjustment, loh_implication, outstanding_actions, remarks) — **MISSING**
+- [ ] Auto-populate from case data; AI draft for narrative fields — **MISSING**
+- [ ] `AdviceSummaryScreen` tab inside Report Builder — **MISSING**
+- [ ] Gate export on Advice Summary confirmed — **MISSING**
 
 **Spec:** §2.17, §4.1
 
-### 2.7 Missing Report Sections (10 sections not yet assembled)
-Current state: 12 of 25 sections coded. Missing:
+### 2.7 Report Sections Status
+Current state: all major sections coded. Re-audit against spec:
 
-- [ ] Section 5: Machinery / Equipment Particulars (conditional on casualty type = machinery)
-- [ ] Section 6: Class & Statutory Certification (aggregate from `certificates` table)
-- [ ] Section 7: Available Information Sources (from documents with category = source doc)
-- [ ] Section 12: General Services & Access (checklist — include if array non-empty)
-- [ ] Section 15: Surveyor's Notes (assemble from `surveyor_notes` table, formatted)
-- [ ] Section 16: Documents Retained on File (from Document Vault, formatted)
-- [ ] Section 17: Documents Requested (new model needed)
-- [ ] Section 18: Principal Dates (from `timeline_events` with milestone flag)
-- [ ] Section 19: Waiver (from account `default_waiver_text` — always included)
-- [ ] Annexures A, B, C, D, F, G, H (Cost Assessment, Invoices, Certificates, Incident Report, Third-party Reports, Correspondence, Prior Reports)
+- [✓] Section 5: Machinery / Equipment Particulars — **DONE** (`SectionType.machineryParticulars`, assembled in docx)
+- [✓] Section 6: Class & Statutory Certification — **DONE** (`SectionType.classStatutory` + certificates/conditions tables in docx)
+- [✓] Section 7: Available Information Sources — **DONE** (`SectionType.informationSources`)
+- [✓] Section 12: General Services & Access — **DONE** (`SectionType.generalServices`)
+- [✓] Section 15: Surveyor's Notes — **DONE** (`SectionType.surveyorNotes`, assembled from `surveyor_notes` table)
+- [✓] Section 16: Documents Retained on File — **DONE** (assembled as formal table in docx)
+- [✓] Section 19: Waiver / Limitation of Liability — **DONE** (`SectionType.waiver`, from org `waiverText`)
+- [✓] Chronology — **DONE** (formal table, assembled from `timeline_events`)
+- [ ] Section 17: Documents Requested — new model + section needed — **MISSING**
+- [ ] Section 18: Principal Dates (milestone timeline events) — **MISSING**
+- [ ] Annexures A–H: Cost Assessment, Invoices, Certificates, Incident Report, Third-party Reports, Correspondence, Prior Reports — **MISSING** (docs listed but not sorted/formatted as annexures)
 
 **Spec:** §4.1 (full section order)
 
 ### 2.8 Logo in Running Header
-- [ ] Embed firm logo as inline image in header paragraph (NOT inside a table cell)
-- [ ] Size to ~33% of `firm_logo_width_px`
-- [ ] Right-aligned tab stop for title text: `[Vessel Name] — [Report Type] — [Claim Reference]`
-- [ ] Ensure header row height accommodates logo without clipping
+- [ ] Embed firm logo as inline image in body-page header paragraph (NOT table cell) — **MISSING**
+- [ ] Right-aligned tab stop for title text: `[Vessel Name] — [Report Type] — [Claim Reference]` — **MISSING**
 
 **Spec:** §1.2.2, §1.2.5
 
 ### 2.9 Table Row Break Prevention
-- [ ] Apply `cantSplit = true` (or equivalent) to all table rows in docx output so header/content never splits across pages
+- [✓] `cantSplit` applied to all table rows in `ooxml_helpers.dart` — **DONE**
 
 **Spec:** §6.4
 
-### 2.10 Case Header — Missing Fields
-- [ ] Add to `cases` table + `CaseModel`: `technical_file_no`, `policy_ucr`, `instructing_party`, `instructing_party_role` (enum), `assured`, `policy_type` (H&M | P&I | Both), `date_of_first_attendance`, `survey_location`
-- [ ] Add these fields to case creation / case editor UI
-- [ ] Map `technical_file_no` → currently stored as `jobNumber` (possibly rename or alias)
+### 2.10 Case Header — Fields
+- [✓] `policyUcr`, `instructingParty`, `instructingPartyRole`, `assured`, `baseCurrency`, `organisationId` on `CaseModel` — **DONE**
+- [ ] UI to edit `policyUcr` in new case / case editor screen — **CHECK** (may already be there)
 
 **Spec:** §2.1
 
-### 2.11 Vessel Model — Missing Statutory Fields
-- [ ] Add to `vessels` table + `VesselModel`: `official_number`, `class_status` (enum: Classed | Conditional | Suspended | Not Classed), `class_conditions` (text), `construction_standard`, `registered_owner`, `last_drydock_date`, `last_drydock_yard`, `ism_incident_reported`, `class_incident_reported`, `psc_last_inspection`, `psc_last_result`, `pi_club`, `isps_status`
-- [ ] Consider whether `survey_cert_no`, `equipment_due`, `hull_due`, `tailshaft_due`, `doc_issuer`, `smc_expiry` belong on vessel or in the `certificates` table (current architecture: `certificates` table — keep and aggregate)
-- [ ] Add to Vessel Particulars screen (may warrant a 4th tab: "Statutory")
+### 2.11 Vessel Model — Statutory Fields
+- [ ] Add `official_number`, `class_status`, `construction_standard`, `registered_owner`, `last_drydock_date`, `last_drydock_yard`, `ism_incident_reported`, `class_incident_reported`, `psc_last_inspection`, `psc_last_result`, `pi_club`, `isps_status` to `vessels` table + `VesselModel` + Vessel Particulars screen — **MISSING**
+- [✓] Document-level cert fields (`survey_cert_no`, `equipment_due`, etc.) remain in `certificates` table — **DONE** (per decision B3)
 
 **Spec:** §2.2
 
@@ -274,27 +241,27 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 
 ## SPEC COMPLIANCE SCORECARD
 
-Answering the 15 questions from Spec §10.3:
+Answering the 15 questions from Spec §10.3 — **re-audited 30 June 2026**:
 
 | # | Question | Current Answer |
 |---|----------|---------------|
-| 1 | Colours/fonts from config or hardcoded? | ❌ Hardcoded / absent — no branding config |
-| 2 | Firm logo in running header on every page? | ❌ Not implemented |
-| 3 | AI audit log (model_version, prompt_hash, prompt_text, ai_output_text, surveyor_review)? | ❌ Only token cost tracked; no compliance log |
+| 1 | Colours/fonts from config or hardcoded? | ✅ All colours from `OrganisationModel` — docx reads org config |
+| 2 | Firm logo in running header on every page? | ❌ Logo upload exists; not yet embedded in body-page header |
+| 3 | AI audit log (model_version, prompt_hash, prompt_text, ai_output_text, surveyor_review)? | ✅ `AiGenerationLogModel` + `AiLogService` + wired into `ClaudeApi` + per-section review UI |
 | 4 | AI disclosure paragraph auto-generated from audit log? | ❌ Missing |
-| 5 | Advice Summary auto-populated and editable? | ❌ No model or screen |
-| 6 | Chronology as formal table? | ❌ Not rendered as table in report |
-| 7 | Cost section as formal accounts table + WP notation? | ❌ Account lines not assembled into report |
-| 8 | Sign-off block gating Final Report export? | ❌ No dual sign-off fields or validation |
-| 9 | Report version numbering (R001, R002…)? | ❌ `sequenceNo` int exists; R-format string missing |
-| 10 | Document Vault tracks `annexure_assignment`? | ❌ Field missing |
-| 11 | `cantSplit` on table rows? | ❌ Not applied |
-| 12 | WP in all four required locations? | ❌ Flag exists in DB; not rendered in report |
-| 13 | Cover page separate template (no running header on page 1)? | ❌ All pages same |
-| 14 | Cover page: vessel band, status badge, info box, photo, logo? | ❌ None of these |
-| 15 | Logo in header as inline paragraph (not table cell)? | ❌ No header logo at all |
+| 5 | Advice Summary auto-populated and editable? | ❌ No model or screen yet |
+| 6 | Chronology as formal table? | ✅ Rendered as formal Date\|Event table in docx |
+| 7 | Cost section as formal accounts table + WP notation? | ✅ Fully assembled: repair docs + account lines + totals + WP cost notice |
+| 8 | Sign-off block gating Final Report export? | ✅ Export gate exists; ❌ sign-off UI screen (drawn sig / PNG upload) missing |
+| 9 | Report version numbering (R001, R002…)? | ✅ `versionString` computed as R001 format; auto-increment picker in new output sheet |
+| 10 | Document Vault tracks `annexure_assignment`? | ✅ Field exists on `DocumentModel`; badges on tile; editable in detail sheet |
+| 11 | `cantSplit` on table rows? | ✅ Applied in `ooxml_helpers.dart` |
+| 12 | WP in all four required locations? | ✅ All four locations rendered from org config (header/cover/cost/footer) |
+| 13 | Cover page separate template (no running header on page 1)? | ❌ Programmatic builder in place; separate cover design not yet implemented |
+| 14 | Cover page: vessel band, status badge, info box, photo, logo? | ❌ Metadata table exists; visual cover page elements missing |
+| 15 | Logo in header as inline paragraph (not table cell)? | ❌ No running header logo yet |
 
-**Score: 0 / 15** — significant implementation work ahead before any report is production-ready.
+**Score: 9 / 15** ↑ from 0/15 — major progress; remaining gaps: cover page design, logo in header, AI disclosure, Advice Summary, sign-off UI.
 
 ---
 

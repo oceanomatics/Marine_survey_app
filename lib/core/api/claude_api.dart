@@ -524,7 +524,7 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
       ),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 2000,
+        'max_tokens': 4000,
         'messages': [
           {
             'role': 'user',
@@ -591,8 +591,16 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
       "fuel_type": ""
     }
   ],
+  "detected_class_conditions": [
+    {
+      "reference": "condition reference number e.g. CC-2024-001 or Recommendation 2024-001",
+      "description": "brief 1-2 sentence description of what the condition requires",
+      "expiry_date": "YYYY-MM-DD or null"
+    }
+  ],
   "vessel_data": {
     "vessel_name": "",
+    "previous_name": "",
     "imo_number": "",
     "call_sign": "",
     "mmsi": "",
@@ -632,8 +640,9 @@ Rules:
 - hard_fields: include ONLY fields actually present in the document; omit absent fields entirely; dates MUST be YYYY-MM-DD; numeric values must be numbers not strings
 - context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
 - detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none
-- detected_machinery: list each distinct machinery item mentioned with technical data; leave as [] if none or if only named in passing without any technical detail
-- vessel_data: populate for intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, class certificates, vessel particulars sheets, etc.); omit fields not present; numeric values must be numbers; leave as {} if not applicable
+- detected_machinery: list each distinct machinery item that is a subject of the document (surveyed, serviced, inspected, or described with any technical detail); include make/model/serial when present but do not require them; leave as [] only for items mentioned purely in passing with no context
+- detected_class_conditions: for class survey reports, condition-of-class documents, and class survey certificates, extract EVERY Condition of Class and Recommendation listed — include reference number, description, and expiry/due date; leave as [] for all other document types
+- vessel_data: populate for ANY document that contains vessel identification data — this includes intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, class certificates, vessel particulars sheets) AND class survey reports, condition-of-class documents, PSC inspection reports, and service reports that carry vessel name, IMO, flag, or class notation; omit fields not present in the document; numeric values must be numbers; leave as {} only if the document contains no vessel identification at all
 - vessel_data field guidance:
   · breadth_qualifier: if stated, choose closest from: "Moulded Breadth", "Extreme Breadth", "Beam (OA)", "Breadth", "Beam"
   · draft_qualifier: if stated, choose closest from: "Load Line Draft", "Max Draft", "Draft"
@@ -969,7 +978,7 @@ Rules:
   ],
   "claim_reference": "underwriter or P&I claim / file reference, or null",
   "vessel_name": "name of the vessel, or null",
-  "job_number": "surveyor's job or file number if mentioned, or null",
+  "technical_file_no": "surveyor's job or file number if mentioned, or null",
   "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
 }
 
@@ -1033,7 +1042,7 @@ $emailContent
   ],
   "claim_reference": "underwriter or P&I claim / file reference, or null",
   "vessel_name": "name of the vessel, or null",
-  "job_number": "surveyor's job or file number if mentioned, or null",
+  "technical_file_no": "surveyor's job or file number if mentioned, or null",
   "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
 }
 
@@ -1070,7 +1079,7 @@ BODY: ${bodyText.length > 500 ? bodyText.substring(0, 500) : bodyText}
 
 {
   "email_type": "instruction|claim_correspondence|info_request|info_provided|invoice_submission|report_distribution|adjuster_correspondence|broker_correspondence|owner_manager|other",
-  "job_number": "",
+  "technical_file_no": "",
   "case_reference": "",
   "vessel_name": "",
   "summary": ""

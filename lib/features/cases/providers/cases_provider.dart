@@ -43,7 +43,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
   }
 
   Future<CaseModel> createCase({
-    required String jobNumber,
+    required String technicalFileNo,
     required CaseType caseType,
     OutputFormat? outputFormat,
     String? claimReference,
@@ -54,7 +54,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     final data = await SupabaseService.client
         .from('cases')
         .insert({
-          'job_number':      jobNumber,
+          'technical_file_no':      technicalFileNo,
           'case_type':       caseType.value,
           'status':          'open',
           if (outputFormat != null) 'output_format': outputFormat.value,
@@ -64,7 +64,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
           if (instructionDate != null)
             'instruction_date':
                 instructionDate.toIso8601String().split('T').first,
-          'inbox_email_tag': jobNumber,
+          'inbox_email_tag': technicalFileNo,
           'assigned_surveyor': SupabaseService.userId,
         })
         .select()
@@ -156,13 +156,58 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     });
   }
 
+  Future<void> updateSignOff({
+    bool? attending,
+    String? attendingName,
+    DateTime? attendingAt,
+    String? attendingSigPath,
+    bool? reviewing,
+    String? reviewingName,
+    DateTime? reviewingAt,
+    String? reviewingSigPath,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (attending != null) {
+      updates['signed_off_attending'] = attending;
+      if (attending && attendingAt == null) {
+        updates['signed_off_attending_at'] = DateTime.now().toIso8601String();
+      }
+    }
+    if (attendingName != null)    updates['signed_off_attending_name']     = attendingName;
+    if (attendingAt != null)      updates['signed_off_attending_at']       = attendingAt.toIso8601String();
+    if (attendingSigPath != null) updates['signed_off_attending_sig_path'] = attendingSigPath;
+    if (reviewing != null) {
+      updates['signed_off_reviewing'] = reviewing;
+      if (reviewing && reviewingAt == null) {
+        updates['signed_off_reviewing_at'] = DateTime.now().toIso8601String();
+      }
+    }
+    if (reviewingName != null)    updates['signed_off_reviewing_name']     = reviewingName;
+    if (reviewingAt != null)      updates['signed_off_reviewing_at']       = reviewingAt.toIso8601String();
+    if (reviewingSigPath != null) updates['signed_off_reviewing_sig_path'] = reviewingSigPath;
+
+    // If both now signed, record the combined timestamp
+    final current = state.value;
+    if (current != null) {
+      final nowAttending = attending ?? current.signedOffAttending;
+      final nowReviewing = reviewing ?? current.signedOffReviewing;
+      if (nowAttending && nowReviewing) {
+        updates['signed_off_at'] = DateTime.now().toIso8601String();
+      }
+    }
+
+    if (updates.isEmpty) return;
+    await SupabaseService.client.from('cases').update(updates).eq('case_id', arg);
+    await refresh();
+  }
+
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(arg));
   }
 
   Future<void> updateCaseRefs({
-    String? jobNumber,
+    String? technicalFileNo,
     String? claimReference,
     CaseStatus? status,
     CaseType? caseType,
@@ -180,7 +225,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     String? surveyLocation,
   }) async {
     final updates = <String, dynamic>{};
-    if (jobNumber != null)            updates['job_number']               = jobNumber;
+    if (technicalFileNo != null)            updates['technical_file_no']               = technicalFileNo;
     if (claimReference != null)       updates['claim_reference']          = claimReference;
     if (status != null)               updates['status']                   = status.value;
     if (caseType != null)             updates['case_type']                = caseType.value;

@@ -3,10 +3,15 @@
 // The export button shown in the report builder.
 // Handles pre-export validation, shows progress, triggers download.
 
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/report_provider.dart';
 import '../services/docx_export_service.dart';
+import '../../../features/photos/models/photo_model.dart';
+import '../../../features/photos/providers/photo_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 
@@ -33,9 +38,14 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
   Widget build(BuildContext context) {
     final allApproved = widget.sections.values.every((s) => s.approved);
     final canExport   = widget.output.status != ReportStatus.locked;
+    final isFinal     = widget.output.outputType == OutputType.final_;
+    final caseData    = widget.assembled.caseData;
+    final signedOffAttending = caseData['signed_off_attending'] as bool? ?? false;
+    final signedOffReviewing = caseData['signed_off_reviewing'] as bool? ?? false;
+    final signOffBlocked = isFinal && !(signedOffAttending && signedOffReviewing);
 
     return ElevatedButton.icon(
-      onPressed: (!canExport || _exporting)
+      onPressed: (!canExport || _exporting || signOffBlocked)
           ? null
           : () => _export(context, allApproved),
       icon: _exporting
@@ -45,11 +55,15 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
                   color: Colors.white, strokeWidth: 2))
           : const Icon(Icons.download_outlined, size: 18),
       label: Text(
-        _exporting ? 'Generating...' : 'Export .docx',
+        _exporting
+            ? 'Generating...'
+            : signOffBlocked
+                ? 'Sign-off required'
+                : 'Export .docx',
         style: const TextStyle(fontWeight: FontWeight.w600),
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: canExport
+        backgroundColor: (canExport && !signOffBlocked)
             ? AppColors.navy
             : AppColors.textTertiary,
         foregroundColor: Colors.white,
@@ -87,10 +101,32 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     setState(() => _exporting = true);
 
     try {
+      // Resolve cover photo — prefer the output's override, fall back to the
+      // case's cover-allocated photo from vessel particulars.
+      Uint8List? coverPhotoBytes;
+      String coverPhotoExt = 'jpg';
+      if (!kIsWeb) {
+        final photos = ref.read(photosProvider(widget.output.caseId)).value ?? [];
+        final overrideId = widget.output.coverPhotoId;
+        PhotoModel? findPhoto(bool Function(PhotoModel) test) {
+          try { return photos.firstWhere(test); } catch (_) { return null; }
+        }
+        final photo = overrideId != null
+            ? findPhoto((p) => p.id == overrideId)
+            : findPhoto((p) => p.allocation == PhotoAllocation.coverPage);
+        if (photo != null && photo.localPath.isNotEmpty) {
+          try {
+            coverPhotoBytes = await File(photo.localPath).readAsBytes();
+          } catch (_) {}
+        }
+      }
+
       final filename = await DocxExportService.export(
-        output:    widget.output,
-        assembled: widget.assembled,
-        sections:  widget.sections,
+        output:          widget.output,
+        assembled:       widget.assembled,
+        sections:        widget.sections,
+        coverPhotoBytes: coverPhotoBytes,
+        coverPhotoExt:   coverPhotoExt,
       );
 
       if (!context.mounted) return;

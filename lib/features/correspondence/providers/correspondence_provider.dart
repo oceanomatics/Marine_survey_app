@@ -175,7 +175,7 @@ class CorrespondenceNotifier
           : null;
 
       final refs = ExtractedCaseRefs(
-        jobNumber:       _nonEmpty(result['job_number']),
+        technicalFileNo:       _nonEmpty(result['technical_file_no']),
         claimReference:  _nonEmpty(result['claim_reference']),
         vesselName:      _nonEmpty(result['vessel_name']),
         instructionDate: instrDate,

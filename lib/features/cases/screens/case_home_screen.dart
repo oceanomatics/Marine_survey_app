@@ -31,7 +31,7 @@ import '../../accounts/models/accounts_models.dart';
 import '../../settings/providers/organisations_provider.dart';
 import '../../vessel/providers/certificates_provider.dart';
 import '../../vessel/providers/vessel_provider.dart';
-import '../../vessel/screens/certificates_screen.dart';
+import '../../vessel/screens/vessel_compliance_screen.dart';
 import '../../reports/providers/report_provider.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
@@ -66,7 +66,7 @@ class CaseHomeScreen extends ConsumerWidget {
 
   Future<void> _deleteCase(
       BuildContext context, WidgetRef ref, CaseModel survey) async {
-    final label = survey.title ?? survey.vesselName ?? survey.jobNumber;
+    final label = survey.title ?? survey.vesselName ?? survey.technicalFileNo;
 
     // First confirmation
     final first = await showDialog<bool>(
@@ -215,7 +215,7 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
                 color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
           ),
           Text(
-            '${survey.caseType.label} · ${survey.jobNumber}',
+            '${survey.caseType.label} · ${survey.technicalFileNo}',
             style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.65), fontSize: 11),
           ),
@@ -472,7 +472,7 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
     super.initState();
     final c = ref.read(caseProvider(widget.caseId)).value;
     _jobCtrl               = TextEditingController(
-        text: c?.hasPlaceholderJobNumber == true ? '' : (c?.jobNumber ?? ''));
+        text: c?.hasPlaceholderFileNo == true ? '' : (c?.technicalFileNo ?? ''));
     _claimCtrl             = TextEditingController(text: c?.claimReference ?? '');
     _policyUcrCtrl         = TextEditingController(text: c?.policyUcr ?? '');
     _policyNumberCtrl      = TextEditingController(text: c?.policyNumber ?? '');
@@ -512,7 +512,7 @@ class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
     try {
       final rawJob = _v(_jobCtrl);
       await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
-        jobNumber:             rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
+        technicalFileNo:             rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
         claimReference:        _v(_claimCtrl),
         status:                _status,
         caseType:              _caseType,
@@ -1165,24 +1165,13 @@ class _PseudoReport extends ConsumerWidget {
       _SectionCard(
         accentColor: AppColors.purple,
         icon: Icons.verified_outlined,
-        title: 'Certificates',
+        title: 'Certificates & Class',
         countLabel: certs.isEmpty ? null : '${certs.length}',
         initiallyExpanded: certs.isNotEmpty,
         onOpen: () => Navigator.push(ctx,
-            MaterialPageRoute(builder: (_) => CertificatesScreen(caseId: caseId))),
-        child: _certificatesContent(certs),
-      ),
-      _SectionCard(
-        accentColor: const Color(0xFF4A7FA5),
-        icon: Icons.shield_outlined,
-        title: 'Class & Statutory',
-        onOpen: () => showModalBottomSheet(
-          context: ctx,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (_) => _StatutoryEditSheet(caseId: caseId, vessel: vessel),
-        ),
-        child: _statutoryContent(vessel),
+            MaterialPageRoute(
+                builder: (_) => VesselComplianceScreen(caseId: caseId))),
+        child: _complianceContent(certs, vessel),
       ),
       _SectionCard(
         accentColor: _kTimelineColor,
@@ -2189,17 +2178,25 @@ class _PseudoReport extends ConsumerWidget {
         ),
       );
 
-  Widget _statutoryContent(VesselModel? vessel) {
-    if (vessel == null) return const _SectionEmpty('No vessel linked yet');
-    final hasAny = vessel.classStatus != null ||
-        vessel.classConditions != null ||
-        vessel.lastDrydockDate != null ||
-        vessel.pscLastInspection != null ||
-        vessel.ispsStatus != null ||
-        (vessel.ismIncidentReported ?? false) ||
-        (vessel.classIncidentReported ?? false);
-    if (!hasAny) return const _SectionEmpty('Tap Open to add class & statutory details');
+  Widget _complianceContent(List<CertificateModel> certs, VesselModel? vessel) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _certificatesContent(certs),
+        if (vessel != null && (vessel.classStatus != null ||
+            vessel.lastDrydockDate != null ||
+            vessel.pscLastInspection != null ||
+            vessel.ispsStatus != null ||
+            (vessel.ismIncidentReported ?? false) ||
+            (vessel.classIncidentReported ?? false))) ...[
+          if (certs.isNotEmpty) const Divider(height: 14, thickness: 0.5),
+          _statutoryContent(vessel),
+        ],
+      ],
+    );
+  }
 
+  Widget _statutoryContent(VesselModel vessel) {
     String fmtDate(DateTime? d) =>
         d == null ? '—' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
@@ -2208,7 +2205,7 @@ class _PseudoReport extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (vessel.classStatus != null) ...[
+          if (vessel.classStatus != null)
             _StatutoryRow(
               label: 'Class status',
               child: _StatusChip(
@@ -2220,9 +2217,6 @@ class _PseudoReport extends ConsumerWidget {
                         : AppColors.coral,
               ),
             ),
-          ],
-          if (vessel.classConditions != null && vessel.classConditions!.isNotEmpty)
-            _StatutoryRow(label: 'Conditions', value: vessel.classConditions!),
           if (vessel.lastDrydockDate != null)
             _StatutoryRow(
               label: 'Last drydock',
@@ -2712,259 +2706,6 @@ class _StatutoryRow extends StatelessWidget {
                         fontSize: 12, color: AppColors.textPrimary)),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ── Class & Statutory edit sheet ──────────────────────────────────────────
-
-class _StatutoryEditSheet extends ConsumerStatefulWidget {
-  const _StatutoryEditSheet({required this.caseId, this.vessel});
-  final String caseId;
-  final VesselModel? vessel;
-
-  @override
-  ConsumerState<_StatutoryEditSheet> createState() => _StatutoryEditSheetState();
-}
-
-class _StatutoryEditSheetState extends ConsumerState<_StatutoryEditSheet> {
-  final _classConditionsCtrl  = TextEditingController();
-  final _drydockYardCtrl      = TextEditingController();
-
-  ClassStatus?  _classStatus;
-  PscResult?    _pscResult;
-  IspsStatus?   _ispsStatus;
-  DateTime?     _drydockDate;
-  DateTime?     _pscDate;
-  bool          _ismIncident   = false;
-  bool          _classIncident = false;
-  bool          _saving        = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final v = widget.vessel;
-    if (v == null) return;
-    _classStatus           = v.classStatus;
-    _classConditionsCtrl.text = v.classConditions ?? '';
-    _drydockDate           = v.lastDrydockDate;
-    _drydockYardCtrl.text  = v.lastDrydockYard ?? '';
-    _pscDate               = v.pscLastInspection;
-    _pscResult             = v.pscLastResult;
-    _ispsStatus            = v.ispsStatus;
-    _ismIncident           = v.ismIncidentReported  ?? false;
-    _classIncident         = v.classIncidentReported ?? false;
-  }
-
-  @override
-  void dispose() {
-    _classConditionsCtrl.dispose();
-    _drydockYardCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final v = widget.vessel;
-    if (v == null) return;
-    setState(() => _saving = true);
-    try {
-      await ref.read(vesselForCaseProvider(widget.caseId).notifier).saveVessel(
-        vesselId: v.vesselId,
-        fields: {
-          'class_status':           _classStatus?.value,
-          'class_conditions':       _classConditionsCtrl.text.trim().isEmpty ? null : _classConditionsCtrl.text.trim(),
-          'last_drydock_date':      _drydockDate?.toIso8601String().split('T').first,
-          'last_drydock_yard':      _drydockYardCtrl.text.trim().isEmpty ? null : _drydockYardCtrl.text.trim(),
-          'psc_last_inspection':    _pscDate?.toIso8601String().split('T').first,
-          'psc_last_result':        _pscResult?.value,
-          'isps_status':            _ispsStatus?.value,
-          'ism_incident_reported':  _ismIncident,
-          'class_incident_reported': _classIncident,
-        },
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (e, st) {
-      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Statutory');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _pickDate(DateTime? current, ValueChanged<DateTime?> onPicked) async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: current ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (d != null) onPicked(d);
-  }
-
-  String _fmtDate(DateTime? d) =>
-      d == null ? 'Not set' : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.vessel == null) {
-      return Container(
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: const Text('No vessel linked to this case yet.',
-            style: TextStyle(color: AppColors.textTertiary)),
-      );
-    }
-
-    Widget sectionHeader(String title) => Padding(
-      padding: const EdgeInsets.only(top: 20, bottom: 8),
-      child: Text(title,
-          style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textTertiary,
-              letterSpacing: 0.8)),
-    );
-
-    Widget chipRow<T>(List<T> values, T? selected, String Function(T) label,
-        ValueChanged<T?> onChanged) {
-      return Wrap(
-        spacing: 8,
-        children: values.map((v) {
-          final active = v == selected;
-          return ChoiceChip(
-            label: Text(label(v),
-                style: TextStyle(
-                    fontSize: 12,
-                    color: active ? Colors.white : AppColors.textSecondary)),
-            selected: active,
-            selectedColor: AppColors.midBlue,
-            backgroundColor: AppColors.surface,
-            onSelected: (_) => setState(() => onChanged(active ? null : v)),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-          );
-        }).toList(),
-      );
-    }
-
-    Widget dateRow(String label, DateTime? date, ValueChanged<DateTime?> onPicked) {
-      return ListTile(
-        contentPadding: EdgeInsets.zero,
-        dense: true,
-        title: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        trailing: TextButton(
-          onPressed: () => _pickDate(date, onPicked),
-          child: Text(_fmtDate(date),
-              style: const TextStyle(fontSize: 13, color: AppColors.midBlue)),
-        ),
-      );
-    }
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: EdgeInsets.only(
-        left: 20, right: 20, top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Class & Statutory',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            sectionHeader('CLASSIFICATION'),
-            chipRow(
-              ClassStatus.values, _classStatus,
-              (s) => s.value.replaceAll('_', ' ').toUpperCase(),
-              (v) { _classStatus = v; },
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _classConditionsCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Class conditions',
-                hintText: 'Any conditions attached to class',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              maxLines: 2,
-            ),
-            sectionHeader('DRYDOCKING'),
-            dateRow('Last drydock date', _drydockDate,
-                (d) => setState(() => _drydockDate = d)),
-            TextField(
-              controller: _drydockYardCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Drydock yard',
-                hintText: 'e.g. Sembcorp Marine, Singapore',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            sectionHeader('PORT STATE CONTROL'),
-            dateRow('Last PSC inspection', _pscDate,
-                (d) => setState(() => _pscDate = d)),
-            chipRow(
-              PscResult.values, _pscResult,
-              (r) => r.value.replaceAll('_', ' ').toUpperCase(),
-              (v) { _pscResult = v; },
-            ),
-            sectionHeader('ISPS'),
-            chipRow(
-              IspsStatus.values, _ispsStatus,
-              (s) => s.value.replaceAll('_', ' ').toUpperCase(),
-              (v) { _ispsStatus = v; },
-            ),
-            sectionHeader('INCIDENTS'),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('ISM incident reported to flag/class',
-                  style: TextStyle(fontSize: 13)),
-              value: _ismIncident,
-              onChanged: (v) => setState(() => _ismIncident = v),
-              activeThumbColor: AppColors.midBlue,
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Class incident reported',
-                  style: TextStyle(fontSize: 13)),
-              value: _classIncident,
-              onChanged: (v) => setState(() => _classIncident = v),
-              activeThumbColor: AppColors.midBlue,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _saving ? null : _save,
-                style: FilledButton.styleFrom(backgroundColor: AppColors.midBlue),
-                child: _saving
-                    ? const SizedBox(
-                        width: 18, height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Save'),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

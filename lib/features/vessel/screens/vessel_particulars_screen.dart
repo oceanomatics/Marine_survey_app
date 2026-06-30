@@ -12,14 +12,21 @@ import '../../../core/api/equasis_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../providers/certificates_provider.dart';
+import '../providers/class_conditions_provider.dart';
+import '../models/class_condition_model.dart';
+import '../widgets/certificate_card.dart';
+import '../widgets/add_certificate_sheet.dart';
 import '../widgets/machinery_card.dart';
 import '../widgets/add_machinery_sheet.dart';
 import '../widgets/section_header.dart';
 import '../widgets/survey_field.dart';
 import '../../../shared/widgets/save_bar.dart';
+import '../../survey/providers/damage_provider.dart';
 import 'dart:io';
 import '../../photos/providers/photo_provider.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../../core/api/supabase_client.dart';
 
 // ── ABL London H&M Report template option lists ───────────────────────────────
 
@@ -99,6 +106,7 @@ class _VesselParticularsScreenState
 
   // Text controllers
   final _nameCtrl         = TextEditingController();
+  final _prevNameCtrl     = TextEditingController();
   final _imoCtrl          = TextEditingController();
   final _callSignCtrl     = TextEditingController();
   final _mmsiCtrl         = TextEditingController();
@@ -127,6 +135,13 @@ class _VesselParticularsScreenState
   final _officialNumberCtrl       = TextEditingController();
   final _constructionStandardCtrl = TextEditingController();
   final _piClubCtrl               = TextEditingController();
+  // Class & Statutory tab — PSC / ISPS (ISM/Class reporting)
+  final _pscSummaryCtrl           = TextEditingController();
+  bool? _ismIncidentReported;
+  bool? _classIncidentReported;
+  DateTime? _pscLastInspection;
+  PscResult? _pscLastResult;
+  IspsStatus? _ispsStatus;
 
   // Dropdown / chip selections
   String? _vesselType;
@@ -143,20 +158,21 @@ class _VesselParticularsScreenState
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     for (final c in [
-      _nameCtrl, _imoCtrl, _callSignCtrl, _mmsiCtrl, _flagCtrl, _portCtrl,
+      _nameCtrl, _prevNameCtrl, _imoCtrl, _callSignCtrl, _mmsiCtrl, _flagCtrl, _portCtrl,
       _gtCtrl, _ntCtrl, _dwtCtrl, _loaCtrl, _lbpCtrl,
       _breadthCtrl, _depthCtrl, _draftCtrl, _yearBuiltCtrl,
       _buildYardCtrl, _buildCountryCtrl, _ownersCtrl, _operatorsCtrl,
       _notationCtrl, _speedCtrl, _holdsCtrl, _tanksCtrl,
       _mcrValueCtrl, _mcrRpmCtrl,
       _officialNumberCtrl, _constructionStandardCtrl, _piClubCtrl,
+      _pscSummaryCtrl,
     ]) {
       c.dispose();
     }
@@ -166,6 +182,7 @@ class _VesselParticularsScreenState
   void _populateFields(VesselModel v) {
     _vesselId           = v.vesselId;
     _nameCtrl.text      = v.name;
+    _prevNameCtrl.text  = v.previousName        ?? '';
     _imoCtrl.text       = v.imoNumber          ?? '';
     _callSignCtrl.text  = v.callSign           ?? '';
     _mmsiCtrl.text      = v.mmsi               ?? '';
@@ -201,10 +218,17 @@ class _VesselParticularsScreenState
     _officialNumberCtrl.text       = v.officialNumber       ?? '';
     _constructionStandardCtrl.text = v.constructionStandard ?? '';
     _piClubCtrl.text               = v.piClub               ?? '';
+    _ismIncidentReported   = v.ismIncidentReported;
+    _classIncidentReported = v.classIncidentReported;
+    _pscLastInspection     = v.pscLastInspection;
+    _pscLastResult         = v.pscLastResult;
+    _pscSummaryCtrl.text   = v.pscSummary ?? '';
+    _ispsStatus            = v.ispsStatus;
   }
 
   Map<String, dynamic> _collectFields() => {
     'name':                 _nameCtrl.text.trim(),
+    'previous_name':        _prevNameCtrl.text.trim().isEmpty ? null : _prevNameCtrl.text.trim(),
     'imo_number':           _imoCtrl.text.trim().isEmpty      ? null : _imoCtrl.text.trim(),
     'call_sign':            _callSignCtrl.text.trim().isEmpty ? null : _callSignCtrl.text.trim(),
     'mmsi':                 _mmsiCtrl.text.trim().isEmpty     ? null : _mmsiCtrl.text.trim(),
@@ -237,10 +261,45 @@ class _VesselParticularsScreenState
     'mcr_power_value':      double.tryParse(_mcrValueCtrl.text.trim()),
     'mcr_rpm':              int.tryParse(_mcrRpmCtrl.text.trim()),
     'mcr_power_unit':       _mcrPowerUnit,
-    'official_number':       _officialNumberCtrl.text.trim().isEmpty       ? null : _officialNumberCtrl.text.trim(),
-    'construction_standard': _constructionStandardCtrl.text.trim().isEmpty ? null : _constructionStandardCtrl.text.trim(),
-    'pi_club':               _piClubCtrl.text.trim().isEmpty               ? null : _piClubCtrl.text.trim(),
+    'official_number':         _officialNumberCtrl.text.trim().isEmpty       ? null : _officialNumberCtrl.text.trim(),
+    'construction_standard':   _constructionStandardCtrl.text.trim().isEmpty ? null : _constructionStandardCtrl.text.trim(),
+    'pi_club':                 _piClubCtrl.text.trim().isEmpty               ? null : _piClubCtrl.text.trim(),
+    'ism_incident_reported':   _ismIncidentReported,
+    'class_incident_reported': _classIncidentReported,
+    'psc_last_inspection':     _pscLastInspection?.toIso8601String().split('T').first,
+    'psc_last_result':         _pscLastResult?.value,
+    'psc_summary':             _pscSummaryCtrl.text.trim().isEmpty ? null : _pscSummaryCtrl.text.trim(),
+    'isps_status':             _ispsStatus?.value,
   };
+
+  Future<void> _syncCaseTitle(String vesselName) async {
+    try {
+      final caseRow = await SupabaseService.client
+          .from('cases')
+          .select('technical_file_no, case_type')
+          .eq('case_id', widget.caseId)
+          .single();
+      final jobNo    = (caseRow['technical_file_no'] as String? ?? '').trim();
+      final caseType = (caseRow['case_type'] as String? ?? '').trim();
+      final occRows = await SupabaseService.client
+          .from('occurrences')
+          .select('title')
+          .eq('case_id', widget.caseId)
+          .eq('is_primary', true)
+          .limit(1);
+      final occTitle = (occRows as List).isNotEmpty
+          ? ((occRows.first as Map)['title'] as String? ?? '').trim()
+          : '';
+      final parts = [jobNo, vesselName.trim(), caseType, occTitle]
+          .where((p) => p.isNotEmpty).toList();
+      if (parts.isNotEmpty) {
+        await SupabaseService.client
+            .from('cases')
+            .update({'title': parts.join(' – ')})
+            .eq('case_id', widget.caseId);
+      }
+    } catch (_) {}
+  }
 
   Future<void> _save(String vesselId) async {
     setState(() => _saving = true);
@@ -248,6 +307,7 @@ class _VesselParticularsScreenState
       await ref
           .read(vesselForCaseProvider(widget.caseId).notifier)
           .saveVessel(vesselId: vesselId, fields: _collectFields());
+      await _syncCaseTitle(_nameCtrl.text);
       setState(() => _hasChanges = false);
       ref.invalidate(caseProvider(widget.caseId));
       ref.invalidate(casesProvider);
@@ -284,6 +344,7 @@ class _VesselParticularsScreenState
       await ref
           .read(vesselForCaseProvider(widget.caseId).notifier)
           .saveVessel(vesselId: vessel.vesselId, fields: _collectFields());
+      await _syncCaseTitle(_nameCtrl.text);
       setState(() {
         _vesselId = vessel.vesselId;
         _hasChanges = false;
@@ -458,6 +519,8 @@ class _VesselParticularsScreenState
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white.withValues(alpha: 0.6),
@@ -465,6 +528,7 @@ class _VesselParticularsScreenState
             Tab(text: 'Identity'),
             Tab(text: 'Dimensions'),
             Tab(text: 'Machinery'),
+            Tab(text: 'Class & Stat.'),
           ],
         ),
       ),
@@ -479,6 +543,7 @@ class _VesselParticularsScreenState
           _IdentityTab(
             caseId:                  widget.caseId,
             nameCtrl:                _nameCtrl,
+            prevNameCtrl:            _prevNameCtrl,
             imoCtrl:                 _imoCtrl,
             callSignCtrl:            _callSignCtrl,
             mmsiCtrl:                _mmsiCtrl,
@@ -537,6 +602,22 @@ class _VesselParticularsScreenState
                   onChanged:                  _markChanged,
                 )
               : const _MachineryPlaceholder(),
+          _ClassStatutoryTab(
+            caseId:                vessel?.vesselId != null ? widget.caseId : widget.caseId,
+            vesselId:              vessel?.vesselId,
+            ismIncidentReported:   _ismIncidentReported,
+            classIncidentReported: _classIncidentReported,
+            pscLastInspection:     _pscLastInspection,
+            pscLastResult:         _pscLastResult,
+            pscSummaryCtrl:        _pscSummaryCtrl,
+            ispsStatus:            _ispsStatus,
+            onChanged:             _markChanged,
+            onIsmChanged:          (v) { setState(() { _ismIncidentReported = v; _hasChanges = true; }); },
+            onClassReportedChanged: (v) { setState(() { _classIncidentReported = v; _hasChanges = true; }); },
+            onPscDateChanged:      (v) { setState(() { _pscLastInspection = v; _hasChanges = true; }); },
+            onPscResultChanged:    (v) { setState(() { _pscLastResult = v; _hasChanges = true; }); },
+            onIspsStatusChanged:   (v) { setState(() { _ispsStatus = v; _hasChanges = true; }); },
+          ),
         ],
       ),
     );
@@ -549,6 +630,7 @@ class _IdentityTab extends ConsumerStatefulWidget {
   const _IdentityTab({
     required this.caseId,
     required this.nameCtrl,
+    required this.prevNameCtrl,
     required this.imoCtrl,
     required this.callSignCtrl,
     required this.mmsiCtrl,
@@ -573,7 +655,7 @@ class _IdentityTab extends ConsumerStatefulWidget {
   });
 
   final String caseId;
-  final TextEditingController nameCtrl, imoCtrl, callSignCtrl, mmsiCtrl;
+  final TextEditingController nameCtrl, prevNameCtrl, imoCtrl, callSignCtrl, mmsiCtrl;
   final String? vesselType;
   final TextEditingController flagCtrl, portCtrl;
   final TextEditingController officialNumberCtrl;
@@ -681,6 +763,13 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           label: 'Vessel Name *',
           controller: widget.nameCtrl,
           hint: 'e.g. MINRES ODIN',
+          onChanged: (_) => widget.onChanged(),
+          capitalization: TextCapitalization.characters,
+        ),
+        SurveyField(
+          label: 'Previous Name',
+          controller: widget.prevNameCtrl,
+          hint: 'Former name, if applicable',
           onChanged: (_) => widget.onChanged(),
           capitalization: TextCapitalization.characters,
         ),
@@ -1316,6 +1405,875 @@ class _MachineryPlaceholder extends StatelessWidget {
   }
 }
 
+// ── Tab 4: Class & Statutory ──────────────────────────────────────────────────
+
+class _ClassStatutoryTab extends ConsumerWidget {
+  const _ClassStatutoryTab({
+    required this.caseId,
+    required this.vesselId,
+    required this.ismIncidentReported,
+    required this.classIncidentReported,
+    required this.pscLastInspection,
+    required this.pscLastResult,
+    required this.pscSummaryCtrl,
+    required this.ispsStatus,
+    required this.onChanged,
+    required this.onIsmChanged,
+    required this.onClassReportedChanged,
+    required this.onPscDateChanged,
+    required this.onPscResultChanged,
+    required this.onIspsStatusChanged,
+  });
+
+  final String caseId;
+  final String? vesselId;
+  final bool? ismIncidentReported;
+  final bool? classIncidentReported;
+  final DateTime? pscLastInspection;
+  final PscResult? pscLastResult;
+  final TextEditingController pscSummaryCtrl;
+  final IspsStatus? ispsStatus;
+  final VoidCallback onChanged;
+  final ValueChanged<bool?> onIsmChanged;
+  final ValueChanged<bool?> onClassReportedChanged;
+  final ValueChanged<DateTime?> onPscDateChanged;
+  final ValueChanged<PscResult?> onPscResultChanged;
+  final ValueChanged<IspsStatus?> onIspsStatusChanged;
+
+  static const _purple = AppColors.navy;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final certsAsync  = ref.watch(certificatesProvider(caseId));
+    final condsAsync  = vesselId != null
+        ? ref.watch(classConditionsProvider(vesselId!))
+        : const AsyncData(<ClassConditionModel>[]);
+    final damageState = ref.watch(damageProvider(caseId)).value;
+    final occurrences = damageState?.occurrences ?? [];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+      children: [
+
+        // ── 1. Certificates ────────────────────────────────────────────
+        VesselSectionHeader(
+          title: 'Certificates',
+          icon: Icons.verified_outlined,
+          color: _purple,
+          trailing: IconButton(
+            icon: const Icon(Icons.add_circle_outline, size: 20),
+            color: _purple,
+            tooltip: 'Add certificate',
+            onPressed: () => _addCert(context, ref),
+          ),
+        ),
+        const SizedBox(height: 8),
+        certsAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Text('Error: $e',
+              style: const TextStyle(color: AppColors.error)),
+          data: (certs) => certs.isEmpty
+              ? const _EmptyHint('No certificates — tap + to add')
+              : Column(
+                  children: certs
+                      .map((c) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: CertificateCard(
+                              cert: c,
+                              onEdit: () => _editCert(context, ref, c),
+                              onDelete: () => _deleteCert(context, ref, c),
+                            ),
+                          ))
+                      .toList(),
+                ),
+        ),
+        const SizedBox(height: 20),
+
+        // ── 2. Conditions of Class ────────────────────────────────────
+        VesselSectionHeader(
+          title: 'Conditions of Class',
+          icon: Icons.shield_outlined,
+          color: AppColors.coral,
+          trailing: vesselId != null
+              ? IconButton(
+                  icon: const Icon(Icons.add_circle_outline, size: 20),
+                  color: AppColors.coral,
+                  tooltip: 'Add condition',
+                  onPressed: () =>
+                      _addCondition(context, ref, occurrences),
+                )
+              : null,
+        ),
+        const SizedBox(height: 8),
+        if (vesselId == null)
+          const _EmptyHint('Save vessel identity first')
+        else
+          condsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+            error: (e, _) => Text('Error: $e',
+                style: const TextStyle(color: AppColors.error)),
+            data: (conds) => conds.isEmpty
+                ? const _EmptyHint('No conditions of class recorded')
+                : Column(
+                    children: conds
+                        .map((c) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _ConditionCard(
+                                condition: c,
+                                occurrences: occurrences,
+                                onEdit: () => _editCondition(
+                                    context, ref, c, occurrences),
+                                onDelete: () =>
+                                    _deleteCondition(context, ref, c),
+                              ),
+                            ))
+                        .toList(),
+                  ),
+          ),
+        const SizedBox(height: 20),
+
+        // ── 3. Incident Reporting ─────────────────────────────────────
+        const VesselSectionHeader(
+          title: 'Incident Reporting',
+          icon: Icons.report_problem_outlined,
+          color: AppColors.amber,
+        ),
+        const SizedBox(height: 4),
+        if (occurrences.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(children: [
+              const Icon(Icons.anchor, size: 16, color: AppColors.textTertiary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  occurrences.first.title ?? 'Primary Occurrence',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ]),
+          ),
+        ],
+        const SizedBox(height: 12),
+        _TriStateRow(
+          label: 'Reported via ISM',
+          hint: 'Set to Yes if a formal ISM incident report has been raised',
+          value: ismIncidentReported,
+          onChanged: onIsmChanged,
+        ),
+        const SizedBox(height: 10),
+        _TriStateRow(
+          label: 'Reported to Class',
+          hint: 'Set to Yes if a Condition of Class was issued for this occurrence',
+          value: classIncidentReported,
+          onChanged: onClassReportedChanged,
+        ),
+        const SizedBox(height: 20),
+
+        // ── 4. Port State Control ─────────────────────────────────────
+        const VesselSectionHeader(
+          title: 'Port State Control',
+          icon: Icons.fact_check_outlined,
+          color: AppColors.midBlue,
+        ),
+        const SizedBox(height: 12),
+        _DatePickerField(
+          label: 'Last PSC Inspection',
+          value: pscLastInspection,
+          onChanged: onPscDateChanged,
+        ),
+        const SizedBox(height: 4),
+        _ChipSelector(
+          label: 'PSC Result',
+          options: PscResult.values.map((e) => e.label).toList(),
+          selected: pscLastResult?.label,
+          onSelected: (v) => onPscResultChanged(
+              v == null ? null : PscResult.values.firstWhere((e) => e.label == v)),
+        ),
+        const SizedBox(height: 4),
+        SurveyField(
+          label: 'Deficiencies / Notes',
+          controller: pscSummaryCtrl,
+          hint: 'List any PSC deficiencies noted',
+          maxLines: 4,
+          onChanged: (_) => onChanged(),
+        ),
+        const SizedBox(height: 16),
+
+        // ── 5. ISPS ───────────────────────────────────────────────────
+        const VesselSectionHeader(
+          title: 'ISPS Security Status',
+          icon: Icons.security_outlined,
+          color: AppColors.teal,
+        ),
+        const SizedBox(height: 8),
+        _ChipSelector(
+          label: 'ISPS Compliance',
+          options: IspsStatus.values.map((e) => e.label).toList(),
+          selected: ispsStatus?.label,
+          onSelected: (v) => onIspsStatusChanged(
+              v == null ? null : IspsStatus.values.firstWhere((e) => e.label == v)),
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Future<void> _addCert(BuildContext context, WidgetRef ref) =>
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => AddCertificateSheet(
+          caseId: caseId,
+          onSave: (cert) async {
+            await ref.read(certificatesProvider(caseId).notifier).addCertificate(cert);
+          },
+        ),
+      );
+
+  Future<void> _editCert(
+      BuildContext context, WidgetRef ref, CertificateModel cert) =>
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => AddCertificateSheet(
+          caseId: caseId,
+          existing: cert,
+          onSave: (updated) async {
+            await ref.read(certificatesProvider(caseId).notifier).updateCertificate(updated);
+          },
+        ),
+      );
+
+  Future<void> _deleteCert(
+      BuildContext context, WidgetRef ref, CertificateModel cert) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete certificate?'),
+        content: Text('Remove "${cert.certName ?? cert.certType.label}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(certificatesProvider(caseId).notifier).deleteCertificate(cert.certId);
+    }
+  }
+
+  void _addCondition(BuildContext context, WidgetRef ref,
+      List<OccurrenceModel> occurrences) =>
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _AddConditionSheet(
+          occurrences: occurrences,
+          onSave: (ref_, desc, expiry, dur, occRel, occId) async {
+            await ref
+                .read(classConditionsProvider(vesselId!).notifier)
+                .add(
+                  vesselId:          vesselId!,
+                  reference:         ref_,
+                  description:       desc,
+                  expiryDate:        expiry,
+                  duration:          dur,
+                  occurrenceRelated: occRel,
+                  occurrenceId:      occId,
+                );
+          },
+        ),
+      );
+
+  void _editCondition(BuildContext context, WidgetRef ref,
+      ClassConditionModel cond, List<OccurrenceModel> occurrences) =>
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _AddConditionSheet(
+          existing: cond,
+          occurrences: occurrences,
+          onSave: (ref_, desc, expiry, dur, occRel, occId) async {
+            await ref
+                .read(classConditionsProvider(vesselId!).notifier)
+                .updateCondition(
+                  cond.conditionId,
+                  reference:         ref_,
+                  description:       desc,
+                  expiryDate:        expiry,
+                  duration:          dur,
+                  occurrenceRelated: occRel,
+                  occurrenceId:      occId,
+                );
+          },
+        ),
+      );
+
+  Future<void> _deleteCondition(
+      BuildContext context, WidgetRef ref, ClassConditionModel cond) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete condition?'),
+        content: Text('Remove "${cond.reference ?? cond.description ?? 'this condition'}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(classConditionsProvider(vesselId!).notifier).delete(cond.conditionId);
+    }
+  }
+}
+
+// ── Condition card ─────────────────────────────────────────────────────────────
+
+class _ConditionCard extends StatelessWidget {
+  const _ConditionCard({
+    required this.condition,
+    required this.occurrences,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ClassConditionModel condition;
+  final List<OccurrenceModel> occurrences;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final expiry = condition.expiryDate;
+    final isExpired = expiry != null && expiry.isBefore(DateTime.now());
+    final expirySoon = expiry != null && !isExpired &&
+        expiry.difference(DateTime.now()).inDays <= 90;
+    final expiryColor = isExpired
+        ? AppColors.error
+        : expirySoon
+            ? AppColors.amber
+            : AppColors.textTertiary;
+
+    OccurrenceModel? linkedOcc;
+    if (condition.occurrenceRelated && condition.occurrenceId != null) {
+      linkedOcc = occurrences
+          .where((o) => o.occurrenceId == condition.occurrenceId)
+          .firstOrNull;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: condition.occurrenceRelated
+              ? AppColors.coral.withValues(alpha: 0.5)
+              : AppColors.border,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: AppColors.coral.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.shield_outlined,
+                size: 16, color: AppColors.coral),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (condition.reference != null)
+                Text(condition.reference!,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                        letterSpacing: 0.3)),
+              if (condition.description != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(condition.description!,
+                      style: const TextStyle(
+                          fontSize: 13, color: AppColors.textPrimary)),
+                ),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 4, children: [
+                if (condition.createdAt != null)
+                  _pill(
+                    icon: Icons.schedule_outlined,
+                    label: 'Raised: ${_fmtDate(condition.createdAt!)}',
+                    color: AppColors.textTertiary,
+                  ),
+                if (condition.duration != null && condition.duration!.isNotEmpty)
+                  _pill(
+                    icon: Icons.hourglass_bottom_outlined,
+                    label: condition.duration!,
+                    color: AppColors.midBlue,
+                  ),
+                if (expiry != null)
+                  _pill(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Exp: ${_fmtDate(expiry)}',
+                    color: expiryColor,
+                  ),
+                if (condition.occurrenceRelated)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.coral.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      linkedOcc != null
+                          ? linkedOcc.title ?? 'Occurrence'
+                          : 'Occurrence related',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.coral),
+                    ),
+                  ),
+              ]),
+            ]),
+          ),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              color: AppColors.textSecondary,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: onEdit,
+            ),
+            const SizedBox(height: 8),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 16),
+              color: AppColors.error,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: onDelete,
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  static String _fmtDate(DateTime d) {
+    const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
+  }
+
+  static Widget _pill({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 11, color: color),
+        const SizedBox(width: 3),
+        Text(label, style: TextStyle(fontSize: 11, color: color)),
+      ]);
+}
+
+// ── Add / edit condition sheet ─────────────────────────────────────────────────
+
+class _AddConditionSheet extends StatefulWidget {
+  const _AddConditionSheet({
+    required this.occurrences,
+    required this.onSave,
+    this.existing,
+  });
+
+  final ClassConditionModel? existing;
+  final List<OccurrenceModel> occurrences;
+  final Future<void> Function(
+      String? reference,
+      String? description,
+      DateTime? expiryDate,
+      String? duration,
+      bool occurrenceRelated,
+      String? occurrenceId) onSave;
+
+  @override
+  State<_AddConditionSheet> createState() => _AddConditionSheetState();
+}
+
+class _AddConditionSheetState extends State<_AddConditionSheet> {
+  final _refCtrl      = TextEditingController();
+  final _descCtrl     = TextEditingController();
+  final _durationCtrl = TextEditingController();
+  DateTime? _expiryDate;
+  bool _occRel = false;
+  String? _occId;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _refCtrl.text      = e.reference   ?? '';
+      _descCtrl.text     = e.description ?? '';
+      _durationCtrl.text = e.duration    ?? '';
+      _expiryDate        = e.expiryDate;
+      _occRel            = e.occurrenceRelated;
+      _occId             = e.occurrenceId;
+    }
+  }
+
+  @override
+  void dispose() {
+    _refCtrl.dispose();
+    _descCtrl.dispose();
+    _durationCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.onSave(
+        _refCtrl.text.trim().isEmpty      ? null : _refCtrl.text.trim(),
+        _descCtrl.text.trim().isEmpty     ? null : _descCtrl.text.trim(),
+        _expiryDate,
+        _durationCtrl.text.trim().isEmpty ? null : _durationCtrl.text.trim(),
+        _occRel,
+        _occRel ? _occId : null,
+      );
+      if (mounted) Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      child: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Text(
+            widget.existing == null
+                ? 'Add Condition of Class'
+                : 'Edit Condition of Class',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+
+          SurveyField(
+            label: 'Reference No.',
+            controller: _refCtrl,
+            hint: 'e.g. COC 2024-001',
+          ),
+          SurveyField(
+            label: 'Description',
+            controller: _descCtrl,
+            hint: 'Brief description of the condition',
+            maxLines: 3,
+          ),
+          _DatePickerField(
+            label: 'Due / Expiry Date',
+            value: _expiryDate,
+            onChanged: (v) => setState(() => _expiryDate = v),
+          ),
+          SurveyField(
+            label: 'Duration',
+            controller: _durationCtrl,
+            hint: 'e.g. Until next class renewal, 90 days',
+          ),
+          const SizedBox(height: 4),
+
+          // Occurrence related toggle
+          InkWell(
+            onTap: () => setState(() {
+              _occRel = !_occRel;
+              if (!_occRel) _occId = null;
+            }),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(children: [
+                Checkbox(
+                  value: _occRel,
+                  activeColor: AppColors.coral,
+                  onChanged: (v) => setState(() {
+                    _occRel = v ?? false;
+                    if (!_occRel) _occId = null;
+                  }),
+                ),
+                const SizedBox(width: 4),
+                const Expanded(
+                  child: Text('Related to a case occurrence',
+                      style: TextStyle(fontSize: 13)),
+                ),
+              ]),
+            ),
+          ),
+
+          if (_occRel && widget.occurrences.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _occId,
+              decoration: InputDecoration(
+                labelText: 'Select Occurrence',
+                labelStyle: const TextStyle(
+                    fontSize: 13, color: AppColors.textSecondary),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: AppColors.border)),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+                isDense: true,
+              ),
+              items: widget.occurrences
+                  .map((o) => DropdownMenuItem(
+                        value: o.occurrenceId,
+                        child: Text(
+                          o.title ?? 'Occurrence ${o.occurrenceNo}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _occId = v),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _saving ? null : _save,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.coral,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: _saving
+                ? const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : Text(
+                    widget.existing == null ? 'Add Condition' : 'Save Changes',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+          ),
+        ]),
+      ),
+    ));
+  }
+}
+
+// ── Shared sub-widgets ─────────────────────────────────────────────────────────
+
+class _TriStateRow extends StatelessWidget {
+  const _TriStateRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.hint,
+  });
+
+  final String label;
+  final String? hint;
+  final bool? value;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label,
+          style: const TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary)),
+      if (hint != null)
+        Text(hint!,
+            style: const TextStyle(
+                fontSize: 10, color: AppColors.textTertiary,
+                fontStyle: FontStyle.italic)),
+      const SizedBox(height: 6),
+      Row(children: [
+        _TriBtn('Not set', value == null,  () => onChanged(null)),
+        const SizedBox(width: 6),
+        _TriBtn('Yes', value == true,  () => onChanged(true),
+            activeColor: AppColors.success),
+        const SizedBox(width: 6),
+        _TriBtn('No',  value == false, () => onChanged(false),
+            activeColor: AppColors.error),
+      ]),
+    ]);
+  }
+}
+
+class _TriBtn extends StatelessWidget {
+  const _TriBtn(this.label, this.active, this.onTap, {this.activeColor});
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  final Color? activeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = activeColor ?? AppColors.textSecondary;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.12) : AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: active ? color : AppColors.border,
+              width: active ? 1.5 : 1),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                color: active ? color : AppColors.textSecondary)),
+      ),
+    );
+  }
+}
+
+class _DatePickerField extends StatelessWidget {
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatted = value == null
+        ? null
+        : '${value!.day.toString().padLeft(2, '0')} '
+          '${_mon(value!.month)} ${value!.year}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary, letterSpacing: 0.3)),
+        const SizedBox(height: 5),
+        GestureDetector(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: value ?? DateTime.now(),
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2040),
+            );
+            onChanged(picked);
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  formatted ?? 'Select date',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: value != null
+                          ? AppColors.textPrimary
+                          : AppColors.textTertiary),
+                ),
+              ),
+              const Icon(Icons.calendar_today_outlined,
+                  size: 16, color: AppColors.textTertiary),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  static String _mon(int m) => const [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ][m];
+}
+
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: Text(text,
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic)),
+        ),
+      );
+}
+
 // ── Helper widgets ─────────────────────────────────────────────────────────────
 
 /// Styled tappable field that opens a searchable bottom sheet for picking.
@@ -1460,11 +2418,9 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
         final keyboardPad = MediaQuery.viewInsetsOf(ctx).bottom;
         return Padding(
           padding: EdgeInsets.only(bottom: keyboardPad),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
+          child: Material(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: Column(children: [
               const SizedBox(height: 8),
               Container(width: 40, height: 4,

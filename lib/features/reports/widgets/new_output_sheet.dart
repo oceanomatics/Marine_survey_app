@@ -8,13 +8,13 @@ class NewOutputSheet extends StatefulWidget {
   const NewOutputSheet({
     super.key,
     required this.caseId,
-    required this.jobNumber,
+    required this.technicalFileNo,
     required this.existingCount,
     required this.onCreate,
   });
 
   final String caseId;
-  final String jobNumber;
+  final String technicalFileNo;
   final int existingCount;
   final Future<void> Function(
       OutputType type, String reportNumber, int sequenceNo) onCreate;
@@ -33,7 +33,7 @@ class _NewOutputSheetState extends State<NewOutputSheet> {
   void initState() {
     super.initState();
     final next = (widget.existingCount + 1).toString().padLeft(3, '0');
-    _numberCtrl.text = '${widget.jobNumber}-R$next';
+    _numberCtrl.text = '${widget.technicalFileNo}-R$next';
   }
 
   @override

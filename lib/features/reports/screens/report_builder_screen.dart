@@ -6,9 +6,16 @@ import '../providers/report_provider.dart';
 import '../widgets/report_preview.dart';
 import '../widgets/section_editor.dart';
 import '../widgets/new_output_sheet.dart';
+import 'dart:io';
+
 import '../widgets/export_button.dart';
+import '../widgets/sign_off_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/case_photo_picker_sheet.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../cases/providers/cases_provider.dart';
+import '../../photos/models/photo_model.dart';
+import '../../photos/providers/photo_provider.dart';
 
 class ReportBuilderScreen extends ConsumerStatefulWidget {
   const ReportBuilderScreen({super.key, required this.caseId});
@@ -168,18 +175,11 @@ class _ReportBuilderScreenState
                           sections: sections,
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          border: Border(
-                              top: BorderSide(color: AppColors.border)),
-                        ),
-                        child: ExportButton(
-                          output:   _activeOutput!,
-                          assembled: assembled,
-                          sections: sections,
-                        ),
+                      _PreviewFooter(
+                        output:   _activeOutput!,
+                        assembled: assembled,
+                        sections: sections,
+                        caseId:   widget.caseId,
                       ),
                     ],
                   ),
@@ -207,17 +207,17 @@ class _ReportBuilderScreenState
         .read(reportOutputsProvider(widget.caseId))
         .valueOrNull
         ?.length ?? 0;
-    final jobNumber = ref
+    final technicalFileNo = ref
         .read(assembledDataProvider(widget.caseId))
         .valueOrNull
-        ?.caseData['job_number'] as String? ?? widget.caseId;
+        ?.caseData['technical_file_no'] as String? ?? widget.caseId;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => NewOutputSheet(
         caseId: widget.caseId,
-        jobNumber: jobNumber,
+        technicalFileNo: technicalFileNo,
         existingCount: existingCount,
         onCreate: (type, reportNumber, sequenceNo) async {
           final output = await ref
@@ -254,17 +254,18 @@ class _ReportBuilderScreenState
 
 extension on ReportOutput {
   ReportOutput copyWith({ReportStatus? status}) => ReportOutput(
-        outputId:    outputId,
-        caseId:      caseId,
-        outputType:  outputType,
-        status:      status ?? this.status,
-        sections:    sections,
+        outputId:     outputId,
+        caseId:       caseId,
+        outputType:   outputType,
+        status:       status ?? this.status,
+        sections:     sections,
         reportNumber: reportNumber,
-        sequenceNo:  sequenceNo,
-        issuedDate:  issuedDate,
-        issuedTo:    issuedTo,
-        filePath:    filePath,
-        createdAt:   createdAt,
+        sequenceNo:   sequenceNo,
+        issuedDate:   issuedDate,
+        issuedTo:     issuedTo,
+        filePath:     filePath,
+        createdAt:    createdAt,
+        coverPhotoId: coverPhotoId,
       );
 }
 
@@ -459,6 +460,194 @@ class _EditorTab extends ConsumerWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+// ── Preview tab footer ─────────────────────────────────────────────────────
+
+class _PreviewFooter extends ConsumerWidget {
+  const _PreviewFooter({
+    required this.output,
+    required this.assembled,
+    required this.sections,
+    required this.caseId,
+  });
+
+  final ReportOutput output;
+  final AssembledReportData assembled;
+  final Map<SectionType, ReportSection> sections;
+  final String caseId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isFinal = output.outputType == OutputType.final_;
+    final case_   = ref.watch(caseProvider(caseId)).value;
+    final signedAttending = case_?.signedOffAttending ?? false;
+    final signedReviewing = case_?.signedOffReviewing ?? false;
+    final signed = (signedAttending ? 1 : 0) + (signedReviewing ? 1 : 0);
+    final bothSigned = signedAttending && signedReviewing;
+
+    // Cover photo — from photos table (cover-allocated) or output override
+    final photos = ref.watch(photosProvider(caseId)).value ?? [];
+    PhotoModel? findPhoto(bool Function(PhotoModel) test) {
+      try { return photos.firstWhere(test); } catch (_) { return null; }
+    }
+    final overrideId = output.coverPhotoId;
+    final coverPhoto = overrideId != null
+        ? findPhoto((p) => p.id == overrideId)
+        : findPhoto((p) => p.allocation == PhotoAllocation.coverPage);
+    final isOverride = overrideId != null && coverPhoto != null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Cover photo row
+          Row(
+            children: [
+              // Thumbnail
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.border),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: coverPhoto != null && coverPhoto.localPath.isNotEmpty
+                    ? Image.file(File(coverPhoto.localPath),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.image_outlined,
+                                size: 16, color: AppColors.textTertiary))
+                    : const Icon(Icons.image_outlined,
+                        size: 16, color: AppColors.textTertiary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      coverPhoto != null
+                          ? (coverPhoto.caption?.isNotEmpty == true
+                              ? coverPhoto.caption!
+                              : 'Cover photo')
+                          : 'No cover photo',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      isOverride ? 'Custom selection' : 'Vessel Particulars default',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textTertiary),
+                    ),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isOverride)
+                    TextButton(
+                      onPressed: () => ref
+                          .read(reportOutputsProvider(caseId).notifier)
+                          .setCoverPhoto(output.outputId, null),
+                      style: TextButton.styleFrom(
+                          foregroundColor: AppColors.textSecondary,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4)),
+                      child: const Text('Reset',
+                          style: TextStyle(fontSize: 12)),
+                    ),
+                  TextButton(
+                    onPressed: () async {
+                      final picked =
+                          await showModalBottomSheet<List<PhotoModel>>(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => CasePhotoPickerSheet(
+                          caseId: caseId,
+                          title: 'Select Cover Photo',
+                        ),
+                      );
+                      if (picked == null || picked.isEmpty) return;
+                      if (!context.mounted) return;
+                      await ref
+                          .read(reportOutputsProvider(caseId).notifier)
+                          .setCoverPhoto(output.outputId, picked.first.id);
+                    },
+                    style: TextButton.styleFrom(
+                        foregroundColor: AppColors.navy,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4)),
+                    child: const Text('Change',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Sign-off row — Final reports only
+          if (isFinal) ...[
+            Row(
+              children: [
+                Icon(
+                  bothSigned ? Icons.verified_outlined : Icons.draw_outlined,
+                  size: 16,
+                  color: bothSigned
+                      ? AppColors.success
+                      : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  bothSigned
+                      ? 'Signed off ($signed/2)'
+                      : 'Sign-off required ($signed/2)',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: bothSigned
+                          ? AppColors.success
+                          : AppColors.textSecondary),
+                ),
+                const Spacer(),
+                if (!bothSigned)
+                  TextButton(
+                    onPressed: () => showSignOffSheet(context, caseId),
+                    style: TextButton.styleFrom(
+                        foregroundColor: AppColors.navy,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6)),
+                    child: const Text('Sign Off',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          ExportButton(
+            output:    output,
+            assembled: assembled,
+            sections:  sections,
+          ),
+        ],
+      ),
     );
   }
 }

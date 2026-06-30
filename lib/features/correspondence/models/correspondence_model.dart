@@ -8,19 +8,19 @@ import 'package:flutter/foundation.dart';
 @immutable
 class ExtractedCaseRefs {
   const ExtractedCaseRefs({
-    this.jobNumber,
+    this.technicalFileNo,
     this.claimReference,
     this.vesselName,
     this.instructionDate,
   });
 
-  final String? jobNumber;
+  final String? technicalFileNo;
   final String? claimReference;
   final String? vesselName;
   final DateTime? instructionDate;
 
   bool get hasAny =>
-      jobNumber != null ||
+      technicalFileNo != null ||
       claimReference != null ||
       vesselName != null ||
       instructionDate != null;

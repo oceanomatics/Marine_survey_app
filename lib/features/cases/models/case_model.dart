@@ -85,7 +85,7 @@ enum InstructingPartyRole {
 class CaseModel {
   const CaseModel({
     required this.caseId,
-    required this.jobNumber,
+    required this.technicalFileNo,
     required this.caseType,
     required this.status,
     this.outputFormat,
@@ -113,6 +113,17 @@ class CaseModel {
     this.assured,
     this.dateOfFirstAttendance,
     this.surveyLocation,
+    // Sign-off
+    this.signedOffAttending = false,
+    this.signedOffReviewing = false,
+    this.signedOffAt,
+    this.reviewingPartyId,
+    this.signedOffAttendingName,
+    this.signedOffAttendingAt,
+    this.signedOffAttendingSigPath,
+    this.signedOffReviewingName,
+    this.signedOffReviewingAt,
+    this.signedOffReviewingSigPath,
     // Joined fields
     this.vesselName,
     this.clientName,
@@ -120,7 +131,7 @@ class CaseModel {
   });
 
   final String caseId;
-  final String jobNumber;
+  final String technicalFileNo;
   final CaseType caseType;
   final CaseStatus status;
   final OutputFormat? outputFormat;
@@ -151,6 +162,20 @@ class CaseModel {
   final DateTime? dateOfFirstAttendance;
   final String? surveyLocation;
 
+  // Sign-off (dual sign-off gate for Final Report export)
+  final bool signedOffAttending;
+  final bool signedOffReviewing;
+  final DateTime? signedOffAt;
+  final String? reviewingPartyId;  // FK to parties table
+  final String? signedOffAttendingName;
+  final DateTime? signedOffAttendingAt;
+  final String? signedOffAttendingSigPath;
+  final String? signedOffReviewingName;
+  final DateTime? signedOffReviewingAt;
+  final String? signedOffReviewingSigPath;
+
+  bool get dualSignOffComplete => signedOffAttending && signedOffReviewing;
+
   // Computed / joined
   final String? vesselName;
   final String? clientName;
@@ -159,7 +184,7 @@ class CaseModel {
   factory CaseModel.fromJson(Map<String, dynamic> json) {
     return CaseModel(
       caseId: json['case_id'] as String,
-      jobNumber: json['job_number'] as String,
+      technicalFileNo: json['technical_file_no'] as String,
       caseType: CaseType.fromValue(json['case_type'] as String? ?? 'hm'),
       status: CaseStatus.fromValue(json['status'] as String? ?? 'open'),
       outputFormat: json['output_format'] != null
@@ -200,13 +225,29 @@ class CaseModel {
           ? DateTime.tryParse(json['date_of_first_attendance'] as String)
           : null,
       surveyLocation:       json['survey_location']        as String?,
+      signedOffAttending: json['signed_off_attending'] as bool? ?? false,
+      signedOffReviewing: json['signed_off_reviewing'] as bool? ?? false,
+      signedOffAt: json['signed_off_at'] != null
+          ? DateTime.tryParse(json['signed_off_at'] as String)
+          : null,
+      reviewingPartyId: json['reviewing_party_id'] as String?,
+      signedOffAttendingName:   json['signed_off_attending_name']    as String?,
+      signedOffAttendingAt: json['signed_off_attending_at'] != null
+          ? DateTime.tryParse(json['signed_off_attending_at'] as String)
+          : null,
+      signedOffAttendingSigPath: json['signed_off_attending_sig_path'] as String?,
+      signedOffReviewingName:   json['signed_off_reviewing_name']    as String?,
+      signedOffReviewingAt: json['signed_off_reviewing_at'] != null
+          ? DateTime.tryParse(json['signed_off_reviewing_at'] as String)
+          : null,
+      signedOffReviewingSigPath: json['signed_off_reviewing_sig_path'] as String?,
       vesselName: json['vessel_name'] as String?,
       clientName: json['client_name'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'job_number':          jobNumber,
+    'technical_file_no':          technicalFileNo,
     'case_type':           caseType.value,
     'status':              status.value,
     if (outputFormat != null) 'output_format': outputFormat!.value,
@@ -232,13 +273,23 @@ class CaseModel {
     if (dateOfFirstAttendance != null)
       'date_of_first_attendance': dateOfFirstAttendance!.toIso8601String().split('T').first,
     if (surveyLocation != null)       'survey_location':          surveyLocation,
+    'signed_off_attending': signedOffAttending,
+    'signed_off_reviewing': signedOffReviewing,
+    if (signedOffAt != null)                'signed_off_at':                    signedOffAt!.toIso8601String(),
+    if (reviewingPartyId != null)           'reviewing_party_id':               reviewingPartyId,
+    if (signedOffAttendingName != null)     'signed_off_attending_name':        signedOffAttendingName,
+    if (signedOffAttendingAt != null)       'signed_off_attending_at':          signedOffAttendingAt!.toIso8601String(),
+    if (signedOffAttendingSigPath != null)  'signed_off_attending_sig_path':    signedOffAttendingSigPath,
+    if (signedOffReviewingName != null)     'signed_off_reviewing_name':        signedOffReviewingName,
+    if (signedOffReviewingAt != null)       'signed_off_reviewing_at':          signedOffReviewingAt!.toIso8601String(),
+    if (signedOffReviewingSigPath != null)  'signed_off_reviewing_sig_path':    signedOffReviewingSigPath,
   };
 
-  bool get hasPlaceholderJobNumber =>
-      jobNumber.startsWith('TMP-') || jobNumber == 'TBC' || jobNumber.isEmpty;
+  bool get hasPlaceholderFileNo =>
+      technicalFileNo.startsWith('TMP-') || technicalFileNo == 'TBC' || technicalFileNo.isEmpty;
 
   CaseModel copyWith({
-    String? jobNumber,
+    String? technicalFileNo,
     CaseType? caseType,
     CaseStatus? status,
     OutputFormat? outputFormat,
@@ -263,7 +314,7 @@ class CaseModel {
   }) {
     return CaseModel(
       caseId:                caseId,
-      jobNumber:             jobNumber             ?? this.jobNumber,
+      technicalFileNo:             technicalFileNo             ?? this.technicalFileNo,
       caseType:              caseType              ?? this.caseType,
       status:                status                ?? this.status,
       outputFormat:          outputFormat          ?? this.outputFormat,
@@ -345,6 +396,7 @@ class VesselModel {
   const VesselModel({
     required this.vesselId,
     required this.name,
+    this.previousName,
     this.imoNumber,
     this.callSign,
     this.mmsi,
@@ -397,6 +449,7 @@ class VesselModel {
 
   final String vesselId;
   final String name;
+  final String? previousName;
   final String? imoNumber;
   final String? callSign;
   final String? mmsi;
@@ -450,6 +503,7 @@ class VesselModel {
     return VesselModel(
       vesselId:            json['vessel_id'] as String,
       name:                json['name'] as String,
+      previousName:        json['previous_name'] as String?,
       imoNumber:           json['imo_number'] as String?,
       callSign:            json['call_sign'] as String?,
       mmsi:                json['mmsi'] as String?,
@@ -516,6 +570,7 @@ class VesselModel {
 
   Map<String, dynamic> toJson() => {
     'name': name,
+    if (previousName != null)         'previous_name':         previousName,
     if (imoNumber != null)            'imo_number':            imoNumber,
     if (callSign != null)             'call_sign':             callSign,
     if (mmsi != null)                 'mmsi':                  mmsi,
@@ -569,8 +624,9 @@ class VesselModel {
   VesselModel applyExtraction(Map<String, dynamic> extracted) {
     return VesselModel(
       vesselId:      vesselId,
-      name:          extracted['vessel_name'] as String? ?? name,
-      imoNumber:     extracted['imo_number']  as String? ?? imoNumber,
+      name:          extracted['vessel_name']    as String? ?? name,
+      previousName:  extracted['previous_name']  as String? ?? previousName,
+      imoNumber:     extracted['imo_number']     as String? ?? imoNumber,
       callSign:      extracted['call_sign']   as String? ?? callSign,
       mmsi:          extracted['mmsi']        as String? ?? mmsi,
       vesselType:    extracted['vessel_type'] as String? ?? vesselType,

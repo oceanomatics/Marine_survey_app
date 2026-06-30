@@ -2,7 +2,6 @@
 //
 // Merged Certificates + Class & Statutory screen (full push route).
 
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -188,7 +187,7 @@ class _VesselComplianceScreenState
                                 await ref
                                     .read(certificatesProvider(widget.caseId)
                                         .notifier)
-                                    .updateCertificate(cert.certId, fields);
+                                    .updateCertificate(fields);
                               },
                             ),
                           ),

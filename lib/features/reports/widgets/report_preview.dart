@@ -227,10 +227,10 @@ class _CompanyHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _MetaRow('Job No.',
-                  assembled.caseData['job_number'] as String? ?? ''),
+              _MetaRow('Technical File No.',
+                  assembled.caseData['technical_file_no'] as String? ?? ''),
               _MetaRow('Report No.',
-                  assembled.caseData['job_number'] as String? ?? ''),
+                  assembled.caseData['technical_file_no'] as String? ?? ''),
               _MetaRow('Report Date',
                   _today()),
             ],

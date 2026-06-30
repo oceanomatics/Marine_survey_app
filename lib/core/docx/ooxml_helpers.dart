@@ -14,6 +14,12 @@ class _Img {
   final String ext;
 }
 
+class _HeaderData {
+  const _HeaderData({required this.leftText, required this.rightText});
+  final String leftText;
+  final String rightText;
+}
+
 // ── XML escaping ───────────────────────────────────────────────────────────
 
 String _x(String s) => s
@@ -174,9 +180,185 @@ String _inlineImage(String rid, int drawId, int cx, int cy) => '''
 </wp:inline>
 </w:drawing></w:r></w:p>''';
 
+// ── Shaded block (full-width coloured band) ───────────────────────────────
+
+/// A full-width single-cell table with a solid background colour — used for
+/// the cover page vessel-name band and report-type band.
+String _shadedBlock(
+  String text, {
+  required String bgHex,
+  String textHex = 'FFFFFF',
+  int halfPtSize = 40,
+  WAlignment align = WAlignment.center,
+  int paddingTwips = 160,
+}) {
+  final jc = switch (align) {
+    WAlignment.center  => 'center',
+    WAlignment.right   => 'right',
+    WAlignment.justify => 'both',
+    WAlignment.left    => 'left',
+  };
+  final pad = paddingTwips.toString();
+  final padH = (paddingTwips + 20).toString();
+  return '<w:tbl>'
+      '<w:tblPr>'
+      '<w:tblW w:w="9355" w:type="dxa"/>'
+      '<w:tblBorders>'
+      '<w:top    w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '<w:left   w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '<w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '<w:right  w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+      '</w:tblBorders>'
+      '</w:tblPr>'
+      '<w:tblGrid><w:gridCol w:w="9355"/></w:tblGrid>'
+      '<w:tr>'
+      '<w:trPr><w:cantSplit/></w:trPr>'
+      '<w:tc>'
+      '<w:tcPr>'
+      '<w:tcW w:w="9355" w:type="dxa"/>'
+      '<w:shd w:val="clear" w:color="auto" w:fill="$bgHex"/>'
+      '<w:tcMar>'
+      '<w:top    w:w="$pad"  w:type="dxa"/>'
+      '<w:left   w:w="$padH" w:type="dxa"/>'
+      '<w:bottom w:w="$pad"  w:type="dxa"/>'
+      '<w:right  w:w="$padH" w:type="dxa"/>'
+      '</w:tcMar>'
+      '</w:tcPr>'
+      '<w:p>'
+      '<w:pPr>'
+      '<w:jc w:val="$jc"/>'
+      '<w:spacing w:before="0" w:after="0"/>'
+      '</w:pPr>'
+      '<w:r>'
+      '<w:rPr>'
+      '<w:b/>'
+      '<w:sz w:val="$halfPtSize"/><w:szCs w:val="$halfPtSize"/>'
+      '<w:color w:val="$textHex"/>'
+      '</w:rPr>'
+      '${_t(text)}'
+      '</w:r>'
+      '</w:p>'
+      '</w:tc>'
+      '</w:tr>'
+      '</w:tbl>';
+}
+
+// ── Sign-off block ────────────────────────────────────────────────────────
+
+/// Two-column authentication table: Attending Surveyor | Reviewing Surveyor.
+/// Each cell carries: role label, name, date signed, and a signature line.
+/// [attendingName]/[reviewingName] are null when that party has not yet signed.
+String _signOffTableXml({
+  String? attendingName,
+  String? attendingDate,
+  String? reviewingName,
+  String? reviewingDate,
+}) {
+  // A4 body width 9026 twips; split evenly with a narrow gutter.
+  const colW = 4413; // ~half, leaving 200 twips for border spacing
+
+  String cell(String role, String? name, String? date) {
+    final buf = StringBuffer();
+    buf.write('<w:tc>');
+    buf.write('<w:tcPr>'
+        '<w:tcW w:w="$colW" w:type="dxa"/>'
+        '<w:tcBorders>'
+        '<w:top w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+        '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+        '<w:left w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+        '<w:right w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+        '</w:tcBorders>'
+        '<w:tcMar>'
+        '<w:top w:w="120" w:type="dxa"/>'
+        '<w:left w:w="140" w:type="dxa"/>'
+        '<w:bottom w:w="120" w:type="dxa"/>'
+        '<w:right w:w="140" w:type="dxa"/>'
+        '</w:tcMar>'
+        '</w:tcPr>');
+    // Role label
+    buf.write(_para(role,
+        bold: true, halfPtSize: 20, colorHex: '1E3A5F'));
+    // Name
+    buf.write(_para(
+        name != null ? 'Name:  $name' : 'Name:  —',
+        halfPtSize: 20, colorHex: '374151'));
+    // Date
+    buf.write(_para(
+        date != null ? 'Date:   $date' : 'Date:   —',
+        halfPtSize: 20, colorHex: '374151'));
+    // Signature line
+    buf.write(_para('Signature:', halfPtSize: 20, colorHex: '374151'));
+    buf.write(_para(' ', halfPtSize: 28)); // blank line for ink sig
+    buf.write('</w:tc>');
+    return buf.toString();
+  }
+
+  return '<w:tbl>'
+      '<w:tblPr>'
+      '<w:tblW w:w="9026" w:type="dxa"/>'
+      '<w:tblBorders>'
+      '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+      '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="D1D5DB"/>'
+      '</w:tblBorders>'
+      '</w:tblPr>'
+      '<w:tblGrid>'
+      '<w:gridCol w:w="$colW"/>'
+      '<w:gridCol w:w="$colW"/>'
+      '</w:tblGrid>'
+      '<w:tr>'
+      '${cell('ATTENDING SURVEYOR', attendingName, attendingDate)}'
+      '${cell('REVIEWING SURVEYOR', reviewingName, reviewingDate)}'
+      '</w:tr>'
+      '</w:tbl>';
+}
+
+// ── Header XML ────────────────────────────────────────────────────────────
+
+/// Running header for body pages (page 2+).
+/// Left: [leftText] (firm name). Right (tab-aligned): [rightText] (vessel/ref).
+/// A thin rule below separates it from the body text.
+String _bodyHeaderXml(String leftText, String rightText) {
+  const rPrLeft = '<w:rPr>'
+      '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>'
+      '<w:b/>'
+      '<w:sz w:val="18"/><w:szCs w:val="18"/>'
+      '<w:color w:val="374151"/>'
+      '</w:rPr>';
+  const rPrRight = '<w:rPr>'
+      '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>'
+      '<w:sz w:val="18"/><w:szCs w:val="18"/>'
+      '<w:color w:val="6B7280"/>'
+      '</w:rPr>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      '<w:hdr'
+      ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+      ' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+      '<w:p>'
+      '<w:pPr>'
+      '<w:tabs><w:tab w:val="right" w:pos="9355"/></w:tabs>'
+      '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="D1D5DB"/></w:pBdr>'
+      '<w:spacing w:before="0" w:after="80"/>'
+      '</w:pPr>'
+      '<w:r>$rPrLeft${_t(leftText)}</w:r>'
+      '<w:r>$rPrRight<w:tab/>${_t(rightText)}</w:r>'
+      '</w:p>'
+      '</w:hdr>';
+}
+
+/// Empty first-page header — suppresses the running header on the cover page.
+const String _emptyHeaderXml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<w:hdr'
+    ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    ' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p>'
+    '</w:hdr>';
+
 // ── document.xml wrapper ───────────────────────────────────────────────────
 
-String _wrapDocument(String body, {bool hasFooter = false}) =>
+String _wrapDocument(String body, {bool hasFooter = false, bool hasHeader = false}) =>
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<w:document'
     ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
@@ -184,10 +366,17 @@ String _wrapDocument(String body, {bool hasFooter = false}) =>
     '<w:body>'
     '$body'
     '<w:sectPr>'
-    '  <w:pgSz w:w="11906" w:h="16838"/>'
-    '  <w:pgMar w:top="1440" w:right="1440" w:bottom="1134" w:left="1440"'
-    '    w:header="709" w:footer="709" w:gutter="0"/>'
+    // Header: first page = empty (cover), default = firm name + vessel/ref
+    '${hasHeader ? '<w:headerReference w:type="first" r:id="rId_header_first"/>'
+                   '<w:headerReference w:type="default" r:id="rId_header_body"/>' : ''}'
+    // Footer on all pages (first-page ref needed when titlePg is set)
+    '${hasFooter && hasHeader ? '<w:footerReference w:type="first" r:id="rId_footer"/>' : ''}'
     '${hasFooter ? '<w:footerReference w:type="default" r:id="rId_footer"/>' : ''}'
+    // titlePg enables the separate first-page header
+    '${hasHeader ? '<w:titlePg/>' : ''}'
+    '<w:pgSz w:w="11906" w:h="16838"/>'
+    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1134" w:left="1440"'
+    ' w:header="709" w:footer="709" w:gutter="0"/>'
     '</w:sectPr>'
     '</w:body>'
     '</w:document>';
@@ -234,7 +423,7 @@ String _footerXml(String wpText) {
 
 const String _baseRels = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-String _documentRels(List<_Img> images, {bool hasFooter = false}) {
+String _documentRels(List<_Img> images, {bool hasFooter = false, bool hasHeader = false}) {
   final buf = StringBuffer(
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">');
@@ -248,6 +437,12 @@ String _documentRels(List<_Img> images, {bool hasFooter = false}) {
   if (hasFooter) {
     buf.write('<Relationship Id="rId_footer" '
         'Type="$_baseRels/footer" Target="footer1.xml"/>');
+  }
+  if (hasHeader) {
+    buf.write('<Relationship Id="rId_header_first" '
+        'Type="$_baseRels/header" Target="header1.xml"/>');
+    buf.write('<Relationship Id="rId_header_body" '
+        'Type="$_baseRels/header" Target="header2.xml"/>');
   }
   buf.write('</Relationships>');
   return buf.toString();
@@ -264,14 +459,17 @@ const String _rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 
 // ── [Content_Types].xml ────────────────────────────────────────────────────
 
-String _contentTypes(List<_Img> images, {bool hasFooter = false}) {
+String _contentTypes(List<_Img> images, {bool hasFooter = false, bool hasHeader = false}) {
+  const footerCt =
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml';
+  const headerCt =
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml';
   final buf = StringBuffer(
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
       '<Default Extension="rels" '
       'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
       '<Default Extension="xml" ContentType="application/xml"/>');
-  // Image content types (deduplicated by extension)
   final seenExts = <String>{};
   for (final img in images) {
     if (seenExts.add(img.ext)) {
@@ -286,8 +484,11 @@ String _contentTypes(List<_Img> images, {bool hasFooter = false}) {
   buf.write('<Override PartName="/word/settings.xml" '
       'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>');
   if (hasFooter) {
-    buf.write('<Override PartName="/word/footer1.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>');
+    buf.write('<Override PartName="/word/footer1.xml" ContentType="$footerCt"/>');
+  }
+  if (hasHeader) {
+    buf.write('<Override PartName="/word/header1.xml" ContentType="$headerCt"/>');
+    buf.write('<Override PartName="/word/header2.xml" ContentType="$headerCt"/>');
   }
   buf.write('</Types>');
   return buf.toString();

@@ -17,6 +17,7 @@ class DocxBuilder {
   int _rId = 3; // rId1=styles, rId2=settings; images start at rId3
   int _drawId = 1;
   String? _footerWpText;
+  _HeaderData? _bodyHeader;
 
   // A4 usable width at 2.54 cm margins ≈ 5 040 000 EMU (14 cm)
   static const int kPageWidthEmu = 5040000;
@@ -61,6 +62,50 @@ class DocxBuilder {
   /// "Page N of Total" is appended automatically.
   void setFooter(String wpText) => _footerWpText = wpText;
 
+  /// Sets the running header shown on body pages (page 2+).
+  /// The cover page (page 1) gets an empty header via [w:titlePg].
+  /// [leftText] is bold left-aligned (firm name); [rightText] is grey
+  /// right-aligned via a tab stop (vessel — report type — claim ref).
+  void setBodyHeader({required String leftText, required String rightText}) {
+    _bodyHeader = _HeaderData(leftText: leftText, rightText: rightText);
+  }
+
+  /// Full-width coloured block — used for cover-page title and type bands.
+  /// [bgHex] is the fill colour without the '#' prefix (e.g. `'1F3A5F'`).
+  void addShadedBlock(
+    String text, {
+    required String bgHex,
+    String textHex = 'FFFFFF',
+    int halfPtSize = 40,
+    WAlignment align = WAlignment.center,
+    int paddingTwips = 160,
+  }) {
+    _body.write(_shadedBlock(
+      text,
+      bgHex: bgHex,
+      textHex: textHex,
+      halfPtSize: halfPtSize,
+      align: align,
+      paddingTwips: paddingTwips,
+    ));
+  }
+
+  /// Two-column sign-off authentication table (Attending | Reviewing).
+  /// Pass null for name/date when that party has not yet signed.
+  void addSignOffBlock({
+    String? attendingName,
+    String? attendingDate,
+    String? reviewingName,
+    String? reviewingDate,
+  }) {
+    _body.write(_signOffTableXml(
+      attendingName: attendingName,
+      attendingDate: attendingDate,
+      reviewingName: reviewingName,
+      reviewingDate: reviewingDate,
+    ));
+  }
+
   /// Adds an inline image. [widthEmu] defaults to full page width (14 cm).
   /// [heightEmu] defaults to maintaining a 4:3 ratio if not provided.
   void addImage(
@@ -89,14 +134,23 @@ class DocxBuilder {
     }
 
     final hasFooter = _footerWpText != null;
-    addText('[Content_Types].xml', _contentTypes(_images, hasFooter: hasFooter));
+    final hasHeader = _bodyHeader != null;
+    addText('[Content_Types].xml',
+        _contentTypes(_images, hasFooter: hasFooter, hasHeader: hasHeader));
     addText('_rels/.rels', _rootRels);
-    addText('word/document.xml', _wrapDocument(_body.toString(), hasFooter: hasFooter));
-    addText('word/_rels/document.xml.rels', _documentRels(_images, hasFooter: hasFooter));
+    addText('word/document.xml',
+        _wrapDocument(_body.toString(), hasFooter: hasFooter, hasHeader: hasHeader));
+    addText('word/_rels/document.xml.rels',
+        _documentRels(_images, hasFooter: hasFooter, hasHeader: hasHeader));
     addText('word/styles.xml', _stylesXml);
     addText('word/settings.xml', _settingsXml);
     if (hasFooter) {
       addText('word/footer1.xml', _footerXml(_footerWpText!));
+    }
+    if (hasHeader) {
+      addText('word/header1.xml', _emptyHeaderXml);
+      addText('word/header2.xml',
+          _bodyHeaderXml(_bodyHeader!.leftText, _bodyHeader!.rightText));
     }
 
     for (final img in _images) {

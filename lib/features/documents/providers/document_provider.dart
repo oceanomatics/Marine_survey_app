@@ -202,6 +202,7 @@ class DocExtractionResult {
     required this.findingCategories,
     required this.detectedIncidents,
     required this.detectedMachinery,
+    this.detectedClassConditions = const [],
     this.vesselFields = const {},
     this.suggestedCategory,
     this.documentType,
@@ -213,17 +214,20 @@ class DocExtractionResult {
   final List<String> findingCategories;
   final List<Map<String, dynamic>> detectedIncidents;
   final List<Map<String, dynamic>> detectedMachinery;
+  final List<Map<String, dynamic>> detectedClassConditions;
   /// Vessel particulars extracted from intelligence documents (Equasis etc).
   final Map<String, dynamic> vesselFields;
   final String? suggestedCategory;
   final String? documentType;
 
-  bool get hasHardData    => hardFields.isNotEmpty;
-  bool get hasFindings    => contextFindings.isNotEmpty;
-  bool get hasIncidents   => detectedIncidents.isNotEmpty;
-  bool get hasMachinery   => detectedMachinery.isNotEmpty;
-  bool get hasVesselData  => vesselFields.isNotEmpty;
-  bool get hasAny => hasHardData || hasFindings || hasIncidents || hasMachinery || hasVesselData;
+  bool get hasHardData         => hardFields.isNotEmpty;
+  bool get hasFindings         => contextFindings.isNotEmpty;
+  bool get hasIncidents        => detectedIncidents.isNotEmpty;
+  bool get hasMachinery        => detectedMachinery.isNotEmpty;
+  bool get hasClassConditions  => detectedClassConditions.isNotEmpty;
+  bool get hasVesselData       => vesselFields.isNotEmpty;
+  bool get hasAny => hasHardData || hasFindings || hasIncidents ||
+      hasMachinery || hasVesselData || hasClassConditions;
 }
 
 // ── Document provider ──────────────────────────────────────────────────────
@@ -366,9 +370,16 @@ class DocumentNotifier
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
 
+      final classConditions = (raw['detected_class_conditions'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => e['description'] != null && e['description'].toString().isNotEmpty)
+          .toList();
+
       // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
       final vesselFields = <String, dynamic>{};
       final rawVessel = raw['vessel_data'];
+      debugPrint('[EXTRACT] vessel_data raw type: ${rawVessel.runtimeType}, value: $rawVessel');
       if (rawVessel is Map) {
         for (final e in rawVessel.entries) {
           if (e.value != null && e.value != '') {
@@ -376,6 +387,8 @@ class DocumentNotifier
           }
         }
       }
+      debugPrint('[EXTRACT] vesselFields parsed (${vesselFields.length} keys): $vesselFields');
+      debugPrint('[EXTRACT] machinery: ${machinery.length}, classConditions: ${classConditions.length}');
 
       return DocExtractionResult(
         docId: docId,
@@ -384,6 +397,7 @@ class DocumentNotifier
         findingCategories: findingCats,
         detectedIncidents: incidents,
         detectedMachinery: machinery,
+        detectedClassConditions: classConditions,
         vesselFields: vesselFields,
         suggestedCategory: raw['suggested_category'] as String?,
         documentType: raw['document_type'] as String?,
@@ -409,9 +423,11 @@ class DocumentNotifier
     List<Map<String, dynamic>> contextFindings = const [],
     List<Map<String, dynamic>> detectedIncidents = const [],
     List<Map<String, dynamic>> detectedMachinery = const [],
+    List<Map<String, dynamic>> detectedClassConditions = const [],
     int findingsApplied = 0,
     int incidentsApplied = 0,
     int machineryApplied = 0,
+    int conditionsApplied = 0,
   }) async {
     final storedData = <String, dynamic>{
       if (selectedHardFields.isNotEmpty) 'hard_fields': selectedHardFields,
@@ -420,13 +436,17 @@ class DocumentNotifier
       if (contextFindings.isNotEmpty) 'context_findings': contextFindings,
       if (detectedIncidents.isNotEmpty) 'detected_incidents': detectedIncidents,
       if (detectedMachinery.isNotEmpty) 'detected_machinery': detectedMachinery,
+      if (detectedClassConditions.isNotEmpty)
+        'detected_class_conditions': detectedClassConditions,
       'meta': {
         'findings_applied': findingsApplied,
         'incidents_applied': incidentsApplied,
         'machinery_applied': machineryApplied,
+        'conditions_applied': conditionsApplied,
         'findings_total': contextFindings.length,
         'incidents_total': detectedIncidents.length,
         'machinery_total': detectedMachinery.length,
+        'conditions_total': detectedClassConditions.length,
       },
     };
 

@@ -20,7 +20,7 @@ class CaseContextBuilder {
     // ── Case overview ────────────────────────────────────────────────────────
     buf.writeln('## CASE OVERVIEW');
     if (caseData != null) {
-      buf.writeln('Job number: ${caseData.jobNumber}');
+      buf.writeln('Technical file no.: ${caseData.technicalFileNo}');
       buf.writeln('Type: ${caseData.caseType.label}');
       buf.writeln('Status: ${caseData.status.label}');
       if (caseData.claimReference != null) {

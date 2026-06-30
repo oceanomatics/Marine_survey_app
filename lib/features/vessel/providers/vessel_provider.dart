@@ -1,5 +1,6 @@
 // lib/features/vessel/providers/vessel_provider.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../cases/models/case_model.dart';
 import '../../../core/api/supabase_client.dart';
@@ -120,14 +121,53 @@ class VesselForCaseNotifier extends FamilyAsyncNotifier<VesselModel?, String> {
     required String vesselId,
     required Map<String, dynamic> extracted,
   }) async {
-    final current = state.value;
-    if (current == null) return createVessel(caseId: caseId, name: 'TBC');
+    debugPrint('[VESSEL_APPLY] state is: ${state.runtimeType}, value null? ${state.value == null}');
+    debugPrint('[VESSEL_APPLY] extracted fields (${extracted.length}): ${extracted.keys.toList()}');
+
+    VesselModel? current = state.value;
+    if (current == null) {
+      // State not yet loaded — fetch directly to avoid creating a duplicate vessel.
+      debugPrint('[VESSEL_APPLY] state null, fetching vessel $vesselId directly');
+      try {
+        final data = await SupabaseService.client
+            .from('vessels')
+            .select()
+            .eq('vessel_id', vesselId)
+            .single();
+        current = VesselModel.fromJson(data);
+        debugPrint('[VESSEL_APPLY] fetched vessel: ${current.name}');
+      } catch (e) {
+        debugPrint('[VESSEL_APPLY] fetch failed: $e — falling back to createVessel');
+        return createVessel(caseId: caseId, name: 'TBC');
+      }
+    }
 
     final updated = current.applyExtraction(extracted);
-    await SupabaseService.client
-        .from('vessels')
-        .update(updated.toJson())
-        .eq('vessel_id', vesselId);
+    debugPrint('[VESSEL_APPLY] updated vessel name=${updated.name} imo=${updated.imoNumber} flag=${updated.flag}');
+
+    // Build a partial update containing only the columns Claude actually
+    // extracted.  Claude uses 'vessel_name'; the DB column is 'name'.
+    // All other extracted keys match their DB column names exactly.
+    final fullJson = updated.toJson();
+    final partialUpdate = <String, dynamic>{};
+    for (final rawKey in extracted.keys) {
+      final col = rawKey == 'vessel_name' ? 'name' : rawKey;
+      if (fullJson.containsKey(col)) {
+        partialUpdate[col] = fullJson[col];
+      }
+    }
+    debugPrint('[VESSEL_APPLY] sending ${partialUpdate.length} columns: ${partialUpdate.keys.toList()}');
+
+    try {
+      await SupabaseService.client
+          .from('vessels')
+          .update(partialUpdate)
+          .eq('vessel_id', vesselId);
+      debugPrint('[VESSEL_APPLY] Supabase update succeeded');
+    } catch (e) {
+      debugPrint('[VESSEL_APPLY] Supabase update FAILED: $e');
+      rethrow;
+    }
 
     state = AsyncData(updated);
     return updated;

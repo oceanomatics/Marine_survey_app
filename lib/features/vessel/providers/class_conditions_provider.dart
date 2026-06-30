@@ -31,6 +31,7 @@ class ClassConditionsNotifier
     String? reference,
     String? description,
     DateTime? expiryDate,
+    String? duration,
     bool occurrenceRelated = false,
     String? occurrenceId,
   }) async {
@@ -40,6 +41,7 @@ class ClassConditionsNotifier
       if (description != null)  'description':  description,
       if (expiryDate != null)
         'expiry_date': expiryDate.toIso8601String().split('T').first,
+      if (duration != null)     'duration':     duration,
       'occurrence_related': occurrenceRelated,
       if (occurrenceId != null) 'occurrence_id': occurrenceId,
     });
@@ -50,6 +52,7 @@ class ClassConditionsNotifier
     String? reference,
     String? description,
     DateTime? expiryDate,
+    String? duration,
     bool? occurrenceRelated,
     String? occurrenceId,
   }) async {
@@ -59,6 +62,7 @@ class ClassConditionsNotifier
     if (expiryDate != null) {
       updates['expiry_date'] = expiryDate.toIso8601String().split('T').first;
     }
+    if (duration != null)          updates['duration']           = duration;
     if (occurrenceRelated != null) updates['occurrence_related'] = occurrenceRelated;
     if (occurrenceId != null)      updates['occurrence_id']      = occurrenceId;
     if (updates.isEmpty) return;

@@ -89,12 +89,12 @@ class _UsageScreenState extends State<UsageScreen> {
         try {
           final cases = await SupabaseService.client
               .from('cases')
-              .select('case_id, vessel_name, job_number')
+              .select('case_id, vessel_name, technical_file_no')
               .inFilter('case_id', caseIds.toList());
           caseLabels = {
             for (final c in cases as List)
               c['case_id'] as String:
-                  '${c['vessel_name'] ?? 'Unknown vessel'} — ${c['job_number'] ?? ''}',
+                  '${c['vessel_name'] ?? 'Unknown vessel'} — ${c['technical_file_no'] ?? ''}',
           };
         } catch (_) {
           // Cases may have been deleted — proceed with empty labels; the

@@ -21,6 +21,8 @@ import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../../features/vessel/providers/certificates_provider.dart';
+import '../../../features/vessel/providers/class_conditions_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
@@ -34,7 +36,7 @@ const _kColor = AppColors.amber;
 /// Any key returned by Claude that is NOT in this set is stored as
 /// "unmapped_fields" and shown in the extraction summary for diagnosis.
 const _kKnownVesselKeys = {
-  'vessel_name', 'imo_number', 'call_sign', 'mmsi', 'vessel_type', 'flag', 'port_of_registry',
+  'vessel_name', 'previous_name', 'imo_number', 'call_sign', 'mmsi', 'vessel_type', 'flag', 'port_of_registry',
   'gross_tonnage', 'net_tonnage', 'deadweight', 'holds_count', 'tanks_count',
   'length_oa', 'length_bp', 'breadth', 'breadth_qualifier', 'depth',
   'max_draft', 'draft_qualifier', 'year_built', 'build_yard', 'build_country',
@@ -105,6 +107,8 @@ class DocumentVaultScreen extends ConsumerWidget {
                       _runPhotoExtraction(context, ref, photo),
                   onViewExtraction: (doc) =>
                       showExtractionSummary(context, doc),
+                  onReapply: (doc) =>
+                      reapplyExtraction(context, caseId, doc),
                 ),
               ),
       ),
@@ -676,10 +680,22 @@ class _ExtractionResultSheet extends ConsumerStatefulWidget {
     required this.caseId,
     required this.docTitle,
     required this.result,
+    this.initialFindingSelected,
+    this.initialIncidentSelected,
+    this.initialMachinerySelected,
+    this.initialConditionSelected,
+    this.initialVesselSelected,
   });
   final String caseId;
   final String docTitle;
   final DocExtractionResult result;
+  // When re-applying stored extraction, caller can pre-set which items to apply.
+  // null = default all to true (fresh extraction). false = item already applied.
+  final List<bool>? initialFindingSelected;
+  final List<bool>? initialIncidentSelected;
+  final List<bool>? initialMachinerySelected;
+  final List<bool>? initialConditionSelected;
+  final Map<String, bool>? initialVesselSelected;
 
   @override
   ConsumerState<_ExtractionResultSheet> createState() =>
@@ -692,6 +708,7 @@ class _ExtractionResultSheetState
   late final List<bool> _findingSelected;
   late final List<bool> _incidentSelected;
   late final List<bool> _machinerySelected;
+  late final List<bool> _conditionSelected;
   late final Map<String, bool> _vesselSelected;
   bool _saving = false;
 
@@ -701,15 +718,16 @@ class _ExtractionResultSheetState
     _hardSelected = {
       for (final k in widget.result.hardFields.keys) k: true
     };
-    _findingSelected =
+    _findingSelected = widget.initialFindingSelected ??
         List.filled(widget.result.contextFindings.length, true);
-    _incidentSelected =
+    _incidentSelected = widget.initialIncidentSelected ??
         List.filled(widget.result.detectedIncidents.length, true);
-    _vesselSelected = {
-      for (final k in widget.result.vesselFields.keys) k: true
-    };
-    _machinerySelected =
+    _vesselSelected = widget.initialVesselSelected ??
+        {for (final k in widget.result.vesselFields.keys) k: true};
+    _machinerySelected = widget.initialMachinerySelected ??
         List.filled(widget.result.detectedMachinery.length, true);
+    _conditionSelected = widget.initialConditionSelected ??
+        List.filled(widget.result.detectedClassConditions.length, true);
   }
 
   Future<void> _apply() async {
@@ -719,6 +737,7 @@ class _ExtractionResultSheetState
       final appliedFindingsCount = _findingSelected.where((b) => b).length;
       final appliedIncidentsCount = _incidentSelected.where((b) => b).length;
       final appliedMachineryCount = _machinerySelected.where((b) => b).length;
+      final appliedConditionsCount = _conditionSelected.where((b) => b).length;
 
       // Compute vessel fields: selected (will be applied) and unmapped (unknown to applyExtraction).
       final selectedVesselForSave = Map<String, dynamic>.fromEntries(
@@ -737,13 +756,17 @@ class _ExtractionResultSheetState
       );
 
       // Build full findings list with category for the summary view.
+      // Preserve cumulative applied state: an item stays 'applied: true' if it
+      // was applied in a previous round even if unchecked this time.
       final allFindings = <Map<String, dynamic>>[
         for (var i = 0; i < widget.result.contextFindings.length; i++) {
           'text': widget.result.contextFindings[i],
           'category': i < widget.result.findingCategories.length
               ? widget.result.findingCategories[i]
               : 'observation',
-          'applied': _findingSelected[i],
+          'applied': _findingSelected[i] ||
+              (widget.initialFindingSelected != null &&
+                  !widget.initialFindingSelected![i]),
         },
       ];
 
@@ -752,14 +775,28 @@ class _ExtractionResultSheetState
         for (var i = 0; i < widget.result.detectedIncidents.length; i++)
           {
             ...widget.result.detectedIncidents[i],
-            'applied': _incidentSelected[i],
+            'applied': _incidentSelected[i] ||
+                (widget.initialIncidentSelected != null &&
+                    !widget.initialIncidentSelected![i]),
           },
       ];
       final allMachinery = <Map<String, dynamic>>[
         for (var i = 0; i < widget.result.detectedMachinery.length; i++)
           {
             ...widget.result.detectedMachinery[i],
-            'applied': _machinerySelected[i],
+            'applied': _machinerySelected[i] ||
+                (widget.initialMachinerySelected != null &&
+                    !widget.initialMachinerySelected![i]),
+          },
+      ];
+
+      final allConditions = <Map<String, dynamic>>[
+        for (var i = 0; i < widget.result.detectedClassConditions.length; i++)
+          {
+            ...widget.result.detectedClassConditions[i],
+            'applied': _conditionSelected[i] ||
+                (widget.initialConditionSelected != null &&
+                    !widget.initialConditionSelected![i]),
           },
       ];
 
@@ -773,9 +810,11 @@ class _ExtractionResultSheetState
             contextFindings: allFindings,
             detectedIncidents: allIncidents,
             detectedMachinery: allMachinery,
+            detectedClassConditions: allConditions,
             findingsApplied: appliedFindingsCount,
             incidentsApplied: appliedIncidentsCount,
             machineryApplied: appliedMachineryCount,
+            conditionsApplied: appliedConditionsCount,
           );
 
       // 2. Create context notes — preserve original indices for category lookup
@@ -801,16 +840,23 @@ class _ExtractionResultSheetState
         );
       }
 
-      // 3. Create occurrences for checked incidents
+      // 3. Create occurrences for checked incidents (skip duplicates by title)
       final damageNotifier =
           ref.read(damageProvider(widget.caseId).notifier);
+      final existingOccs =
+          ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
       for (var i = 0; i < widget.result.detectedIncidents.length; i++) {
         if (!_incidentSelected[i]) continue;
         final inc = widget.result.detectedIncidents[i];
+        final incTitle = (inc['title']?.toString() ??
+            'Occurrence from ${widget.docTitle}').trim();
+        final isDuplicate = existingOccs.any((o) =>
+            (o.title ?? '').trim().toLowerCase() ==
+            incTitle.toLowerCase());
+        if (isDuplicate) continue;
         await damageNotifier.createOccurrence(
           caseId:           widget.caseId,
-          title:            inc['title']?.toString() ??
-              'Occurrence from ${widget.docTitle}',
+          title:            incTitle,
           dateTime:         inc['date'] != null
               ? DateTime.tryParse(inc['date'].toString())
               : null,
@@ -819,14 +865,35 @@ class _ExtractionResultSheetState
         );
       }
 
-      // 4. Apply vessel data + add machinery (if case has a vessel linked)
-      final vesselId = ref
+      // 4. Apply vessel data + add machinery.
+      // If the case has no vessel yet but extraction found vessel data,
+      // create a vessel record now and link it to the case automatically.
+      String? vesselId = ref
           .read(caseProvider(widget.caseId))
           .value
           ?.vesselId;
+
+      final hasVesselToApply = selectedVesselForSave.isNotEmpty
+          || widget.result.detectedMachinery.isNotEmpty
+          || widget.result.hasClassConditions;
+
+      if (vesselId == null && hasVesselToApply) {
+        debugPrint('[APPLY] No vessel linked — creating one from extracted data');
+        final vesselName =
+            selectedVesselForSave['vessel_name'] as String?
+            ?? widget.result.vesselFields['vessel_name'] as String?
+            ?? 'TBC';
+        final newVessel = await ref
+            .read(vesselForCaseProvider(widget.caseId).notifier)
+            .createVessel(caseId: widget.caseId, name: vesselName);
+        vesselId = newVessel.vesselId;
+        debugPrint('[APPLY] Created vessel: ${newVessel.name} ($vesselId)');
+      }
+
       if (vesselId != null && vesselId.isNotEmpty) {
-        // 4a. Apply selected vessel particulars (only known keys).
-        if (widget.result.hasVesselData && selectedVesselForSave.isNotEmpty) {
+        // 4a. Apply selected vessel particulars.
+        if (selectedVesselForSave.isNotEmpty) {
+          debugPrint('[APPLY] Applying ${selectedVesselForSave.length} vessel fields');
           await ref
               .read(vesselForCaseProvider(widget.caseId).notifier)
               .applyExtraction(
@@ -836,24 +903,93 @@ class _ExtractionResultSheetState
               );
         }
 
-        // 4b. Add machinery items
-        final machineryNotifier =
-            ref.read(machineryProvider(vesselId).notifier);
-        for (var i = 0; i < widget.result.detectedMachinery.length; i++) {
-          if (!_machinerySelected[i]) continue;
-          final m = widget.result.detectedMachinery[i];
-          await machineryNotifier.addMachinery(MachineryModel(
-            machineryId:  '',
-            vesselId:     vesselId,
-            machineryType: m['machinery_type']?.toString() ?? 'Unknown',
-            role:          m['role']?.toString(),
-            make:          m['make']?.toString(),
-            model:         m['model']?.toString(),
-            serialNumber:  m['serial_number']?.toString(),
-            mcrKw:   (m['mcr_kw'] as num?)?.toDouble(),
-            mcrRpm:  (m['mcr_rpm'] as num?)?.toDouble(),
-            fuelType: m['fuel_type']?.toString(),
-          ));
+        // 4b. Add machinery items.
+        if (widget.result.detectedMachinery.isNotEmpty) {
+          final machineryNotifier =
+              ref.read(machineryProvider(vesselId).notifier);
+          for (var i = 0; i < widget.result.detectedMachinery.length; i++) {
+            if (!_machinerySelected[i]) continue;
+            final m = widget.result.detectedMachinery[i];
+            await machineryNotifier.addMachinery(MachineryModel(
+              machineryId:  '',
+              vesselId:     vesselId,
+              machineryType: m['machinery_type']?.toString() ?? 'Unknown',
+              role:          m['role']?.toString(),
+              make:          m['make']?.toString(),
+              model:         m['model']?.toString(),
+              serialNumber:  m['serial_number']?.toString(),
+              mcrKw:   (m['mcr_kw'] as num?)?.toDouble(),
+              mcrRpm:  (m['mcr_rpm'] as num?)?.toDouble(),
+              fuelType: m['fuel_type']?.toString(),
+            ));
+          }
+        }
+
+        // 4c. Add class conditions.
+        if (widget.result.hasClassConditions) {
+          final condNotifier =
+              ref.read(classConditionsProvider(vesselId).notifier);
+          for (var i = 0;
+              i < widget.result.detectedClassConditions.length;
+              i++) {
+            if (!_conditionSelected[i]) continue;
+            final c = widget.result.detectedClassConditions[i];
+            await condNotifier.add(
+              vesselId:    vesselId,
+              reference:   c['reference']?.toString(),
+              description: c['description']?.toString(),
+              expiryDate:  c['expiry_date'] != null
+                  ? DateTime.tryParse(c['expiry_date'].toString())
+                  : null,
+            );
+          }
+        }
+      }
+
+      // 5. Create certificate if the document is a certificate type.
+      final docType  = widget.result.documentType ?? '';
+      final docCat   = widget.result.suggestedCategory ?? '';
+      final isCertDoc = docCat == 'certificate' ||
+          docType.toLowerCase().contains('certificate');
+      if (isCertDoc) {
+        final certType = _inferCertType(docType);
+        final certNum  = widget.result.hardFields['document_number']?.toString();
+        final existing = ref.read(certificatesProvider(widget.caseId)).value ?? [];
+        final isDup = existing.any((c) =>
+            c.certType == certType &&
+            certNum != null &&
+            certNum.isNotEmpty &&
+            c.certNumber == certNum);
+        if (!isDup) {
+          final issueDate  = widget.result.hardFields['document_date'] != null
+              ? DateTime.tryParse(
+                  widget.result.hardFields['document_date'].toString())
+              : null;
+          final expiryDate = widget.result.hardFields['expiry_date'] != null
+              ? DateTime.tryParse(
+                  widget.result.hardFields['expiry_date'].toString())
+              : null;
+          final cert = CertificateModel(
+            certId:           '',
+            caseId:           widget.caseId,
+            vesselId:         vesselId,
+            certType:         certType,
+            certName:         docType.isNotEmpty ? docType : null,
+            issuingAuthority: widget.result.hardFields['issuing_authority']
+                ?.toString(),
+            issueDate:        issueDate,
+            expiryDate:       expiryDate,
+            certNumber:       certNum,
+            status:           expiryDate != null &&
+                    expiryDate.isBefore(DateTime.now())
+                ? CertStatus.expired
+                : CertStatus.tbc,
+            sourceDocId:      widget.result.docId,
+            extractedAuto:    true,
+          );
+          await ref
+              .read(certificatesProvider(widget.caseId).notifier)
+              .addCertificate(cert);
         }
       }
 
@@ -861,6 +997,26 @@ class _ExtractionResultSheetState
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  static CertType _inferCertType(String documentType) {
+    final dt = documentType.toLowerCase();
+    if (dt.contains('class')) { return CertType.classCertificate; }
+    if (dt.contains('document of compliance') ||
+        dt.contains(' doc ') || dt == 'doc') { return CertType.doc; }
+    if (dt.contains('safety management') ||
+        dt.contains(' smc ') || dt == 'smc') { return CertType.smc; }
+    if (dt.contains('load line')) { return CertType.loadLine; }
+    if (dt.contains('marpol') || dt.contains('iopp') ||
+        dt.contains('oil pollution')) { return CertType.marpol; }
+    if (dt.contains('safety equipment')) { return CertType.safetyEquipment; }
+    if (dt.contains('safety radio')) { return CertType.safetyRadio; }
+    if (dt.contains('safety construction')) { return CertType.safetyConstruction; }
+    if (dt.contains('issc') ||
+        dt.contains('ship security')) { return CertType.issc; }
+    if (dt.contains('dp certificate') ||
+        dt.contains('dynamic positioning')) { return CertType.dpCertificate; }
+    return CertType.other;
   }
 
   @override
@@ -1125,6 +1281,57 @@ class _ExtractionResultSheetState
               }),
             ],
 
+            // Detected class conditions
+            if (result.hasClassConditions) ...[
+              const Divider(height: 20, color: AppColors.border),
+              const _SectionHeader(
+                  'CLASS CONDITIONS', Icons.shield_outlined,
+                  subtitle: 'add to vessel class conditions'),
+              const SizedBox(height: 6),
+              ...List.generate(result.detectedClassConditions.length, (i) {
+                final c = result.detectedClassConditions[i];
+                final ref_ = c['reference']?.toString();
+                final expiry = c['expiry_date']?.toString();
+                String? sub;
+                if (ref_ != null && expiry != null) {
+                  sub = '$ref_  ·  Expires $expiry';
+                } else if (ref_ != null) {
+                  sub = ref_;
+                } else if (expiry != null) {
+                  sub = 'Expires $expiry';
+                }
+                return CheckboxListTile(
+                  value: _conditionSelected[i],
+                  onChanged: (v) =>
+                      setState(() => _conditionSelected[i] = v ?? false),
+                  activeColor: const Color(0xFF4A7FA5),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  tileColor: Colors.transparent,
+                  dense: true,
+                  title: Text(
+                    c['description']?.toString() ?? 'Condition',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: _conditionSelected[i]
+                            ? AppColors.textPrimary
+                            : AppColors.textTertiary,
+                        decoration: _conditionSelected[i]
+                            ? null
+                            : TextDecoration.lineThrough),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: sub != null
+                      ? Text(sub,
+                          style: const TextStyle(
+                              fontSize: 10,
+                              color: AppColors.textTertiary))
+                      : null,
+                );
+              }),
+            ],
+
             const SizedBox(height: 16),
 
             Row(children: [
@@ -1178,6 +1385,7 @@ class _ExtractionResultSheetState
 
   String _vesselFieldLabel(String key) => switch (key) {
         'vessel_name'     => 'Vessel Name',
+        'previous_name'   => 'Previous Name',
         'imo_number'      => 'IMO Number',
         'call_sign'       => 'Call Sign',
         'mmsi'            => 'MMSI',
@@ -1274,6 +1482,7 @@ class _DocList extends StatelessWidget {
     required this.onExtract,
     required this.onExtractPhoto,
     required this.onViewExtraction,
+    required this.onReapply,
   });
   final List<DocumentModel> docs;
   final String caseId;
@@ -1284,6 +1493,7 @@ class _DocList extends StatelessWidget {
   final void Function(DocumentModel) onExtract;
   final void Function(PhotoModel) onExtractPhoto;
   final void Function(DocumentModel) onViewExtraction;
+  final void Function(DocumentModel) onReapply;
 
   @override
   Widget build(BuildContext context) {
@@ -1321,6 +1531,9 @@ class _DocList extends StatelessWidget {
                     : null,
                 onViewExtraction: doc.aiExtracted
                     ? () => onViewExtraction(doc)
+                    : null,
+                onReapply: (doc.aiExtracted && doc.extractedData != null)
+                    ? () => onReapply(doc)
                     : null,
               ),
             );
@@ -1791,6 +2004,101 @@ void showExtractionSummary(BuildContext context, DocumentModel doc) {
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _ExtractionSummarySheet(doc: doc),
+  );
+}
+
+/// Re-opens the extraction result sheet from stored JSON so the user can
+/// apply items that were skipped the first time, without duplicating data
+/// that was already applied (those default to unchecked).
+void reapplyExtraction(
+    BuildContext context, String caseId, DocumentModel doc) {
+  final stored = doc.extractedData;
+  if (stored == null) return;
+
+  // ── Reconstruct hard fields ──────────────────────────────────────────────
+  final hardFields = Map<String, dynamic>.from(
+      (stored['hard_fields'] as Map? ?? {}));
+
+  // ── Reconstruct context findings ─────────────────────────────────────────
+  final findings    = <String>[];
+  final findingCats = <String>[];
+  final findingWasApplied = <bool>[];
+  for (final f in stored['context_findings'] as List? ?? []) {
+    if (f is Map) {
+      final text = f['text']?.toString() ?? '';
+      if (text.isNotEmpty) {
+        findings.add(text);
+        findingCats.add(f['category']?.toString() ?? 'observation');
+        findingWasApplied.add(f['applied'] as bool? ?? true);
+      }
+    }
+  }
+
+  // ── Reconstruct list sections (strip the 'applied' flag for the model) ───
+  List<Map<String, dynamic>> stripApplied(List raw) => raw
+      .whereType<Map>()
+      .map((e) {
+        final copy = Map<String, dynamic>.from(e);
+        copy.remove('applied');
+        return copy;
+      })
+      .toList();
+
+  bool wasApplied(dynamic item) =>
+      item is Map && (item['applied'] as bool? ?? true);
+
+  final rawIncidents  = stored['detected_incidents']        as List? ?? [];
+  final rawMachinery  = stored['detected_machinery']        as List? ?? [];
+  final rawConditions = stored['detected_class_conditions'] as List? ?? [];
+
+  final incidents  = stripApplied(rawIncidents);
+  final machinery  = stripApplied(rawMachinery);
+  final conditions = stripApplied(rawConditions);
+
+  // ── Vessel fields ────────────────────────────────────────────────────────
+  final vesselFields = Map<String, dynamic>.from(
+      (stored['vessel_data'] as Map? ?? {}));
+
+  final result = DocExtractionResult(
+    docId:                  doc.docId,
+    hardFields:             hardFields,
+    contextFindings:        findings,
+    findingCategories:      findingCats,
+    detectedIncidents:      incidents,
+    detectedMachinery:      machinery,
+    detectedClassConditions: conditions,
+    vesselFields:           vesselFields,
+  );
+
+  if (!result.hasAny) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('No structured data available to re-apply')),
+    );
+    return;
+  }
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ExtractionResultSheet(
+      caseId:    caseId,
+      docTitle:  doc.title,
+      result:    result,
+      // Pre-select only items that were NOT applied before, to avoid duplicates.
+      initialFindingSelected:
+          List.generate(findings.length, (i) => !findingWasApplied[i]),
+      initialIncidentSelected:
+          List.generate(rawIncidents.length, (i) => !wasApplied(rawIncidents[i])),
+      initialMachinerySelected:
+          List.generate(rawMachinery.length, (i) => !wasApplied(rawMachinery[i])),
+      initialConditionSelected:
+          List.generate(rawConditions.length, (i) => !wasApplied(rawConditions[i])),
+      initialVesselSelected: {
+        for (final k in vesselFields.keys) k: true,
+      },
+    ),
   );
 }
 

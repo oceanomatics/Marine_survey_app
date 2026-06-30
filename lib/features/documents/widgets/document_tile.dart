@@ -13,12 +13,14 @@ class DocumentTile extends ConsumerWidget {
     this.onPreview,
     this.onExtract,
     this.onViewExtraction,
+    this.onReapply,
   });
 
   final DocumentModel doc;
   final VoidCallback? onPreview;
   final VoidCallback? onExtract;
   final VoidCallback? onViewExtraction;
+  final VoidCallback? onReapply;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -135,6 +137,7 @@ class DocumentTile extends ConsumerWidget {
               if (v == 'rename') _showRename(context, ref);
               if (v == 'edit') _showEditMetadata(context, ref);
               if (v == 'delete') _confirmDelete(context, ref);
+              if (v == 'reapply') onReapply?.call();
             },
             itemBuilder: (_) => [
               const PopupMenuItem(
@@ -153,6 +156,15 @@ class DocumentTile extends ConsumerWidget {
                   Text('Rename', style: TextStyle(fontSize: 13)),
                 ]),
               ),
+              if (doc.aiExtracted && doc.extractedData != null)
+                const PopupMenuItem(
+                  value: 'reapply',
+                  child: Row(children: [
+                    Icon(Icons.refresh_outlined, size: 16),
+                    SizedBox(width: 8),
+                    Text('Re-apply data', style: TextStyle(fontSize: 13)),
+                  ]),
+                ),
               const PopupMenuItem(
                 value: 'delete',
                 child: Row(children: [

@@ -46,7 +46,7 @@ class ReportExtraction {
 {
   "report_meta": {
     "report_number": "",
-    "job_number": "",
+    "technical_file_no": "",
     "report_date": "",
     "report_type": "preliminary|advice|final",
     "claim_reference": "",

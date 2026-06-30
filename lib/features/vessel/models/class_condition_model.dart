@@ -10,6 +10,7 @@ class ClassConditionModel {
     this.reference,
     this.description,
     this.expiryDate,
+    this.duration,
     this.occurrenceRelated = false,
     this.occurrenceId,
     this.createdAt,
@@ -20,6 +21,7 @@ class ClassConditionModel {
   final String? reference;
   final String? description;
   final DateTime? expiryDate;
+  final String? duration;
   final bool occurrenceRelated;
   final String? occurrenceId;
   final DateTime? createdAt;
@@ -33,6 +35,7 @@ class ClassConditionModel {
         expiryDate:        j['expiry_date'] != null
             ? DateTime.tryParse(j['expiry_date'] as String)
             : null,
+        duration:          j['duration'] as String?,
         occurrenceRelated: j['occurrence_related'] as bool? ?? false,
         occurrenceId:      j['occurrence_id'] as String?,
         createdAt:         j['created_at'] != null
@@ -46,6 +49,7 @@ class ClassConditionModel {
     if (description != null)  'description':  description,
     if (expiryDate != null)
       'expiry_date': expiryDate!.toIso8601String().split('T').first,
+    if (duration != null)     'duration':     duration,
     'occurrence_related': occurrenceRelated,
     if (occurrenceId != null) 'occurrence_id': occurrenceId,
   };
@@ -54,6 +58,7 @@ class ClassConditionModel {
     String? reference,
     String? description,
     DateTime? expiryDate,
+    String? duration,
     bool? occurrenceRelated,
     String? occurrenceId,
   }) =>
@@ -63,6 +68,7 @@ class ClassConditionModel {
         reference:         reference         ?? this.reference,
         description:       description       ?? this.description,
         expiryDate:        expiryDate        ?? this.expiryDate,
+        duration:          duration          ?? this.duration,
         occurrenceRelated: occurrenceRelated ?? this.occurrenceRelated,
         occurrenceId:      occurrenceId      ?? this.occurrenceId,
         createdAt:         createdAt,

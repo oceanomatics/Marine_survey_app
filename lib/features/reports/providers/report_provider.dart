@@ -44,6 +44,7 @@ enum ReportStatus {
 enum SectionType {
   opening,
   vesselParticulars,
+  machineryParticulars,
   occurrence,
   attendees,
   background,
@@ -54,6 +55,11 @@ enum SectionType {
   accounts,
   repairTimes,
   surveyorNotes,
+  classStatutory,
+  informationSources,
+  generalServices,
+  documentsOnFile,
+  waiver,
   closing,
 }
 
@@ -160,6 +166,7 @@ class ReportOutput {
     this.issuedTo,
     this.filePath,
     this.createdAt,
+    this.coverPhotoId,
   });
 
   final String outputId;
@@ -173,6 +180,9 @@ class ReportOutput {
   final String? issuedTo;
   final String? filePath;
   final DateTime? createdAt;
+  /// Photo ID override for the cover page — null means use the default
+  /// cover-allocated photo from the vessel particulars photos.
+  final String? coverPhotoId;
 
   int get approvedCount => sections.where((s) => s.approved).length;
   bool get allApproved => sections.every((s) => s.approved);
@@ -206,6 +216,7 @@ class ReportOutput {
         createdAt:   j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
+        coverPhotoId: j['cover_photo_id'] as String?,
       );
 }
 
@@ -225,6 +236,10 @@ class AssembledReportData {
     required this.outputFormat,
     required this.repairDocuments,
     required this.timelineEvents,
+    required this.surveyorNotes,
+    required this.machinery,
+    required this.classConditions,
+    required this.caseDocuments,
     this.organisation,
   });
 
@@ -241,6 +256,14 @@ class AssembledReportData {
   final List<Map<String, dynamic>> repairDocuments;
   /// Chronological events ordered by event_date — for timeline table.
   final List<Map<String, dynamic>> timelineEvents;
+  /// Surveyor notes ordered by created_at.
+  final List<Map<String, dynamic>> surveyorNotes;
+  /// Machinery records for the vessel.
+  final List<Map<String, dynamic>> machinery;
+  /// Class conditions for the case.
+  final List<Map<String, dynamic>> classConditions;
+  /// Documents on file for this case (for the documents section).
+  final List<Map<String, dynamic>> caseDocuments;
   /// Org config — present when the case has an organisation_id set.
   final Map<String, dynamic>? organisation;
 
@@ -300,6 +323,14 @@ class ReportOutputsNotifier
     await SupabaseService.client
         .from('report_outputs')
         .update({'status': status.value})
+        .eq('output_id', outputId);
+    await refresh();
+  }
+
+  Future<void> setCoverPhoto(String outputId, String? photoId) async {
+    await SupabaseService.client
+        .from('report_outputs')
+        .update({'cover_photo_id': photoId})
         .eq('output_id', outputId);
     await refresh();
   }
@@ -387,6 +418,39 @@ final assembledDataProvider =
   final timelineEvents =
       (timelineData as List).cast<Map<String, dynamic>>();
 
+  // Fetch supplementary data in parallel
+  final vesselId = vessel?['vessel_id'] as String?;
+  final supplementary = await Future.wait([
+    SupabaseService.client
+        .from('surveyor_notes')
+        .select()
+        .eq('case_id', caseId)
+        .order('created_at'),
+    if (vesselId != null)
+      SupabaseService.client
+          .from('machinery')
+          .select()
+          .eq('vessel_id', vesselId)
+          .order('machinery_type')
+    else
+      Future.value(<dynamic>[]),
+    SupabaseService.client
+        .from('class_conditions')
+        .select()
+        .eq('case_id', caseId)
+        .order('created_at'),
+    SupabaseService.client
+        .from('documents')
+        .select('doc_id, title, doc_category, doc_date, annexure_assignment')
+        .eq('case_id', caseId)
+        .order('doc_category'),
+  ]);
+
+  final surveyorNotes   = List<Map<String, dynamic>>.from(supplementary[0]);
+  final machinery       = List<Map<String, dynamic>>.from(supplementary[1]);
+  final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
+  final caseDocuments   = List<Map<String, dynamic>>.from(supplementary[3]);
+
   // Fetch org config if the case has one
   Map<String, dynamic>? organisation;
   final orgId = caseData['organisation_id'] as String?;
@@ -412,6 +476,10 @@ final assembledDataProvider =
     outputFormat:   outputFormat,
     repairDocuments: repairDocuments,
     timelineEvents:  timelineEvents,
+    surveyorNotes:  surveyorNotes,
+    machinery:      machinery,
+    classConditions: classConditions,
+    caseDocuments:  caseDocuments,
     organisation:   organisation,
   );
 });
@@ -587,6 +655,76 @@ class SectionDraftNotifier
       }
     }
 
+    // ── Machinery & Equipment (auto-populated) ────────────────────
+    if (data.machinery.isNotEmpty) {
+      sections[SectionType.machineryParticulars] = ReportSection(
+        type:    SectionType.machineryParticulars,
+        title:   'Machinery & Equipment Particulars',
+        content: _buildMachineryText(data.machinery),
+      );
+    }
+
+    // ── Class & Statutory Certification (auto-populated) ──────────
+    if (data.certificates.isNotEmpty || data.classConditions.isNotEmpty) {
+      sections[SectionType.classStatutory] = ReportSection(
+        type:    SectionType.classStatutory,
+        title:   'Class & Statutory Certification',
+        content: _buildClassStatutoryText(data.certificates, data.classConditions),
+      );
+    }
+
+    // ── Information Sources (auto-populated) ──────────────────────
+    if (data.caseDocuments.isNotEmpty) {
+      sections[SectionType.informationSources] = ReportSection(
+        type:    SectionType.informationSources,
+        title:   'Available Information Sources',
+        content: _buildInfoSourcesText(data.caseDocuments),
+      );
+    }
+
+    // ── General Services (editable placeholder) ───────────────────
+    sections[SectionType.generalServices] = ReportSection(
+      type:    SectionType.generalServices,
+      title:   'General Services & Access',
+      content: '',
+    );
+
+    // ── Surveyor Notes (auto-populated) ───────────────────────────
+    if (data.surveyorNotes.isNotEmpty) {
+      sections[SectionType.surveyorNotes] = ReportSection(
+        type:    SectionType.surveyorNotes,
+        title:   "Surveyor's Notes",
+        content: _buildSurveyorNotesText(data.surveyorNotes),
+      );
+    }
+
+    // ── Documents on File (auto-populated) ────────────────────────
+    if (data.caseDocuments.isNotEmpty) {
+      sections[SectionType.documentsOnFile] = ReportSection(
+        type:    SectionType.documentsOnFile,
+        title:   'Documents Retained on File',
+        content: _buildDocumentsOnFileText(data.caseDocuments),
+      );
+    }
+
+    // ── Waiver (locked clause from org config or spec default) ────
+    final waiverClause = data.clauseByType('waiver');
+    final orgWaiver = data.organisation?['waiver_text'] as String?;
+    final waiverText = orgWaiver?.isNotEmpty == true
+        ? orgWaiver!
+        : waiverClause?.clauseText
+            ?? 'The findings and opinions in this report are submitted '
+               'without prejudice to the rights of any party. ABL Group '
+               'reserves the right to supplement or amend this report if '
+               'additional information becomes available.';
+    sections[SectionType.waiver] = ReportSection(
+      type:     SectionType.waiver,
+      title:    'Limitation of Liability / Waiver',
+      content:  waiverText,
+      clauseId: waiverClause?.clauseId,
+      isLocked: waiverClause != null,
+    );
+
     // ── Closing / disclaimer (locked clause) ─────────────────────
     final closingClause = data.clauseByType('closing_disclaimer');
     if (closingClause != null) {
@@ -679,6 +817,90 @@ class SectionDraftNotifier
       final loc  = r['location']        as String? ?? '';
       final type = r['repair_type']      as String? ?? '';
       return '$type repairs — $yard${loc.isNotEmpty ? ', $loc' : ''}';
+    }).join('\n');
+  }
+
+  String _buildMachineryText(List<Map<String, dynamic>> items) {
+    return items.map((m) {
+      final type   = m['machinery_type'] as String? ?? '';
+      final role   = m['role']          as String? ?? '';
+      final make   = m['make']          as String? ?? '';
+      final model  = m['model']         as String? ?? '';
+      final serial = m['serial_number'] as String? ?? '';
+      final kw     = (m['mcr_kw'] as num?)?.toStringAsFixed(0);
+      final buf = StringBuffer(type);
+      if (role.isNotEmpty) buf.write(' — $role');
+      if (make.isNotEmpty || model.isNotEmpty) {
+        buf.write('\n  $make $model'.trimRight());
+      }
+      if (serial.isNotEmpty) buf.write(' (S/N: $serial)');
+      if (kw != null) buf.write('\n  MCR: $kw kW');
+      return buf.toString();
+    }).join('\n\n');
+  }
+
+  String _buildClassStatutoryText(
+    List<Map<String, dynamic>> certs,
+    List<Map<String, dynamic>> conditions,
+  ) {
+    final buf = StringBuffer();
+    if (certs.isNotEmpty) {
+      buf.writeln('Certificates on Board:');
+      for (final c in certs) {
+        final name   = c['cert_name']   as String? ?? c['cert_type'] as String? ?? '';
+        final expiry = c['expiry_date'] as String? ?? '';
+        buf.writeln('  • $name${expiry.isNotEmpty ? ' — expires ${_formatDate(expiry)}' : ''}');
+      }
+    }
+    if (conditions.isNotEmpty) {
+      if (buf.isNotEmpty) buf.writeln();
+      buf.writeln('Conditions of Class:');
+      for (final cc in conditions) {
+        final ref  = cc['reference']   as String? ?? '';
+        final desc = cc['description'] as String? ?? '';
+        final due  = cc['expiry_date'] as String? ?? '';
+        buf.writeln('  • ${ref.isNotEmpty ? '[$ref] ' : ''}$desc'
+            '${due.isNotEmpty ? ' — due ${_formatDate(due)}' : ''}');
+      }
+    }
+    return buf.toString().trimRight();
+  }
+
+  String _buildInfoSourcesText(List<Map<String, dynamic>> docs) {
+    final categorised = <String, List<String>>{};
+    for (final d in docs) {
+      final cat = d['doc_category'] as String? ?? 'Other';
+      final title = d['title'] as String? ?? 'Untitled';
+      categorised.putIfAbsent(cat, () => []).add(title);
+    }
+    return categorised.entries.map((e) {
+      final header = e.key.replaceAll('_', ' ').toUpperCase();
+      final items  = e.value.map((t) => '  • $t').join('\n');
+      return '$header\n$items';
+    }).join('\n\n');
+  }
+
+  String _buildSurveyorNotesText(List<Map<String, dynamic>> notes) {
+    return notes.asMap().entries.map((e) {
+      final idx     = e.key + 1;
+      final content = e.value['content'] as String? ?? '';
+      final tag     = e.value['section_tag'] as String? ?? '';
+      final prefix  = tag.isNotEmpty ? '[$tag] ' : '';
+      return '$idx. $prefix$content';
+    }).join('\n\n');
+  }
+
+  String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs) {
+    return docs.asMap().entries.map((e) {
+      final idx   = e.key + 1;
+      final title = e.value['title']            as String? ?? 'Untitled';
+      final annex = e.value['annexure_assignment'] as String?;
+      final date  = e.value['doc_date']          as String? ?? '';
+      final suffix = [
+        if (annex != null && annex.isNotEmpty) 'Annexure $annex',
+        if (date.isNotEmpty) _formatDate(date),
+      ].join(' — ');
+      return '$idx. $title${suffix.isNotEmpty ? ' — $suffix' : ''}';
     }).join('\n');
   }
 

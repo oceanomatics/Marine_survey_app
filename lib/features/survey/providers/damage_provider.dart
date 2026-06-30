@@ -496,15 +496,12 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     String? briefDescription,
   }) async {
     final current = state.value!;
-    final nextNo = current.occurrences.isEmpty
-        ? 1
-        : current.occurrences.last.occurrenceNo + 1;
 
     final data = await SupabaseService.client
         .from('occurrences')
         .insert({
           'case_id':        caseId,
-          'occurrence_no':  nextNo,
+          'occurrence_no':  current.occurrences.length + 1,
           'title':          title,
           if (dateTime != null) 'date_time': dateTime.toIso8601String(),
           if (location != null)          'location':         location,
@@ -516,18 +513,80 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .single();
 
     final occ = OccurrenceModel.fromJson(data);
+    final allOccs = [...current.occurrences, occ];
+    final renumbered = await _renumberAndSetPrimary(caseId, allOccs);
 
-    // Sync case title when the first occurrence is created with a title.
-    if (current.occurrences.isEmpty && title.isNotEmpty) {
-      await _syncCaseTitleFromOccurrence(occ);
+    final primary = renumbered.firstWhere(
+        (o) => o.isPrimary, orElse: () => renumbered.first);
+    if (primary.title?.isNotEmpty == true) {
+      await _syncCaseTitleFromOccurrence(primary);
     }
 
     state = AsyncData(DamageState(
-      occurrences: [...current.occurrences, occ],
+      occurrences: renumbered,
       damageItems: current.damageItems,
       repairs: current.repairs,
     ));
-    return occ;
+    return renumbered.firstWhere((o) => o.occurrenceId == occ.occurrenceId);
+  }
+
+  /// Sort occurrences chronologically, re-number, and auto-set primary
+  /// (sole occurrence, or latest by date).
+  Future<List<OccurrenceModel>> _renumberAndSetPrimary(
+      String caseId, List<OccurrenceModel> occs) async {
+    if (occs.isEmpty) return occs;
+
+    final dated = occs.where((o) => o.dateTime != null).toList()
+      ..sort((a, b) => a.dateTime!.compareTo(b.dateTime!));
+    final undated = occs.where((o) => o.dateTime == null).toList();
+    final sorted = [...dated, ...undated];
+
+    for (var i = 0; i < sorted.length; i++) {
+      final newNo = i + 1;
+      if (sorted[i].occurrenceNo != newNo) {
+        await SupabaseService.client
+            .from('occurrences')
+            .update({'occurrence_no': newNo})
+            .eq('occurrence_id', sorted[i].occurrenceId);
+      }
+    }
+
+    final primaryId = occs.length == 1
+        ? occs.first.occurrenceId
+        : dated.isNotEmpty
+            ? dated.last.occurrenceId
+            : undated.last.occurrenceId;
+
+    await SupabaseService.client
+        .from('occurrences')
+        .update({'is_primary': false})
+        .eq('case_id', caseId);
+    await SupabaseService.client
+        .from('occurrences')
+        .update({'is_primary': true})
+        .eq('occurrence_id', primaryId);
+
+    return sorted.asMap().entries.map((entry) {
+      final o = entry.value;
+      return OccurrenceModel(
+        occurrenceId:        o.occurrenceId,
+        caseId:              o.caseId,
+        occurrenceNo:        entry.key + 1,
+        isPrimary:           o.occurrenceId == primaryId,
+        dateTime:            o.dateTime,
+        location:            o.location,
+        title:               o.title,
+        briefDescription:    o.briefDescription,
+        backgroundNarrative: o.backgroundNarrative,
+        chronology:          o.chronology,
+        causeType:           o.causeType,
+        allegationType:      o.allegationType,
+        causeAgreement:      o.causeAgreement,
+        causeNarrative:      o.causeNarrative,
+        ismReported:         o.ismReported,
+        createdAt:           o.createdAt,
+      );
+    }).toList();
   }
 
   Future<void> updateOccurrence(OccurrenceModel occ) async {
@@ -580,10 +639,10 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     try {
       final caseRow = await SupabaseService.client
           .from('cases')
-          .select('job_number, case_type, vessels(name)')
+          .select('technical_file_no, case_type, vessels(name)')
           .eq('case_id', arg)
           .single();
-      final jobNo   = caseRow['job_number'] as String? ?? '';
+      final jobNo   = caseRow['technical_file_no'] as String? ?? '';
       final vName   = (caseRow['vessels'] as Map?)?['name'] as String? ?? '';
       final ctLabel = _caseTypeLabel(caseRow['case_type'] as String? ?? '');
       final occTitle = occ.title ?? '';
@@ -624,10 +683,10 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
           current.occurrences.firstWhere((o) => o.occurrenceId == occurrenceId);
       final caseRow = await SupabaseService.client
           .from('cases')
-          .select('job_number, case_type, vessels(name)')
+          .select('technical_file_no, case_type, vessels(name)')
           .eq('case_id', arg)
           .single();
-      final jobNo   = caseRow['job_number'] as String? ?? '';
+      final jobNo   = caseRow['technical_file_no'] as String? ?? '';
       final vName   = (caseRow['vessels'] as Map?)?['name'] as String? ?? '';
       final ctLabel = _caseTypeLabel(caseRow['case_type'] as String? ?? '');
       final occTitle = primary.title ?? '';

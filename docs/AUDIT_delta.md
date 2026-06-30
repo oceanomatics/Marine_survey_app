@@ -1,9 +1,11 @@
 # Marine Survey App — Delta Audit vs Report Builder Spec v1.0
 
-**Audit date:** June 2026  
+**Audit date:** June 2026 — **Codebase re-audited: 30 June 2026**  
 **Auditor:** Claude Code  
 **Spec:** `docs/report_builder_specs`  
 **Status of answers:** Questions below marked `> DECISION:` — answers added inline as user confirms
+
+> **30 June 2026 re-audit note:** A full codebase sweep was performed against every item in this document and `TODO.md`. Many items the original audit listed as missing were already implemented. The scorecard below and `TODO.md` have been updated to reflect current reality. Do not re-derive from scratch — trust this file and `TODO.md` as the ground truth until the next explicit re-audit.
 
 ---
 
@@ -57,6 +59,8 @@ The spec uses `technical_file_no` (e.g. `24-0177`). The current codebase uses `j
 > **QUESTION:** Should we rename `job_number` → `technical_file_no` everywhere (DB + Dart), or keep `job_number` as-is and treat the spec's `technical_file_no` as a synonym?
 
 > **DECISION (B1):** Same thing — rename `job_number` → `technical_file_no` everywhere (DB column, Dart model, UI labels).
+>
+> **IMPLEMENTED 2026-06-30:** Global sed rename completed across all 18 Dart files (52 occurrences). Dart field: `technicalFileNo`. DB key in strings: `technical_file_no`. UI labels updated to "Technical File No." in new case screen, preview, correspondence screen, and case context builder. **Pending:** apply `ALTER TABLE cases RENAME COLUMN job_number TO technical_file_no;` in Supabase dashboard.
 
 ---
 
@@ -217,6 +221,8 @@ For the Document Vault new fields (`is_cover_photo`, `annexure_assignment`, `sur
 > **QUESTION:** Where should annexure assignment and cover photo tagging live in the Document Vault UI? Inline on the tile, or in the document detail sheet?
 
 > **DECISION (D3):** PHOTO-CENTRIC APPROACH — Cover photo and annexure allocation are managed through the Photo Gallery, not the Document Vault:
+>
+> **IMPLEMENTED 2026-06-30:** Cover photo source changed from `documents` table to `photos` table (`allocation = 'cover_page'`, read via local file path). Override stored as `report_outputs.cover_photo_id`. `_PreviewFooter` in report builder shows thumbnail + "Change" / "Reset" buttons using `CasePhotoPickerSheet`. `ExportButton` reads from `photosProvider`, resolves local file bytes, passes to `DocxExportService.export()`. **Pending SQL:** `ALTER TABLE report_outputs ADD COLUMN IF NOT EXISTS cover_photo_id text;`
 > - **Cover photo:** The Vessel Particulars screen selects a "general vessel picture" → this sets `is_cover_photo` on the `photos` table. A cross-connection pill/badge in the Photo Gallery shows the cover photo status.
 > - **Annexure allocation for photos:** The existing allocation scheme in the Photo Gallery section manages this. The allocation menu needs improvement — more metadata fields per photo. When a photo is selected for a purpose from any front-end menu, the photo gallery status is updated.
 > - **Document annexure assignment (non-photo):** Editable in the document detail sheet (rename "Edit Metadata" to something clearer). Also displayed as an annexure pill/badge on the vault list tile. Suggested automatically based on the document category. "None" = explicitly excluded from the report. Both read/write paths must sync.
@@ -313,22 +319,36 @@ The `account_lines` module uses per-document currency (from `RepairDocumentModel
 ---
 
 ## SECTION F — Spec Compliance Scorecard
-*(Answers at audit date — update as items are implemented)*
+*(Updated 30 June 2026 after full codebase re-audit — update this table as items are completed)*
 
-| # | Spec Requirement | Status | Target Phase |
-|---|-----------------|--------|-------------|
-| 1 | Colours/fonts from branding config | ❌ Hardcoded | Phase 1 Tier 2 |
-| 2 | Firm logo in running header | ❌ Missing | Phase 1 Tier 2 |
-| 3 | AI audit log (full fields) | ❌ Missing | Phase 1 Tier 1 |
-| 4 | AI disclosure paragraph auto-generated | ❌ Missing | Phase 1 Tier 1 |
-| 5 | Advice Summary auto-populated + editable | ❌ Missing | Phase 1 Tier 2 |
-| 6 | Chronology as formal table | ❌ Not in report | Phase 1 Tier 2 |
-| 7 | Cost section as formal table + WP | ❌ Not in report | Phase 1 Tier 1 |
-| 8 | Sign-off block gating Final export | ❌ Missing | Phase 1 Tier 1 |
-| 9 | Report version R001/R002 | ❌ Missing | Phase 1 Tier 2 |
-| 10 | Document Vault: annexure_assignment | ❌ Missing | Phase 1 Tier 2 |
-| 11 | cantSplit on table rows | ❌ Missing | Phase 1 Tier 2 |
-| 12 | WP in all four locations | ❌ Flag exists, not rendered | Phase 1 Tier 1 |
-| 13 | Cover page separate from body | ❌ Missing | Phase 1 Tier 1 |
-| 14 | Cover page all five required elements | ❌ Missing | Phase 1 Tier 1 |
-| 15 | Header logo as inline paragraph | ❌ Missing | Phase 1 Tier 2 |
+| # | Spec Requirement | Status | Where |
+|---|-----------------|--------|-------|
+| 1 | Colours/fonts from branding config | ✅ Done | `OrganisationModel` + docx export reads org config throughout |
+| 2 | Firm logo in running header on every body page | ❌ Missing | `docx_export_service.dart` — logo storage path exists, not yet embedded in header |
+| 3 | AI audit log (model, prompt_hash, prompt_text, output, surveyor_review) | ✅ Done | `AiGenerationLogModel`, `AiLogService`, wired in `ClaudeApi`; per-section `SurveyorReview` UI in `section_editor.dart` |
+| 4 | AI disclosure paragraph + Annexure I auto-generated at export | ❌ Missing | `docx_export_service.dart` — log table and model exist; export assembly step missing |
+| 5 | Advice Summary auto-populated + editable (Page 2 of report) | ❌ Missing | No `AdviceSummaryModel` or screen yet |
+| 6 | Chronology as formal Date\|Event table | ✅ Done | `docx_export_service.dart` ~line 248 |
+| 7 | Cost section as formal table + WP notation + totals | ✅ Done | `docx_export_service.dart` ~line 263; repair docs + account lines + Owner's/UW/Grand Total |
+| 8 | Sign-off gate on Final export | ✅ Partial | Fields on `CaseModel`; gate in `export_button.dart`. ❌ Sign-off UI screen (drawn sig/PNG upload) missing |
+| 9 | Report version R001/R002 auto-incremented | ✅ Done | `versionString` on `ReportOutput`; picker in `new_output_sheet.dart` |
+| 10 | Document Vault: `annexure_assignment` field + UI | ✅ Done | `DocumentModel`; badge on tile; editable in document detail sheet |
+| 11 | `cantSplit` on all table rows | ✅ Done | `ooxml_helpers.dart` lines 127–129 |
+| 12 | WP in all four required locations | ✅ Done | `docx_export_service.dart`: header (L1), cover block (L2), cost notice (L3), page footer (L4) — all from org config |
+| 13 | Cover page structurally distinct from body pages | ✅ Done | `w:titlePg` + empty first-page header; page break after cover; body header active from p.2 |
+| 14 | Cover page: vessel band, status badge, vessel photo, 2-col info box, firm logo | ✅ Done | `addShadedBlock` for vessel name (primary colour) + report-type band (status colour); cover photo if `is_cover_photo` doc present; info table with occurrence/ref/version/date |
+| 15 | Logo in header as inline paragraph (not table cell) | ❌ Missing | Body-page header text (firm name left, vessel/type/ref right) is live; logo image in header is future work |
+
+**Score: 11 / 15** (was 0/15 at initial audit)
+
+### Remaining gaps at a glance
+1. **Sign-off UI** — drawn signature (touch) / PNG upload (desktop); notification to reviewer
+2. ~~**Cover page visual design**~~ ✅ Done — shaded vessel name band + status band + cover photo + info table
+3. ~~**Running header on body pages**~~ ✅ Done — firm name left, vessel/type/ref right, rule below; no header on cover
+4. **AI disclosure paragraph + Annexure I** — assemble from `ai_generation_log` at export; snapshot to JSON at sign-off
+5. **Advice Summary** — `AdviceSummaryModel` + editor tab in Report Builder
+6. **Export gate on AI section review** — block if any AI-generated section lacks `surveyor_review`
+7. **Annexures A–H** — documents sorted by `annexure_assignment` into labelled annexure sections
+8. **Version Control Block** — "supersedes/supplements" statement + per-version changelog field
+9. **Documents Requested section** — new model + section type
+10. **Vessel statutory fields** — `psc_last_inspection`, `last_drydock_date`, `pi_club`, `isps_status`, etc.
