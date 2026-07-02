@@ -12,6 +12,7 @@ enum DamageCategory {
   structuralInternal('structural_internal', 'Structural — Internal'),
   mechanical('mechanical', 'Mechanical'),
   electricalElectronics('electrical_electronics', 'Electrical / Electronics'),
+  coating('coating', 'Coating'),
   other('other', 'Other');
 
   const DamageCategory(this.value, this.label);
@@ -21,6 +22,61 @@ enum DamageCategory {
   static DamageCategory fromValue(String v) =>
       values.firstWhere((e) => e.value == v,
           orElse: () => DamageCategory.other);
+}
+
+/// Condition/status of a damage item — replaces the free-text "condition
+/// found" as the primary classification (spec §7); condition_found is kept
+/// as an optional supplementary detail field, not removed.
+enum ConditionStatus {
+  confirmed('confirmed', 'Confirmed'),
+  probable('probable', 'Probable'),
+  potential('potential', 'Potential'),
+  unrelated('unrelated', 'Unrelated');
+
+  const ConditionStatus(this.value, this.label);
+  final String value;
+  final String label;
+
+  static ConditionStatus fromValue(String v) =>
+      values.firstWhere((e) => e.value == v,
+          orElse: () => ConditionStatus.confirmed);
+}
+
+/// Whether the damage item concerns average (the claim) — 3-way, replacing
+/// the binary isConcerningAverage as the primary field. isConcerningAverage
+/// is kept for backward compatibility with existing report/docx reads.
+enum AverageStatus {
+  yes('yes', 'Yes'),
+  no('no', 'No'),
+  partial('partial', 'Partial');
+
+  const AverageStatus(this.value, this.label);
+  final String value;
+  final String label;
+
+  static AverageStatus fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => AverageStatus.yes);
+}
+
+/// Third-party confirmation of a damage item (spec §7 "Third-Party
+/// Confirmation of Damage").
+enum ConfirmedByRole {
+  undersignedSurveyor('undersigned_surveyor', 'Undersigned Surveyor'),
+  classSurveyor('class_surveyor', 'Class Surveyor'),
+  amsaAccreditedSurveyor('amsa_accredited_surveyor', 'AMSA Accredited Surveyor'),
+  oemEngineer('oem_engineer', 'OEM Engineer'),
+  specialistContractor('specialist_contractor', 'Specialist Contractor'),
+  diveContractor('dive_contractor', 'Dive Contractor'),
+  ndtSpecialist('ndt_specialist', 'NDT Specialist'),
+  ownersRepresentative('owners_representative', "Owner's Representative");
+
+  const ConfirmedByRole(this.value, this.label);
+  final String value;
+  final String label;
+
+  static ConfirmedByRole fromValue(String v) => values.firstWhere(
+      (e) => e.value == v,
+      orElse: () => ConfirmedByRole.undersignedSurveyor);
 }
 
 enum RepairType {
@@ -85,6 +141,64 @@ enum HMCauseType {
   }
 }
 
+/// Graduated certainty of the surveyor's cause assessment (spec §10) —
+/// drives the hedging language of the surveyor's assessment paragraph.
+enum CertaintyLevel {
+  agreedNoReservation(
+      'agreed_no_reservation', 'Agreed — No Reservation'),
+  agreedPendingAnalysis(
+      'agreed_pending_analysis', 'Agreed — Pending Further Analysis'),
+  consistentWithAllegation(
+      'consistent_with_allegation', 'Consistent with Allegation'),
+  preliminaryOnly('preliminary_only', 'Preliminary Assessment Only'),
+  disagreeReserves(
+      'disagree_reserves', 'Surveyor Disagrees / Reserves Position'),
+  noOpinion('no_opinion', 'No Opinion Offered');
+
+  const CertaintyLevel(this.value, this.label);
+  final String value;
+  final String label;
+
+  static CertaintyLevel? fromValue(String? v) {
+    if (v == null) return null;
+    return values.firstWhere((e) => e.value == v,
+        orElse: () => CertaintyLevel.preliminaryOnly);
+  }
+}
+
+/// A single third-party source's finding on cause (spec §10 "Third-party
+/// findings" — repeating blocks, one per source), stored as a jsonb array
+/// on the occurrence row.
+@immutable
+class ThirdPartyFinding {
+  const ThirdPartyFinding({
+    required this.id,
+    required this.sourceName,
+    this.documentReference,
+    required this.finding,
+  });
+
+  final String id;
+  final String sourceName;
+  final String? documentReference;
+  final String finding;
+
+  factory ThirdPartyFinding.fromJson(Map<String, dynamic> j) =>
+      ThirdPartyFinding(
+        id: j['id'] as String,
+        sourceName: j['source_name'] as String,
+        documentReference: j['document_reference'] as String?,
+        finding: j['finding'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'source_name': sourceName,
+        if (documentReference != null) 'document_reference': documentReference,
+        'finding': finding,
+      };
+}
+
 // ── Occurrence model ───────────────────────────────────────────────────────
 
 @immutable
@@ -106,6 +220,14 @@ class OccurrenceModel {
     this.causeNarrative,
     this.ismReported,
     this.createdAt,
+    this.vesselStatusAtCasualty,
+    this.aftermathStatus,
+    this.aftermathPort,
+    this.ownersStatedCause,
+    this.ownersStatedCauseSource,
+    this.thirdPartyFindings = const [],
+    this.surveyorsAssessment,
+    this.certaintyLevel,
   });
 
   final String occurrenceId;
@@ -124,6 +246,22 @@ class OccurrenceModel {
   final String? causeNarrative;
   final bool? ismReported;
   final DateTime? createdAt;
+  /// Clause D-2: vessel status at the time of the casualty.
+  final String? vesselStatusAtCasualty;
+  /// Clause F-1 (Aftermath): how the vessel proceeded after the casualty.
+  final String? aftermathStatus;
+  /// Clause F-1 (Aftermath): named port, if applicable.
+  final String? aftermathPort;
+  /// Owner's voice — spec §10 "Owners' stated cause". Not endorsed by the
+  /// surveyor here; the surveyor's own view lives in [surveyorsAssessment].
+  final String? ownersStatedCause;
+  final String? ownersStatedCauseSource;
+  final List<ThirdPartyFinding> thirdPartyFindings;
+  /// Surveyor's voice — the core opinion statement (spec §10 item 4),
+  /// separate from [causeNarrative] which now holds supplementary
+  /// "additional analytical notes" (spec §10 item 5).
+  final String? surveyorsAssessment;
+  final CertaintyLevel? certaintyLevel;
 
   factory OccurrenceModel.fromJson(Map<String, dynamic> j) => OccurrenceModel(
         occurrenceId:        j['occurrence_id'] as String,
@@ -146,6 +284,18 @@ class OccurrenceModel {
         createdAt:           j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
+        vesselStatusAtCasualty: j['vessel_status_at_casualty'] as String?,
+        aftermathStatus:        j['aftermath_status'] as String?,
+        aftermathPort:          j['aftermath_port'] as String?,
+        ownersStatedCause:       j['owners_stated_cause'] as String?,
+        ownersStatedCauseSource: j['owners_stated_cause_source'] as String?,
+        thirdPartyFindings: (j['third_party_findings'] as List?)
+                ?.map((f) => ThirdPartyFinding.fromJson(f as Map<String, dynamic>))
+                .toList() ??
+            const [],
+        surveyorsAssessment: j['surveyors_assessment'] as String?,
+        certaintyLevel: CertaintyLevel.fromValue(
+            j['certainty_level'] as String?),
       );
 
   Map<String, dynamic> toInsertJson() => {
@@ -164,6 +314,18 @@ class OccurrenceModel {
         if (causeAgreement != null)    'cause_agreement':    causeAgreement,
         if (causeNarrative != null)    'cause_narrative':    causeNarrative,
         if (ismReported != null)       'ism_reported':       ismReported,
+        if (vesselStatusAtCasualty != null)
+          'vessel_status_at_casualty': vesselStatusAtCasualty,
+        if (aftermathStatus != null)   'aftermath_status':   aftermathStatus,
+        if (aftermathPort != null)     'aftermath_port':     aftermathPort,
+        if (ownersStatedCause != null) 'owners_stated_cause': ownersStatedCause,
+        if (ownersStatedCauseSource != null)
+          'owners_stated_cause_source': ownersStatedCauseSource,
+        'third_party_findings':
+            thirdPartyFindings.map((f) => f.toJson()).toList(),
+        if (surveyorsAssessment != null)
+          'surveyors_assessment': surveyorsAssessment,
+        if (certaintyLevel != null)    'certainty_level':    certaintyLevel!.value,
       };
 }
 
@@ -188,6 +350,12 @@ class DamageItemModel {
     this.exclusionReason,
     this.sequenceNo = 1,
     this.photoCount = 0,
+    this.conditionStatus,
+    this.confirmedBy = const [],
+    this.confirmationDate,
+    this.confirmationMethod,
+    this.averageStatus,
+    this.averagePartialDetail,
     this.createdAt,
   });
 
@@ -207,6 +375,12 @@ class DamageItemModel {
   final String? exclusionReason;
   final int sequenceNo;
   final int photoCount;
+  final ConditionStatus? conditionStatus;
+  final List<ConfirmedByRole> confirmedBy;
+  final DateTime? confirmationDate;
+  final String? confirmationMethod;
+  final AverageStatus? averageStatus;
+  final String? averagePartialDetail;
   final DateTime? createdAt;
 
   factory DamageItemModel.fromJson(Map<String, dynamic> j) => DamageItemModel(
@@ -229,6 +403,21 @@ class DamageItemModel {
         isConcerningAverage: j['is_concerning_average'] as bool? ?? true,
         exclusionReason:   j['exclusion_reason'] as String?,
         sequenceNo:        j['sequence_no'] as int? ?? 1,
+        conditionStatus:   j['condition_status'] != null
+            ? ConditionStatus.fromValue(j['condition_status'] as String)
+            : null,
+        confirmedBy: (j['confirmed_by'] as List?)
+                ?.map((v) => ConfirmedByRole.fromValue(v as String))
+                .toList() ??
+            const [],
+        confirmationDate: j['confirmation_date'] != null
+            ? DateTime.tryParse(j['confirmation_date'] as String)
+            : null,
+        confirmationMethod: j['confirmation_method'] as String?,
+        averageStatus:      j['average_status'] != null
+            ? AverageStatus.fromValue(j['average_status'] as String)
+            : null,
+        averagePartialDetail: j['average_partial_detail'] as String?,
         createdAt:         j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
@@ -249,6 +438,15 @@ class DamageItemModel {
         'is_concerning_average':       isConcerningAverage,
         if (exclusionReason != null)   'exclusion_reason':    exclusionReason,
         'sequence_no':                 sequenceNo,
+        if (conditionStatus != null)   'condition_status':    conditionStatus!.value,
+        if (confirmedBy.isNotEmpty)
+          'confirmed_by': confirmedBy.map((r) => r.value).toList(),
+        if (confirmationDate != null)
+          'confirmation_date': confirmationDate!.toIso8601String().split('T').first,
+        if (confirmationMethod != null) 'confirmation_method': confirmationMethod,
+        if (averageStatus != null)      'average_status':      averageStatus!.value,
+        if (averagePartialDetail != null)
+          'average_partial_detail': averagePartialDetail,
       };
 
   DamageItemModel copyWith({
@@ -263,6 +461,12 @@ class DamageItemModel {
     RepairStatus? repairStatus,
     bool? isConcerningAverage,
     String? exclusionReason,
+    ConditionStatus? conditionStatus,
+    List<ConfirmedByRole>? confirmedBy,
+    DateTime? confirmationDate,
+    String? confirmationMethod,
+    AverageStatus? averageStatus,
+    String? averagePartialDetail,
   }) =>
       DamageItemModel(
         damageId:          damageId,
@@ -281,6 +485,12 @@ class DamageItemModel {
         exclusionReason:   exclusionReason   ?? this.exclusionReason,
         sequenceNo:        sequenceNo,
         photoCount:        photoCount,
+        conditionStatus:      conditionStatus      ?? this.conditionStatus,
+        confirmedBy:          confirmedBy          ?? this.confirmedBy,
+        confirmationDate:     confirmationDate     ?? this.confirmationDate,
+        confirmationMethod:   confirmationMethod   ?? this.confirmationMethod,
+        averageStatus:        averageStatus        ?? this.averageStatus,
+        averagePartialDetail: averagePartialDetail ?? this.averagePartialDetail,
         createdAt:         createdAt,
       );
 }
@@ -419,11 +629,17 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
         .from('occurrences')
         .select()
         .eq('case_id', caseId)
-        .order('occurrence_no');
+        .order('occurrence_no', ascending: true)
+        .order('created_at', ascending: true);
 
-    final occurrences = (occData as List)
+    var occurrences = (occData as List)
         .map((e) => OccurrenceModel.fromJson(e as Map<String, dynamic>))
         .toList();
+
+    // Auto-fix duplicate or gapped numbering left by imports or previous bugs.
+    if (_hasNumberingAnomalies(occurrences)) {
+      occurrences = await _renumberAndSetPrimary(caseId, occurrences);
+    }
 
     List<DamageItemModel> damageItems = [];
     List<RepairModel> repairs = [];
@@ -494,6 +710,9 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     DateTime? dateTime,
     String? location,
     String? briefDescription,
+    String? vesselStatusAtCasualty,
+    String? aftermathStatus,
+    String? aftermathPort,
   }) async {
     final current = state.value!;
 
@@ -507,6 +726,10 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
           if (location != null)          'location':         location,
           if (briefDescription != null)
             'brief_description': briefDescription,
+          if (vesselStatusAtCasualty != null)
+            'vessel_status_at_casualty': vesselStatusAtCasualty,
+          if (aftermathStatus != null) 'aftermath_status': aftermathStatus,
+          if (aftermathPort != null)   'aftermath_port':   aftermathPort,
           'allegation_type': 'tbc',
         })
         .select()
@@ -530,6 +753,15 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
     return renumbered.firstWhere((o) => o.occurrenceId == occ.occurrenceId);
   }
 
+  static bool _hasNumberingAnomalies(List<OccurrenceModel> occs) {
+    if (occs.isEmpty) return false;
+    final nos = occs.map((o) => o.occurrenceNo).toList();
+    // Duplicates or numbers that don't form a clean 1..N sequence
+    return nos.toSet().length != nos.length ||
+        nos.any((n) => n < 1) ||
+        nos.reduce((a, b) => a > b ? a : b) != nos.length;
+  }
+
   /// Sort occurrences chronologically, re-number, and auto-set primary
   /// (sole occurrence, or latest by date).
   Future<List<OccurrenceModel>> _renumberAndSetPrimary(
@@ -538,7 +770,16 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
 
     final dated = occs.where((o) => o.dateTime != null).toList()
       ..sort((a, b) => a.dateTime!.compareTo(b.dateTime!));
-    final undated = occs.where((o) => o.dateTime == null).toList();
+    // For undated occurrences use createdAt as stable fallback sort key.
+    final undated = occs.where((o) => o.dateTime == null).toList()
+      ..sort((a, b) {
+        if (a.createdAt != null && b.createdAt != null) {
+          return a.createdAt!.compareTo(b.createdAt!);
+        }
+        if (a.createdAt != null) return -1;
+        if (b.createdAt != null) return 1;
+        return a.occurrenceNo.compareTo(b.occurrenceNo);
+      });
     final sorted = [...dated, ...undated];
 
     for (var i = 0; i < sorted.length; i++) {
@@ -701,6 +942,7 @@ class DamageNotifier extends FamilyAsyncNotifier<DamageState, String> {
             .from('cases')
             .update({'title': parts.join(' – ')})
             .eq('case_id', arg);
+        ref.invalidate(casesProvider);
       }
     } catch (e) {
       debugPrint('[DamageNotifier] setPrimaryOccurrence title sync: $e');

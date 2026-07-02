@@ -44,10 +44,16 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     final signedOffReviewing = caseData['signed_off_reviewing'] as bool? ?? false;
     final signOffBlocked = isFinal && !(signedOffAttending && signedOffReviewing);
 
+    // GPN-AI: hard-block if any AI-drafted section has no surveyor review
+    final aiUnreviewedCount = widget.sections.values
+        .where((s) => s.aiDrafted && s.surveyorReview == null)
+        .length;
+    final aiReviewBlocked = aiUnreviewedCount > 0;
+
+    final blocked = !canExport || _exporting || signOffBlocked || aiReviewBlocked;
+
     return ElevatedButton.icon(
-      onPressed: (!canExport || _exporting || signOffBlocked)
-          ? null
-          : () => _export(context, allApproved),
+      onPressed: blocked ? null : () => _export(context, allApproved),
       icon: _exporting
           ? const SizedBox(
               width: 16, height: 16,
@@ -59,13 +65,13 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
             ? 'Generating...'
             : signOffBlocked
                 ? 'Sign-off required'
-                : 'Export .docx',
+                : aiReviewBlocked
+                    ? 'AI review required ($aiUnreviewedCount)'
+                    : 'Export .docx',
         style: const TextStyle(fontWeight: FontWeight.w600),
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: (canExport && !signOffBlocked)
-            ? AppColors.navy
-            : AppColors.textTertiary,
+        backgroundColor: !blocked ? AppColors.navy : AppColors.textTertiary,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(
             horizontal: 18, vertical: 12),
@@ -101,22 +107,38 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     setState(() => _exporting = true);
 
     try {
-      // Resolve cover photo — prefer the output's override, fall back to the
-      // case's cover-allocated photo from vessel particulars.
+      // Resolve cover photo — the single case-wide cover-allocated photo,
+      // shared with the Photo Gallery and Vessel Particulars.
       Uint8List? coverPhotoBytes;
       String coverPhotoExt = 'jpg';
+      // Inline damage-item photos (spec §7 placement mode) — resolved here,
+      // same convention as the cover photo, so the export service itself
+      // has no filesystem dependency.
+      final damagePhotosByItemId = <String, List<ResolvedPhoto>>{};
       if (!kIsWeb) {
         final photos = ref.read(photosProvider(widget.output.caseId)).value ?? [];
-        final overrideId = widget.output.coverPhotoId;
-        PhotoModel? findPhoto(bool Function(PhotoModel) test) {
-          try { return photos.firstWhere(test); } catch (_) { return null; }
-        }
-        final photo = overrideId != null
-            ? findPhoto((p) => p.id == overrideId)
-            : findPhoto((p) => p.allocation == PhotoAllocation.coverPage);
+        final photo = photos.coverPhoto;
         if (photo != null && photo.localPath.isNotEmpty) {
           try {
             coverPhotoBytes = await File(photo.localPath).readAsBytes();
+          } catch (_) {}
+        }
+
+        for (final p in photos) {
+          if (p.linkedToType != 'damage_item' ||
+              p.linkedToId == null ||
+              p.effectivePlacementMode != PlacementMode.inline ||
+              p.localPath.isEmpty) {
+            continue;
+          }
+          try {
+            final bytes = await File(p.localPath).readAsBytes();
+            final ext = p.localPath.contains('.')
+                ? p.localPath.split('.').last
+                : 'jpg';
+            damagePhotosByItemId
+                .putIfAbsent(p.linkedToId!, () => [])
+                .add((bytes: bytes, ext: ext));
           } catch (_) {}
         }
       }
@@ -127,6 +149,7 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
         sections:        widget.sections,
         coverPhotoBytes: coverPhotoBytes,
         coverPhotoExt:   coverPhotoExt,
+        damagePhotosByItemId: damagePhotosByItemId,
       );
 
       if (!context.mounted) return;

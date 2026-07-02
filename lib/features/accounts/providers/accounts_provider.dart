@@ -404,7 +404,7 @@ class RepairDocumentsNotifier
     final created = <RepairDocumentModel>[];
     for (final seg in segments) {
       final parts = [seg.invoiceNumber, seg.supplierName]
-          .where((s) => s != null && s!.isNotEmpty)
+          .where((s) => s != null && s.isNotEmpty)
           .join(' — ');
       final autoName = parts.isNotEmpty ? parts : 'Document ${seg.index + 1}';
 

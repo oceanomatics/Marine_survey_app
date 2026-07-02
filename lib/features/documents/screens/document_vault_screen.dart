@@ -370,43 +370,74 @@ class DocumentVaultScreen extends ConsumerWidget {
 
   void _showAddRequested(BuildContext context, WidgetRef ref) {
     final ctrl = TextEditingController();
+    var requestedDate = DateTime.now();
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Log requested document',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        content: Column(mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text(
-            'Record a document you have requested but not yet received.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: const InputDecoration(
-                hintText: 'e.g. Bridge logbook extract — 17/08/2025'),
-          ),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final title = ctrl.text.trim();
-              if (title.isEmpty) return;
-              Navigator.pop(ctx);
-              await ref.read(documentProvider(caseId).notifier).addRecord(
-                    caseId: caseId,
-                    title: title,
-                    availability: DocAvailability.requested,
-                  );
-            },
-            child: const Text('Add'),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Log requested document',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          content: Column(mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text(
+              'Record a document you have requested but not yet received.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  hintText: 'e.g. Bridge logbook extract — 17/08/2025'),
+            ),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: ctx,
+                  initialDate: requestedDate,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) {
+                  setDialogState(() => requestedDate = picked);
+                }
+              },
+              child: Row(children: [
+                const Icon(Icons.calendar_today_outlined,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  'Requested: '
+                  '${requestedDate.day.toString().padLeft(2, '0')}/'
+                  '${requestedDate.month.toString().padLeft(2, '0')}/'
+                  '${requestedDate.year}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ]),
+            ),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                final title = ctrl.text.trim();
+                if (title.isEmpty) return;
+                Navigator.pop(ctx);
+                await ref.read(documentProvider(caseId).notifier).addRecord(
+                      caseId: caseId,
+                      title: title,
+                      availability: DocAvailability.requested,
+                      requestedDate: requestedDate,
+                    );
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
       ),
     );
   }

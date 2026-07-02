@@ -48,9 +48,9 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
       minChildSize: 0.35,
       maxChildSize: 0.95,
       builder: (_, ctrl) => Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
         child: Column(
           children: [
@@ -59,7 +59,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
               child: Row(
                 children: [
-                  Text('Import Document',
+                  const Text('Import Document',
                       style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 17,
@@ -71,7 +71,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
                       onToggle: (v) => setState(() => _batchMode = v),
                     ),
                   IconButton(
-                    icon: Icon(Icons.close, color: AppColors.textSecondary),
+                    icon: const Icon(Icons.close, color: AppColors.textSecondary),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -123,11 +123,11 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: _kBatch.withValues(alpha: 0.3)),
               ),
-              child: Row(
+              child: const Row(
                 children: [
                   Icon(Icons.auto_awesome_outlined,
                       color: _kBatch, size: 16),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Batch mode — AI will identify individual invoices '
@@ -163,7 +163,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
                           fontSize: 15,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
-                  Text('PDF, JPG or PNG',
+                  const Text('PDF, JPG or PNG',
                       style: TextStyle(
                           color: AppColors.textSecondary, fontSize: 12)),
                 ],
@@ -191,7 +191,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
                   'You will review and confirm each one before saving.'
                 : 'The document will be saved. '
                   'Run AI extraction from the document screen afterwards.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: 24),
           if (_busy) _progressRow() else _actionButton(),
@@ -218,11 +218,11 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
             const SizedBox(width: 10),
             Expanded(
                 child: Text(_filename ?? '',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textPrimary, fontSize: 13))),
             if (!_busy)
               IconButton(
-                icon: Icon(Icons.close,
+                icon: const Icon(Icons.close,
                     color: AppColors.textSecondary, size: 18),
                 onPressed: () => setState(() {
                   _step = _Step.pick;
@@ -242,7 +242,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
           ),
           const SizedBox(width: 12),
           Text(_busyLabel ?? 'Working…',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
         ],
       );
 
@@ -274,7 +274,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
           Row(
             children: [
               Text('${_segments.length} documents identified',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 14)),
@@ -282,13 +282,13 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
               Text(
                 '${_segments.where((s) => s.submittedToInsurance).length} submitted  '
                 '·  ${_segments.where((s) => !s.submittedToInsurance).length} context',
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.textSecondary, fontSize: 12),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
+          const Text(
             'Review AI\'s assessment. Toggle "Submitted" / "Context" for each item.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
@@ -465,7 +465,7 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
     });
     try {
       final storagePath =
-          '${widget.caseId}/accounts/${DateTime.now().millisecondsSinceEpoch}_${_filename}';
+          '${widget.caseId}/accounts/${DateTime.now().millisecondsSinceEpoch}_$_filename';
       debugPrint('[Accounts] uploading to storage: $storagePath');
       await SupabaseService.uploadFile(
         bucket: 'documents',
@@ -592,7 +592,7 @@ class _SegmentTile extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(seg.displayLabel,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.w600,
                           fontSize: 13)),
@@ -620,12 +620,12 @@ class _SegmentTile extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline,
+                  const Icon(Icons.info_outline,
                       size: 12, color: AppColors.textSecondary),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(seg.reason!,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 11,
                             fontStyle: FontStyle.italic)),

@@ -6,6 +6,7 @@ import '../providers/damage_provider.dart';
 import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/widgets/survey_field.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/chip_row.dart';
 
 // Quick-pick condition labels for mechanical/electrical damage
 const _conditionSuggestions = [
@@ -49,11 +50,17 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
   final _conditionCtrl   = TextEditingController();
   final _exclusionCtrl   = TextEditingController();
   final _newComponentCtrl = TextEditingController();
+  final _confirmationMethodCtrl = TextEditingController();
+  final _averagePartialCtrl     = TextEditingController();
 
   DamageCategory _category            = DamageCategory.other;
-  bool _isConcerningAverage           = true;
   bool _saving                        = false;
   late String _selectedOccurrenceId;
+
+  ConditionStatus? _conditionStatus;
+  final Set<ConfirmedByRole> _confirmedBy = {};
+  DateTime? _confirmationDate;
+  AverageStatus _averageStatus = AverageStatus.yes;
 
   // Machinery / component selection
   String? _selectedMachineryId;
@@ -72,9 +79,15 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
       _conditionCtrl.text   = e.conditionFound      ?? '';
       _exclusionCtrl.text   = e.exclusionReason     ?? '';
       _category             = e.damageCategory;
-      _isConcerningAverage  = e.isConcerningAverage;
       _selectedMachineryId  = e.machineryId;
       _selectedComponentId  = e.componentId;
+      _conditionStatus      = e.conditionStatus;
+      _confirmedBy.addAll(e.confirmedBy);
+      _confirmationDate     = e.confirmationDate;
+      _confirmationMethodCtrl.text = e.confirmationMethod ?? '';
+      _averageStatus = e.averageStatus ??
+          (e.isConcerningAverage ? AverageStatus.yes : AverageStatus.no);
+      _averagePartialCtrl.text = e.averagePartialDetail ?? '';
     }
   }
 
@@ -86,6 +99,8 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
     _conditionCtrl.dispose();
     _exclusionCtrl.dispose();
     _newComponentCtrl.dispose();
+    _confirmationMethodCtrl.dispose();
+    _averagePartialCtrl.dispose();
     super.dispose();
   }
 
@@ -133,12 +148,24 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
             ? null : _descriptionCtrl.text.trim(),
         conditionFound:    _conditionCtrl.text.trim().isEmpty
             ? null : _conditionCtrl.text.trim(),
-        isConcerningAverage: _isConcerningAverage,
-        exclusionReason:   !_isConcerningAverage &&
+        isConcerningAverage: _averageStatus != AverageStatus.no,
+        exclusionReason:   _averageStatus == AverageStatus.no &&
                 _exclusionCtrl.text.trim().isNotEmpty
             ? _exclusionCtrl.text.trim()
             : null,
         sequenceNo: widget.existing?.sequenceNo ?? 1,
+        conditionStatus: _conditionStatus,
+        confirmedBy: _confirmedBy.toList(),
+        confirmationDate: _confirmedBy.isNotEmpty ? _confirmationDate : null,
+        confirmationMethod: _confirmedBy.isNotEmpty &&
+                _confirmationMethodCtrl.text.trim().isNotEmpty
+            ? _confirmationMethodCtrl.text.trim()
+            : null,
+        averageStatus: _averageStatus,
+        averagePartialDetail: _averageStatus == AverageStatus.partial &&
+                _averagePartialCtrl.text.trim().isNotEmpty
+            ? _averagePartialCtrl.text.trim()
+            : null,
       );
       await widget.onSave(item);
       if (mounted) Navigator.pop(context);
@@ -229,57 +256,7 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
                 const SizedBox(height: 16),
               ],
 
-              // ── Damage Category ────────────────────────────────────
-              const _FieldLabel('Damage Category'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: DamageCategory.values.map((cat) {
-                  final selected = _category == cat;
-                  final color    = _categoryColor(cat);
-                  return GestureDetector(
-                    onTap: () => setState(() => _category = cat),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? color.withValues(alpha: 0.12)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: selected ? color : AppColors.border,
-                          width: selected ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(_categoryIcon(cat),
-                            size: 13,
-                            color: selected
-                                ? color
-                                : AppColors.textTertiary),
-                        const SizedBox(width: 5),
-                        Text(
-                          cat.label,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: selected
-                                ? FontWeight.w600
-                                : FontWeight.normal,
-                            color: selected
-                                ? color
-                                : AppColors.textSecondary,
-                          ),
-                        ),
-                      ]),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Machinery / System picker ──────────────────────────
+              // ── Machinery / System picker (claim object — primary axis) ─
               if (vesselId != null) ...[
                 const _FieldLabel('Machinery / System'),
                 const SizedBox(height: 6),
@@ -407,6 +384,142 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
                 maxLines: 3,
               ),
 
+              // ── Damage Type (tag, not the primary organiser) ───────
+              const _FieldLabel('Damage Type'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: DamageCategory.values.map((cat) {
+                  final selected = _category == cat;
+                  final color    = _categoryColor(cat);
+                  return GestureDetector(
+                    onTap: () => setState(() => _category = cat),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? color.withValues(alpha: 0.12)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: selected ? color : AppColors.border,
+                          width: selected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(_categoryIcon(cat),
+                            size: 13,
+                            color: selected
+                                ? color
+                                : AppColors.textTertiary),
+                        const SizedBox(width: 5),
+                        Text(
+                          cat.label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: selected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: selected
+                                ? color
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                      ]),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Condition / Status ─────────────────────────────────
+              const _FieldLabel('Condition / Status'),
+              const SizedBox(height: 8),
+              ChipRow<ConditionStatus>(
+                values: ConditionStatus.values,
+                selected: _conditionStatus,
+                label: (s) => s.label,
+                onChanged: (v) => setState(() => _conditionStatus = v),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Confirmed by (third-party confirmation) ────────────
+              const _FieldLabel('Confirmed By'),
+              const SizedBox(height: 6),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  children: ConfirmedByRole.values.map((role) {
+                    final checked = _confirmedBy.contains(role);
+                    return CheckboxListTile(
+                      value: checked,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: AppColors.coral,
+                      title: Text(role.label,
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.textPrimary)),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _confirmedBy.add(role);
+                        } else {
+                          _confirmedBy.remove(role);
+                        }
+                      }),
+                    );
+                  }).toList(),
+                ),
+              ),
+              if (_confirmedBy.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _confirmationDate ?? DateTime.now(),
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) {
+                          setState(() => _confirmationDate = picked);
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Confirmation Date',
+                          labelStyle: TextStyle(fontSize: 12),
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 10),
+                        ),
+                        child: Text(
+                          _confirmationDate != null
+                              ? '${_confirmationDate!.day.toString().padLeft(2, '0')}/'
+                                '${_confirmationDate!.month.toString().padLeft(2, '0')}/'
+                                '${_confirmationDate!.year}'
+                              : 'Select date',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                SurveyField(
+                  label: 'Confirmation Method',
+                  controller: _confirmationMethodCtrl,
+                  hint: 'e.g. Visual inspection, Disassembly and measurement',
+                ),
+              ],
+              const SizedBox(height: 4),
+
               // ── Condition Found ────────────────────────────────────
               const _FieldLabel('Condition Found'),
               const SizedBox(height: 6),
@@ -460,61 +573,31 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
 
               const SizedBox(height: 4),
 
-              // ── Average / Owner toggle ─────────────────────────────
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: _isConcerningAverage
-                      ? AppColors.lightBlue
-                      : AppColors.lightAmber,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: _isConcerningAverage
-                        ? AppColors.midBlue.withValues(alpha: 0.3)
-                        : AppColors.amber.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(children: [
-                  Icon(
-                    _isConcerningAverage
-                        ? Icons.check_circle_outline
-                        : Icons.person_outline,
-                    color: _isConcerningAverage
-                        ? AppColors.midBlue
-                        : AppColors.amber,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _isConcerningAverage
-                          ? 'Concerning average (claim-related)'
-                          : "Owner's account (not claim-related)",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _isConcerningAverage
-                            ? AppColors.midBlue
-                            : AppColors.amber,
-                      ),
-                    ),
-                  ),
-                  Switch(
-                    value: _isConcerningAverage,
-                    onChanged: (v) =>
-                        setState(() => _isConcerningAverage = v),
-                    activeThumbColor: AppColors.midBlue,
-                  ),
-                ]),
+              // ── Average status (Yes / No / Partial) ────────────────
+              const _FieldLabel('Concerning Average'),
+              const SizedBox(height: 8),
+              ChipRow<AverageStatus>(
+                values: AverageStatus.values,
+                selected: _averageStatus,
+                label: (s) => s.label,
+                onChanged: (v) =>
+                    setState(() => _averageStatus = v ?? AverageStatus.yes),
               ),
 
-              if (!_isConcerningAverage) ...[
+              if (_averageStatus == AverageStatus.no) ...[
                 const SizedBox(height: 10),
                 SurveyField(
                   label: "Reason (owner's account)",
                   controller: _exclusionCtrl,
                   hint: 'e.g. Pre-existing condition unrelated to casualty',
+                ),
+              ],
+              if (_averageStatus == AverageStatus.partial) ...[
+                const SizedBox(height: 10),
+                SurveyField(
+                  label: 'Partial average detail',
+                  controller: _averagePartialCtrl,
+                  hint: 'What part is/isn\'t concerning average, and why',
                 ),
               ],
 
@@ -550,6 +633,7 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
         DamageCategory.structuralInternal    => AppColors.navy,
         DamageCategory.mechanical            => AppColors.amber,
         DamageCategory.electricalElectronics => AppColors.purple,
+        DamageCategory.coating               => AppColors.teal,
         DamageCategory.other                 => AppColors.textSecondary,
       };
 
@@ -558,6 +642,7 @@ class _AddDamageItemSheetState extends ConsumerState<AddDamageItemSheet> {
         DamageCategory.structuralInternal    => Icons.home_outlined,
         DamageCategory.mechanical            => Icons.settings_outlined,
         DamageCategory.electricalElectronics => Icons.bolt_outlined,
+        DamageCategory.coating               => Icons.format_paint_outlined,
         DamageCategory.other                 => Icons.help_outline,
       };
 }

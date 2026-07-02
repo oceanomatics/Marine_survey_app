@@ -95,6 +95,15 @@ class DocumentTile extends ConsumerWidget {
                           fontSize: 10, color: AppColors.textTertiary),
                     ),
                   ],
+                  if (doc.availability == DocAvailability.requested &&
+                      doc.requestedDate != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Requested ${_formatDate(doc.requestedDate!)}',
+                      style: const TextStyle(
+                          fontSize: 10, color: AppColors.textTertiary),
+                    ),
+                  ],
                 ],
               ),
             ),

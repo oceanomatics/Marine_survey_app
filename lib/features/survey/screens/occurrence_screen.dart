@@ -70,13 +70,17 @@ class OccurrenceScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => AddOccurrenceSheet(
-        onSave: (title, dateTime, location, description) async {
+        onSave: (title, dateTime, location, description,
+            vesselStatusAtCasualty, aftermathStatus, aftermathPort) async {
           await ref.read(damageProvider(caseId).notifier).createOccurrence(
                 caseId: caseId,
                 title: title,
                 dateTime: dateTime,
                 location: location,
                 briefDescription: description,
+                vesselStatusAtCasualty: vesselStatusAtCasualty,
+                aftermathStatus: aftermathStatus,
+                aftermathPort: aftermathPort,
               );
         },
       ),
@@ -121,7 +125,8 @@ class OccurrenceScreen extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => AddOccurrenceSheet(
         existing: occ,
-        onSave: (title, dateTime, location, description) async {
+        onSave: (title, dateTime, location, description,
+            vesselStatusAtCasualty, aftermathStatus, aftermathPort) async {
           final updated = OccurrenceModel(
             occurrenceId:        occ.occurrenceId,
             caseId:              occ.caseId,
@@ -139,6 +144,9 @@ class OccurrenceScreen extends ConsumerWidget {
             causeNarrative:      occ.causeNarrative,
             ismReported:         occ.ismReported,
             createdAt:           occ.createdAt,
+            vesselStatusAtCasualty: vesselStatusAtCasualty,
+            aftermathStatus:        aftermathStatus,
+            aftermathPort:          aftermathPort,
           );
           await ref
               .read(damageProvider(caseId).notifier)
@@ -201,39 +209,46 @@ class _OccurrenceCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (occurrenceCount > 1 && occurrence.isPrimary) ...[
-                  const SizedBox(width: 7),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.teal.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(
-                          color: AppColors.teal.withValues(alpha: 0.4)),
-                    ),
-                    child: const Text(
-                      'PRIMARY',
-                      style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.teal,
-                          letterSpacing: 0.5),
-                    ),
-                  ),
-                ],
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        occurrence.title ??
-                            'Occurrence ${occurrence.occurrenceNo}',
-                        style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.coral),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              occurrence.title ??
+                                  'Occurrence ${occurrence.occurrenceNo}',
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.coral),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (occurrenceCount > 1 && occurrence.isPrimary) ...[
+                            const SizedBox(width: 7),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.teal.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(
+                                    color: AppColors.teal.withValues(alpha: 0.4)),
+                              ),
+                              child: const Text(
+                                'PRIMARY',
+                                style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.teal,
+                                    letterSpacing: 0.5),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       if (occurrence.dateTime != null) ...[
                         const SizedBox(height: 2),

@@ -169,6 +169,10 @@ class RepairPeriodModel {
     this.budgetBaseCurrency = 'USD',
     this.budgetExchangeRate,
     this.budgetRateDate,
+    this.servicesProvided = const [],
+    this.servicesProvidedNotes,
+    this.hotWorkStatus,
+    this.hotWorkNotes,
   });
 
   final String periodId;
@@ -193,7 +197,35 @@ class RepairPeriodModel {
   final double? budgetExchangeRate;
   final DateTime? budgetRateDate;
 
+  /// Clause F-2: services provided (multi-select checklist keys).
+  final List<String> servicesProvided;
+  final String? servicesProvidedNotes;
+  /// Clause F-5: hot work / gas freeing status — 'certs_valid' /
+  /// 'certs_not_sighted' / null (not conducted).
+  final String? hotWorkStatus;
+  final String? hotWorkNotes;
+
   String get displayTitle => title ?? 'Repair Period $periodNo';
+
+  /// Drydock days across all occurrence-related repair time entries
+  /// (keys prefixed `"occ_"`) — excludes the owner's-account entry.
+  double get drydockDaysTotal => repairTimes.entries
+      .where((e) => e.key.startsWith('occ_'))
+      .fold(0.0, (sum, e) => sum + (e.value.drydockDays ?? 0));
+
+  /// Alongside/afloat days across all occurrence-related repair time
+  /// entries — excludes the owner's-account entry.
+  double get alongsideDaysTotal => repairTimes.entries
+      .where((e) => e.key.startsWith('occ_'))
+      .fold(0.0, (sum, e) => sum + (e.value.alongsideDays ?? 0));
+
+  /// Total days (drydock + alongside) attributed to the owner's account
+  /// (the `"owners"` repair time entry) — feeds the WNCA row.
+  double get ownerDaysTotal {
+    final owners = repairTimes['owners'];
+    if (owners == null) return 0;
+    return (owners.drydockDays ?? 0) + (owners.alongsideDays ?? 0);
+  }
 
   RepairPeriodModel copyWith({
     Map<String, RepairTimeEntry>? repairTimes,
@@ -267,6 +299,11 @@ class RepairPeriodModel {
       budgetRateDate: budgetMeta['rate_date'] != null
           ? DateTime.tryParse(budgetMeta['rate_date'] as String)
           : null,
+      servicesProvided:
+          (j['services_provided'] as List?)?.cast<String>() ?? const [],
+      servicesProvidedNotes: j['services_provided_notes'] as String?,
+      hotWorkStatus: j['hot_work_status'] as String?,
+      hotWorkNotes: j['hot_work_notes'] as String?,
     );
   }
 
@@ -315,6 +352,11 @@ class RepairPeriodModel {
         if (budgetItems.isNotEmpty)
           'budget_items': budgetItems.map((e) => e.toJson()).toList(),
         'budget_meta': _budgetMetaJson,
+        if (servicesProvided.isNotEmpty) 'services_provided': servicesProvided,
+        if (servicesProvidedNotes != null)
+          'services_provided_notes': servicesProvidedNotes,
+        if (hotWorkStatus != null) 'hot_work_status': hotWorkStatus,
+        if (hotWorkNotes != null) 'hot_work_notes': hotWorkNotes,
       };
 
   static String _fmt(DateTime d) =>

@@ -629,8 +629,8 @@ class _ApiKeyStatusCard extends StatelessWidget {
               ),
               Text(
                 ok
-                    ? 'Key ending ${AppConfig.anthropicKeyHint} — loaded via --dart-define'
-                    : 'Run the app from the Android/Chrome launch config in VS Code, not via hot restart.',
+                    ? 'Key ending ${AppConfig.anthropicKeyHint}'
+                    : 'Set a key in Account → API Keys, or run with --dart-define.',
                 style: TextStyle(fontSize: 10, color: color.withValues(alpha: 0.8)),
               ),
             ],

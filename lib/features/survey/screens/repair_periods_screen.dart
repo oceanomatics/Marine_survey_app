@@ -590,11 +590,11 @@ class _RepairTimesSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Section title
-          Row(children: [
-            const Icon(Icons.schedule_outlined,
+          const Row(children: [
+            Icon(Icons.schedule_outlined,
                 size: 13, color: _kTimesColor),
-            const SizedBox(width: 5),
-            const Text('REPAIR TIMES',
+            SizedBox(width: 5),
+            Text('REPAIR TIMES',
                 style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w700,
@@ -611,12 +611,12 @@ class _RepairTimesSection extends StatelessWidget {
                   const BorderRadius.vertical(top: Radius.circular(6)),
             ),
             padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
-            child: Row(
+            child: const Row(
               children: [
-                const Expanded(child: SizedBox()),
+                Expanded(child: SizedBox()),
                 _TableHeader('DRY-DOCK'),
                 _TableHeader('ALONGSIDE'),
-                const SizedBox(width: 28),
+                SizedBox(width: 28),
               ],
             ),
           ),
@@ -1152,9 +1152,9 @@ class _BudgetSectionState extends ConsumerState<_BudgetSection> {
               ),
               padding:
                   const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
-              child: Row(
+              child: const Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text('DESCRIPTION',
                         style: TextStyle(
                             fontSize: 8,
@@ -1166,13 +1166,13 @@ class _BudgetSectionState extends ConsumerState<_BudgetSection> {
                     width: 80,
                     child: Text('AMOUNT',
                         textAlign: TextAlign.right,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 8,
                             fontWeight: FontWeight.w700,
                             color: _kBudgetColor,
                             letterSpacing: 0.5)),
                   ),
-                  const SizedBox(width: 26),
+                  SizedBox(width: 26),
                 ],
               ),
             ),
@@ -1647,7 +1647,7 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _kCurrencies.contains(_currency)
+                          initialValue: _kCurrencies.contains(_currency)
                               ? _currency
                               : _kCurrencies.first,
                           decoration: _sheetDec(),
@@ -2001,7 +2001,7 @@ class _BudgetDisplaySheetState extends State<_BudgetDisplaySheet> {
                 color: AppColors.textSecondary)),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
-          value: _kCurrencies.contains(value) ? value : _kCurrencies.first,
+          initialValue: _kCurrencies.contains(value) ? value : _kCurrencies.first,
           decoration: InputDecoration(
             filled: true,
             fillColor: AppColors.surface,

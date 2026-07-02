@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/cases/screens/cases_list_screen.dart';
 import '../../features/cases/screens/case_home_screen.dart';
 import '../../features/cases/screens/new_case_screen.dart';
+import '../../features/cases/screens/edit_case_screen.dart';
 import '../../features/vessel/screens/vessel_particulars_screen.dart';
 import '../../features/survey/screens/damage_register_screen.dart';
 import '../../features/survey/screens/occurrence_screen.dart';
@@ -69,6 +70,11 @@ final appRouter = GoRouter(
           builder: (context, state) =>
               CaseHomeScreen(caseId: state.pathParameters['caseId']!),
           routes: [
+            GoRoute(
+              path: 'edit',
+              builder: (context, state) =>
+                  EditCaseScreen(caseId: state.pathParameters['caseId']!),
+            ),
             GoRoute(
               path: 'vessel',
               builder: (context, state) =>

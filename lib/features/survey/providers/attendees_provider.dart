@@ -51,6 +51,25 @@ enum AttendeeRole {
           orElse: () => AttendeeRole.other);
 }
 
+// ── Title (form of address) ─────────────────────────────────────────────────
+
+enum AttendeeTitle {
+  mr('mr', 'Mr.'),
+  mrs('mrs', 'Mrs.'),
+  ms('ms', 'Ms.'),
+  miss('miss', 'Miss'),
+  dr('dr', 'Dr.'),
+  capt('capt', 'Capt.'),
+  prof('prof', 'Prof.');
+
+  const AttendeeTitle(this.value, this.label);
+  final String value;
+  final String label;
+
+  static AttendeeTitle fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => AttendeeTitle.mr);
+}
+
 // ── Model ─────────────────────────────────────────────────────────────────
 
 @immutable
@@ -60,6 +79,7 @@ class AttendeeModel {
     required this.caseId,
     required this.fullName,
     this.attendanceId,
+    this.title,
     this.rankPosition,
     this.company,
     this.representing,
@@ -75,6 +95,7 @@ class AttendeeModel {
   final String caseId;
   final String fullName;
   final String? attendanceId;
+  final AttendeeTitle? title;
   final String? rankPosition;
   final String? company;
   final String? representing;
@@ -93,8 +114,10 @@ class AttendeeModel {
     return parts.join(' ');
   }
 
-  /// Prefix for report (Mr./Capt./Dr. etc.)
+  /// Prefix for report (Mr./Capt./Dr. etc.) — falls back to a role-based
+  /// guess when the surveyor hasn't picked a title explicitly.
   String get prefix {
+    if (title != null) return title!.label;
     final role = roleType;
     if (role == AttendeeRole.master || role == AttendeeRole.portCaptain) {
       return 'Capt.';
@@ -107,6 +130,9 @@ class AttendeeModel {
         caseId:         j['case_id'] as String,
         fullName:       j['full_name'] as String,
         attendanceId:   j['attendance_id'] as String?,
+        title:          j['title'] != null
+            ? AttendeeTitle.fromValue(j['title'] as String)
+            : null,
         rankPosition:   j['rank_position'] as String?,
         company:        j['company'] as String?,
         representing:   j['representing'] as String?,
@@ -128,6 +154,7 @@ class AttendeeModel {
         'case_id':   caseId,
         'full_name': fullName,
         if (attendanceId != null)    'attendance_id':    attendanceId,
+        if (title != null)           'title':            title!.value,
         if (rankPosition != null)    'rank_position':    rankPosition,
         if (company != null)         'company':          company,
         if (representing != null)    'representing':     representing,

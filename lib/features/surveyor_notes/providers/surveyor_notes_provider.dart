@@ -39,6 +39,11 @@ class SurveyorNotesNotifier
     ref.listen<AsyncValue<bool>>(connectivityProvider, (_, next) {
       if (next.value == true) _refresh();
     });
+    if (kIsWeb) {
+      // sqflite has no web backend — Supabase is fetched directly and is
+      // the only source of truth (no offline cache/write-queue on web).
+      return _fetchSupabase();
+    }
     // Return the SQLite cache immediately (includes pending_upsert notes),
     // then update the state from Supabase in the background.
     _refresh();
@@ -47,22 +52,29 @@ class SurveyorNotesNotifier
 
   // ── Supabase sync (runs in background, updates state when done) ──────────
 
+  Future<List<SurveyorNote>> _fetchSupabase() async {
+    final rows = await SupabaseService.client
+        .from(_table)
+        .select()
+        .eq('case_id', _caseId)
+        .order('created_at', ascending: false);
+    return (rows as List).map((r) => SurveyorNote.fromMap(r)).toList();
+  }
+
   bool _refreshing = false;
 
   Future<void> _refresh() async {
     if (_refreshing) return;
     _refreshing = true;
     try {
+      if (kIsWeb) {
+        state = AsyncData(await _fetchSupabase());
+        return;
+      }
+
       await _syncPending();
 
-      final rows = await SupabaseService.client
-          .from(_table)
-          .select()
-          .eq('case_id', _caseId)
-          .order('created_at', ascending: false);
-
-      final notes =
-          (rows as List).map((r) => SurveyorNote.fromMap(r)).toList();
+      final notes = await _fetchSupabase();
 
       await _refreshCache(notes);
 
@@ -117,7 +129,7 @@ class SurveyorNotesNotifier
       // Offline — note will be queued
     }
 
-    await _writeSQLite(note, syncStatus: syncStatus);
+    if (!kIsWeb) await _writeSQLite(note, syncStatus: syncStatus);
 
     final current = state.value ?? [];
     state = AsyncData([note, ...current]);
@@ -161,7 +173,7 @@ class SurveyorNotesNotifier
       // Offline
     }
 
-    await _writeSQLite(updated, syncStatus: syncStatus);
+    if (!kIsWeb) await _writeSQLite(updated, syncStatus: syncStatus);
     state = AsyncData(
         current.map((n) => n.id == noteId ? updated : n).toList());
   }
@@ -178,17 +190,19 @@ class SurveyorNotesNotifier
       // Offline
     }
 
-    final db = await AppDatabase.instance.database;
-    if (deleted) {
-      await db.delete(_table, where: 'id = ?', whereArgs: [noteId]);
-    } else {
-      // Mark for deferred deletion — will be removed once we reach Supabase
-      await db.update(
-        _table,
-        {'sync_status': 'pending_delete'},
-        where: 'id = ?',
-        whereArgs: [noteId],
-      );
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      if (deleted) {
+        await db.delete(_table, where: 'id = ?', whereArgs: [noteId]);
+      } else {
+        // Mark for deferred deletion — will be removed once we reach Supabase
+        await db.update(
+          _table,
+          {'sync_status': 'pending_delete'},
+          where: 'id = ?',
+          whereArgs: [noteId],
+        );
+      }
     }
 
     final current = state.value ?? [];

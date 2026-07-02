@@ -1,6 +1,7 @@
 // lib/features/attendances/widgets/add_attendance_sheet.dart
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 
 import '../models/attendance_model.dart';
@@ -12,8 +13,9 @@ const _kColor = Color(0xFFBF7E3A);
 // ── Simple data holder for a new attendee typed inline ───────────────────
 
 class AttendeeEntry {
-  AttendeeEntry({required this.name, this.role, this.company});
+  AttendeeEntry({required this.name, this.title, this.role, this.company});
   String name;
+  AttendeeTitle? title;
   AttendeeRole? role;
   String? company;
 }
@@ -33,7 +35,7 @@ class AddAttendanceSheet extends StatefulWidget {
   final Future<void> Function(
     AttendanceType type,
     DateTime? date,
-    String? location,
+    AttendanceLocationInput location,
     String? surveyorName,
     VesselStatus? vesselStatus,
     String? summary,
@@ -50,7 +52,17 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
   DateTime? _date;
   VesselStatus? _vesselStatus;
 
-  final _locationCtrl  = TextEditingController();
+  SurveyLocationType _locationType = SurveyLocationType.other;
+  final _locationCtrl       = TextEditingController();
+  final _locationDetailCtrl = TextEditingController();
+  final _nearestPortCtrl    = TextEditingController();
+  final _distanceCtrl       = TextEditingController();
+  double? _latitude;
+  double? _longitude;
+  double? _gpsAccuracy;
+  bool _locatingGps = false;
+  String? _gpsError;
+
   final _surveyorCtrl  = TextEditingController(text: 'Pierre-Louis Constant');
   final _summaryCtrl   = TextEditingController();
 
@@ -75,6 +87,9 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
   @override
   void dispose() {
     _locationCtrl.dispose();
+    _locationDetailCtrl.dispose();
+    _nearestPortCtrl.dispose();
+    _distanceCtrl.dispose();
     _surveyorCtrl.dispose();
     _summaryCtrl.dispose();
     for (final e in _newEntries) {
@@ -106,6 +121,83 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
     if (picked != null) setState(() => _date = picked);
   }
 
+  String _locationDetailLabel() => switch (_locationType) {
+        SurveyLocationType.wharf    => 'Wharf name',
+        SurveyLocationType.shipyard => 'Shipyard name',
+        SurveyLocationType.workshop => 'Workshop name',
+        SurveyLocationType.atSea    => 'Anchorage name (optional)',
+        SurveyLocationType.other    => 'Location',
+      };
+
+  String? _locationDetailHint() => switch (_locationType) {
+        SurveyLocationType.wharf    => 'e.g. No. 3 Wharf',
+        SurveyLocationType.shipyard => 'e.g. ASC',
+        SurveyLocationType.workshop => 'e.g. XYZ Marine Services',
+        SurveyLocationType.atSea    => 'e.g. deep water anchorage',
+        SurveyLocationType.other    => null,
+      };
+
+  /// Builds the report-facing location sentence from the structured picker.
+  String? _composeLocationText() {
+    if (_locationType == SurveyLocationType.other) return _val(_locationCtrl);
+    final detail = _val(_locationDetailCtrl);
+    switch (_locationType) {
+      case SurveyLocationType.wharf:
+        return detail != null ? 'At the wharf, $detail' : 'At the wharf';
+      case SurveyLocationType.shipyard:
+        return detail != null ? '$detail Shipyard' : 'At the shipyard';
+      case SurveyLocationType.workshop:
+        return detail != null
+            ? 'At the premises of $detail'
+            : 'At the workshop premises';
+      case SurveyLocationType.atSea:
+        final port = _val(_nearestPortCtrl);
+        final dist = _val(_distanceCtrl);
+        final place =
+            detail != null ? 'At sea, $detail' : 'At sea, deep water anchorage';
+        if (dist != null && port != null) {
+          return '$place, approx ${dist}NM off the coast of $port';
+        }
+        if (port != null) return '$place, off the coast of $port';
+        return place;
+      case SurveyLocationType.other:
+        return _val(_locationCtrl);
+    }
+  }
+
+  Future<void> _captureGps() async {
+    setState(() { _locatingGps = true; _gpsError = null; });
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Location services are disabled on this device');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission denied');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+            'Location permission permanently denied — enable it in device settings');
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      if (!mounted) return;
+      setState(() {
+        _latitude    = pos.latitude;
+        _longitude   = pos.longitude;
+        _gpsAccuracy = pos.accuracy;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _gpsError = e.toString());
+    } finally {
+      if (mounted) setState(() => _locatingGps = false);
+    }
+  }
+
   void _addNewEntry() {
     setState(() => _newEntries.add(_InlineAttendee()));
   }
@@ -129,6 +221,7 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
           .where((e) => e.nameCtrl.text.trim().isNotEmpty)
           .map((e) => AttendeeEntry(
                 name: e.nameCtrl.text.trim(),
+                title: e.title,
                 role: e.role,
                 company: e.companyCtrl.text.trim().isEmpty
                     ? null
@@ -136,10 +229,25 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
               ))
           .toList();
 
+      final isStructured = _locationType != SurveyLocationType.other;
+      final locationInput = AttendanceLocationInput(
+        text: _composeLocationText(),
+        latitude: _latitude,
+        longitude: _longitude,
+        locationType: isStructured ? _locationType : null,
+        locationDetail: isStructured ? _val(_locationDetailCtrl) : null,
+        nearestPort: _locationType == SurveyLocationType.atSea
+            ? _val(_nearestPortCtrl)
+            : null,
+        distanceOffshoreNm: _locationType == SurveyLocationType.atSea
+            ? double.tryParse(_distanceCtrl.text.trim())
+            : null,
+      );
+
       await widget.onSave(
         _type,
         _date,
-        _val(_locationCtrl),
+        locationInput,
         _val(_surveyorCtrl),
         _vesselStatus,
         _val(_summaryCtrl),
@@ -269,8 +377,146 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
               const SizedBox(height: 12),
 
               // ── Location ─────────────────────────────────────────────
-              _field('Location', _locationCtrl,
-                  hint: 'e.g. Port of Brisbane, Drydock No. 3'),
+              const _Label('Survey location'),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: SurveyLocationType.values.map((t) {
+                  final selected = _locationType == t;
+                  return GestureDetector(
+                    onTap: () => setState(() => _locationType = t),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? _kColor.withValues(alpha: 0.12)
+                            : AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: selected ? _kColor : AppColors.border,
+                            width: selected ? 1.5 : 1),
+                      ),
+                      child: Text(
+                        t.label,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: selected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                            color: selected
+                                ? _kColor
+                                : AppColors.textSecondary),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+              if (_locationType == SurveyLocationType.other)
+                _field('Location', _locationCtrl,
+                    hint: 'e.g. Port of Brisbane, Drydock No. 3')
+              else ...[
+                _field(_locationDetailLabel(), _locationDetailCtrl,
+                    hint: _locationDetailHint()),
+                if (_locationType == SurveyLocationType.atSea) ...[
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                      child: _field('Distance offshore (NM)', _distanceCtrl,
+                          hint: 'e.g. 12',
+                          keyboardType:
+                              const TextInputType.numberWithOptions(
+                                  decimal: true)),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: _field('Nearest port', _nearestPortCtrl,
+                          hint: 'e.g. Fremantle'),
+                    ),
+                  ]),
+                ],
+                const SizedBox(height: 8),
+                Builder(builder: (_) {
+                  final preview = _composeLocationText();
+                  if (preview == null || preview.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _kColor.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(preview,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: AppColors.textSecondary)),
+                  );
+                }),
+              ],
+              const SizedBox(height: 10),
+              Row(children: [
+                OutlinedButton.icon(
+                  onPressed: _locatingGps ? null : _captureGps,
+                  icon: _locatingGps
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: _kColor))
+                      : const Icon(Icons.my_location, size: 15),
+                  label: Text(
+                      _latitude != null ? 'Update GPS' : 'Capture GPS',
+                      style: const TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kColor,
+                    side: const BorderSide(color: _kColor),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                  ),
+                ),
+                if (_latitude != null && _longitude != null) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Row(children: [
+                      Expanded(
+                        child: Text(
+                          '${_latitude!.toStringAsFixed(5)}, '
+                          '${_longitude!.toStringAsFixed(5)}'
+                          '${_gpsAccuracy != null ? " · ±${_gpsAccuracy!.toStringAsFixed(0)}m" : ""}',
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 15, color: AppColors.textTertiary),
+                        onPressed: () => setState(() {
+                          _latitude = null;
+                          _longitude = null;
+                          _gpsAccuracy = null;
+                        }),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ]),
+                  ),
+                ],
+              ]),
+              if (_gpsError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(_gpsError!,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.error)),
+                ),
               const SizedBox(height: 12),
 
               // ── Vessel status ─────────────────────────────────────────
@@ -323,6 +569,8 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
                     setState(() => _previousEnabled[id] = val),
                 onAddEntry: _addNewEntry,
                 onRemoveEntry: _removeNewEntry,
+                onTitleChanged: (i, title) =>
+                    setState(() => _newEntries[i].title = title),
                 onRoleChanged: (i, role) =>
                     setState(() => _newEntries[i].role = role),
               ),
@@ -392,10 +640,12 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
     TextEditingController ctrl, {
     String? hint,
     int maxLines = 1,
+    TextInputType? keyboardType,
   }) {
     return TextField(
       controller: ctrl,
       maxLines: maxLines,
+      keyboardType: keyboardType,
       style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,
@@ -429,6 +679,7 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
 class _InlineAttendee {
   final nameCtrl    = TextEditingController();
   final companyCtrl = TextEditingController();
+  AttendeeTitle? title;
   AttendeeRole? role;
 }
 
@@ -442,6 +693,7 @@ class _AttendeesSection extends StatelessWidget {
     required this.onToggle,
     required this.onAddEntry,
     required this.onRemoveEntry,
+    required this.onTitleChanged,
     required this.onRoleChanged,
   });
 
@@ -451,6 +703,7 @@ class _AttendeesSection extends StatelessWidget {
   final void Function(String attendeeId, bool val) onToggle;
   final VoidCallback onAddEntry;
   final void Function(int index) onRemoveEntry;
+  final void Function(int index, AttendeeTitle? title) onTitleChanged;
   final void Function(int index, AttendeeRole? role) onRoleChanged;
 
   @override
@@ -522,6 +775,7 @@ class _AttendeesSection extends StatelessWidget {
           _NewAttendeeRow(
             entry: newEntries[i],
             onRemove: () => onRemoveEntry(i),
+            onTitleChanged: (title) => onTitleChanged(i, title),
             onRoleChanged: (role) => onRoleChanged(i, role),
           ),
           const SizedBox(height: 8),
@@ -566,7 +820,9 @@ class _PreviousAttendeeRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                attendee.fullName,
+                attendee.title != null
+                    ? '${attendee.title!.label} ${attendee.fullName}'
+                    : attendee.fullName,
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
@@ -607,11 +863,13 @@ class _NewAttendeeRow extends StatelessWidget {
   const _NewAttendeeRow({
     required this.entry,
     required this.onRemove,
+    required this.onTitleChanged,
     required this.onRoleChanged,
   });
 
   final _InlineAttendee entry;
   final VoidCallback onRemove;
+  final ValueChanged<AttendeeTitle?> onTitleChanged;
   final ValueChanged<AttendeeRole?> onRoleChanged;
 
   @override
@@ -626,6 +884,43 @@ class _NewAttendeeRow extends StatelessWidget {
       child: Column(
         children: [
           Row(children: [
+            SizedBox(
+              width: 84,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: DropdownButton<AttendeeTitle?>(
+                  value: entry.title,
+                  isExpanded: true,
+                  underline: const SizedBox.shrink(),
+                  isDense: true,
+                  hint: const Text('Title',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.textTertiary)),
+                  items: [
+                    const DropdownMenuItem(
+                        value: null,
+                        child: Text('—',
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textTertiary))),
+                    ...AttendeeTitle.values.map((t) => DropdownMenuItem(
+                          value: t,
+                          child: Text(t.label,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textPrimary)),
+                        )),
+                  ],
+                  onChanged: onTitleChanged,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             Expanded(
               child: TextField(
                 controller: entry.nameCtrl,

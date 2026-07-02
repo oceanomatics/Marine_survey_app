@@ -104,8 +104,6 @@ class CaseModel {
     // Report / org fields
     this.organisationId,
     this.baseCurrency,
-    this.policyUcr,
-    this.policyNumber,
     this.policyType,
     // Survey details
     this.instructingParty,
@@ -113,6 +111,9 @@ class CaseModel {
     this.assured,
     this.dateOfFirstAttendance,
     this.surveyLocation,
+    // Clause G-1 (cost estimate status)
+    this.costEstimateStatus,
+    this.estimatedRepairCost,
     // Sign-off
     this.signedOffAttending = false,
     this.signedOffReviewing = false,
@@ -151,8 +152,6 @@ class CaseModel {
   // Report / org / policy fields
   final String? organisationId;
   final String? baseCurrency;        // ISO 4217 e.g. 'USD', 'AUD'
-  final String? policyUcr;           // Lloyd's Unique Claims Reference
-  final String? policyNumber;
   final PolicyType? policyType;
 
   // Survey details
@@ -161,6 +160,9 @@ class CaseModel {
   final String? assured;
   final DateTime? dateOfFirstAttendance;
   final String? surveyLocation;
+  /// Clause G-1: 'no_invoices_yet' / 'ongoing_partial_invoices' / 'completed_all_invoices'.
+  final String? costEstimateStatus;
+  final double? estimatedRepairCost;
 
   // Sign-off (dual sign-off gate for Final Report export)
   final bool signedOffAttending;
@@ -210,8 +212,6 @@ class CaseModel {
           : null,
       organisationId: json['organisation_id'] as String?,
       baseCurrency:   json['base_currency']   as String?,
-      policyUcr:      json['policy_ucr']      as String?,
-      policyNumber:   json['policy_number']   as String?,
       policyType:     json['policy_type'] != null
           ? PolicyType.fromValue(json['policy_type'] as String)
           : null,
@@ -225,6 +225,8 @@ class CaseModel {
           ? DateTime.tryParse(json['date_of_first_attendance'] as String)
           : null,
       surveyLocation:       json['survey_location']        as String?,
+      costEstimateStatus:   json['cost_estimate_status']    as String?,
+      estimatedRepairCost:  (json['estimated_repair_cost'] as num?)?.toDouble(),
       signedOffAttending: json['signed_off_attending'] as bool? ?? false,
       signedOffReviewing: json['signed_off_reviewing'] as bool? ?? false,
       signedOffAt: json['signed_off_at'] != null
@@ -264,8 +266,6 @@ class CaseModel {
     if (notes != null)             'notes':               notes,
     if (organisationId != null)       'organisation_id':          organisationId,
     if (baseCurrency != null)         'base_currency':            baseCurrency,
-    if (policyUcr != null)            'policy_ucr':               policyUcr,
-    if (policyNumber != null)         'policy_number':            policyNumber,
     if (policyType != null)           'policy_type':              policyType!.value,
     if (instructingParty != null)     'instructing_party':        instructingParty,
     if (instructingPartyRole != null) 'instructing_party_role':   instructingPartyRole!.value,
@@ -273,6 +273,8 @@ class CaseModel {
     if (dateOfFirstAttendance != null)
       'date_of_first_attendance': dateOfFirstAttendance!.toIso8601String().split('T').first,
     if (surveyLocation != null)       'survey_location':          surveyLocation,
+    if (costEstimateStatus != null)   'cost_estimate_status':     costEstimateStatus,
+    if (estimatedRepairCost != null)  'estimated_repair_cost':    estimatedRepairCost,
     'signed_off_attending': signedOffAttending,
     'signed_off_reviewing': signedOffReviewing,
     if (signedOffAt != null)                'signed_off_at':                    signedOffAt!.toIso8601String(),
@@ -301,14 +303,14 @@ class CaseModel {
     String? notes,
     String? organisationId,
     String? baseCurrency,
-    String? policyUcr,
-    String? policyNumber,
     PolicyType? policyType,
     String? instructingParty,
     InstructingPartyRole? instructingPartyRole,
     String? assured,
     DateTime? dateOfFirstAttendance,
     String? surveyLocation,
+    String? costEstimateStatus,
+    double? estimatedRepairCost,
     String? vesselName,
     String? clientName,
   }) {
@@ -332,14 +334,14 @@ class CaseModel {
       updatedAt:             updatedAt,
       organisationId:        organisationId        ?? this.organisationId,
       baseCurrency:          baseCurrency          ?? this.baseCurrency,
-      policyUcr:             policyUcr             ?? this.policyUcr,
-      policyNumber:          policyNumber          ?? this.policyNumber,
       policyType:            policyType            ?? this.policyType,
       instructingParty:      instructingParty      ?? this.instructingParty,
       instructingPartyRole:  instructingPartyRole  ?? this.instructingPartyRole,
       assured:               assured               ?? this.assured,
       dateOfFirstAttendance: dateOfFirstAttendance ?? this.dateOfFirstAttendance,
       surveyLocation:        surveyLocation        ?? this.surveyLocation,
+      costEstimateStatus:    costEstimateStatus    ?? this.costEstimateStatus,
+      estimatedRepairCost:   estimatedRepairCost   ?? this.estimatedRepairCost,
       vesselName:            vesselName            ?? this.vesselName,
       clientName:            clientName            ?? this.clientName,
       checklistProgress:     checklistProgress,
@@ -387,6 +389,68 @@ enum IspsStatus {
 
   static IspsStatus fromValue(String v) =>
       values.firstWhere((e) => e.value == v, orElse: () => IspsStatus.tbc);
+}
+
+/// Which regulatory framework the vessel is surveyed to — drives which
+/// particulars fields apply (see docs/report_builder_editor_notes.md §3).
+enum RegulatoryStandard {
+  convention('convention', 'Convention Vessel'),
+  dcv('dcv', 'DCV — National Law');
+
+  const RegulatoryStandard(this.value, this.label);
+  final String value;
+  final String label;
+
+  static RegulatoryStandard fromValue(String v) => values
+      .firstWhere((e) => e.value == v, orElse: () => RegulatoryStandard.convention);
+}
+
+/// AMSA Vessel Use Class (DCV vessels only) — combines with
+/// [AmsaServiceCategory] into the displayed notation e.g. "Class 3B".
+enum AmsaVesselUseClass {
+  class1('1', 'Class 1 — Passenger'),
+  class2('2', 'Class 2 — Non-passenger'),
+  class3('3', 'Class 3 — Fishing'),
+  class4('4', 'Class 4 — Hire and drive');
+
+  const AmsaVesselUseClass(this.value, this.label);
+  final String value;
+  final String label;
+
+  static AmsaVesselUseClass fromValue(String v) => values
+      .firstWhere((e) => e.value == v, orElse: () => AmsaVesselUseClass.class1);
+}
+
+/// AMSA Service Category suffix (DCV vessels only) — the operational-area
+/// letter appended to [AmsaVesselUseClass], e.g. "3B".
+enum AmsaServiceCategory {
+  a('a', 'A — Unlimited domestic'),
+  b('b', 'B — Offshore (to 200nm)'),
+  c('c', 'C — Restricted offshore (to 30nm)'),
+  d('d', 'D — Partially smooth water'),
+  e('e', 'E — Smooth / sheltered water');
+
+  const AmsaServiceCategory(this.value, this.label);
+  final String value;
+  final String label;
+
+  static AmsaServiceCategory fromValue(String v) => values
+      .firstWhere((e) => e.value == v, orElse: () => AmsaServiceCategory.a);
+}
+
+enum HullMaterial {
+  steel('steel', 'Steel'),
+  aluminium('aluminium', 'Aluminium'),
+  grp('grp', 'GRP'),
+  frp('frp', 'FRP'),
+  timber('timber', 'Timber');
+
+  const HullMaterial(this.value, this.label);
+  final String value;
+  final String label;
+
+  static HullMaterial fromValue(String v) =>
+      values.firstWhere((e) => e.value == v, orElse: () => HullMaterial.steel);
 }
 
 // ── Vessel Model ──────────────────────────────────────────────────────────
@@ -443,6 +507,15 @@ class VesselModel {
     this.pscSummary,
     this.piClub,
     this.ispsStatus,
+    this.regulatoryStandard,
+    this.amsaVesselUseClass,
+    this.amsaServiceCategory,
+    this.hullMaterial,
+    this.uniqueVesselIdentifier,
+    this.surveyCertificateNo,
+    this.equipmentSurveyDue,
+    this.hullSurveyDue,
+    this.tailShaftSurveyDue,
     this.createdAt,
     this.updatedAt,
   });
@@ -496,8 +569,24 @@ class VesselModel {
   final PscResult? pscLastResult;
   final String? piClub;
   final IspsStatus? ispsStatus;
+  final RegulatoryStandard? regulatoryStandard;
+  final AmsaVesselUseClass? amsaVesselUseClass;
+  final AmsaServiceCategory? amsaServiceCategory;
+  final HullMaterial? hullMaterial;
+  final String? uniqueVesselIdentifier;
+  final String? surveyCertificateNo;
+  final DateTime? equipmentSurveyDue;
+  final DateTime? hullSurveyDue;
+  final DateTime? tailShaftSurveyDue;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  /// Combined AMSA class notation e.g. "Class 3B" — null until both parts
+  /// are set.
+  String? get amsaClassDisplay =>
+      (amsaVesselUseClass != null && amsaServiceCategory != null)
+          ? 'Class ${amsaVesselUseClass!.value}${amsaServiceCategory!.value.toUpperCase()}'
+          : null;
 
   factory VesselModel.fromJson(Map<String, dynamic> json) {
     return VesselModel(
@@ -559,6 +648,29 @@ class VesselModel {
       ispsStatus:          json['isps_status'] != null
           ? IspsStatus.fromValue(json['isps_status'] as String)
           : null,
+      regulatoryStandard:  json['regulatory_standard'] != null
+          ? RegulatoryStandard.fromValue(json['regulatory_standard'] as String)
+          : null,
+      amsaVesselUseClass:  json['amsa_vessel_use_class'] != null
+          ? AmsaVesselUseClass.fromValue(json['amsa_vessel_use_class'] as String)
+          : null,
+      amsaServiceCategory: json['amsa_service_category'] != null
+          ? AmsaServiceCategory.fromValue(json['amsa_service_category'] as String)
+          : null,
+      hullMaterial:        json['hull_material'] != null
+          ? HullMaterial.fromValue(json['hull_material'] as String)
+          : null,
+      uniqueVesselIdentifier: json['unique_vessel_identifier'] as String?,
+      surveyCertificateNo:    json['survey_certificate_no'] as String?,
+      equipmentSurveyDue:  json['equipment_survey_due'] != null
+          ? DateTime.tryParse(json['equipment_survey_due'] as String)
+          : null,
+      hullSurveyDue:       json['hull_survey_due'] != null
+          ? DateTime.tryParse(json['hull_survey_due'] as String)
+          : null,
+      tailShaftSurveyDue:  json['tail_shaft_survey_due'] != null
+          ? DateTime.tryParse(json['tail_shaft_survey_due'] as String)
+          : null,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -618,6 +730,18 @@ class VesselModel {
     if (pscSummary != null)           'psc_summary':            pscSummary,
     if (piClub != null)               'pi_club':                piClub,
     if (ispsStatus != null)           'isps_status':            ispsStatus!.value,
+    if (regulatoryStandard != null)   'regulatory_standard':    regulatoryStandard!.value,
+    if (amsaVesselUseClass != null)   'amsa_vessel_use_class':  amsaVesselUseClass!.value,
+    if (amsaServiceCategory != null)  'amsa_service_category':  amsaServiceCategory!.value,
+    if (hullMaterial != null)         'hull_material':          hullMaterial!.value,
+    if (uniqueVesselIdentifier != null) 'unique_vessel_identifier': uniqueVesselIdentifier,
+    if (surveyCertificateNo != null)  'survey_certificate_no':  surveyCertificateNo,
+    if (equipmentSurveyDue != null)
+      'equipment_survey_due': equipmentSurveyDue!.toIso8601String().split('T').first,
+    if (hullSurveyDue != null)
+      'hull_survey_due': hullSurveyDue!.toIso8601String().split('T').first,
+    if (tailShaftSurveyDue != null)
+      'tail_shaft_survey_due': tailShaftSurveyDue!.toIso8601String().split('T').first,
   };
 
   /// Apply AI-extracted fields on top of existing data
@@ -672,6 +796,15 @@ class VesselModel {
       pscSummary:            pscSummary,
       piClub:                piClub,
       ispsStatus:            ispsStatus,
+      regulatoryStandard:      regulatoryStandard,
+      amsaVesselUseClass:      amsaVesselUseClass,
+      amsaServiceCategory:     amsaServiceCategory,
+      hullMaterial:            hullMaterial,
+      uniqueVesselIdentifier:  uniqueVesselIdentifier,
+      surveyCertificateNo:     surveyCertificateNo,
+      equipmentSurveyDue:      equipmentSurveyDue,
+      hullSurveyDue:           hullSurveyDue,
+      tailShaftSurveyDue:      tailShaftSurveyDue,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

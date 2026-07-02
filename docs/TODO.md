@@ -1,6 +1,6 @@
 # Marine Survey App — Master To-Do List
 
-**Last updated:** 30 June 2026 — codebase re-audited; many items marked Done  
+**Last updated:** 1 July 2026 — added attendance reorder, EXIF photo assignment, section sub-paragraphs  
 **Spec reference:** `docs/report_builder_specs`  
 **Schema reference:** `docs/SCHEMA.md`  
 **Test sheet:** `TEST_SHEET.md` (110 items, all untested)
@@ -183,6 +183,61 @@ Current state: all major sections coded. Re-audit against spec:
 
 **Spec:** §2.2
 
+### 2.12 Section Sub-Paragraphs (Oceanoservices format only)
+- [ ] Data model: allow narrative sections to have child paragraphs, each with its own title and content
+- [ ] Numbering: parent section gets `N.` prefix; children get `N.1`, `N.2`, … — e.g. §3 Opening → §3.1 Background, §3.2 Notifications
+- [ ] Editor UI: add / remove / reorder sub-paragraphs within a section card
+- [ ] TOC auto-update: child entries indented under parent, with correct page numbers
+- [ ] Preview: sub-paragraph headings rendered at a visually subordinate level to section headings
+
+### 2.13 Background Narrative Structuring (Clause D-1)
+- [ ] `occurrence.background_narrative` currently does double duty: it's both the surveyor's own background account (rendered under §8 Background) and, per the legal_clauses.md audit, is meant to also cover D-1 — the *owners'* description of events leading up to first attendance, which the spec frames as a distinct voice/perspective from the surveyor's own narrative.
+- [ ] Decide/implement: either split into two fields (owners' pre-attendance account vs. surveyor's background), or restructure the single field with a clear internal convention (e.g. a leading owners'-account subsection) so both purposes are served without conflating them.
+- [ ] Confirmed 2026-07-02: keep using `background_narrative` for now, but this structuring is a known follow-up, not resolved.
+
+**Spec:** see `docs/legal_clauses.md` Part D (D-1)
+
+### 2.14 REPAIR TIMES section likely always blank in real reports
+- [ ] Discovered 2026-07-03 while building Phase 2 UI: the "REPAIR TIMES" table in `docx_export_service.dart` (and Clause I-1's guidance text) reads from `assembled.repairRecords`, sourced from the `repair_records` table — which has **zero rows and no Dart model or screen writing to it at all**. It's dead/legacy.
+- [ ] The actively-used table for this concept is `repair_periods` (`RepairPeriodModel`, has a real screen: `repair_periods_screen.dart`), which stores drydock/alongside days in a `repair_times` jsonb column (`RepairTimeEntry`), keyed by occurrence/owner — a different shape from `repair_records`' flat `drydock_days`/`afloat_days`/`owner_days` columns.
+- [ ] Fix: rewrite the REPAIR TIMES table + Clause I-1 rendering to aggregate `repair_periods.repair_times` instead of `repair_records`. Not fixed yet — flagged only, out of scope for the Phase 2 clause UI work (see `docs/legal_clauses.md`).
+- [ ] Note: F-2/F-5 (services provided / hot work) were correctly placed on `repair_periods` during this same session, once this table confusion was caught — see `docs/legal_clauses.md` 2026-07-03 entry.
+
+### 2.15 Documentation section: only 2 meaningful availability states, not 3
+- [ ] The new case-home "Documentation" card (K-2, added 2026-07-03) wants three categories — enclosed in report / retained on file / requested — but `DocAvailability` only has `enclosed`/`requested`/`not_available`/`tbc`, i.e. no distinction between "enclosed in the exported report" and "retained on file but not enclosed". Currently both concepts collapse into `enclosed`, labelled "On File" in the summary card.
+- [ ] If the distinction matters in practice, needs either a new `DocAvailability` value or a separate boolean (e.g. `included_in_report`) — not added now since it wasn't clear this distinction is actually needed day-to-day.
+
+---
+
+## PHASE 1 — Case Management Enhancements
+
+### 3.1 Attendance Editor — Attendee Ordering
+- [ ] Manual drag-to-reorder attendees within an attendance record
+- [ ] Persist order via `sort_order` int on `attendees` table (add migration)
+- [ ] Attendance list renders attendees sorted by `sort_order`
+- [ ] Default order: insertion order (existing rows get `sort_order` = row index on migration)
+
+### 3.2 Photo-to-Attendance Assignment (EXIF-based)
+- [ ] Read `DateTimeOriginal` EXIF tag from each imported photo at import time; store as `taken_at` on `photos` table
+- [ ] Auto-assign: after import, match `taken_at` against available attendance date ranges and set `attendance_id` automatically where unambiguous
+- [ ] Conflict handling: if a photo timestamp falls in more than one attendance range (or in none), leave unassigned and flag for manual review
+- [ ] Manual assignment UI: unassigned photos surfaced in a review sheet; surveyor picks the attendance from a list
+- [ ] Bulk auto-assign action: re-run the EXIF matching pass on demand (e.g. after adding a new attendance)
+
+### 3.3 Google Photos Integration — Photos Routed to Visit Date
+- [ ] When photos are added to an attendance/visit, upload them to Google Photos and file them under an album named for that visit date (e.g. `"2026-06-28 — MV Surveyor — Attendance 1"`)
+- [ ] Use `taken_at` (EXIF) as the photo date so Google Photos timeline reflects the actual survey date, not the upload date
+- [ ] Requires Google OAuth + Photos Library API (`photoslibrary.appendonly` scope); reuse token store from §2.1 Google Workspace integration
+- [ ] On upload failure, queue for retry and surface status in the photo gallery
+- [ ] See also Phase 3 — Google Workspace integration (broader Drive/Gmail/Photos roadmap)
+
+### 3.4 Documentation Section (Case Page) + Auto-Generated Document Request Email
+- [ ] New case-page "Documentation" section summarising three categories: documents enclosed in the report, documents retained on file, documents requested (not yet received) — backed by `documents.availability` (`enclosed`/`requested`/`not_available`/`tbc`, already exists) plus new `documents.requested_date` (added 2026-07-02) and existing `received_date`
+- [ ] Support free-form ad-hoc "requested" line items with no file attached yet (e.g. requesting something on site during a visit) — `documents` already supports a nullable `file_path`, so no schema change needed there
+- [ ] Works both pre-survey and post-survey, not tied to a specific attendance
+- [ ] Auto-generate an email listing all outstanding requested documents (to Owners/Repairers), from the same data — **not started**
+- [ ] See `docs/legal_clauses.md` Part K (K-2) for the report-side rendering, already implemented
+
 ---
 
 ## PHASE 2 — Pre-Launch (Commercial Deployment)
@@ -223,6 +278,7 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 - [ ] **Document scanner** — camera-based perspective warp + corner detection (`document_warp.dart` skeleton exists)
 - [ ] **P&I integration** — separate report format, policy type support
 - [ ] **Shared Drive / NAS export** — bulk photo export for case archive
+- [ ] **Instructing party linkage** — `cases.instructing_party` is currently a free-text field; should become a FK to `principals_clients` so contact details, billing address, and email domain are auto-populated. Report builder already joins `principals_clients` for the client — pattern established, just needs extending
 
 ---
 
@@ -236,6 +292,7 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 | Q4 | `docx_template` package or raw XML for cover page (separate template) — can `docx_template` handle two templates per export? | Spec §1.2.1 |
 | Q5 | SHA-256 prompt hashing: hash the full prompt text before or after variable substitution? | Spec §3.3 |
 | Q6 | Annexure I (AI Audit Record) — should it be locked in Supabase (snapshot) or always regenerated from `ai_generation_log`? | Spec §3.4 |
+| Q7 | EXIF photo assignment: use device-local `taken_at` timestamp or server receipt time as fallback when EXIF is absent? | §3.2 |
 
 ---
 

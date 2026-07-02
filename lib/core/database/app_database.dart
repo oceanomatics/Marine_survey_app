@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 10,
+      version: 11,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -50,7 +50,9 @@ class AppDatabase {
         taken_at        TEXT NOT NULL,
         sync_status     TEXT NOT NULL DEFAULT 'local_only',
         remote_path     TEXT,
-        file_size_kb    REAL
+        file_size_kb    REAL,
+        placement_mode  TEXT,
+        photo_source    TEXT
       )
     ''');
 
@@ -93,13 +95,18 @@ class AppDatabase {
     ''');
   }
 
-  // Prototype mode: SQLite is a disposable cache — Supabase is authoritative.
-  // Any schema change just bumps the version here; the cache is wiped and
-  // rebuilt from Supabase on next launch.
+  // NOTE: despite the module comment above, `photos` and `correspondence`
+  // are NOT Supabase-backed — both are 100% local (dart:io files indexed
+  // here), so dropping them on upgrade permanently destroys captions,
+  // allocations, links, and extracted summaries with no way to recover
+  // them (only the bare files would survive, via photos' orphan-file
+  // recovery scan). Only `surveyor_notes` is a genuine Supabase cache.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    await db.execute('DROP TABLE IF EXISTS photos');
-    await db.execute('DROP TABLE IF EXISTS correspondence');
-    await db.execute('DROP TABLE IF EXISTS surveyor_notes');
-    await _onCreate(db, newVersion);
+    if (oldVersion < 11) {
+      // Additive: placement_mode/photo_source for Section 7 photo
+      // placement modes (docs/report_builder_editor_notes.md).
+      await db.execute('ALTER TABLE photos ADD COLUMN placement_mode TEXT');
+      await db.execute('ALTER TABLE photos ADD COLUMN photo_source TEXT');
+    }
   }
 }

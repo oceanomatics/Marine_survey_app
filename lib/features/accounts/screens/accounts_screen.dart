@@ -5,6 +5,7 @@ import '../models/accounts_models.dart';
 import '../providers/accounts_provider.dart';
 import '../widgets/import_invoice_sheet.dart';
 import '../../../features/survey/providers/damage_provider.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
           occurrences: widget.occurrences,
           allLines: submitted.expand((d) => d.accountLines).toList(),
         ),
+        _CostEstimateSelector(caseId: widget.caseId),
         TabBar(
           controller: _tabs,
           labelColor: _kAccent,
@@ -172,7 +174,7 @@ class _DocList extends StatelessWidget {
                 color: AppColors.textSecondary.withValues(alpha: 0.4)),
             const SizedBox(height: 10),
             Text(emptyText,
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.textSecondary, fontSize: 14)),
           ],
         ),
@@ -326,7 +328,7 @@ class _SummaryBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Summary',
+          const Text('Summary',
               style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 11,
@@ -352,6 +354,139 @@ class _SummaryBanner extends StatelessWidget {
                     ],
                   ),
                 )),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Cost estimate status (Clause G-1) ───────────────────────────────────────
+
+const _kCostStatusOptions = {
+  'no_invoices_yet':          'No Invoices Yet',
+  'ongoing_partial_invoices': 'Ongoing — Partial Invoices',
+  'completed_all_invoices':   'Completed — All Invoices In',
+};
+
+class _CostEstimateSelector extends ConsumerStatefulWidget {
+  const _CostEstimateSelector({required this.caseId});
+  final String caseId;
+
+  @override
+  ConsumerState<_CostEstimateSelector> createState() =>
+      _CostEstimateSelectorState();
+}
+
+class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
+  final _estimateCtrl = TextEditingController();
+  String? _pendingStatus;
+  bool _initialised = false;
+
+  @override
+  void dispose() {
+    _estimateCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _updateStatus(String status) async {
+    setState(() => _pendingStatus = status);
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(costEstimateStatus: status);
+  }
+
+  Future<void> _updateEstimate(String text) async {
+    final value = double.tryParse(text.trim());
+    if (value == null) return;
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(estimatedRepairCost: value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final caseModel = ref.watch(caseProvider(widget.caseId)).value;
+    if (caseModel == null) return const SizedBox.shrink();
+
+    final status = _pendingStatus ?? caseModel.costEstimateStatus;
+    if (!_initialised) {
+      _initialised = true;
+      if (caseModel.estimatedRepairCost != null) {
+        _estimateCtrl.text =
+            caseModel.estimatedRepairCost!.toStringAsFixed(0);
+      }
+    }
+
+    final showEstimateField =
+        status == 'no_invoices_yet' || status == 'ongoing_partial_invoices';
+
+    return Container(
+      color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Cost Estimate Status',
+              style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: _kCostStatusOptions.entries.map((e) {
+              final selected = status == e.key;
+              return GestureDetector(
+                onTap: () => _updateStatus(e.key),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? _kAccent.withValues(alpha: 0.12)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: selected ? _kAccent : AppColors.border,
+                        width: selected ? 1.5 : 1),
+                  ),
+                  child: Text(e.value,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w400,
+                          color: selected
+                              ? _kAccent
+                              : AppColors.textSecondary)),
+                ),
+              );
+            }).toList(),
+          ),
+          if (showEstimateField) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: 180,
+              child: TextField(
+                controller: _estimateCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixText: '${caseModel.baseCurrency ?? ''} ',
+                  hintText: 'Estimated cost',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+                onSubmitted: _updateEstimate,
+                onEditingComplete: () => _updateEstimate(_estimateCtrl.text),
+              ),
+            ),
           ],
         ],
       ),
@@ -431,7 +566,7 @@ class _DocumentCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       doc.effectiveName,
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.w600,
                           fontSize: 14),
@@ -443,7 +578,7 @@ class _DocumentCard extends StatelessWidget {
               if (doc.supplierName != null) ...[
                 const SizedBox(height: 4),
                 Text(doc.supplierName!,
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 12)),
               ],
               const SizedBox(height: 8),
@@ -462,7 +597,7 @@ class _DocumentCard extends StatelessWidget {
                   if (doc.totalIncTax != null)
                     Text(
                       _fmtMoney(doc.totalIncTax!, doc.currency),
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.bold,
                           fontSize: 14),
@@ -473,7 +608,7 @@ class _DocumentCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   '${doc.accountLines.length} line${doc.accountLines.length == 1 ? '' : 's'}',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 11),
                 ),
               ],
@@ -483,7 +618,7 @@ class _DocumentCard extends StatelessWidget {
                   doc.aiPresentationDraft!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 12,
                       fontStyle: FontStyle.italic),
@@ -542,7 +677,7 @@ class _InfoChip extends StatelessWidget {
             Icon(icon, size: 11, color: AppColors.textSecondary),
             const SizedBox(width: 3),
             Text(label,
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.textSecondary, fontSize: 11)),
           ],
         ),

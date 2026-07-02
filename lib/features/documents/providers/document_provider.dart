@@ -69,6 +69,7 @@ class DocumentModel {
     this.source,
     this.docDate,
     this.receivedDate,
+    this.requestedDate,
     this.filePath,
     this.fileType,
     this.fileSizeKb,
@@ -92,6 +93,8 @@ class DocumentModel {
   final String? source;
   final DateTime? docDate;
   final DateTime? receivedDate;
+  /// Clause K-2: date the document was requested (availability == requested).
+  final DateTime? requestedDate;
   final String? filePath;
   final String? fileType;
   final double? fileSizeKb;
@@ -131,6 +134,9 @@ class DocumentModel {
             : null,
         receivedDate: j['received_date'] != null
             ? DateTime.tryParse(j['received_date'] as String)
+            : null,
+        requestedDate: j['requested_date'] != null
+            ? DateTime.tryParse(j['requested_date'] as String)
             : null,
         filePath: j['file_path'] as String?,
         fileType: j['file_type'] as String?,
@@ -173,6 +179,7 @@ class DocumentModel {
         source: source,
         docDate: docDate,
         receivedDate: receivedDate,
+        requestedDate: requestedDate,
         filePath: filePath,
         fileType: fileType,
         fileSizeKb: fileSizeKb,
@@ -474,7 +481,11 @@ class DocumentNotifier
     DocCategory? category,
     DocAvailability availability = DocAvailability.requested,
     String? notes,
+    DateTime? requestedDate,
   }) async {
+    final effectiveRequestedDate = availability == DocAvailability.requested
+        ? (requestedDate ?? DateTime.now())
+        : requestedDate;
     final data = await SupabaseService.client
         .from('documents')
         .insert({
@@ -483,6 +494,9 @@ class DocumentNotifier
           'doc_category': category?.value,
           'availability': availability.value,
           if (notes != null) 'notes': notes,
+          if (effectiveRequestedDate != null)
+            'requested_date':
+                effectiveRequestedDate.toIso8601String().split('T').first,
         })
         .select()
         .single();

@@ -31,6 +31,7 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
 
   final _nameCtrl    = TextEditingController();
   final _companyCtrl = TextEditingController();
+  AttendeeTitle? _newTitle;
   AttendeeRole? _newRole;
   bool _adding = false;
   String? _error;
@@ -67,6 +68,7 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
         caseId:       widget.caseId,
         fullName:     name,
         attendanceId: widget.attendanceId,
+        title:        _newTitle,
         roleType:     _newRole,
         company:      _companyCtrl.text.trim().isEmpty
             ? null
@@ -79,6 +81,7 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
                 .compareTo(b.roleType?.sortOrder ?? 99));
         _nameCtrl.clear();
         _companyCtrl.clear();
+        _newTitle = null;
         _newRole = null;
       });
     } catch (e) {
@@ -179,14 +182,60 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
                 ),
                 child: Column(
                   children: [
-                    // Name
-                    TextField(
-                      controller: _nameCtrl,
-                      textCapitalization: TextCapitalization.words,
-                      style: const TextStyle(
-                          fontSize: 14, color: AppColors.textPrimary),
-                      decoration: _inputDeco('Full name'),
-                    ),
+                    // Title + name on one row
+                    Row(children: [
+                      SizedBox(
+                        width: 88,
+                        child: Container(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: AppColors.border),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: DropdownButton<AttendeeTitle?>(
+                            value: _newTitle,
+                            isExpanded: true,
+                            underline: const SizedBox.shrink(),
+                            isDense: true,
+                            hint: const Text('Title',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textTertiary)),
+                            items: [
+                              const DropdownMenuItem(
+                                  value: null,
+                                  child: Text('—',
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color:
+                                              AppColors.textTertiary))),
+                              ...AttendeeTitle.values.map((t) =>
+                                  DropdownMenuItem(
+                                    value: t,
+                                    child: Text(t.label,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppColors.textPrimary)),
+                                  )),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _newTitle = v),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _nameCtrl,
+                          textCapitalization: TextCapitalization.words,
+                          style: const TextStyle(
+                              fontSize: 14, color: AppColors.textPrimary),
+                          decoration: _inputDeco('Full name'),
+                        ),
+                      ),
+                    ]),
                     const SizedBox(height: 8),
                     // Role + company on one row
                     Row(children: [
@@ -338,7 +387,9 @@ class _AttendeeRowState extends State<_AttendeeRow> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.attendee.fullName,
+                widget.attendee.title != null
+                    ? '${widget.attendee.title!.label} ${widget.attendee.fullName}'
+                    : widget.attendee.fullName,
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,

@@ -72,6 +72,51 @@ class VesselForCaseNotifier extends FamilyAsyncNotifier<VesselModel?, String> {
     return vessel;
   }
 
+  /// Looks up a vessel by IMO number, excluding [excludeVesselId] (the case's
+  /// own current vessel, if any). Used to offer linking to an existing
+  /// vessel record instead of hitting an IMO conflict on save.
+  Future<({String vesselId, String? name})?> findVesselByImo(
+    String imoNumber, {
+    String? excludeVesselId,
+  }) async {
+    if (imoNumber.trim().isEmpty) return null;
+    var query = SupabaseService.client
+        .from('vessels')
+        .select('vessel_id, name')
+        .eq('imo_number', imoNumber.trim());
+    if (excludeVesselId != null) {
+      query = query.neq('vessel_id', excludeVesselId);
+    }
+    final result = await query.maybeSingle();
+    if (result == null) return null;
+    return (
+      vesselId: result['vessel_id'] as String,
+      name: result['name'] as String?,
+    );
+  }
+
+  /// Links the case to an already-existing vessel record (rather than
+  /// creating a new one), and loads that vessel's data.
+  Future<VesselModel> linkExistingVessel({
+    required String caseId,
+    required String existingVesselId,
+  }) async {
+    await SupabaseService.client
+        .from('cases')
+        .update({'vessel_id': existingVesselId})
+        .eq('case_id', caseId);
+
+    final data = await SupabaseService.client
+        .from('vessels')
+        .select()
+        .eq('vessel_id', existingVesselId)
+        .single();
+
+    final vessel = VesselModel.fromJson(data);
+    state = AsyncData(vessel);
+    return vessel;
+  }
+
   /// Save all vessel particulars fields.
   /// IMO is handled separately — if another vessel already owns the supplied
   /// IMO, [ImoConflictException] is thrown instead of hitting a 23505.

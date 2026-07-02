@@ -11,12 +11,18 @@ class SectionEditor extends StatefulWidget {
     required this.isLocked,
     required this.onContentChanged,
     required this.onSurveyorReviewChanged,
+    this.sectionNumber,
+    this.onDraftWithAi,
   });
 
   final ReportSection section;
   final bool isLocked;          // report-level lock (issued/locked status)
   final ValueChanged<String> onContentChanged;
   final ValueChanged<SurveyorReview> onSurveyorReviewChanged;
+  final int? sectionNumber;     // e.g. 1 for §1 Opening; null for unnumbered sections
+  /// When non-null, shows a "Draft with AI" button in the header — offered
+  /// only for empty, unlocked, AI-draftable sections (background/causation).
+  final VoidCallback? onDraftWithAi;
 
   @override
   State<SectionEditor> createState() => _SectionEditorState();
@@ -84,7 +90,9 @@ class _SectionEditorState extends State<SectionEditor> {
                 Expanded(
                   child: Row(children: [
                     Text(
-                      section.title,
+                      widget.sectionNumber != null
+                          ? '${widget.sectionNumber}.  ${section.title}'
+                          : section.title,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -102,6 +110,22 @@ class _SectionEditorState extends State<SectionEditor> {
                           AppColors.lightBlue),
                   ]),
                 ),
+
+                // AI draft trigger (background/causation only, empty content)
+                if (widget.onDraftWithAi != null)
+                  TextButton.icon(
+                    onPressed: widget.onDraftWithAi,
+                    icon: const Icon(Icons.auto_awesome, size: 13),
+                    label: const Text('Draft with AI',
+                        style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w600)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.midBlue,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
 
                 // Expand/collapse
                 AnimatedRotation(

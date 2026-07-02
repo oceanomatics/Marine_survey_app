@@ -24,6 +24,9 @@ class DamageRegisterScreen extends ConsumerWidget {
     final damageAsync = ref.watch(damageProvider(caseId));
     final allPhotos   = ref.watch(photosProvider(caseId)).value ?? [];
     final vesselId    = ref.watch(vesselForCaseProvider(caseId)).value?.vesselId;
+    final machinery   = vesselId != null
+        ? ref.watch(machineryProvider(vesselId)).value ?? const <MachineryModel>[]
+        : const <MachineryModel>[];
 
     void showAddOccurrence() {
       showModalBottomSheet(
@@ -31,13 +34,17 @@ class DamageRegisterScreen extends ConsumerWidget {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (_) => AddOccurrenceSheet(
-          onSave: (title, dateTime, location, description) async {
+          onSave: (title, dateTime, location, description,
+              vesselStatusAtCasualty, aftermathStatus, aftermathPort) async {
             await ref.read(damageProvider(caseId).notifier).createOccurrence(
                   caseId: caseId,
                   title: title,
                   dateTime: dateTime,
                   location: location,
                   briefDescription: description,
+                  vesselStatusAtCasualty: vesselStatusAtCasualty,
+                  aftermathStatus: aftermathStatus,
+                  aftermathPort: aftermathPort,
                 );
           },
         ),
@@ -163,6 +170,7 @@ class DamageRegisterScreen extends ConsumerWidget {
                 caseId: caseId,
                 ds: ds,
                 allPhotos: allPhotos,
+                machinery: machinery,
                 onAddItem: showAddDamageItem,
                 onEditItem: showEditDamageItem,
                 onDeleteItem: (damageId) => ref
@@ -187,6 +195,7 @@ class _DamageBody extends StatelessWidget {
     required this.caseId,
     required this.ds,
     required this.allPhotos,
+    required this.machinery,
     required this.onAddItem,
     required this.onEditItem,
     required this.onDeleteItem,
@@ -199,6 +208,7 @@ class _DamageBody extends StatelessWidget {
   final String caseId;
   final DamageState ds;
   final List<PhotoModel> allPhotos;
+  final List<MachineryModel> machinery;
   final ValueChanged<String> onAddItem;
   final ValueChanged<DamageItemModel> onEditItem;
   final ValueChanged<String> onDeleteItem;
@@ -211,7 +221,8 @@ class _DamageBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomScrollView(
       slivers: [
-        for (final occ in ds.occurrences) ...[
+        for (final occ in (List.of(ds.occurrences)
+              ..sort((a, b) => a.occurrenceNo.compareTo(b.occurrenceNo)))) ...[
           SliverToBoxAdapter(
             child: _OccurrenceHeader(
               occurrence: occ,
@@ -221,42 +232,33 @@ class _DamageBody extends StatelessWidget {
             ),
           ),
 
-          for (final cat in DamageCategory.values) ...[
-            if (ds
-                .itemsForOccurrenceAndCategory(occ.occurrenceId, cat)
-                .isNotEmpty) ...[
-              SliverToBoxAdapter(
-                child: _CategorySubHeader(
-                  category: cat,
-                  count: ds
-                      .itemsForOccurrenceAndCategory(occ.occurrenceId, cat)
-                      .length,
-                ),
+          for (final group in _groupByClaimObject(
+              ds.itemsForOccurrence(occ.occurrenceId))) ...[
+            SliverToBoxAdapter(
+              child: _ClaimObjectSubHeader(
+                label: group.label,
+                count: group.items.length,
               ),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, i) {
-                    final items = ds.itemsForOccurrenceAndCategory(
-                        occ.occurrenceId, cat);
-                    final item = items[i];
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                      child: DamageItemCard(
-                        item: item,
-                        onEdit: () => onEditItem(item),
-                        onDelete: () => _confirmDelete(ctx, item.damageId),
-                        photos: allPhotos.forDamageItem(item.damageId),
-                        onAddPhoto: () => onAddPhoto(item.damageId),
-                        onDeletePhoto: onDeletePhoto,
-                      ),
-                    );
-                  },
-                  childCount: ds
-                      .itemsForOccurrenceAndCategory(occ.occurrenceId, cat)
-                      .length,
-                ),
+            ),
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (ctx, i) {
+                  final item = group.items[i];
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                    child: DamageItemCard(
+                      item: item,
+                      onEdit: () => onEditItem(item),
+                      onDelete: () => _confirmDelete(ctx, item.damageId),
+                      photos: allPhotos.forDamageItem(item.damageId),
+                      onAddPhoto: () => onAddPhoto(item.damageId),
+                      onDeletePhoto: onDeletePhoto,
+                    ),
+                  );
+                },
+                childCount: group.items.length,
               ),
-            ],
+            ),
           ],
 
           if (ds.itemsForOccurrence(occ.occurrenceId).isEmpty)
@@ -284,6 +286,31 @@ class _DamageBody extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Groups damage items by claim object (spec §7: claim-object-first, not
+  /// category-first) — machinery record when linked, otherwise the item's
+  /// own component name stands in as its claim object. Preserves the
+  /// items' existing sequence order both within and across groups.
+  List<_ClaimObjectGroup> _groupByClaimObject(List<DamageItemModel> items) {
+    final groups = <String, _ClaimObjectGroup>{};
+    for (final item in items) {
+      final key = item.machineryId ?? 'unlinked:${item.componentName}';
+      final existing = groups[key];
+      if (existing != null) {
+        existing.items.add(item);
+        continue;
+      }
+      final label = item.machineryId != null
+          ? machinery
+              .where((m) => m.machineryId == item.machineryId)
+              .map((m) => '${m.roleLabel}: ${m.displayName}')
+              .firstOrNull ??
+              item.componentName
+          : item.componentName;
+      groups[key] = _ClaimObjectGroup(label: label, items: [item]);
+    }
+    return groups.values.toList();
   }
 
   void _confirmDelete(BuildContext context, String damageId) {
@@ -448,29 +475,41 @@ class _OccurrenceHeader extends StatelessWidget {
       '${d.month.toString().padLeft(2, '0')}/${d.year}';
 }
 
-// ── Category sub-header ────────────────────────────────────────────────────
+// ── Claim object grouping ───────────────────────────────────────────────────
 
-class _CategorySubHeader extends StatelessWidget {
-  const _CategorySubHeader({
-    required this.category,
+class _ClaimObjectGroup {
+  _ClaimObjectGroup({required this.label, required this.items});
+  final String label;
+  final List<DamageItemModel> items;
+}
+
+// ── Claim object sub-header ────────────────────────────────────────────────
+
+class _ClaimObjectSubHeader extends StatelessWidget {
+  const _ClaimObjectSubHeader({
+    required this.label,
     required this.count,
   });
 
-  final DamageCategory category;
+  final String label;
   final int count;
 
   @override
   Widget build(BuildContext context) {
-    final color = _color(category);
+    const color = AppColors.coral;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 10, 16, 3),
       child: Row(children: [
-        Icon(_icon(category), size: 13, color: color),
+        const Icon(Icons.precision_manufacturing_outlined,
+            size: 13, color: color),
         const SizedBox(width: 6),
-        Text(
-          category.label,
-          style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w600, color: color),
+        Expanded(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600, color: color),
+          ),
         ),
         const SizedBox(width: 5),
         Text(
@@ -481,22 +520,6 @@ class _CategorySubHeader extends StatelessWidget {
       ]),
     );
   }
-
-  Color _color(DamageCategory cat) => switch (cat) {
-        DamageCategory.structuralExternal    => AppColors.coral,
-        DamageCategory.structuralInternal    => AppColors.navy,
-        DamageCategory.mechanical            => AppColors.amber,
-        DamageCategory.electricalElectronics => AppColors.purple,
-        DamageCategory.other                 => AppColors.textSecondary,
-      };
-
-  IconData _icon(DamageCategory cat) => switch (cat) {
-        DamageCategory.structuralExternal    => Icons.shield_outlined,
-        DamageCategory.structuralInternal    => Icons.home_outlined,
-        DamageCategory.mechanical            => Icons.settings_outlined,
-        DamageCategory.electricalElectronics => Icons.bolt_outlined,
-        DamageCategory.other                 => Icons.help_outline,
-      };
 }
 
 // ── Empty states ───────────────────────────────────────────────────────────

@@ -1,9 +1,14 @@
 // lib/features/reports/providers/report_provider.dart
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../../core/models/ai_generation_log_model.dart';
+import '../../survey/models/repair_period_model.dart';
+import '../../survey/providers/damage_provider.dart'
+    show ConditionStatus, ConfirmedByRole, CertaintyLevel;
 
 // ── Report output types ────────────────────────────────────────────────────
 
@@ -42,25 +47,67 @@ enum ReportStatus {
 // ── Section types ──────────────────────────────────────────────────────────
 
 enum SectionType {
-  opening,
-  vesselParticulars,
-  machineryParticulars,
-  occurrence,
-  attendees,
-  background,
-  damageDescription,
-  repairs,
-  causation,
-  allegation,
-  accounts,
-  repairTimes,
-  surveyorNotes,
-  classStatutory,
-  informationSources,
-  generalServices,
-  documentsOnFile,
-  waiver,
-  closing,
+  executiveSummary,        // Page 2 — auto-populated summary editable by surveyor
+  opening,              // §1  Introduction / Opening Certification
+  attendees,            // §2  Attending Representatives
+  vesselParticulars,    // §3  Vessel's Particulars
+  machineryParticulars, // §4  Machinery & Equipment (conditional)
+  classStatutory,       // §5  Class & Statutory Certification
+  informationSources,   // §6  Available Information Sources
+  // §7  Chronology — auto-table from timeline_events, no text section
+  background,           // §8  Background
+  occurrence,           // §9  Occurrence (brief description)
+  damageDescription,    // §9  Extent of Damage
+  allegation,           // §10 Owner's Allegation
+  causation,            // §10 Cause Consideration / Technical Analysis
+  repairs,              // §11 Repairs (narrative)
+  generalServices,      // §12 General Services & Access
+  accounts,             // §13 Repair Costs (auto-table; summary commentary)
+  repairTimes,          // §14 Repair Times (auto-table; summary commentary)
+  surveyorNotes,        // §15 Surveyor's Notes
+  documentsOnFile,      // §16 Documents Retained on File
+  documentsRequested,   // §17 Documents Requested / Outstanding
+  // §18 Principal Dates — not implemented; the Chronology auto-table
+  // (built from timeline_events, see §7) covers this in practice.
+  waiver,               // §19 Limitation of Liability / Waiver
+  closing,              // Sign-off block / Without Prejudice / Closing
+}
+
+/// Section display order for the Oceanoservices H&M report format (spec §4.1).
+/// Used by the editor tab and preview to display sections in the correct order.
+/// Other formats (Nordic, ABL) will have their own ordered lists.
+const oceanoSectionOrder = [
+  SectionType.executiveSummary,
+  SectionType.opening,
+  SectionType.attendees,
+  SectionType.vesselParticulars,
+  SectionType.machineryParticulars,
+  SectionType.classStatutory,
+  SectionType.informationSources,
+  SectionType.background,
+  SectionType.occurrence,
+  SectionType.damageDescription,
+  SectionType.allegation,
+  SectionType.causation,
+  SectionType.repairs,
+  SectionType.generalServices,
+  SectionType.accounts,
+  SectionType.repairTimes,
+  SectionType.surveyorNotes,
+  SectionType.documentsOnFile,
+  SectionType.documentsRequested,
+  SectionType.waiver,
+  SectionType.closing,
+];
+
+// Returns the Oceanoservices section number (1-based) for display.
+// executiveSummary is not a numbered body section — returns null.
+// The index in oceanoSectionOrder already encodes the number correctly:
+// executiveSummary is at index 0 (→ null), opening at index 1 (→ 1), etc.
+int? oceanoSectionNumber(SectionType type) {
+  if (type == SectionType.executiveSummary) return null;
+  final idx = oceanoSectionOrder.indexOf(type);
+  return idx > 0 ? idx : null;
 }
 
 // ── Clause model ───────────────────────────────────────────────────────────
@@ -135,6 +182,7 @@ class ReportSection {
     String? content,
     Object? surveyorReview = _sentinel,
     String? sectionId,
+    bool? aiDrafted,
   }) =>
       ReportSection(
         type:           type,
@@ -142,7 +190,7 @@ class ReportSection {
         content:        content        ?? this.content,
         clauseId:       clauseId,
         isLocked:       isLocked,
-        aiDrafted:      aiDrafted,
+        aiDrafted:      aiDrafted      ?? this.aiDrafted,
         surveyorReview: surveyorReview == _sentinel
             ? this.surveyorReview
             : surveyorReview as SurveyorReview?,
@@ -166,7 +214,8 @@ class ReportOutput {
     this.issuedTo,
     this.filePath,
     this.createdAt,
-    this.coverPhotoId,
+    this.supersedesVersion,
+    this.changesSummary,
   });
 
   final String outputId;
@@ -180,9 +229,10 @@ class ReportOutput {
   final String? issuedTo;
   final String? filePath;
   final DateTime? createdAt;
-  /// Photo ID override for the cover page — null means use the default
-  /// cover-allocated photo from the vessel particulars photos.
-  final String? coverPhotoId;
+  /// Version code this report supersedes, e.g. 'R001'. Auto-set at creation.
+  final String? supersedesVersion;
+  /// Brief summary of changes from the prior version — editable by surveyor.
+  final String? changesSummary;
 
   int get approvedCount => sections.where((s) => s.approved).length;
   bool get allApproved => sections.every((s) => s.approved);
@@ -216,7 +266,8 @@ class ReportOutput {
         createdAt:   j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
-        coverPhotoId: j['cover_photo_id'] as String?,
+        supersedesVersion: j['supersedes_version']  as String?,
+        changesSummary:    j['changes_summary']     as String?,
       );
 }
 
@@ -230,8 +281,9 @@ class AssembledReportData {
     required this.occurrences,
     required this.damageItems,
     required this.attendees,
+    required this.attendances,
     required this.certificates,
-    required this.repairRecords,
+    required this.repairPeriods,
     required this.clauses,
     required this.outputFormat,
     required this.repairDocuments,
@@ -240,6 +292,9 @@ class AssembledReportData {
     required this.machinery,
     required this.classConditions,
     required this.caseDocuments,
+    required this.requestedDocuments,
+    required this.aiGenerationLog,
+    required this.allReportOutputs,
     this.organisation,
   });
 
@@ -248,8 +303,16 @@ class AssembledReportData {
   final List<Map<String, dynamic>> occurrences;
   final List<Map<String, dynamic>> damageItems;
   final List<Map<String, dynamic>> attendees;
+  /// Attendance/visit records (survey_attendances) ordered oldest-first —
+  /// for the first-attendance date/location used in the opening clause (D-3).
+  final List<Map<String, dynamic>> attendances;
   final List<Map<String, dynamic>> certificates;
-  final List<Map<String, dynamic>> repairRecords;
+  /// Repair periods (repair_periods table) — the sole repair grouping
+  /// concept; feeds both the docx Repairs/Repair Times tables and the
+  /// repairs/repairTimes section narratives (the legacy `repair_records`
+  /// table had no writer UI and has been retired — see gap #3 in
+  /// docs/report_builder_editor_notes.md).
+  final List<Map<String, dynamic>> repairPeriods;
   final List<ClauseModel> clauses;
   final String outputFormat;
   /// Repair documents with nested account lines — for cost section assembly.
@@ -262,10 +325,16 @@ class AssembledReportData {
   final List<Map<String, dynamic>> machinery;
   /// Class conditions for the case.
   final List<Map<String, dynamic>> classConditions;
-  /// Documents on file for this case (for the documents section).
+  /// Documents on file for this case (for the documents section, Clause K-1).
   final List<Map<String, dynamic>> caseDocuments;
+  /// Documents requested but not yet received (Clause K-2).
+  final List<Map<String, dynamic>> requestedDocuments;
   /// Org config — present when the case has an organisation_id set.
   final Map<String, dynamic>? organisation;
+  /// All AI generation log entries for the case — for Annexure I + disclosure.
+  final List<AiGenerationLogModel> aiGenerationLog;
+  /// All report outputs for the case ordered newest-first — for version history table.
+  final List<Map<String, dynamic>> allReportOutputs;
 
   ClauseModel? clauseByType(String type) =>
       clauses.where((c) => c.clauseType == type).firstOrNull;
@@ -300,20 +369,29 @@ class ReportOutputsNotifier
     required String reportNumber,
     int sequenceNo = 1,
   }) async {
+    // Auto-set supersedes_version to the most recent existing output's version code
+    final existing = state.value ?? [];
+    String? supersedesVersion;
+    if (existing.isNotEmpty) {
+      // Most recent is first (ordered by created_at DESC in _fetch)
+      supersedesVersion = existing.first.versionCode;
+    }
+
     final data = await SupabaseService.client
         .from('report_outputs')
         .insert({
-          'case_id':       caseId,
-          'output_type':   type.value,
-          'report_number': reportNumber,
-          'sequence_no':   sequenceNo,
-          'status':        'draft',
+          'case_id':            caseId,
+          'output_type':        type.value,
+          'report_number':      reportNumber,
+          'sequence_no':        sequenceNo,
+          'status':             'draft',
+          if (supersedesVersion != null)
+            'supersedes_version': supersedesVersion,
         })
         .select()
         .single();
 
-    final output = ReportOutput.fromJson(
-        data, const []);
+    final output = ReportOutput.fromJson(data, const []);
     final current = state.value ?? [];
     state = AsyncData([output, ...current]);
     return output;
@@ -327,10 +405,10 @@ class ReportOutputsNotifier
     await refresh();
   }
 
-  Future<void> setCoverPhoto(String outputId, String? photoId) async {
+  Future<void> updateChangesSummary(String outputId, String summary) async {
     await SupabaseService.client
         .from('report_outputs')
-        .update({'cover_photo_id': photoId})
+        .update({'changes_summary': summary})
         .eq('output_id', outputId);
     await refresh();
   }
@@ -372,9 +450,15 @@ final assembledDataProvider =
         .select()
         .eq('case_id', caseId),
     SupabaseService.client
-        .from('repair_records')
+        .from('repair_periods')
         .select()
-        .eq('case_id', caseId),
+        .eq('case_id', caseId)
+        .order('period_no'),
+    SupabaseService.client
+        .from('survey_attendances')
+        .select()
+        .eq('case_id', caseId)
+        .order('attendance_date', ascending: true),
   ]);
 
   final caseData    = results[0] as Map<String, dynamic>;
@@ -382,41 +466,48 @@ final assembledDataProvider =
   final damageItems = (results[2] as List).cast<Map<String, dynamic>>();
   final attendees   = (results[3] as List).cast<Map<String, dynamic>>();
   final certificates = (results[4] as List).cast<Map<String, dynamic>>();
-  final repairs     = (results[5] as List).cast<Map<String, dynamic>>();
+  final repairPeriods = (results[5] as List).cast<Map<String, dynamic>>();
+  final attendances = (results[6] as List).cast<Map<String, dynamic>>();
 
   final outputFormat =
       caseData['output_format'] as String? ?? 'abl';
 
-  // Fetch clauses for this format
-  final clauseData = await SupabaseService.client
-      .from('clause_library')
-      .select()
-      .eq('format_type', outputFormat)
-      .eq('deprecated', false);
-
-  final clauses = (clauseData as List)
-      .map((c) => ClauseModel.fromJson(c as Map<String, dynamic>))
-      .toList();
+  // Fetch clauses for this format — table may not be seeded yet
+  List<ClauseModel> clauses = [];
+  try {
+    final clauseData = await SupabaseService.client
+        .from('clause_library')
+        .select()
+        .eq('format_type', outputFormat)
+        .eq('deprecated', false);
+    clauses = (clauseData as List)
+        .map((c) => ClauseModel.fromJson(c as Map<String, dynamic>))
+        .toList();
+  } catch (_) {}
 
   final vessel = caseData['vessels'] as Map<String, dynamic>?;
 
   // Fetch repair documents with nested account lines
-  final repairDocData = await SupabaseService.client
-      .from('repair_documents')
-      .select('*, account_lines(*)')
-      .eq('case_id', caseId)
-      .order('created_at');
-  final repairDocuments =
-      (repairDocData as List).cast<Map<String, dynamic>>();
+  List<Map<String, dynamic>> repairDocuments = [];
+  try {
+    final repairDocData = await SupabaseService.client
+        .from('repair_documents')
+        .select('*, account_lines(*)')
+        .eq('case_id', caseId)
+        .order('created_at');
+    repairDocuments = (repairDocData as List).cast<Map<String, dynamic>>();
+  } catch (_) {}
 
   // Fetch timeline events ordered by date
-  final timelineData = await SupabaseService.client
-      .from('timeline_events')
-      .select()
-      .eq('case_id', caseId)
-      .order('event_date');
-  final timelineEvents =
-      (timelineData as List).cast<Map<String, dynamic>>();
+  List<Map<String, dynamic>> timelineEvents = [];
+  try {
+    final timelineData = await SupabaseService.client
+        .from('timeline_events')
+        .select()
+        .eq('case_id', caseId)
+        .order('event_date');
+    timelineEvents = (timelineData as List).cast<Map<String, dynamic>>();
+  } catch (_) {}
 
   // Fetch supplementary data in parallel
   final vesselId = vessel?['vessel_id'] as String?;
@@ -434,14 +525,18 @@ final assembledDataProvider =
           .order('machinery_type')
     else
       Future.value(<dynamic>[]),
-    SupabaseService.client
-        .from('class_conditions')
-        .select()
-        .eq('case_id', caseId)
-        .order('created_at'),
+    if (vesselId != null)
+      SupabaseService.client
+          .from('class_conditions')
+          .select()
+          .eq('vessel_id', vesselId)
+          .order('created_at')
+    else
+      Future.value(<dynamic>[]),
     SupabaseService.client
         .from('documents')
-        .select('doc_id, title, doc_category, doc_date, annexure_assignment')
+        .select('doc_id, title, doc_category, doc_date, annexure_assignment, '
+                'availability, requested_date, received_date')
         .eq('case_id', caseId)
         .order('doc_category'),
   ]);
@@ -449,54 +544,124 @@ final assembledDataProvider =
   final surveyorNotes   = List<Map<String, dynamic>>.from(supplementary[0]);
   final machinery       = List<Map<String, dynamic>>.from(supplementary[1]);
   final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
-  final caseDocuments   = List<Map<String, dynamic>>.from(supplementary[3]);
+  final allDocuments    = List<Map<String, dynamic>>.from(supplementary[3]);
+  // Clause K-1 vs K-2: split by availability rather than fetching twice.
+  final caseDocuments = allDocuments
+      .where((d) => d['availability'] == 'enclosed')
+      .toList();
+  final requestedDocuments = allDocuments
+      .where((d) => d['availability'] == 'requested')
+      .toList();
 
-  // Fetch org config if the case has one
+  // Fetch org config and AI generation log in parallel
   Map<String, dynamic>? organisation;
   final orgId = caseData['organisation_id'] as String?;
+  final aiLogFetch = SupabaseService.client
+      .from('ai_generation_log')
+      .select()
+      .eq('case_id', caseId)
+      .order('created_at');
+
+  final List<dynamic> aiLogRaw;
   if (orgId != null) {
-    try {
-      organisation = await SupabaseService.client
+    final parallel = await Future.wait([
+      SupabaseService.client
           .from('organisations')
           .select('*, surveyor_profiles(*)')
           .eq('id', orgId)
-          .maybeSingle();
-    } catch (_) {}
+          .maybeSingle()
+          .then((v) => v as dynamic)
+          .catchError((_) => null),
+      aiLogFetch,
+    ]);
+    organisation = parallel[0] as Map<String, dynamic>?;
+    aiLogRaw = parallel[1] as List<dynamic>;
+  } else {
+    aiLogRaw = await aiLogFetch;
   }
 
+  final aiGenerationLog = aiLogRaw
+      .cast<Map<String, dynamic>>()
+      .map(AiGenerationLogModel.fromJson)
+      .toList();
+
+  // Fetch all report outputs for the version history table
+  final allOutputsRaw = await SupabaseService.client
+      .from('report_outputs')
+      .select('output_id, report_number, sequence_no, output_type, status, '
+              'created_at, issued_date, supersedes_version, changes_summary')
+      .eq('case_id', caseId)
+      .order('created_at', ascending: false);
+  final allReportOutputs =
+      List<Map<String, dynamic>>.from(allOutputsRaw as List);
+
   return AssembledReportData(
-    caseData:       caseData,
-    vessel:         vessel,
-    occurrences:    occurrences,
-    damageItems:    damageItems,
-    attendees:      attendees,
-    certificates:   certificates,
-    repairRecords:  repairs,
-    clauses:        clauses,
-    outputFormat:   outputFormat,
+    caseData:        caseData,
+    vessel:          vessel,
+    occurrences:     occurrences,
+    damageItems:     damageItems,
+    attendees:       attendees,
+    attendances:     attendances,
+    certificates:    certificates,
+    repairPeriods:   repairPeriods,
+    clauses:         clauses,
+    outputFormat:    outputFormat,
     repairDocuments: repairDocuments,
     timelineEvents:  timelineEvents,
-    surveyorNotes:  surveyorNotes,
-    machinery:      machinery,
+    surveyorNotes:   surveyorNotes,
+    machinery:       machinery,
     classConditions: classConditions,
-    caseDocuments:  caseDocuments,
-    organisation:   organisation,
+    caseDocuments:   caseDocuments,
+    requestedDocuments: requestedDocuments,
+    aiGenerationLog:   aiGenerationLog,
+    allReportOutputs:  allReportOutputs,
+    organisation:      organisation,
   );
 });
 
 // ── Section assembly provider ──────────────────────────────────────────────
 
-final sectionDraftProvider =
-    StateNotifierProvider.family<SectionDraftNotifier,
-        Map<SectionType, ReportSection>, String>(
-  (ref, caseId) => SectionDraftNotifier(caseId),
+/// Key for [sectionDraftProvider] — sections are scoped to a specific report
+/// output (Preliminary/Advice/Final), not just the case, since a case can
+/// have several outputs that must not share draft state.
+typedef SectionDraftKey = ({String caseId, String outputId});
+
+final sectionDraftProvider = StateNotifierProvider.family<SectionDraftNotifier,
+    Map<SectionType, ReportSection>, SectionDraftKey>(
+  (ref, key) => SectionDraftNotifier(key.caseId, key.outputId),
 );
+
+/// A row loaded from `report_sections` — the persisted override for one
+/// section of one report output.
+@immutable
+class _PersistedSection {
+  const _PersistedSection({
+    required this.content,
+    required this.aiDrafted,
+    required this.surveyorReview,
+  });
+  final String content;
+  final bool aiDrafted;
+  final SurveyorReview? surveyorReview;
+}
 
 class SectionDraftNotifier
     extends StateNotifier<Map<SectionType, ReportSection>> {
-  SectionDraftNotifier(this.caseId) : super({});
+  SectionDraftNotifier(this.caseId, this.outputId) : super({});
 
   final String caseId;
+  final String outputId;
+  final Map<SectionType, Timer> _saveTimers = {};
+
+  @override
+  void dispose() {
+    for (final entry in _saveTimers.entries) {
+      entry.value.cancel();
+      _persist(entry.key);
+    }
+    _saveTimers.clear();
+    super.dispose();
+  }
 
   void setSection(SectionType type, ReportSection section) {
     state = {...state, type: section};
@@ -506,6 +671,9 @@ class SectionDraftNotifier
     final existing = state[type];
     if (existing != null) {
       state = {...state, type: existing.copyWith(content: content)};
+      _saveTimers[type]?.cancel();
+      _saveTimers[type] = Timer(
+          const Duration(milliseconds: 700), () => _persist(type));
     }
   }
 
@@ -516,56 +684,115 @@ class SectionDraftNotifier
         ...state,
         type: existing.copyWith(surveyorReview: review),
       };
+      _persist(type);
     }
   }
 
-  /// Build all sections from assembled data + optional AI drafting
+  /// Upserts the current in-memory content/review/aiDrafted for [type] into
+  /// `report_sections`, scoped by (output_id, section_type) — the table has
+  /// no case_id column; report_outputs.case_id is reachable via output_id
+  /// if ever needed. Best-effort — a failed save must never crash the
+  /// editor (matches [AiLogService]'s swallow-and-continue convention).
+  Future<void> _persist(SectionType type) async {
+    final section = state[type];
+    if (section == null || section.isLocked) return;
+    try {
+      await SupabaseService.client.from('report_sections').upsert({
+        'output_id':       outputId,
+        'section_type':    type.name,
+        'content':         section.content,
+        'ai_drafted':      section.aiDrafted,
+        'surveyor_review': section.surveyorReview?.name,
+      }, onConflict: 'output_id,section_type');
+    } catch (_) {
+      // Persistence failure must never break the editor.
+    }
+  }
+
+  /// Build all sections from assembled data in spec §4.1 order.
+  /// Every section is always created — empty string if no data yet.
   Future<void> buildSections(
     AssembledReportData data, {
     bool aiDraft = false,
   }) async {
     final sections = <SectionType, ReportSection>{};
 
-    // ── Opening (locked clause) ───────────────────────────────────
-    final openingClause = data.clauseByType('opening_certification');
-    if (openingClause != null) {
-      final text = _fillOpeningClause(openingClause.clauseText, data);
-      sections[SectionType.opening] = ReportSection(
-        type:     SectionType.opening,
-        title:    'Opening Certification',
-        content:  text,
-        clauseId: openingClause.clauseId,
-        isLocked: true,
-      );
-    }
+    // ── Page 2: Executive Summary ────────────────────────────────────
+    sections[SectionType.executiveSummary] = ReportSection(
+      type:    SectionType.executiveSummary,
+      title:   'Executive Summary',
+      content: _buildExecutiveSummaryTemplate(data),
+    );
 
-    // ── Vessel particulars (auto-populated) ───────────────────────
+    // ── §1: Introduction / Opening Certification ──────────────────
+    final openingClause = data.clauseByType('opening_certification');
+    sections[SectionType.opening] = ReportSection(
+      type:     SectionType.opening,
+      title:    'Introduction / Opening Certification',
+      content:  openingClause != null
+          ? _fillOpeningClause(openingClause.clauseText, data)
+          : '',
+      clauseId: openingClause?.clauseId,
+      isLocked: openingClause != null,
+    );
+
+    // ── §2: Attending Representatives ─────────────────────────────
+    sections[SectionType.attendees] = ReportSection(
+      type:    SectionType.attendees,
+      title:   'Attending Representatives',
+      content: data.attendees.isNotEmpty
+          ? _buildAttendeesText(data.attendees)
+          : '',
+    );
+
+    // ── §3: Vessel's Particulars ──────────────────────────────────
     sections[SectionType.vesselParticulars] = ReportSection(
       type:    SectionType.vesselParticulars,
-      title:   'Vessel Particulars',
+      title:   "Vessel's Particulars",
       content: _buildVesselText(data),
     );
 
-    // ── Attendees (auto-populated) ────────────────────────────────
-    if (data.attendees.isNotEmpty) {
-      sections[SectionType.attendees] = ReportSection(
-        type:    SectionType.attendees,
-        title:   'Attending the Survey',
-        content: _buildAttendeesText(data.attendees),
-      );
-    }
+    // ── §4: Machinery & Equipment (conditional in export) ─────────
+    sections[SectionType.machineryParticulars] = ReportSection(
+      type:    SectionType.machineryParticulars,
+      title:   'Machinery & Equipment Particulars',
+      content: data.machinery.isNotEmpty
+          ? _buildMachineryText(data.machinery)
+          : '',
+    );
 
-    // ── Occurrence / background (AI draft or empty) ───────────────
-    for (final occ in data.occurrences) {
-      String backgroundContent = occ['background_narrative'] as String? ?? '';
+    // ── §5: Class & Statutory Certification ───────────────────────
+    // Clauses C-6a/b/c/e/f — see _buildClassStatutoryText.
+    sections[SectionType.classStatutory] = ReportSection(
+      type:    SectionType.classStatutory,
+      title:   'Class & Statutory Certification',
+      content: _buildClassStatutoryText(data),
+    );
 
+    // ── §6: Available Information Sources ─────────────────────────
+    sections[SectionType.informationSources] = ReportSection(
+      type:    SectionType.informationSources,
+      title:   'Available Information Sources',
+      content: data.caseDocuments.isNotEmpty
+          ? _buildInfoSourcesText(data.caseDocuments)
+          : '',
+    );
+
+    // ── §7: Chronology — auto-table from timeline_events, no text box ───
+
+    // ── §8: Background ────────────────────────────────────────────
+    String backgroundContent = '';
+    if (data.occurrences.isNotEmpty) {
+      backgroundContent =
+          data.occurrences.first['background_narrative'] as String? ?? '';
       if (backgroundContent.isEmpty && aiDraft) {
+        final occ = data.occurrences.first;
         try {
           backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
-            vesselName:     data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate: occ['date_time'] as String? ?? '',
-            occurrenceLocation: occ['location'] as String? ?? '',
-            occurrenceTitle:    occ['title']     as String? ?? '',
+            vesselName:          data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate:      occ['date_time'] as String? ?? '',
+            occurrenceLocation:  occ['location']  as String? ?? '',
+            occurrenceTitle:     occ['title']      as String? ?? '',
             damageItems: data.damageItems
                 .map((d) => d['component_name'] as String? ?? '')
                 .toList(),
@@ -576,147 +803,239 @@ class SectionDraftNotifier
           backgroundContent = '[Draft narrative — edit before issuing]';
         }
       }
-
-      sections[SectionType.background] = ReportSection(
-        type:      SectionType.background,
-        title:     'Background',
-        content:   backgroundContent,
-        aiDrafted: aiDraft && backgroundContent.isNotEmpty,
-      );
-
-      sections[SectionType.occurrence] = ReportSection(
-        type:    SectionType.occurrence,
-        title:   'Occurrence',
-        content: occ['brief_description'] as String? ?? '',
-      );
     }
+    sections[SectionType.background] = ReportSection(
+      type:      SectionType.background,
+      title:     'Background',
+      content:   backgroundContent,
+      aiDrafted: aiDraft && backgroundContent.isNotEmpty,
+    );
 
-    // ── Damage description (auto-populated) ───────────────────────
-    if (data.damageItems.isNotEmpty) {
-      sections[SectionType.damageDescription] = ReportSection(
-        type:    SectionType.damageDescription,
-        title:   'Extent of Damage',
-        content: _buildDamageText(data.damageItems),
-      );
-    }
+    // ── §9: Occurrence + Damage Description ───────────────────────
+    sections[SectionType.occurrence] = ReportSection(
+      type:    SectionType.occurrence,
+      title:   'Occurrence',
+      content: data.occurrences.isNotEmpty
+          ? _buildOccurrenceText(data.occurrences.first, data)
+          : '',
+    );
+    sections[SectionType.damageDescription] = ReportSection(
+      type:    SectionType.damageDescription,
+      title:   'Extent of Damage',
+      content: data.damageItems.isNotEmpty
+          ? _buildDamageText(data.damageItems, data.machinery)
+          : '',
+    );
 
-    // ── Repairs (auto-populated) ──────────────────────────────────
-    if (data.repairRecords.isNotEmpty) {
-      sections[SectionType.repairs] = ReportSection(
-        type:    SectionType.repairs,
-        title:   'Repairs',
-        content: _buildRepairsText(data.repairRecords),
-      );
-    }
+    // ── §10: Allegation + Cause Consideration (three-voice separation) ──
+    // Voices are kept in distinct paragraphs, never merged into one
+    // sentence: owner's allegation (this section), then per spec §10,
+    // third-party findings and the surveyor's assessment always last
+    // (causation section, below).
+    final occForCause =
+        data.occurrences.isNotEmpty ? data.occurrences.first : null;
+    final allegationType = occForCause?['allegation_type'] as String? ?? 'tbc';
+    final ownersStatedCause = occForCause?['owners_stated_cause'] as String?;
+    final ownersStatedCauseSource =
+        occForCause?['owners_stated_cause_source'] as String?;
 
-    // ── Causation / allegation (AI draft + locked clause) ─────────
-    if (data.occurrences.isNotEmpty) {
-      final occ = data.occurrences.first;
-      String causeContent = occ['cause_narrative'] as String? ?? '';
-
-      if (causeContent.isEmpty && aiDraft) {
-        try {
-          causeContent = await ClaudeApi.draftCauseConsideration(
-            vesselName:     data.vessel?['name'] ?? 'the vessel',
-            occurrenceTitle: occ['title'] as String? ?? '',
-            damageItems: data.damageItems
-                .map((d) => d['component_name'] as String? ?? '')
-                .toList(),
-            serviceEngineerFindings: null,
-            reportFormat: data.outputFormat,
-          );
-        } catch (_) {
-          causeContent = '[Cause consideration — edit before issuing]';
-        }
+    String allegationContent = '';
+    String? allegationClauseId;
+    var allegationLocked = false;
+    if (allegationType == 'formal_allegation') {
+      final clause = data.clauseByType('allegation_formal');
+      if (clause != null) {
+        allegationContent = clause.clauseText
+            .replaceAll('{ALLEGED_CAUSE}', ownersStatedCause ?? '');
+        allegationClauseId = clause.clauseId;
+        allegationLocked = true;
       }
+    } else if (allegationType == 'no_formal_allegation') {
+      final clause = data.clauseByType('allegation_none');
+      if (clause != null) {
+        allegationContent = clause.clauseText;
+        allegationClauseId = clause.clauseId;
+        allegationLocked = true;
+      }
+    } else if (allegationType == 'informal_allegation') {
+      final sourceClause = ownersStatedCauseSource != null &&
+              ownersStatedCauseSource.isNotEmpty
+          ? ' (as stated in $ownersStatedCauseSource)'
+          : '';
+      allegationContent = 'It is understood that the Owners have, without '
+          'formal written allegation, indicated the cause of the casualty'
+          '$sourceClause:\n\n${ownersStatedCause ?? ''}';
+    }
+    // 'tbc' / null → empty, unchanged from prior behaviour.
+    sections[SectionType.allegation] = ReportSection(
+      type:     SectionType.allegation,
+      title:    "Owner's Allegation",
+      content:  allegationContent,
+      clauseId: allegationClauseId,
+      isLocked: allegationLocked,
+    );
 
-      sections[SectionType.causation] = ReportSection(
-        type:      SectionType.causation,
-        title:     'Cause Consideration',
-        content:   causeContent,
-        aiDrafted: aiDraft,
-      );
+    // Third-party findings — one clearly-attributed paragraph per source.
+    final causeParts = <String>[];
+    final thirdPartyRaw =
+        (occForCause?['third_party_findings'] as List?) ?? const [];
+    for (final raw in thirdPartyRaw) {
+      final f = raw as Map<String, dynamic>;
+      final source = f['source_name'] as String? ?? '';
+      final docRef = f['document_reference'] as String?;
+      final finding = f['finding'] as String? ?? '';
+      if (source.isEmpty && finding.isEmpty) continue;
+      final attribution =
+          docRef != null && docRef.isNotEmpty ? '$source ($docRef)' : source;
+      causeParts.add('According to $attribution: $finding');
+    }
 
-      // Allegation clause (locked)
-      final allegationType =
-          occ['allegation_type'] as String? ?? 'no_formal_allegation';
-      final clauseType = allegationType == 'formal_allegation'
-          ? 'allegation_formal'
-          : 'allegation_none';
-      final allegationClause = data.clauseByType(clauseType);
-      if (allegationClause != null) {
-        sections[SectionType.allegation] = ReportSection(
-          type:     SectionType.allegation,
-          title:    'Allegation / Causation',
-          content:  allegationClause.clauseText,
-          clauseId: allegationClause.clauseId,
-          isLocked: true,
+    // Surveyor's assessment — always last, never merged with the voices
+    // above. "Consistent with allegation" uses the locked standard-remarks
+    // clause verbatim; other certainty levels use the spec's suggested
+    // hedging sentence as a lead-in to the surveyor's free-text assessment.
+    final certaintyLevelRaw = occForCause?['certainty_level'] as String?;
+    String? assessmentPart;
+    if (certaintyLevelRaw == 'consistent_with_allegation') {
+      assessmentPart = data.clauseByType('cause_standard_remarks')?.clauseText;
+    }
+    assessmentPart ??= _certaintyHedgeLanguage(certaintyLevelRaw);
+    final surveyorsAssessment = occForCause?['surveyors_assessment'] as String?;
+    if (surveyorsAssessment != null && surveyorsAssessment.isNotEmpty) {
+      assessmentPart = assessmentPart == null
+          ? surveyorsAssessment
+          : '$assessmentPart $surveyorsAssessment';
+    }
+    if (assessmentPart != null && assessmentPart.isNotEmpty) {
+      causeParts.add(assessmentPart);
+    }
+
+    var causeContent = causeParts.join('\n\n');
+    var causeAiDrafted = false;
+
+    // Additional analytical notes (spec §10 item 5) — surveyor's voice,
+    // appended last.
+    final analyticalNotes = occForCause?['cause_narrative'] as String?;
+    if (analyticalNotes != null && analyticalNotes.isNotEmpty) {
+      causeContent = causeContent.isEmpty
+          ? analyticalNotes
+          : '$causeContent\n\n$analyticalNotes';
+    }
+
+    if (causeContent.isEmpty && aiDraft && occForCause != null) {
+      try {
+        causeContent = await ClaudeApi.draftCauseConsideration(
+          vesselName:      data.vessel?['name'] ?? 'the vessel',
+          occurrenceTitle: occForCause['title'] as String? ?? '',
+          damageItems: data.damageItems
+              .map((d) => d['component_name'] as String? ?? '')
+              .toList(),
+          ownersAllegation: ownersStatedCause,
+          serviceEngineerFindings: null,
+          reportFormat: data.outputFormat,
         );
+        causeAiDrafted = true;
+      } catch (_) {
+        causeContent = '[Cause consideration — edit before issuing]';
       }
     }
+    sections[SectionType.causation] = ReportSection(
+      type:      SectionType.causation,
+      title:     'Cause Consideration',
+      content:   causeContent,
+      aiDrafted: causeAiDrafted,
+    );
 
-    // ── Machinery & Equipment (auto-populated) ────────────────────
-    if (data.machinery.isNotEmpty) {
-      sections[SectionType.machineryParticulars] = ReportSection(
-        type:    SectionType.machineryParticulars,
-        title:   'Machinery & Equipment Particulars',
-        content: _buildMachineryText(data.machinery),
-      );
-    }
+    // ── §11: Repairs (narrative) ──────────────────────────────────
+    // Clauses F-2/F-5 (services/hot work, from repair_periods) appended
+    // after the repair period narrative, if either has content.
+    final repairsNarrative = data.repairPeriods.isNotEmpty
+        ? _buildRepairsText(data.repairPeriods)
+        : '';
+    final servicesText = _buildServicesAndHotWorkText(data);
+    sections[SectionType.repairs] = ReportSection(
+      type:    SectionType.repairs,
+      title:   'Repairs',
+      content: [repairsNarrative, servicesText]
+          .where((s) => s.isNotEmpty)
+          .join('\n\n'),
+    );
 
-    // ── Class & Statutory Certification (auto-populated) ──────────
-    if (data.certificates.isNotEmpty || data.classConditions.isNotEmpty) {
-      sections[SectionType.classStatutory] = ReportSection(
-        type:    SectionType.classStatutory,
-        title:   'Class & Statutory Certification',
-        content: _buildClassStatutoryText(data.certificates, data.classConditions),
-      );
-    }
-
-    // ── Information Sources (auto-populated) ──────────────────────
-    if (data.caseDocuments.isNotEmpty) {
-      sections[SectionType.informationSources] = ReportSection(
-        type:    SectionType.informationSources,
-        title:   'Available Information Sources',
-        content: _buildInfoSourcesText(data.caseDocuments),
-      );
-    }
-
-    // ── General Services (editable placeholder) ───────────────────
-    sections[SectionType.generalServices] = ReportSection(
+    // ── §12: General Services & Access ───────────────────────────
+    sections[SectionType.generalServices] = const ReportSection(
       type:    SectionType.generalServices,
       title:   'General Services & Access',
       content: '',
     );
 
-    // ── Surveyor Notes (auto-populated) ───────────────────────────
-    if (data.surveyorNotes.isNotEmpty) {
-      sections[SectionType.surveyorNotes] = ReportSection(
-        type:    SectionType.surveyorNotes,
-        title:   "Surveyor's Notes",
-        content: _buildSurveyorNotesText(data.surveyorNotes),
-      );
-    }
+    // ── §13: Repair Costs (auto-table in export; narrative commentary here)
+    // Clause H-1: fixed approval statement, prepended whenever there are
+    // accounts to approve (omitted otherwise, e.g. preliminary reports).
+    final accountApprovalClause = data.clauseByType('account_approval_intro');
+    // Clause G-1: cost estimate status, once per report.
+    final costStatusText = _buildCostStatusText(data);
+    final accountsIntro = [
+      if (costStatusText != null) costStatusText,
+      if (accountApprovalClause?.clauseText != null) accountApprovalClause!.clauseText,
+    ].join('\n\n');
+    sections[SectionType.accounts] = ReportSection(
+      type:    SectionType.accounts,
+      title:   'Repair Costs',
+      content: _buildCostSummaryText(data.repairDocuments,
+          approvalIntro: accountsIntro.isNotEmpty ? accountsIntro : null),
+    );
 
-    // ── Documents on File (auto-populated) ────────────────────────
-    if (data.caseDocuments.isNotEmpty) {
-      sections[SectionType.documentsOnFile] = ReportSection(
-        type:    SectionType.documentsOnFile,
-        title:   'Documents Retained on File',
-        content: _buildDocumentsOnFileText(data.caseDocuments),
-      );
-    }
+    // ── §14: Repair Times (auto-table in export; narrative commentary here)
+    // Clause I-1: fixed guidance statement, prepended whenever a repair
+    // times opinion is actually being given (i.e. there's data to comment on).
+    final repairTimesClause = data.clauseByType('repair_times_guidance');
+    sections[SectionType.repairTimes] = ReportSection(
+      type:    SectionType.repairTimes,
+      title:   'Repair Times',
+      content: _buildRepairTimesText(data.repairPeriods,
+          guidanceIntro: repairTimesClause?.clauseText),
+    );
 
-    // ── Waiver (locked clause from org config or spec default) ────
+    // ── §15: Surveyor's Notes ─────────────────────────────────────
+    sections[SectionType.surveyorNotes] = ReportSection(
+      type:    SectionType.surveyorNotes,
+      title:   "Surveyor's Notes",
+      content: data.surveyorNotes.isNotEmpty
+          ? _buildSurveyorNotesText(data.surveyorNotes)
+          : '',
+    );
+
+    // ── §16: Documents Retained on File (Clause K-1) ──────────────
+    sections[SectionType.documentsOnFile] = ReportSection(
+      type:    SectionType.documentsOnFile,
+      title:   'Documents Retained on File',
+      content: data.caseDocuments.isNotEmpty
+          ? _buildDocumentsOnFileText(data.caseDocuments,
+              header: data.clauseByType('documents_on_file_header')?.clauseText)
+          : '',
+    );
+
+    // ── §17: Documents Requested / Outstanding (Clause K-2) ────────
+    sections[SectionType.documentsRequested] = ReportSection(
+      type:    SectionType.documentsRequested,
+      title:   'Documents Requested / Outstanding',
+      content: data.requestedDocuments.isNotEmpty
+          ? _buildDocumentsRequestedText(data.requestedDocuments,
+              header: data.clauseByType('documents_requested_header')?.clauseText)
+          : '',
+    );
+
+
+    // ── §19: Waiver ───────────────────────────────────────────────
     final waiverClause = data.clauseByType('waiver');
     final orgWaiver = data.organisation?['waiver_text'] as String?;
     final waiverText = orgWaiver?.isNotEmpty == true
         ? orgWaiver!
         : waiverClause?.clauseText
             ?? 'The findings and opinions in this report are submitted '
-               'without prejudice to the rights of any party. ABL Group '
-               'reserves the right to supplement or amend this report if '
-               'additional information becomes available.';
+               'without prejudice to the rights of any party. The issuing '
+               'firm reserves the right to supplement or amend this report '
+               'if additional information becomes available.';
     sections[SectionType.waiver] = ReportSection(
       type:     SectionType.waiver,
       title:    'Limitation of Liability / Waiver',
@@ -725,41 +1044,234 @@ class SectionDraftNotifier
       isLocked: waiverClause != null,
     );
 
-    // ── Closing / disclaimer (locked clause) ─────────────────────
+    // ── Closing disclaimer (spec Clause J-1) ───────────────────────
+    // 'closing_disclaimer' clause_type was found mislabeled in the live DB
+    // (holding account-approval text) and corrected 2026-07-02 — see
+    // docs/legal_clauses.md implementation notes.
     final closingClause = data.clauseByType('closing_disclaimer');
-    if (closingClause != null) {
-      sections[SectionType.closing] = ReportSection(
-        type:     SectionType.closing,
-        title:    'Without Prejudice / Closing',
-        content:  closingClause.clauseText,
-        clauseId: closingClause.clauseId,
-        isLocked: true,
+    final orgDisclaimer = data.organisation?['disclaimer_text'] as String?;
+    final closingText = orgDisclaimer?.isNotEmpty == true
+        ? orgDisclaimer!
+        : closingClause?.clauseText
+            ?? 'This report (including any enclosures and attachments) has '
+               'been prepared for the exclusive use and benefit of the '
+               'addressee(s) and solely for the purpose for which it is '
+               'provided. Save to the extent provided for in the Company\'s '
+               'Terms and Conditions or such other contract between the '
+               'Company (or its affiliate) and the Client (or its affiliate) '
+               'governing the issuance of this report, the Company assumes '
+               'no liability to the addressee(s) for any claims, loss or '
+               'damage whatsoever suffered by the addressee(s) as a result '
+               'of any act, omission or default on the part of the Company '
+               'or any of its servants, whether due to negligence or '
+               'otherwise. No part of this report shall be reproduced, '
+               'distributed or communicated to any third party without the '
+               'prior written consent of the Company. The Company does not '
+               'assume any liability or owe any duty of care if this report '
+               'is used for a purpose other than that for which it is '
+               'intended or where it is disclosed to or used by a third '
+               'party.';
+    sections[SectionType.closing] = ReportSection(
+      type:     SectionType.closing,
+      title:    'Disclaimer',
+      content:  closingText,
+      clauseId: closingClause?.clauseId,
+      isLocked: closingClause != null,
+    );
+
+    // Overlay any previously-saved surveyor edits / review status for this
+    // report output — persisted content always wins over the freshly
+    // assembled default (locked clause sections are never overridden; the
+    // editor never lets the surveyor edit them, so no persisted row for
+    // them should exist, but the check is kept defensive).
+    final persisted = await _fetchPersisted();
+    for (final entry in persisted.entries) {
+      final base = sections[entry.key];
+      if (base == null || base.isLocked) continue;
+      sections[entry.key] = base.copyWith(
+        content:        entry.value.content,
+        surveyorReview: entry.value.surveyorReview,
+        aiDrafted:      entry.value.aiDrafted,
       );
     }
 
     state = sections;
   }
 
+  Future<Map<SectionType, _PersistedSection>> _fetchPersisted() async {
+    try {
+      final rows = await SupabaseService.client
+          .from('report_sections')
+          .select()
+          .eq('output_id', outputId);
+      final map = <SectionType, _PersistedSection>{};
+      for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+        final type = SectionType.values
+            .where((t) => t.name == row['section_type'])
+            .firstOrNull;
+        if (type == null) continue;
+        map[type] = _PersistedSection(
+          content: row['content'] as String? ?? '',
+          aiDrafted: row['ai_drafted'] as bool? ?? false,
+          surveyorReview: SurveyorReview.values
+              .where((r) => r.name == row['surveyor_review'])
+              .firstOrNull,
+        );
+      }
+      return map;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Drafts [type] (background or causation only) with AI on demand,
+  /// wiring up the AI-drafting code paths that [buildSections] already has
+  /// but that are otherwise unreachable from the UI. Marks the result
+  /// `aiDrafted: true` so the GPN-AI review gate applies to it.
+  Future<void> draftSectionWithAi(
+      SectionType type, AssembledReportData data) async {
+    final existing = state[type];
+    if (existing == null || existing.isLocked) return;
+
+    String content;
+    try {
+      switch (type) {
+        case SectionType.background:
+          if (data.occurrences.isEmpty) return;
+          final occ = data.occurrences.first;
+          content = await ClaudeApi.draftOccurrenceNarrative(
+            vesselName:          data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate:      occ['date_time'] as String? ?? '',
+            occurrenceLocation:  occ['location']  as String? ?? '',
+            occurrenceTitle:     occ['title']      as String? ?? '',
+            damageItems: data.damageItems
+                .map((d) => d['component_name'] as String? ?? '')
+                .toList(),
+            interviewTranscript: null,
+            reportFormat: data.outputFormat,
+          );
+        case SectionType.causation:
+          final occ = data.occurrences.isNotEmpty ? data.occurrences.first : null;
+          content = await ClaudeApi.draftCauseConsideration(
+            vesselName:      data.vessel?['name'] ?? 'the vessel',
+            occurrenceTitle: occ?['title'] as String? ?? '',
+            damageItems: data.damageItems
+                .map((d) => d['component_name'] as String? ?? '')
+                .toList(),
+            ownersAllegation: occ?['owners_stated_cause'] as String?,
+            serviceEngineerFindings: null,
+            reportFormat: data.outputFormat,
+          );
+        default:
+          return;
+      }
+    } catch (_) {
+      content = '[Draft narrative — edit before issuing]';
+    }
+    if (content.isEmpty) return;
+
+    state = {
+      ...state,
+      type: existing.copyWith(content: content, aiDrafted: true),
+    };
+    await _persist(type);
+  }
+
   // ── Text builders ─────────────────────────────────────────────────────────
+
+  String _buildExecutiveSummaryTemplate(AssembledReportData data) {
+    final vesselName = data.vessel?['name'] as String? ?? '[vessel name]';
+    final occ = data.occurrences.isNotEmpty ? data.occurrences.first : null;
+    final occTitle = occ?['title'] as String? ?? '[nature of casualty]';
+    final occDate  = occ != null ? _formatDate(occ['date_time'] as String? ?? '') : '[date]';
+    final claimRef = data.caseData['claim_reference'] as String? ?? '';
+    final claimLine = claimRef.isNotEmpty ? 'Claim Reference: $claimRef\n' : '';
+    return 'Vessel: $vesselName\n'
+        'Casualty: $occTitle\n'
+        'Date: $occDate\n'
+        '$claimLine'
+        '\n'
+        'Advice:\n'
+        '[Summarise surveyor\'s principal findings, recommendations, and any '
+        'immediate advice given to underwriters / principals. Edit before issuing.]';
+  }
 
   String _fillOpeningClause(String template, AssembledReportData data) {
     final clientName =
         data.caseData['principals_clients']?['name'] as String? ?? '[CLIENT]';
-    final occDate = data.occurrences.isNotEmpty
-        ? data.occurrences.first['date_time'] as String? ?? '[DATE]'
-        : '[DATE]';
 
-    return template
+    // Clause D-3: first attendance date/location — from the earliest
+    // survey_attendances record (already ordered ascending), not the
+    // occurrence's date of loss, which can differ from when the surveyor
+    // actually first attended.
+    final firstAttendance = data.attendances
+        .where((a) => a['attendance_date'] != null)
+        .firstOrNull;
+    final attendanceDate = firstAttendance?['attendance_date'] as String?;
+    final occDate = data.occurrences.isNotEmpty
+        ? data.occurrences.first['date_time'] as String?
+        : null;
+    final firstAttendanceDate = attendanceDate ?? occDate;
+
+    final location = firstAttendance?['location'] as String?;
+
+    final filled = template
         .replaceAll('[CLIENT]', clientName)
-        .replaceAll('[FIRST_ATTENDANCE_DATE]', _formatDate(occDate))
+        .replaceAll('[FIRST_ATTENDANCE_DATE]',
+            firstAttendanceDate != null ? _formatDate(firstAttendanceDate) : '[DATE]')
         .replaceAll('[LOCATION_DESCRIPTION]',
-            data.caseData['notes'] as String? ?? 'the survey location');
+            location ?? data.caseData['notes'] as String? ?? 'the survey location');
+
+    // Clause B-2: survey type. Derived from the case's existing claim type
+    // rather than a new field — per the surveyor, this practice's H&M cases
+    // are always treated as "a hull and machinery damage survey"; the doc's
+    // other 5 categories (pure machinery/hull/grounding/collision/fire) are
+    // not distinguished here. Only appended for case_type == 'hm'.
+    if (data.caseData['case_type'] == 'hm') {
+      final surveyType =
+          data.clauseByType('survey_type_hull_and_machinery')?.clauseText;
+      if (surveyType != null && surveyType.isNotEmpty) {
+        return '$filled $surveyType';
+      }
+    }
+    return filled;
   }
+
+  // Clause C-1: only the vessel types below have a matching doc phrase —
+  // every other value in the vessel screen's dropdown (Anchor Handling Tug,
+  // Products Carrier, Reefer Vessel, etc.) and any Equasis-imported type
+  // string intentionally has no entry, so C-1 is simply omitted for them
+  // rather than forcing a guessed phrase. Decided 2026-07-02 — see
+  // docs/legal_clauses.md implementation notes for the full mapping table
+  // and the one judgment call (Passenger Ferry → Ro-Ro/ferry phrase).
+  static const _shipTypeClause = {
+    'General Cargo Ship':      'ship_type_general_cargo',
+    'Bulk Carrier':            'ship_type_bulk_carrier',
+    'Container Ship':          'ship_type_container',
+    'Container Carrier':       'ship_type_container',
+    'Oil Tanker':              'ship_type_tanker_oil',
+    'Chemical Tanker':         'ship_type_tanker_chemical',
+    'Offshore Support Vessel': 'ship_type_offshore_support',
+    'Offshore Supply Vessel':  'ship_type_offshore_support',
+    'Tug':                     'ship_type_tug',
+    'Ro Ro':                   'ship_type_roro_ferry',
+    'Passenger Ferry':         'ship_type_roro_ferry',
+  };
 
   String _buildVesselText(AssembledReportData data) {
     final v = data.vessel;
     if (v == null) return '[Vessel particulars not yet recorded]';
     final lines = <String>[];
+
+    // Clause C-1: ship type sentence, only when the vessel's type maps to
+    // one of the doc's categories (see _shipTypeClause above).
+    final vesselType = v['vessel_type'] as String?;
+    final shipTypeClauseType = _shipTypeClause[vesselType];
+    if (shipTypeClauseType != null) {
+      final clause = data.clauseByType(shipTypeClauseType);
+      if (clause != null) lines.add(clause.clauseText);
+    }
+
     if (v['name'] != null) {
       lines.add('Vessel Name: ${v['name']}');
     }
@@ -772,8 +1284,10 @@ class SectionDraftNotifier
     if (v['flag'] != null) {
       lines.add('Flag: ${v['flag']} / ${v['port_of_registry'] ?? ''}');
     }
+    final isDcv = v['regulatory_standard'] == 'dcv';
     if (v['gross_tonnage'] != null) {
-      lines.add('GT / DWT: ${v['gross_tonnage']} / ${v['deadweight'] ?? '—'}');
+      lines.add('GT / DWT: ${v['gross_tonnage']} / ${v['deadweight'] ?? '—'}'
+          '${isDcv ? ' (National)' : ''}');
     }
     if (v['year_built'] != null) {
       lines.add('Built: ${v['year_built']} at ${v['build_yard'] ?? ''}, ${v['build_country'] ?? ''}');
@@ -783,6 +1297,30 @@ class SectionDraftNotifier
     }
     if (v['class_society'] != null) {
       lines.add('Class: ${v['class_society']} — ${v['class_notation'] ?? ''}');
+    }
+    // DCV — National Law only: AMSA-specific particulars (spec §3).
+    if (v['hull_material'] != null) {
+      lines.add('Hull Material: ${v['hull_material']}');
+    }
+    if (v['unique_vessel_identifier'] != null) {
+      lines.add('Unique Vessel Identifier: ${v['unique_vessel_identifier']}');
+    }
+    if (v['survey_certificate_no'] != null) {
+      lines.add('Survey Certificate No.: ${v['survey_certificate_no']}');
+    }
+    final amsaUseClass = v['amsa_vessel_use_class'] as String?;
+    final amsaCategory = v['amsa_service_category'] as String?;
+    if (amsaUseClass != null && amsaCategory != null) {
+      lines.add('Class: Class $amsaUseClass${amsaCategory.toUpperCase()}');
+    }
+    if (v['equipment_survey_due'] != null) {
+      lines.add('Equipment Due: ${_formatDate(v['equipment_survey_due'] as String)}');
+    }
+    if (v['hull_survey_due'] != null) {
+      lines.add('Hull Due: ${_formatDate(v['hull_survey_due'] as String)}');
+    }
+    if (v['tail_shaft_survey_due'] != null) {
+      lines.add('Tail Shaft Due: ${_formatDate(v['tail_shaft_survey_due'] as String)}');
     }
     return lines.join('\n');
   }
@@ -797,27 +1335,186 @@ class SectionDraftNotifier
     }).join('\n');
   }
 
-  String _buildDamageText(List<Map<String, dynamic>> items) {
-    return items.asMap().entries.map((e) {
-      final i = e.key + 1;
-      final d = e.value;
-      final component = d['component_name'] as String? ?? '';
-      final description = d['damage_description'] as String? ?? '';
-      final condition = d['condition_found'] as String? ?? '';
-      final buf = StringBuffer('$i. $component');
-      if (description.isNotEmpty) buf.write('\n   $description');
-      if (condition.isNotEmpty)   buf.write('\n   Condition: $condition');
-      return buf.toString();
+  /// Groups damage items by claim object (machinery when linked, else the
+  /// item's own component name) and renders one bulleted block per group,
+  /// matching the spec §7 suggested layout ("The [component] was inspected…
+  /// the following damage was observed: • bullets").
+  /// Suggested hedging language per certainty level (spec §10 table) —
+  /// same wording as the live preview in causation_sheet.dart; kept as a
+  /// separate copy since that file is UI-preview-only and this one feeds
+  /// the actual rendered text.
+  String? _certaintyHedgeLanguage(String? certaintyLevelRaw) {
+    final level = CertaintyLevel.fromValue(certaintyLevelRaw);
+    if (level == null) return null;
+    return switch (level) {
+      CertaintyLevel.agreedNoReservation =>
+        'The cause of loss as stated by owners appears to be reasonable '
+            'and is agreed with.',
+      CertaintyLevel.agreedPendingAnalysis =>
+        'The cause of loss as stated by owners is agreed with, on a '
+            'preliminary basis, pending further analysis.',
+      CertaintyLevel.consistentWithAllegation =>
+        'It is the opinion of the Undersigned that the damages detailed '
+            'above may reasonably be attributed to a casualty of the '
+            'nature of that alleged.',
+      CertaintyLevel.preliminaryOnly =>
+        'A final conclusion on the cause cannot be reached at this stage. '
+            'On a preliminary basis, the following potential causes are '
+            'considered:',
+      CertaintyLevel.disagreeReserves =>
+        'The Undersigned Surveyor is unable to agree with the allegation '
+            'as stated, for the following reasons:',
+      CertaintyLevel.noOpinion =>
+        'At this stage of the investigation, it is not possible to offer '
+            'an opinion on cause.',
+    };
+  }
+
+  String _buildDamageText(
+      List<Map<String, dynamic>> items, List<Map<String, dynamic>> machinery) {
+    final groups = <String, List<Map<String, dynamic>>>{};
+    final groupLabels = <String, String>{};
+    for (final d in items) {
+      final machineryId = d['machinery_id'] as String?;
+      final componentName = d['component_name'] as String? ?? '';
+      final key = machineryId ?? 'unlinked:$componentName';
+      groups.putIfAbsent(key, () => []).add(d);
+      groupLabels.putIfAbsent(key, () {
+        if (machineryId == null) return componentName;
+        final match = machinery
+            .where((row) => row['machinery_id'] == machineryId)
+            .firstOrNull;
+        if (match == null) return componentName;
+        final type = match['machinery_type'] as String? ?? '';
+        final role = match['role'] as String? ?? '';
+        return role.isNotEmpty ? '$type — $role' : type;
+      });
+    }
+
+    return groups.entries.map((entry) {
+      final label = groupLabels[entry.key] ?? '';
+      final buf = StringBuffer();
+      if (label.isNotEmpty) {
+        buf.writeln('The $label was inspected. The following damage was '
+            'observed:');
+      }
+      for (final d in entry.value) {
+        final description = d['damage_description'] as String? ?? '';
+        final conditionStatusRaw = d['condition_status'] as String?;
+        final conditionFound = d['condition_found'] as String? ?? '';
+        final line = StringBuffer('  • ');
+        line.write(description.isNotEmpty ? description : (d['component_name'] as String? ?? ''));
+        if (conditionStatusRaw != null) {
+          line.write(' (${ConditionStatus.fromValue(conditionStatusRaw).label})');
+        } else if (conditionFound.isNotEmpty) {
+          line.write(' ($conditionFound)');
+        }
+        buf.writeln(line.toString());
+
+        // Third-party confirmation sentence (spec §7 "Third-Party
+        // Confirmation of Damage") — only when confirmed by someone other
+        // than the surveyor themselves.
+        final confirmedByRaw = (d['confirmed_by'] as List?)?.cast<String>() ?? const [];
+        final nonSurveyorConfirmers = confirmedByRaw
+            .map(ConfirmedByRole.fromValue)
+            .where((r) => r != ConfirmedByRole.undersignedSurveyor)
+            .toList();
+        final confirmationDate = d['confirmation_date'] as String?;
+        final confirmationMethod = d['confirmation_method'] as String?;
+        if (nonSurveyorConfirmers.isNotEmpty) {
+          final who = nonSurveyorConfirmers.map((r) => r.label).join(', ');
+          final componentName = d['component_name'] as String? ?? 'this item';
+          final methodClause =
+              confirmationMethod != null && confirmationMethod.isNotEmpty
+                  ? ' following $confirmationMethod'
+                  : '';
+          final dateClause = confirmationDate != null
+              ? ' on ${_formatDate(confirmationDate)}'
+              : '';
+          buf.writeln('    Damage to the $componentName was confirmed by '
+              '$who$methodClause$dateClause.');
+        }
+
+        // Average status — rendered inline per spec, not as a separate
+        // section. Prefer the 3-way status when present.
+        final averageStatusRaw = d['average_status'] as String?;
+        final averagePartialDetail = d['average_partial_detail'] as String?;
+        if (averageStatusRaw == 'no') {
+          final reason = d['exclusion_reason'] as String?;
+          buf.writeln('    This item is unrelated to the casualty'
+              '${reason != null && reason.isNotEmpty ? ' ($reason)' : ''}.');
+        } else if (averageStatusRaw == 'partial') {
+          buf.writeln('    Partially concerning average'
+              '${averagePartialDetail != null && averagePartialDetail.isNotEmpty ? ' — $averagePartialDetail' : ''}.');
+        } else if (averageStatusRaw == null &&
+            (d['is_concerning_average'] as bool? ?? true) == false) {
+          final reason = d['exclusion_reason'] as String?;
+          buf.writeln('    This item is unrelated to the casualty'
+              '${reason != null && reason.isNotEmpty ? ' ($reason)' : ''}.');
+        }
+      }
+      return buf.toString().trimRight();
     }).join('\n\n');
   }
 
-  String _buildRepairsText(List<Map<String, dynamic>> repairs) {
-    return repairs.map((r) {
-      final yard = r['yard_contractor'] as String? ?? '';
-      final loc  = r['location']        as String? ?? '';
-      final type = r['repair_type']      as String? ?? '';
-      return '$type repairs — $yard${loc.isNotEmpty ? ', $loc' : ''}';
+  static const _servicesProvidedClause = {
+    'crane_lifting':       'services_crane_lifting',
+    'scaffolding':         'services_scaffolding',
+    'gas_freeing':         'services_gas_freeing',
+    'diving':              'services_diving',
+    'class_attendance':    'services_class_attendance',
+    'ndt_xray':            'services_ndt_xray',
+    'hydraulic_testing':   'services_hydraulic_testing',
+    'air_pressure_testing':'services_air_pressure_testing',
+    'hose_testing':        'services_hose_testing',
+  };
+
+  String _buildRepairsText(List<Map<String, dynamic>> periods) {
+    return periods.map((json) {
+      final p = RepairPeriodModel.fromJson(json);
+      final loc = p.location ?? '';
+      final prefix = p.portContext == PortContext.diversion ? 'Diversion — ' : '';
+      return '$prefix${p.displayTitle}${loc.isNotEmpty ? ', $loc' : ''}';
     }).join('\n');
+  }
+
+  /// Clauses F-2/F-5: services provided + hot work compliance, per repair
+  /// period — repair_periods is the actively-used table.
+  String _buildServicesAndHotWorkText(AssembledReportData data) {
+    return data.repairPeriods.map((p) {
+      final buf = StringBuffer();
+      final title = p['title'] as String? ?? p['location'] as String? ?? 'Repair period';
+      buf.write(title);
+
+      final services = (p['services_provided'] as List?)?.cast<String>() ?? [];
+      for (final key in services) {
+        final clauseType = _servicesProvidedClause[key];
+        if (clauseType == null) continue;
+        final text = data.clauseByType(clauseType)?.clauseText;
+        if (text != null && text.isNotEmpty) buf.write('\n  • $text');
+      }
+      final servicesNotes = p['services_provided_notes'] as String?;
+      if (servicesNotes != null && servicesNotes.isNotEmpty) {
+        buf.write('\n  $servicesNotes');
+      }
+
+      final hotWorkStatus = p['hot_work_status'] as String?;
+      final hotWorkClauseType = switch (hotWorkStatus) {
+        'certs_valid'       => 'hot_work_certs_valid',
+        'certs_not_sighted' => 'hot_work_certs_not_sighted',
+        _                   => null,
+      };
+      if (hotWorkClauseType != null) {
+        final text = data.clauseByType(hotWorkClauseType)?.clauseText;
+        if (text != null && text.isNotEmpty) buf.write('\n  • $text');
+      }
+      final hotWorkNotes = p['hot_work_notes'] as String?;
+      if (hotWorkNotes != null && hotWorkNotes.isNotEmpty) {
+        buf.write('\n  $hotWorkNotes');
+      }
+
+      return buf.toString();
+    }).where((s) => s.trim().isNotEmpty).join('\n\n');
   }
 
   String _buildMachineryText(List<Map<String, dynamic>> items) {
@@ -839,11 +1536,84 @@ class SectionDraftNotifier
     }).join('\n\n');
   }
 
-  String _buildClassStatutoryText(
-    List<Map<String, dynamic>> certs,
-    List<Map<String, dynamic>> conditions,
-  ) {
+  String _buildClassStatutoryText(AssembledReportData data) {
+    final certs       = data.certificates;
+    final conditions   = data.classConditions;
+    final vessel       = data.vessel;
     final buf = StringBuffer();
+
+    // Clause C-6a: class status
+    final classSociety = vessel?['class_society'] as String?;
+    if (classSociety != null && classSociety.isNotEmpty) {
+      final clause = data.clauseByType('class_status_statement');
+      if (clause != null) {
+        buf.writeln(clause.clauseText.replaceAll('{CLASS_SOCIETY}', classSociety));
+      }
+    }
+
+    // Clauses C-6b/C-6c: DOC / SMC certificates
+    Map<String, dynamic>? findCert(String type) =>
+        certs.where((c) => c['cert_type'] == type).firstOrNull;
+    final docCert = findCert('doc');
+    if (docCert != null && (docCert['issuing_authority'] as String?)?.isNotEmpty == true) {
+      final clause = data.clauseByType('doc_certificate_statement');
+      if (clause != null) {
+        buf.writeln(clause.clauseText
+            .replaceAll('{DOC_ISSUER}', docCert['issuing_authority'] as String)
+            .replaceAll('{DOC_ISSUE_DATE}', _formatDate(docCert['issue_date'] as String? ?? ''))
+            .replaceAll('{DOC_EXPIRY}', _formatDate(docCert['expiry_date'] as String? ?? '')));
+      }
+    }
+    final smcCert = findCert('smc');
+    if (smcCert != null && (smcCert['issuing_authority'] as String?)?.isNotEmpty == true) {
+      final clause = data.clauseByType('smc_certificate_statement');
+      if (clause != null) {
+        buf.writeln(clause.clauseText
+            .replaceAll('{SMC_ISSUER}', smcCert['issuing_authority'] as String)
+            .replaceAll('{SMC_ISSUE_DATE}', _formatDate(smcCert['issue_date'] as String? ?? ''))
+            .replaceAll('{SMC_EXPIRY}', _formatDate(smcCert['expiry_date'] as String? ?? '')));
+      }
+    }
+
+    // Clause C-6e: last drydock
+    final lastDdYard = vessel?['last_drydock_yard'] as String?;
+    if (lastDdYard != null && lastDdYard.isNotEmpty) {
+      final clause = data.clauseByType('last_drydock_statement');
+      if (clause != null) {
+        final lastDdDate = vessel?['last_drydock_date'] as String?;
+        buf.writeln(clause.clauseText
+            .replaceAll('{LAST_DD_YARD}', lastDdYard)
+            .replaceAll('{LAST_DD_DATE}', lastDdDate != null ? _formatDate(lastDdDate) : ''));
+      }
+    }
+
+    // Clause C-6f: statutory certificate status — mutually exclusive 3-way
+    if (certs.isNotEmpty) {
+      final expired    = certs.where((c) => c['status'] == 'expired').toList();
+      final notSighted = certs.where((c) => c['status'] == 'not_sighted').toList();
+      String? clauseType;
+      String certDetails = '';
+      if (expired.isNotEmpty) {
+        clauseType = 'statutory_certs_expired';
+        certDetails = expired
+            .map((c) => c['cert_name'] as String? ?? c['cert_type'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .join(', ');
+      } else if (notSighted.isNotEmpty) {
+        clauseType = 'statutory_certs_not_sighted';
+      } else if (certs.every((c) => c['status'] == 'valid')) {
+        clauseType = 'statutory_certs_valid';
+      }
+      if (clauseType != null) {
+        final clause = data.clauseByType(clauseType);
+        if (clause != null) {
+          buf.writeln(clause.clauseText.replaceAll('{CERT_DETAILS}', certDetails));
+        }
+      }
+    }
+
+    if (buf.isNotEmpty) buf.writeln();
+
     if (certs.isNotEmpty) {
       buf.writeln('Certificates on Board:');
       for (final c in certs) {
@@ -890,8 +1660,9 @@ class SectionDraftNotifier
     }).join('\n\n');
   }
 
-  String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs) {
-    return docs.asMap().entries.map((e) {
+  String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs,
+      {String? header}) {
+    final body = docs.asMap().entries.map((e) {
       final idx   = e.key + 1;
       final title = e.value['title']            as String? ?? 'Untitled';
       final annex = e.value['annexure_assignment'] as String?;
@@ -902,7 +1673,145 @@ class SectionDraftNotifier
       ].join(' — ');
       return '$idx. $title${suffix.isNotEmpty ? ' — $suffix' : ''}';
     }).join('\n');
+    return header != null && header.isNotEmpty ? '$header\n\n$body' : body;
   }
+
+  static const _vesselStatusClause = {
+    'at_sea':              'vessel_status_at_sea',
+    'in_port_at_anchor':   'vessel_status_in_port',
+    'maintenance':         'vessel_status_maintenance',
+    'manoeuvring':         'vessel_status_manoeuvring',
+  };
+
+  static const _aftermathClause = {
+    'own_power':                 'aftermath_own_power',
+    'tug_only':                  'aftermath_tug_only',
+    'tug_and_pilot':             'aftermath_tug_pilot',
+    'tug_pilot_lines_gangway':   'aftermath_tug_pilot_lines_gangway',
+    'towed':                     'aftermath_towed',
+    'proceeded_with_operations': 'aftermath_proceeded_operations',
+  };
+
+  String _buildOccurrenceText(
+      Map<String, dynamic> occ, AssembledReportData data) {
+    final lines = <String>[];
+    final brief = occ['brief_description'] as String?;
+    if (brief != null && brief.isNotEmpty) lines.add(brief);
+
+    // Clause D-2: vessel status at the time of the casualty.
+    final vesselStatusType = _vesselStatusClause[occ['vessel_status_at_casualty']];
+    if (vesselStatusType != null) {
+      final text = data.clauseByType(vesselStatusType)?.clauseText;
+      if (text != null && text.isNotEmpty) lines.add(text);
+    }
+
+    // Clause F-1 (Aftermath): how the vessel proceeded after the casualty,
+    // with an optional named port appended before the closing period.
+    final aftermathType = _aftermathClause[occ['aftermath_status']];
+    if (aftermathType != null) {
+      var text = data.clauseByType(aftermathType)?.clauseText;
+      final port = occ['aftermath_port'] as String?;
+      if (text != null && text.isNotEmpty) {
+        if (port != null && port.isNotEmpty && text.endsWith('.')) {
+          text = '${text.substring(0, text.length - 1)} at $port.';
+        }
+        lines.add(text);
+      }
+    }
+
+    return lines.join('\n\n');
+  }
+
+  String _buildDocumentsRequestedText(List<Map<String, dynamic>> docs,
+      {String? header}) {
+    final body = docs.asMap().entries.map((e) {
+      final idx = e.key + 1;
+      final title = e.value['title'] as String? ?? 'Untitled';
+      final requested = e.value['requested_date'] as String?;
+      final suffix = requested != null && requested.isNotEmpty
+          ? 'requested ${_formatDate(requested)}'
+          : '';
+      return '$idx. $title${suffix.isNotEmpty ? ' — $suffix' : ''}';
+    }).join('\n');
+    return header != null && header.isNotEmpty ? '$header\n\n$body' : body;
+  }
+
+  /// Clause G-1: cost estimate status. Three states per the surveyor's own
+  /// account-review workflow (not the source doc's original 4 — no CTL
+  /// scenario tracked here): no invoices yet, ongoing with partial invoices,
+  /// or completed with all invoices in. Returns null if no status is set.
+  String? _buildCostStatusText(AssembledReportData data) {
+    final status = data.caseData['cost_estimate_status'] as String?;
+    if (status == null) return null;
+    final currency = data.caseData['base_currency'] as String? ?? '';
+    final estimate = (data.caseData['estimated_repair_cost'] as num?)?.toString();
+
+    String? fill(String clauseType) => data
+        .clauseByType(clauseType)
+        ?.clauseText
+        .replaceAll('{CURRENCY_CODE}', currency)
+        .replaceAll('{ESTIMATED_COST}', estimate ?? '');
+
+    return switch (status) {
+      'no_invoices_yet' => estimate != null
+          ? fill('cost_status_estimate_obtained')
+          : fill('cost_status_estimate_not_obtained'),
+      'ongoing_partial_invoices' => fill('cost_status_ongoing'),
+      'completed_all_invoices'   => fill('cost_status_completed'),
+      _ => null,
+    };
+  }
+
+  String _buildCostSummaryText(List<Map<String, dynamic>> repairDocs,
+      {String? approvalIntro}) {
+    if (repairDocs.isEmpty) return '';
+    var total = 0.0;
+    final lines = <String>[];
+    for (final doc in repairDocs) {
+      final supplier = doc['supplier'] as String? ?? doc['title'] as String? ?? '';
+      final lines_ = (doc['account_lines'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final docTotal = lines_.fold(0.0,
+          (s, l) => s + ((l['amount'] as num?)?.toDouble() ?? 0.0));
+      total += docTotal;
+      if (supplier.isNotEmpty) {
+        lines.add('$supplier: ${_formatAmount(docTotal)}');
+      }
+    }
+    if (lines.isEmpty) return '';
+    lines.add('Total: ${_formatAmount(total)}');
+    final body = lines.join('\n');
+    return approvalIntro != null && approvalIntro.isNotEmpty
+        ? '$approvalIntro\n\n$body'
+        : body;
+  }
+
+  String _buildRepairTimesText(List<Map<String, dynamic>> periods,
+      {String? guidanceIntro}) {
+    if (periods.isEmpty) return '';
+    final lines = <String>[];
+    for (final json in periods) {
+      final p  = RepairPeriodModel.fromJson(json);
+      final dd = p.drydockDaysTotal;
+      final ad = p.alongsideDaysTotal;
+      final od = p.ownerDaysTotal;
+      if (dd + ad + od > 0) {
+        final parts = [
+          if (dd > 0) '${dd.toStringAsFixed(1)} drydock',
+          if (ad > 0) '${ad.toStringAsFixed(1)} afloat',
+          if (od > 0) '${od.toStringAsFixed(1)} owner',
+        ].join(', ');
+        lines.add('${p.displayTitle}: $parts days');
+      }
+    }
+    if (lines.isEmpty) return '';
+    final body = lines.join('\n');
+    return guidanceIntro != null && guidanceIntro.isNotEmpty
+        ? '$guidanceIntro\n\n$body'
+        : body;
+  }
+
+  String _formatAmount(double v) =>
+      'USD ${v.toStringAsFixed(2).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
 
   String _formatDate(String iso) {
     try {

@@ -5,6 +5,22 @@ import '../../vessel/widgets/survey_field.dart';
 import '../providers/damage_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 
+const _kVesselStatusOptions = {
+  'at_sea':            'At Sea',
+  'in_port_at_anchor': 'In Port / At Anchor',
+  'maintenance':       'Undergoing Maintenance',
+  'manoeuvring':       'Manoeuvring',
+};
+
+const _kAftermathOptions = {
+  'own_power':                 'Own Power',
+  'tug_only':                  'Tug Only',
+  'tug_and_pilot':             'Tug and Pilot',
+  'tug_pilot_lines_gangway':   'Tug, Pilot, Lines & Gangway',
+  'towed':                     'Towed',
+  'proceeded_with_operations': 'Proceeded with Operations',
+};
+
 class AddOccurrenceSheet extends StatefulWidget {
   const AddOccurrenceSheet({
     super.key,
@@ -19,6 +35,9 @@ class AddOccurrenceSheet extends StatefulWidget {
     DateTime? dateTime,
     String? location,
     String? description,
+    String? vesselStatusAtCasualty,
+    String? aftermathStatus,
+    String? aftermathPort,
   ) onSave;
 
   @override
@@ -26,10 +45,13 @@ class AddOccurrenceSheet extends StatefulWidget {
 }
 
 class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
-  final _titleCtrl       = TextEditingController();
-  final _locationCtrl    = TextEditingController();
-  final _descriptionCtrl = TextEditingController();
+  final _titleCtrl        = TextEditingController();
+  final _locationCtrl     = TextEditingController();
+  final _descriptionCtrl  = TextEditingController();
+  final _aftermathPortCtrl = TextEditingController();
   DateTime? _dateTime;
+  String? _vesselStatusAtCasualty;
+  String? _aftermathStatus;
   bool _saving = false;
 
   @override
@@ -41,6 +63,9 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
       _locationCtrl.text    = e.location     ?? '';
       _descriptionCtrl.text = e.briefDescription ?? '';
       _dateTime             = e.dateTime;
+      _vesselStatusAtCasualty = e.vesselStatusAtCasualty;
+      _aftermathStatus        = e.aftermathStatus;
+      _aftermathPortCtrl.text = e.aftermathPort ?? '';
     }
   }
 
@@ -49,6 +74,7 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
     _titleCtrl.dispose();
     _locationCtrl.dispose();
     _descriptionCtrl.dispose();
+    _aftermathPortCtrl.dispose();
     super.dispose();
   }
 
@@ -91,6 +117,11 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
         _descriptionCtrl.text.trim().isEmpty
             ? null
             : _descriptionCtrl.text.trim(),
+        _vesselStatusAtCasualty,
+        _aftermathStatus,
+        _aftermathPortCtrl.text.trim().isEmpty
+            ? null
+            : _aftermathPortCtrl.text.trim(),
       );
       if (mounted) Navigator.pop(context);
     } finally {
@@ -200,6 +231,14 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
               hint: 'e.g. 12 NM off Onslow, Western Australia',
             ),
 
+            _DropdownField(
+              label: 'Vessel Status at Casualty',
+              value: _vesselStatusAtCasualty,
+              options: _kVesselStatusOptions,
+              onChanged: (v) => setState(() => _vesselStatusAtCasualty = v),
+            ),
+            const SizedBox(height: 14),
+
             SurveyField(
               label: 'Narrative',
               controller: _descriptionCtrl,
@@ -208,6 +247,37 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
               maxLines: 12,
             ),
 
+            const Text('Aftermath',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                    letterSpacing: 0.3)),
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _DropdownField(
+                    label: 'What happened after the casualty?',
+                    value: _aftermathStatus,
+                    options: _kAftermathOptions,
+                    onChanged: (v) => setState(() => _aftermathStatus = v),
+                  ),
+                  const SizedBox(height: 10),
+                  SurveyField(
+                    label: 'Port (if applicable)',
+                    controller: _aftermathPortCtrl,
+                    hint: 'e.g. Fremantle',
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -242,5 +312,65 @@ class _AddOccurrenceSheetState extends State<AddOccurrenceSheet> {
     final h = dt.hour.toString().padLeft(2, '0');
     final min = dt.minute.toString().padLeft(2, '0');
     return '$d/$m/${dt.year}  $h:$min';
+  }
+}
+
+// ── Reusable labelled dropdown (string key/value options) ──────────────────
+
+class _DropdownField extends StatelessWidget {
+  const _DropdownField({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String? value;
+  final Map<String, String> options;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+                letterSpacing: 0.3)),
+        const SizedBox(height: 5),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: DropdownButton<String?>(
+            value: value,
+            isExpanded: true,
+            underline: const SizedBox.shrink(),
+            hint: const Text('— Not specified —',
+                style: TextStyle(fontSize: 14, color: AppColors.textTertiary)),
+            items: [
+              const DropdownMenuItem(
+                  value: null,
+                  child: Text('— Not specified —',
+                      style: TextStyle(
+                          fontSize: 14, color: AppColors.textTertiary))),
+              ...options.entries.map((e) => DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value,
+                        style: const TextStyle(
+                            fontSize: 14, color: AppColors.textPrimary)),
+                  )),
+            ],
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
   }
 }

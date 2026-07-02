@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/vessel_provider.dart';
 import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
@@ -11,7 +12,9 @@ import '../../settings/providers/account_provider.dart';
 import '../../../core/api/equasis_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
+import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/tri_state_row.dart';
 import '../providers/certificates_provider.dart';
 import '../providers/class_conditions_provider.dart';
 import '../models/class_condition_model.dart';
@@ -25,19 +28,20 @@ import '../../../shared/widgets/save_bar.dart';
 import '../../survey/providers/damage_provider.dart';
 import 'dart:io';
 import '../../photos/providers/photo_provider.dart';
+import '../../photos/models/photo_model.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
 import '../../../core/api/supabase_client.dart';
 
 // ── ABL London H&M Report template option lists ───────────────────────────────
 
 const _vesselTypes = [
-  'general cargo ship', 'oil tanker', 'products carrier', 'ro ro',
-  'passenger ferry', 'offshore support vessel', 'offshore supply vessel',
-  'container ship', 'anchor handling tug', 'tug', 'bulk carrier',
-  'chemical tanker', 'container carrier', 'Reefer vessel', 'LNG carrier',
-  'LPG carrier', 'Oceanographic Research Vessel', 'Seismic Survey Vessel',
-  'dive support vessel', 'tender', 'crew boat', 'cable layer',
-  'pipe layer', 'work boat', 'pilot boat',
+  'General Cargo Ship', 'Oil Tanker', 'Products Carrier', 'Ro Ro',
+  'Passenger Ferry', 'Offshore Support Vessel', 'Offshore Supply Vessel',
+  'Container Ship', 'Anchor Handling Tug', 'Tug', 'Bulk Carrier',
+  'Chemical Tanker', 'Container Carrier', 'Reefer Vessel', 'LNG Carrier',
+  'LPG Carrier', 'Oceanographic Research Vessel', 'Seismic Survey Vessel',
+  'Dive Support Vessel', 'Tender', 'Crew Boat', 'Cable Layer',
+  'Pipe Layer', 'Work Boat', 'Pilot Boat', 'Private Yacht', 'Sailing Vessel',
 ];
 
 const _classSocieties = [
@@ -135,6 +139,16 @@ class _VesselParticularsScreenState
   final _officialNumberCtrl       = TextEditingController();
   final _constructionStandardCtrl = TextEditingController();
   final _piClubCtrl               = TextEditingController();
+  // Regulatory Standard / AMSA DCV fields (Identity tab)
+  final _uviCtrl           = TextEditingController();
+  final _surveyCertNoCtrl  = TextEditingController();
+  RegulatoryStandard? _regulatoryStandard;
+  AmsaVesselUseClass? _amsaVesselUseClass;
+  AmsaServiceCategory? _amsaServiceCategory;
+  HullMaterial? _hullMaterial;
+  DateTime? _equipmentSurveyDue;
+  DateTime? _hullSurveyDue;
+  DateTime? _tailShaftSurveyDue;
   // Class & Statutory tab — PSC / ISPS (ISM/Class reporting)
   final _pscSummaryCtrl           = TextEditingController();
   bool? _ismIncidentReported;
@@ -173,6 +187,7 @@ class _VesselParticularsScreenState
       _mcrValueCtrl, _mcrRpmCtrl,
       _officialNumberCtrl, _constructionStandardCtrl, _piClubCtrl,
       _pscSummaryCtrl,
+      _uviCtrl, _surveyCertNoCtrl,
     ]) {
       c.dispose();
     }
@@ -224,6 +239,15 @@ class _VesselParticularsScreenState
     _pscLastResult         = v.pscLastResult;
     _pscSummaryCtrl.text   = v.pscSummary ?? '';
     _ispsStatus            = v.ispsStatus;
+    _regulatoryStandard    = v.regulatoryStandard;
+    _amsaVesselUseClass    = v.amsaVesselUseClass;
+    _amsaServiceCategory   = v.amsaServiceCategory;
+    _hullMaterial          = v.hullMaterial;
+    _uviCtrl.text          = v.uniqueVesselIdentifier ?? '';
+    _surveyCertNoCtrl.text = v.surveyCertificateNo    ?? '';
+    _equipmentSurveyDue    = v.equipmentSurveyDue;
+    _hullSurveyDue         = v.hullSurveyDue;
+    _tailShaftSurveyDue    = v.tailShaftSurveyDue;
   }
 
   Map<String, dynamic> _collectFields() => {
@@ -270,6 +294,15 @@ class _VesselParticularsScreenState
     'psc_last_result':         _pscLastResult?.value,
     'psc_summary':             _pscSummaryCtrl.text.trim().isEmpty ? null : _pscSummaryCtrl.text.trim(),
     'isps_status':             _ispsStatus?.value,
+    'regulatory_standard':     _regulatoryStandard?.value,
+    'amsa_vessel_use_class':   _amsaVesselUseClass?.value,
+    'amsa_service_category':   _amsaServiceCategory?.value,
+    'hull_material':           _hullMaterial?.value,
+    'unique_vessel_identifier': _uviCtrl.text.trim().isEmpty ? null : _uviCtrl.text.trim(),
+    'survey_certificate_no':   _surveyCertNoCtrl.text.trim().isEmpty ? null : _surveyCertNoCtrl.text.trim(),
+    'equipment_survey_due':    _equipmentSurveyDue?.toIso8601String().split('T').first,
+    'hull_survey_due':         _hullSurveyDue?.toIso8601String().split('T').first,
+    'tail_shaft_survey_due':   _tailShaftSurveyDue?.toIso8601String().split('T').first,
   };
 
   Future<void> _syncCaseTitle(String vesselName) async {
@@ -279,8 +312,10 @@ class _VesselParticularsScreenState
           .select('technical_file_no, case_type')
           .eq('case_id', widget.caseId)
           .single();
-      final jobNo    = (caseRow['technical_file_no'] as String? ?? '').trim();
-      final caseType = (caseRow['case_type'] as String? ?? '').trim();
+      final jobNo = (caseRow['technical_file_no'] as String? ?? '').trim();
+      final caseTypeLabel = caseRow['case_type'] != null
+          ? CaseType.fromValue(caseRow['case_type'] as String).label
+          : '';
       final occRows = await SupabaseService.client
           .from('occurrences')
           .select('title')
@@ -290,7 +325,7 @@ class _VesselParticularsScreenState
       final occTitle = (occRows as List).isNotEmpty
           ? ((occRows.first as Map)['title'] as String? ?? '').trim()
           : '';
-      final parts = [jobNo, vesselName.trim(), caseType, occTitle]
+      final parts = [jobNo, vesselName.trim(), caseTypeLabel, occTitle]
           .where((p) => p.isNotEmpty).toList();
       if (parts.isNotEmpty) {
         await SupabaseService.client
@@ -299,6 +334,80 @@ class _VesselParticularsScreenState
             .eq('case_id', widget.caseId);
       }
     } catch (_) {}
+  }
+
+  /// Entry point for the Save button. Checks the typed IMO against the
+  /// database *before* creating or updating anything — if it already
+  /// belongs to a different vessel, offers to link this case to that
+  /// existing record and load its data, instead of hitting a conflict
+  /// after a new (blank) vessel has already been created for this case.
+  Future<void> _handleSave(String? vesselId) async {
+    final imo = _imoCtrl.text.trim();
+    if (imo.isNotEmpty) {
+      final existing = await ref
+          .read(vesselForCaseProvider(widget.caseId).notifier)
+          .findVesselByImo(imo, excludeVesselId: vesselId);
+      if (existing != null) {
+        final existingName =
+            (existing.name?.isNotEmpty ?? false) ? existing.name! : 'this vessel';
+        if (!mounted) return;
+        final shouldLink = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Vessel already on file'),
+            content: Text(
+              'IMO $imo is already recorded for "$existingName". '
+              'Link this case to that record and load its existing '
+              'particulars? Anything typed on this screen will be replaced.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Link & Load'),
+              ),
+            ],
+          ),
+        );
+        if (shouldLink != true) return;
+
+        setState(() => _saving = true);
+        try {
+          await ref
+              .read(vesselForCaseProvider(widget.caseId).notifier)
+              .linkExistingVessel(
+                caseId: widget.caseId,
+                existingVesselId: existing.vesselId,
+              );
+          setState(() => _hasChanges = false);
+          ref.invalidate(caseProvider(widget.caseId));
+          ref.invalidate(casesProvider);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Linked to "$existingName" — data loaded'),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } catch (e, st) {
+          if (mounted) showError(context, 'Link failed: $e', error: e, stack: st, tag: 'Vessel');
+        } finally {
+          if (mounted) setState(() => _saving = false);
+        }
+        return;
+      }
+    }
+
+    if (vesselId != null) {
+      await _save(vesselId);
+    } else {
+      await _createAndSave();
+    }
   }
 
   Future<void> _save(String vesselId) async {
@@ -384,17 +493,22 @@ class _VesselParticularsScreenState
       return;
     }
 
-    final accountAsync = ref.read(accountProvider);
-    if (accountAsync.isLoading) {
+    // Wait for the account to finish loading rather than bailing out —
+    // ref.read() only returns a snapshot, and accountProvider is often
+    // still mid-load the first time this screen is used in a session.
+    AccountState account;
+    try {
+      account = await ref.read(accountProvider.future);
+    } catch (e) {
       _fetchingEquasis = false;
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
-          ..showSnackBar(const SnackBar(content: Text('Account still loading — please try again')));
+          ..showSnackBar(SnackBar(content: Text('Could not load account: $e')));
       }
       return;
     }
-    final equasisAcc = accountAsync.value?.equasisAccount;
+    final equasisAcc = account.equasisAccount;
     if (equasisAcc == null) {
       _fetchingEquasis = false;
       if (!mounted) return;
@@ -535,7 +649,7 @@ class _VesselParticularsScreenState
       bottomNavigationBar: SaveBar(
         visible: _hasChanges || vesselId == null,
         saving: _saving,
-        onSave: () => vesselId != null ? _save(vesselId) : _createAndSave(),
+        onSave: () => _handleSave(vesselId),
       ),
       body: TabBarView(
         controller: _tabController,
@@ -559,10 +673,25 @@ class _VesselParticularsScreenState
             yearBuiltCtrl:           _yearBuiltCtrl,
             buildYardCtrl:           _buildYardCtrl,
             buildCountryCtrl:        _buildCountryCtrl,
-            constructionStandardCtrl: _constructionStandardCtrl,
+            regulatoryStandard:      _regulatoryStandard,
+            amsaVesselUseClass:      _amsaVesselUseClass,
+            amsaServiceCategory:     _amsaServiceCategory,
+            hullMaterial:            _hullMaterial,
+            uviCtrl:                 _uviCtrl,
+            surveyCertNoCtrl:        _surveyCertNoCtrl,
+            equipmentSurveyDue:      _equipmentSurveyDue,
+            hullSurveyDue:           _hullSurveyDue,
+            tailShaftSurveyDue:      _tailShaftSurveyDue,
             onChanged:               _markChanged,
             onVesselTypeChanged:     (v) { setState(() { _vesselType = v; _hasChanges = true; }); },
             onClassSocietyChanged:   (v) { setState(() { _classSociety = v; _hasChanges = true; }); },
+            onRegulatoryStandardChanged: (v) { setState(() { _regulatoryStandard = v; _hasChanges = true; }); },
+            onAmsaVesselUseClassChanged: (v) { setState(() { _amsaVesselUseClass = v; _hasChanges = true; }); },
+            onAmsaServiceCategoryChanged: (v) { setState(() { _amsaServiceCategory = v; _hasChanges = true; }); },
+            onHullMaterialChanged:   (v) { setState(() { _hullMaterial = v; _hasChanges = true; }); },
+            onEquipmentSurveyDueChanged: (v) { setState(() { _equipmentSurveyDue = v; _hasChanges = true; }); },
+            onHullSurveyDueChanged:  (v) { setState(() { _hullSurveyDue = v; _hasChanges = true; }); },
+            onTailShaftSurveyDueChanged: (v) { setState(() { _tailShaftSurveyDue = v; _hasChanges = true; }); },
             onEquasisFetch:          _fetchFromEquasis,
             fetchingEquasis:         _fetchingEquasis,
           ),
@@ -646,10 +775,25 @@ class _IdentityTab extends ConsumerStatefulWidget {
     required this.yearBuiltCtrl,
     required this.buildYardCtrl,
     required this.buildCountryCtrl,
-    required this.constructionStandardCtrl,
+    required this.regulatoryStandard,
+    required this.amsaVesselUseClass,
+    required this.amsaServiceCategory,
+    required this.hullMaterial,
+    required this.uviCtrl,
+    required this.surveyCertNoCtrl,
+    required this.equipmentSurveyDue,
+    required this.hullSurveyDue,
+    required this.tailShaftSurveyDue,
     required this.onChanged,
     required this.onVesselTypeChanged,
     required this.onClassSocietyChanged,
+    required this.onRegulatoryStandardChanged,
+    required this.onAmsaVesselUseClassChanged,
+    required this.onAmsaServiceCategoryChanged,
+    required this.onHullMaterialChanged,
+    required this.onEquipmentSurveyDueChanged,
+    required this.onHullSurveyDueChanged,
+    required this.onTailShaftSurveyDueChanged,
     this.onEquasisFetch,
     this.fetchingEquasis = false,
   });
@@ -664,10 +808,25 @@ class _IdentityTab extends ConsumerStatefulWidget {
   final TextEditingController notationCtrl;
   final TextEditingController piClubCtrl;
   final TextEditingController yearBuiltCtrl, buildYardCtrl, buildCountryCtrl;
-  final TextEditingController constructionStandardCtrl;
+  final RegulatoryStandard? regulatoryStandard;
+  final AmsaVesselUseClass? amsaVesselUseClass;
+  final AmsaServiceCategory? amsaServiceCategory;
+  final HullMaterial? hullMaterial;
+  final TextEditingController uviCtrl;
+  final TextEditingController surveyCertNoCtrl;
+  final DateTime? equipmentSurveyDue;
+  final DateTime? hullSurveyDue;
+  final DateTime? tailShaftSurveyDue;
   final VoidCallback onChanged;
   final ValueChanged<String?> onVesselTypeChanged;
   final ValueChanged<String?> onClassSocietyChanged;
+  final ValueChanged<RegulatoryStandard?> onRegulatoryStandardChanged;
+  final ValueChanged<AmsaVesselUseClass?> onAmsaVesselUseClassChanged;
+  final ValueChanged<AmsaServiceCategory?> onAmsaServiceCategoryChanged;
+  final ValueChanged<HullMaterial?> onHullMaterialChanged;
+  final ValueChanged<DateTime?> onEquipmentSurveyDueChanged;
+  final ValueChanged<DateTime?> onHullSurveyDueChanged;
+  final ValueChanged<DateTime?> onTailShaftSurveyDueChanged;
   final VoidCallback? onEquasisFetch;
   final bool fetchingEquasis;
 
@@ -676,8 +835,11 @@ class _IdentityTab extends ConsumerStatefulWidget {
 }
 
 class _IdentityTabState extends ConsumerState<_IdentityTab> {
+  // The vessel "general view" photo is the same single case-wide cover
+  // photo shared with the Photo Gallery and Report Builder — picking one
+  // here updates it everywhere, and vice versa.
   Future<void> _pickVesselPhoto() async {
-    final picked = await showModalBottomSheet<List<dynamic>>(
+    final picked = await showModalBottomSheet<List<PhotoModel>>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -688,19 +850,29 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
       ),
     );
     if (picked == null || picked.isEmpty || !mounted) return;
-    final photo = picked.first;
     await ref
         .read(photosProvider(widget.caseId).notifier)
-        .attachLink(photo.id as String, 'vessel_general_view', widget.caseId);
+        .updateAllocation(picked.first.id, PhotoAllocation.coverPage);
+  }
+
+  Future<void> _openMarineTraffic() async {
+    final imo = widget.imoCtrl.text.trim();
+    if (imo.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('Enter an IMO number first')));
+      return;
+    }
+    await launchUrl(
+      Uri.parse('https://www.marinetraffic.com/en/ais/details/ships/imo:$imo'),
+      mode: LaunchMode.externalApplication,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final photos = ref.watch(photosProvider(widget.caseId)).value ?? [];
-    final vesselPhotoMatches = photos.where(
-        (p) => p.linkedToType == 'vessel_general_view' && p.linkedToId == widget.caseId);
-    final vesselPhoto =
-        vesselPhotoMatches.isEmpty ? null : vesselPhotoMatches.first;
+    final vesselPhoto = photos.coverPhoto;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -835,6 +1007,35 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
                       ),
                     ),
             ),
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Tooltip(
+                message: 'Show in MarineTraffic',
+                child: InkWell(
+                  onTap: _openMarineTraffic,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightAmber,
+                      border: Border.all(color: AppColors.amber),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.radar, size: 15, color: AppColors.amber),
+                      SizedBox(width: 5),
+                      Text('MarineTraffic',
+                          style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600,
+                            color: AppColors.amber,
+                          )),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
 
@@ -844,6 +1045,19 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           hint: 'Select vessel type',
           options: _vesselTypes,
           onChanged: widget.onVesselTypeChanged,
+        ),
+        const SizedBox(height: 14),
+
+        const Text('Regulatory Standard',
+            style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary, letterSpacing: 0.3)),
+        const SizedBox(height: 6),
+        ChipRow<RegulatoryStandard>(
+          values: RegulatoryStandard.values,
+          selected: widget.regulatoryStandard,
+          label: (s) => s.label,
+          onChanged: widget.onRegulatoryStandardChanged,
         ),
         const SizedBox(height: 20),
 
@@ -914,32 +1128,37 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
         ),
         const SizedBox(height: 20),
 
-        const VesselSectionHeader(
-          title: 'Classification',
-          icon: Icons.verified_outlined,
-          color: AppColors.purple,
-        ),
-        const SizedBox(height: 12),
-        _PickerField(
-          label: 'Class Society',
-          value: widget.classSociety,
-          hint: 'Select classification society',
-          options: _classSocieties,
-          onChanged: widget.onClassSocietyChanged,
-        ),
-        SurveyField(
-          label: 'Class Notation',
-          controller: widget.notationCtrl,
-          hint: 'e.g. A1, ATB, Towing vessel, AMS',
-          onChanged: (_) => widget.onChanged(),
-        ),
-        SurveyField(
-          label: 'P&I Club',
-          controller: widget.piClubCtrl,
-          hint: 'e.g. Gard, Skuld, West of England',
-          onChanged: (_) => widget.onChanged(),
-        ),
-        const SizedBox(height: 20),
+        // Classification (class society/notation, P&I club) applies to
+        // Convention vessels — shown by default (regulatoryStandard == null
+        // covers pre-existing vessels) and hidden once DCV is selected.
+        if (widget.regulatoryStandard != RegulatoryStandard.dcv) ...[
+          const VesselSectionHeader(
+            title: 'Classification',
+            icon: Icons.verified_outlined,
+            color: AppColors.purple,
+          ),
+          const SizedBox(height: 12),
+          _PickerField(
+            label: 'Class Society',
+            value: widget.classSociety,
+            hint: 'Select classification society',
+            options: _classSocieties,
+            onChanged: widget.onClassSocietyChanged,
+          ),
+          SurveyField(
+            label: 'Class Notation',
+            controller: widget.notationCtrl,
+            hint: 'e.g. A1, ATB, Towing vessel, AMS',
+            onChanged: (_) => widget.onChanged(),
+          ),
+          SurveyField(
+            label: 'P&I Club',
+            controller: widget.piClubCtrl,
+            hint: 'e.g. Gard, Skuld, West of England',
+            onChanged: (_) => widget.onChanged(),
+          ),
+          const SizedBox(height: 20),
+        ],
 
         const VesselSectionHeader(
           title: 'Build',
@@ -969,12 +1188,92 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           hint: 'e.g. Hin Lee Shipyard',
           onChanged: (_) => widget.onChanged(),
         ),
-        SurveyField(
-          label: 'Construction Standard',
-          controller: widget.constructionStandardCtrl,
-          hint: 'e.g. SOLAS, Load Line Convention',
-          onChanged: (_) => widget.onChanged(),
-        ),
+        const SizedBox(height: 20),
+
+        // DCV — National Law only: AMSA-specific identity fields.
+        if (widget.regulatoryStandard == RegulatoryStandard.dcv) ...[
+          const VesselSectionHeader(
+            title: 'DCV Particulars',
+            icon: Icons.anchor_outlined,
+            color: AppColors.teal,
+          ),
+          const SizedBox(height: 12),
+          const Text('Hull Material',
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+          const SizedBox(height: 6),
+          ChipRow<HullMaterial>(
+            values: HullMaterial.values,
+            selected: widget.hullMaterial,
+            label: (m) => m.label,
+            onChanged: widget.onHullMaterialChanged,
+          ),
+          const SizedBox(height: 14),
+          SurveyField(
+            label: 'Unique Vessel Identifier',
+            controller: widget.uviCtrl,
+            hint: 'AMSA UVI',
+            onChanged: (_) => widget.onChanged(),
+          ),
+          SurveyField(
+            label: 'Survey Certificate No.',
+            controller: widget.surveyCertNoCtrl,
+            hint: 'e.g. COS-12345-01',
+            onChanged: (_) => widget.onChanged(),
+          ),
+          const SizedBox(height: 6),
+          const Text('AMSA Vessel Use Class',
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+          const SizedBox(height: 6),
+          ChipRow<AmsaVesselUseClass>(
+            values: AmsaVesselUseClass.values,
+            selected: widget.amsaVesselUseClass,
+            label: (c) => c.label,
+            onChanged: widget.onAmsaVesselUseClassChanged,
+          ),
+          const SizedBox(height: 12),
+          const Text('Service Category',
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+          const SizedBox(height: 6),
+          ChipRow<AmsaServiceCategory>(
+            values: AmsaServiceCategory.values,
+            selected: widget.amsaServiceCategory,
+            label: (c) => c.label,
+            onChanged: widget.onAmsaServiceCategoryChanged,
+          ),
+          if (widget.amsaVesselUseClass != null && widget.amsaServiceCategory != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Class ${widget.amsaVesselUseClass!.value}'
+                '${widget.amsaServiceCategory!.value.toUpperCase()}',
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700,
+                    color: AppColors.teal),
+              ),
+            ),
+          const SizedBox(height: 14),
+          _DatePickerField(
+            label: 'Equipment Due',
+            value: widget.equipmentSurveyDue,
+            onChanged: widget.onEquipmentSurveyDueChanged,
+          ),
+          _DatePickerField(
+            label: 'Hull Due',
+            value: widget.hullSurveyDue,
+            onChanged: widget.onHullSurveyDueChanged,
+          ),
+          _DatePickerField(
+            label: 'Tail Shaft Due',
+            value: widget.tailShaftSurveyDue,
+            onChanged: widget.onTailShaftSurveyDueChanged,
+          ),
+        ],
         const SizedBox(height: 32),
       ],
     );
@@ -1568,14 +1867,14 @@ class _ClassStatutoryTab extends ConsumerWidget {
           ),
         ],
         const SizedBox(height: 12),
-        _TriStateRow(
+        TriStateRow(
           label: 'Reported via ISM',
           hint: 'Set to Yes if a formal ISM incident report has been raised',
           value: ismIncidentReported,
           onChanged: onIsmChanged,
         ),
         const SizedBox(height: 10),
-        _TriStateRow(
+        TriStateRow(
           label: 'Reported to Class',
           hint: 'Set to Yes if a Condition of Class was issued for this occurrence',
           value: classIncidentReported,
@@ -2060,7 +2359,7 @@ class _AddConditionSheetState extends State<_AddConditionSheet> {
           if (_occRel && widget.occurrences.isNotEmpty) ...[
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _occId,
+              initialValue: _occId,
               decoration: InputDecoration(
                 labelText: 'Select Occurrence',
                 labelStyle: const TextStyle(
@@ -2115,77 +2414,6 @@ class _AddConditionSheetState extends State<_AddConditionSheet> {
 }
 
 // ── Shared sub-widgets ─────────────────────────────────────────────────────────
-
-class _TriStateRow extends StatelessWidget {
-  const _TriStateRow({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-    this.hint,
-  });
-
-  final String label;
-  final String? hint;
-  final bool? value;
-  final ValueChanged<bool?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label,
-          style: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary)),
-      if (hint != null)
-        Text(hint!,
-            style: const TextStyle(
-                fontSize: 10, color: AppColors.textTertiary,
-                fontStyle: FontStyle.italic)),
-      const SizedBox(height: 6),
-      Row(children: [
-        _TriBtn('Not set', value == null,  () => onChanged(null)),
-        const SizedBox(width: 6),
-        _TriBtn('Yes', value == true,  () => onChanged(true),
-            activeColor: AppColors.success),
-        const SizedBox(width: 6),
-        _TriBtn('No',  value == false, () => onChanged(false),
-            activeColor: AppColors.error),
-      ]),
-    ]);
-  }
-}
-
-class _TriBtn extends StatelessWidget {
-  const _TriBtn(this.label, this.active, this.onTap, {this.activeColor});
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-  final Color? activeColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = activeColor ?? AppColors.textSecondary;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? color.withValues(alpha: 0.12) : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: active ? color : AppColors.border,
-              width: active ? 1.5 : 1),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                color: active ? color : AppColors.textSecondary)),
-      ),
-    );
-  }
-}
 
 class _DatePickerField extends StatelessWidget {
   const _DatePickerField({

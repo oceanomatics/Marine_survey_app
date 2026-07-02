@@ -5,6 +5,7 @@ import 'dart:math' show min;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -100,15 +101,20 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     );
   }
 
-  /// Gallery import: reads XFile bytes one batch at a time so the progress
-  /// indicator appears immediately after the OS picker closes and peak memory
-  /// stays at (batchSize × photo_size) rather than all photos at once.
+  /// Gallery import: picks files first (no native compression), shows the
+  /// progress indicator immediately, then compresses each photo in Dart.
+  ///
+  /// Why no imageQuality on pickMultiImage: that parameter triggers native
+  /// re-encoding of ALL selected photos before the Future completes, causing
+  /// a multi-second freeze between the user confirming the selection and the
+  /// progress bar appearing. Moving compression to Dart lets the picker return
+  /// immediately so _importing = true renders on the very next frame.
   Future<void> _addPhotosFromGallery({
     String? attendanceId,
     String? linkedToType,
     String? linkedToId,
   }) async {
-    final xFiles = await ImagePicker().pickMultiImage(imageQuality: 90);
+    final xFiles = await ImagePicker().pickMultiImage(); // no imageQuality — see note above
     if (xFiles.isEmpty || !mounted) return;
 
     setState(() {
@@ -117,23 +123,35 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       _importTotal = xFiles.length;
     });
 
-    // Batch size 2: each photo can be 3–8 MB uncompressed; 2 at a time is safe
-    // on low-memory devices without slowing import much vs. serial.
-    const batchSize = 2;
-    for (var i = 0; i < xFiles.length; i += batchSize) {
+    // Let the progress-bar frame actually paint before starting heavy work.
+    await SchedulerBinding.instance.endOfFrame;
+
+    // Serial (batchSize 1): original full-res photos can be 10–20 MB each.
+    // Processing one at a time keeps peak RSS to one raw photo + one compressed
+    // copy rather than spiking with multiple concurrent reads.
+    for (var i = 0; i < xFiles.length; i++) {
       if (!mounted) break;
-      final batch = xFiles.sublist(i, min(i + batchSize, xFiles.length));
-      await Future.wait(batch.map((xFile) async {
-        final bytes = await xFile.readAsBytes();
-        await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
-          caseId:       widget.caseId,
-          bytes:        bytes,
-          attendanceId: attendanceId,
-          linkedToType: linkedToType,
-          linkedToId:   linkedToId,
+      var bytes = await xFiles[i].readAsBytes();
+      // Dart-side compression — equivalent quality to the removed imageQuality: 90
+      // but applied per-photo so processing overlaps with UI rendering.
+      try {
+        bytes = await FlutterImageCompress.compressWithList(
+          bytes,
+          minWidth: 2048, minHeight: 2048,
+          quality: 85,
+          format: CompressFormat.jpeg,
         );
-        if (mounted) setState(() => _importDone++);
-      }));
+      } catch (_) {
+        // If compression fails (e.g. unsupported format) keep original bytes.
+      }
+      await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
+        caseId:       widget.caseId,
+        bytes:        bytes,
+        attendanceId: attendanceId,
+        linkedToType: linkedToType,
+        linkedToId:   linkedToId,
+      );
+      if (mounted) setState(() => _importDone++);
     }
 
     if (mounted) setState(() => _importing = false);
@@ -892,6 +910,12 @@ class _PhotoViewer extends ConsumerStatefulWidget {
 
 class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
   late final TextEditingController _captionCtrl;
+  // Explicit controller so pan/zoom state can be reset before handing off
+  // to the native crop screen — without this, PhotoView owns its own
+  // internal controller that can't be cleared, and a pan/zoom gesture left
+  // mid-flight when the native crop activity takes over can resurface as
+  // an unwanted pan once control returns to Flutter.
+  late final PhotoViewController _photoViewController;
   int _current = 0;
   PhotoAllocation? _allocation;
   bool _saving = false;
@@ -906,11 +930,13 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     final ph = widget.photos[widget.initialIndex];
     _captionCtrl = TextEditingController(text: ph.caption ?? '');
     _allocation = ph.allocation;
+    _photoViewController = PhotoViewController();
   }
 
   @override
   void dispose() {
     _captionCtrl.dispose();
+    _photoViewController.dispose();
     super.dispose();
   }
 
@@ -994,6 +1020,10 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     final ph = _livePhoto();
     debugPrint('[crop] start — exists=${File(ph.localPath).existsSync()} path=${ph.localPath}');
     setState(() => _busy = true);
+    // Clear any in-flight pan/zoom before handing off to the native crop
+    // screen — otherwise a gesture left mid-drag when the native activity
+    // takes over can resurface as an unwanted pan once it returns.
+    _photoViewController.reset();
     try {
       final cropped = await ImageCropper().cropImage(
         sourcePath: ph.localPath,
@@ -1004,6 +1034,9 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.original,
             lockAspectRatio: false,
+            aspectRatioPresets: CropAspectRatioPreset.values
+                .map((p) => _CapitalizedAspectRatioPreset(p))
+                .toList(),
           ),
           IOSUiSettings(title: 'Crop'),
         ],
@@ -1031,6 +1064,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     } catch (e, st) {
       debugPrint('[crop] ERROR: $e\n$st');
     }
+    _photoViewController.reset();
     if (mounted) setState(() => _busy = false);
   }
 
@@ -1134,6 +1168,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                 PhotoView(
                   key: ValueKey(
                       '${currentPhoto.id}-${_imgVersion[currentPhoto.id] ?? 0}'),
+                  controller: _photoViewController,
                   imageProvider: FileImage(File(currentPhoto.localPath)),
                   initialScale: PhotoViewComputedScale.contained,
                   minScale: PhotoViewComputedScale.contained * 0.8,
@@ -1271,6 +1306,22 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       ),
     );
   }
+}
+
+// Wraps CropAspectRatioPreset to fix the plugin's lowercase 'original' label
+// shown as a tab in the native crop UI.
+class _CapitalizedAspectRatioPreset implements CropAspectRatioPresetData {
+  const _CapitalizedAspectRatioPreset(this.preset);
+
+  final CropAspectRatioPreset preset;
+
+  @override
+  String get name => preset == CropAspectRatioPreset.original
+      ? 'Original'
+      : preset.name;
+
+  @override
+  (int ratioX, int ratioY)? get data => preset.data;
 }
 
 // ── Empty state ─────────────────────────────────────────────────────────────

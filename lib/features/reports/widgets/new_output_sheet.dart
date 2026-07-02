@@ -33,7 +33,10 @@ class _NewOutputSheetState extends State<NewOutputSheet> {
   void initState() {
     super.initState();
     final next = (widget.existingCount + 1).toString().padLeft(3, '0');
-    _numberCtrl.text = '${widget.technicalFileNo}-R$next';
+    final prefix = widget.technicalFileNo.isNotEmpty
+        ? '${widget.technicalFileNo}-'
+        : '';
+    _numberCtrl.text = '${prefix}R$next';
   }
 
   @override

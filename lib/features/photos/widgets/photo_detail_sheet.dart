@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/chip_row.dart';
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
 
@@ -29,6 +30,8 @@ class PhotoDetailSheet extends ConsumerStatefulWidget {
 class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
   late final TextEditingController _captionCtrl;
   PhotoAllocation? _allocation;
+  PlacementMode? _placementMode;
+  PhotoSource? _photoSource;
   bool _saving = false;
 
   @override
@@ -36,6 +39,8 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
     super.initState();
     _captionCtrl = TextEditingController(text: widget.photo.caption ?? '');
     _allocation = widget.photo.allocation;
+    _placementMode = widget.photo.placementMode;
+    _photoSource = widget.photo.photoSource;
   }
 
   @override
@@ -49,6 +54,8 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
     final notifier = ref.read(photosProvider(widget.caseId).notifier);
     await notifier.updateCaption(widget.photo.id, _captionCtrl.text);
     await notifier.updateAllocation(widget.photo.id, _allocation);
+    await notifier.updatePlacementMode(widget.photo.id, _placementMode);
+    await notifier.updatePhotoSource(widget.photo.id, _photoSource);
     if (mounted) Navigator.pop(context);
   }
 
@@ -128,10 +135,10 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
             const SizedBox(height: 20),
 
             // Allocation
-            Row(children: [
-              const _Label('Allocate to Document Type'),
-              const SizedBox(width: 6),
-              const Tooltip(
+            const Row(children: [
+              _Label('Allocate to Document Type'),
+              SizedBox(width: 6),
+              Tooltip(
                 message: 'Allocated photos appear in the Document Vault '
                     'for AI interpretation.',
                 child: Icon(Icons.info_outline,
@@ -160,6 +167,30 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
                     onTap: () => setState(() => _allocation = alloc),
                   ),
               ],
+            ),
+            const SizedBox(height: 20),
+
+            // Placement mode (spec §7: where the photo renders in the
+            // exported report — Inline defaults for damage-item photos).
+            const _Label('Placement in Report'),
+            const SizedBox(height: 8),
+            ChipRow<PlacementMode>(
+              values: PlacementMode.values,
+              selected: _placementMode ?? widget.photo.effectivePlacementMode,
+              label: (m) => m.label,
+              onChanged: (v) => setState(() => _placementMode = v),
+            ),
+            const SizedBox(height: 20),
+
+            // Photo source — drives the auto-inserted attribution sentence
+            // for non-surveyor sources.
+            const _Label('Photo Source'),
+            const SizedBox(height: 8),
+            ChipRow<PhotoSource>(
+              values: PhotoSource.values,
+              selected: _photoSource,
+              label: (s) => s.label,
+              onChanged: (v) => setState(() => _photoSource = v),
             ),
             const SizedBox(height: 32),
 

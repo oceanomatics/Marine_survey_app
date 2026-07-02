@@ -39,6 +39,42 @@ enum PhotoAllocation {
   }
 }
 
+/// Where a photo renders in the exported report (spec §7 "Visual Evidence").
+enum PlacementMode {
+  inline('inline', 'Inline'),
+  sectionGallery('section_gallery', 'Section Gallery'),
+  annexure('annexure', 'Annexure');
+
+  const PlacementMode(this.value, this.label);
+  final String value;
+  final String label;
+
+  static PlacementMode? fromValue(String? v) {
+    if (v == null) return null;
+    return values.firstWhere((e) => e.value == v,
+        orElse: () => PlacementMode.annexure);
+  }
+}
+
+/// Who provided the photo — drives the auto-inserted attribution sentence
+/// for non-surveyor sources (spec §7).
+enum PhotoSource {
+  takenBySurveyor('taken_by_surveyor', 'Taken by Undersigned Surveyor'),
+  providedByOwner('provided_by_owner', 'Provided by Owner/Operator'),
+  providedByContractor('provided_by_contractor', 'Provided by Contractor'),
+  thirdPartyReport('third_party_report', 'Third-Party Inspection Report');
+
+  const PhotoSource(this.value, this.label);
+  final String value;
+  final String label;
+
+  static PhotoSource? fromValue(String? v) {
+    if (v == null) return null;
+    return values.firstWhere((e) => e.value == v,
+        orElse: () => PhotoSource.takenBySurveyor);
+  }
+}
+
 @immutable
 class PhotoModel {
   const PhotoModel({
@@ -55,6 +91,8 @@ class PhotoModel {
     this.syncStatus = PhotoSyncStatus.localOnly,
     this.remotePath,
     this.fileSizeKb,
+    this.placementMode,
+    this.photoSource,
   });
 
   final String id;
@@ -70,6 +108,16 @@ class PhotoModel {
   final PhotoSyncStatus syncStatus;
   final String? remotePath;
   final double? fileSizeKb;
+  final PlacementMode? placementMode;
+  final PhotoSource? photoSource;
+
+  /// Resolved placement mode — explicit value if set, else the spec's
+  /// default: Inline for damage-item photos, Annexure otherwise.
+  PlacementMode get effectivePlacementMode =>
+      placementMode ??
+      (linkedToType == 'damage_item'
+          ? PlacementMode.inline
+          : PlacementMode.annexure);
 
   factory PhotoModel.fromMap(Map<String, dynamic> m) => PhotoModel(
         id: m['id'] as String,
@@ -86,6 +134,8 @@ class PhotoModel {
             m['sync_status'] as String? ?? 'local_only'),
         remotePath: m['remote_path'] as String?,
         fileSizeKb: (m['file_size_kb'] as num?)?.toDouble(),
+        placementMode: PlacementMode.fromValue(m['placement_mode'] as String?),
+        photoSource: PhotoSource.fromValue(m['photo_source'] as String?),
       );
 
   Map<String, dynamic> toMap() => {
@@ -102,6 +152,8 @@ class PhotoModel {
         'sync_status': syncStatus.value,
         if (remotePath != null) 'remote_path': remotePath,
         if (fileSizeKb != null) 'file_size_kb': fileSizeKb,
+        if (placementMode != null) 'placement_mode': placementMode!.value,
+        if (photoSource != null) 'photo_source': photoSource!.value,
       };
 
   // Sentinel for nullable copyWith fields.
@@ -116,6 +168,8 @@ class PhotoModel {
     PhotoSyncStatus? syncStatus,
     String? remotePath,
     String? thumbnailPath,
+    Object? placementMode = _unset,
+    Object? photoSource = _unset,
   }) =>
       PhotoModel(
         id: id,
@@ -133,5 +187,11 @@ class PhotoModel {
         syncStatus: syncStatus ?? this.syncStatus,
         remotePath: remotePath ?? this.remotePath,
         fileSizeKb: fileSizeKb,
+        placementMode: placementMode == _unset
+            ? this.placementMode
+            : placementMode as PlacementMode?,
+        photoSource: photoSource == _unset
+            ? this.photoSource
+            : photoSource as PhotoSource?,
       );
 }

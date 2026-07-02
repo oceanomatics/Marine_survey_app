@@ -319,36 +319,73 @@ The `account_lines` module uses per-document currency (from `RepairDocumentModel
 ---
 
 ## SECTION F — Spec Compliance Scorecard
-*(Updated 30 June 2026 after full codebase re-audit — update this table as items are completed)*
+*(Last updated: 1 July 2026 — session 3)*
 
 | # | Spec Requirement | Status | Where |
 |---|-----------------|--------|-------|
 | 1 | Colours/fonts from branding config | ✅ Done | `OrganisationModel` + docx export reads org config throughout |
-| 2 | Firm logo in running header on every body page | ❌ Missing | `docx_export_service.dart` — logo storage path exists, not yet embedded in header |
+| 2 | Firm logo in running header on every body page | ✅ Done | `DocxBuilder.setBodyHeader()` accepts `logoBytes`/`logoExt`; logo fetched from `organisation.logo_path` in Supabase Storage at export time; embedded as inline image in `header2.xml` with its own `header2.xml.rels` |
 | 3 | AI audit log (model, prompt_hash, prompt_text, output, surveyor_review) | ✅ Done | `AiGenerationLogModel`, `AiLogService`, wired in `ClaudeApi`; per-section `SurveyorReview` UI in `section_editor.dart` |
-| 4 | AI disclosure paragraph + Annexure I auto-generated at export | ❌ Missing | `docx_export_service.dart` — log table and model exist; export assembly step missing |
-| 5 | Advice Summary auto-populated + editable (Page 2 of report) | ❌ Missing | No `AdviceSummaryModel` or screen yet |
-| 6 | Chronology as formal Date\|Event table | ✅ Done | `docx_export_service.dart` ~line 248 |
-| 7 | Cost section as formal table + WP notation + totals | ✅ Done | `docx_export_service.dart` ~line 263; repair docs + account lines + Owner's/UW/Grand Total |
-| 8 | Sign-off gate on Final export | ✅ Partial | Fields on `CaseModel`; gate in `export_button.dart`. ❌ Sign-off UI screen (drawn sig/PNG upload) missing |
-| 9 | Report version R001/R002 auto-incremented | ✅ Done | `versionString` on `ReportOutput`; picker in `new_output_sheet.dart` |
+| 4 | AI disclosure paragraph + Annexure I auto-generated at export | ✅ Done | Fetched in `assembledDataProvider`; disclosure para + Annexure I table in `docx_export_service.dart`; snapshotted to `report_outputs.ai_log_snapshot` at export |
+| 5 | Advice Summary auto-populated + editable (Page 2 of report) | ✅ Done | `SectionType.adviceSummary`; template built in `SectionDraftNotifier.buildSections()`; output as first body section in docx |
+| 6 | Chronology as formal Date\|Event table | ✅ Done | `docx_export_service.dart` |
+| 7 | Cost section as formal table + WP notation + totals | ✅ Done | `docx_export_service.dart`; repair docs + account lines + Owner's/UW/Grand Total |
+| 8 | Sign-off gate on Final export | ✅ Done | `sign_off_sheet.dart` (drawn sig + PNG upload); `CaseModel` sign-off fields; gate in `export_button.dart`; AUTHENTICATION block in docx |
+| 9 | Report version R001/R002 auto-incremented | ✅ Done | `versionCode` on `ReportOutput`; picker in `new_output_sheet.dart` |
 | 10 | Document Vault: `annexure_assignment` field + UI | ✅ Done | `DocumentModel`; badge on tile; editable in document detail sheet |
-| 11 | `cantSplit` on all table rows | ✅ Done | `ooxml_helpers.dart` lines 127–129 |
-| 12 | WP in all four required locations | ✅ Done | `docx_export_service.dart`: header (L1), cover block (L2), cost notice (L3), page footer (L4) — all from org config |
-| 13 | Cover page structurally distinct from body pages | ✅ Done | `w:titlePg` + empty first-page header; page break after cover; body header active from p.2 |
-| 14 | Cover page: vessel band, status badge, vessel photo, 2-col info box, firm logo | ✅ Done | `addShadedBlock` for vessel name (primary colour) + report-type band (status colour); cover photo if `is_cover_photo` doc present; info table with occurrence/ref/version/date |
-| 15 | Logo in header as inline paragraph (not table cell) | ❌ Missing | Body-page header text (firm name left, vessel/type/ref right) is live; logo image in header is future work |
+| 11 | `cantSplit` on all table rows | ✅ Done | `ooxml_helpers.dart` |
+| 12 | WP in all four required locations | ✅ Done | `docx_export_service.dart`: header (L1), cover block (L2), cost notice (L3), page footer (L4) |
+| 13 | Cover page structurally distinct from body pages | ✅ Done | `w:titlePg` + empty first-page header; page break after cover |
+| 14 | Cover page: vessel band, status badge, vessel photo, info box | ✅ Done | Shaded bands + cover photo from `photos` (allocation=cover_page) + info table |
+| 15 | Logo in header as inline image | ✅ Done | See item #2 above |
 
-**Score: 11 / 15** (was 0/15 at initial audit)
+**Score: 15 / 15** ✅
 
-### Remaining gaps at a glance
-1. **Sign-off UI** — drawn signature (touch) / PNG upload (desktop); notification to reviewer
-2. ~~**Cover page visual design**~~ ✅ Done — shaded vessel name band + status band + cover photo + info table
-3. ~~**Running header on body pages**~~ ✅ Done — firm name left, vessel/type/ref right, rule below; no header on cover
-4. **AI disclosure paragraph + Annexure I** — assemble from `ai_generation_log` at export; snapshot to JSON at sign-off
-5. **Advice Summary** — `AdviceSummaryModel` + editor tab in Report Builder
-6. **Export gate on AI section review** — block if any AI-generated section lacks `surveyor_review`
-7. **Annexures A–H** — documents sorted by `annexure_assignment` into labelled annexure sections
-8. **Version Control Block** — "supersedes/supplements" statement + per-version changelog field
-9. **Documents Requested section** — new model + section type
-10. **Vessel statutory fields** — `psc_last_inspection`, `last_drydock_date`, `pi_club`, `isps_status`, etc.
+### Pending SQL migrations — apply before next test session
+```sql
+-- 1. Rename job_number to technical_file_no (B1) — if not yet applied
+ALTER TABLE cases RENAME COLUMN job_number TO technical_file_no;
+
+-- 2. Sign-off fields on cases — if not yet applied
+ALTER TABLE cases
+  ADD COLUMN IF NOT EXISTS signed_off_attending_name text,
+  ADD COLUMN IF NOT EXISTS signed_off_attending_at timestamptz,
+  ADD COLUMN IF NOT EXISTS signed_off_attending_sig_path text,
+  ADD COLUMN IF NOT EXISTS signed_off_reviewing_name text,
+  ADD COLUMN IF NOT EXISTS signed_off_reviewing_at timestamptz,
+  ADD COLUMN IF NOT EXISTS signed_off_reviewing_sig_path text;
+
+-- 3. Cover photo override on report outputs (D3)
+ALTER TABLE report_outputs ADD COLUMN IF NOT EXISTS cover_photo_id text;
+
+-- 4. AI log snapshot on report outputs (C4) — NEW
+ALTER TABLE report_outputs ADD COLUMN IF NOT EXISTS ai_log_snapshot jsonb;
+
+-- 5. Vessel statutory fields (B3 / Gap 7) — NEW
+ALTER TABLE vessels
+  ADD COLUMN IF NOT EXISTS pi_club text,
+  ADD COLUMN IF NOT EXISTS isps_status text,
+  ADD COLUMN IF NOT EXISTS last_drydock_date date,
+  ADD COLUMN IF NOT EXISTS psc_last_inspection date;
+```
+
+### Pending SQL migrations — apply before next test session
+```sql
+-- 4. AI log snapshot on report_outputs (C4) — NEW
+ALTER TABLE report_outputs ADD COLUMN IF NOT EXISTS ai_log_snapshot jsonb;
+
+-- 5. Vessel statutory fields (B3) — NEW
+ALTER TABLE vessels
+  ADD COLUMN IF NOT EXISTS pi_club text,
+  ADD COLUMN IF NOT EXISTS isps_status text,
+  ADD COLUMN IF NOT EXISTS last_drydock_date date,
+  ADD COLUMN IF NOT EXISTS psc_last_inspection date;
+
+-- 6. Version control fields on report_outputs — NEW (1 July 2026 session 3)
+ALTER TABLE report_outputs
+  ADD COLUMN IF NOT EXISTS supersedes_version text,
+  ADD COLUMN IF NOT EXISTS changes_summary text;
+```
+
+### All spec requirements now met — ready for test session
+No remaining implementation gaps. Begin heavy testing on document generation.

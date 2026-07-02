@@ -112,7 +112,7 @@ class _DetailViewState extends ConsumerState<_DetailView> {
             ),
             TextButton(
               onPressed: () => setState(() => _editingHeader = false),
-              child: Text('Cancel',
+              child: const Text('Cancel',
                   style: TextStyle(color: AppColors.textSecondary)),
             ),
           ],
@@ -151,8 +151,8 @@ class _DetailViewState extends ConsumerState<_DetailView> {
               child: TextField(
                 controller: _presentationCtrl,
                 maxLines: 3,
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                decoration: InputDecoration(
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                decoration: const InputDecoration(
                   hintText: 'For adjusters report…',
                   hintStyle: TextStyle(color: AppColors.textSecondary),
                   border: InputBorder.none,
@@ -168,8 +168,8 @@ class _DetailViewState extends ConsumerState<_DetailView> {
                   TextField(
                     controller: _notesCtrl,
                     maxLines: 3,
-                    style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                    decoration: InputDecoration(
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                    decoration: const InputDecoration(
                       hintText: 'Internal notes…',
                       hintStyle: TextStyle(color: AppColors.textSecondary),
                       border: InputBorder.none,
@@ -228,7 +228,7 @@ class _DetailViewState extends ConsumerState<_DetailView> {
               _FieldCard(
                 label: "Surveyor's Notes",
                 child: Text(doc.surveyorNotes!,
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textPrimary, fontSize: 13)),
               ),
             ],
@@ -463,7 +463,7 @@ class _AiExtractionBanner extends StatelessWidget {
               extracting
                   ? 'Extracting with AI — this may take 15–20 seconds…'
                   : 'Not yet extracted. Tap to read this document with AI.',
-              style: TextStyle(
+              style: const TextStyle(
                   color: AppColors.textSecondary, fontSize: 13),
             ),
           ),
@@ -659,11 +659,11 @@ class _DocumentHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(doc.documentType.label,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textSecondary, fontSize: 11)),
                     const SizedBox(height: 2),
                     Text(doc.effectiveName,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontWeight: FontWeight.bold,
                             fontSize: 15)),
@@ -675,13 +675,13 @@ class _DocumentHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(_fmtMoney(doc.totalIncTax!, doc.currency),
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontWeight: FontWeight.bold,
                             fontSize: 16)),
                     if (doc.taxTotal != null)
                       Text('inc. tax ${_fmtMoney(doc.taxTotal!, '')}',
-                          style: TextStyle(
+                          style: const TextStyle(
                               color: AppColors.textSecondary, fontSize: 11)),
                   ],
                 ),
@@ -716,13 +716,13 @@ class _DocumentHeader extends StatelessWidget {
             ],
           ),
           if (doc.mixedNatureFlag)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
               child: Row(
                 children: [
                   Icon(Icons.warning_amber_outlined,
                       size: 14, color: Colors.orange),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text('Mixed cost nature — review lines',
                       style: TextStyle(
                           color: Colors.orange, fontSize: 12)),
@@ -730,7 +730,7 @@ class _DocumentHeader extends StatelessWidget {
               ),
             ),
           const Divider(height: 16),
-          Text('Status', style: TextStyle(
+          const Text('Status', style: TextStyle(
               color: AppColors.textSecondary, fontSize: 11)),
           const SizedBox(height: 6),
           if (editing)
@@ -753,7 +753,7 @@ class _DocumentHeader extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'AI confidence: ${(doc.aiConfidence! * 100).toStringAsFixed(0)}%',
-              style: TextStyle(
+              style: const TextStyle(
                   color: AppColors.textSecondary, fontSize: 11),
             ),
           ],
@@ -769,12 +769,12 @@ class _DocumentHeader extends StatelessWidget {
             SizedBox(
               width: 70,
               child: Text(label,
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 12)),
             ),
             Expanded(
               child: Text(value,
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textPrimary, fontSize: 12)),
             ),
           ],
@@ -869,8 +869,8 @@ class _AccountLinesSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
           child: Text('Invoice Line Items',
               style: TextStyle(
                   color: AppColors.textPrimary,
@@ -886,7 +886,7 @@ class _AccountLinesSection extends ConsumerWidget {
               border: Border.all(
                   color: AppColors.border.withValues(alpha: 0.5)),
             ),
-            child: Center(
+            child: const Center(
               child: Text('No line items — tap + to add',
                   style: TextStyle(
                       color: AppColors.textSecondary, fontSize: 13)),
@@ -962,7 +962,7 @@ class _LineCard extends ConsumerWidget {
               ),
               alignment: Alignment.center,
               child: Text('$itemNum',
-                  style: TextStyle(
+                  style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 11,
                       fontWeight: FontWeight.w600)),
@@ -973,7 +973,7 @@ class _LineCard extends ConsumerWidget {
                 children: [
                   Text(
                     line.description ?? '(no description)',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textPrimary, fontSize: 13),
                   ),
                   const SizedBox(height: 4),
@@ -991,19 +991,19 @@ class _LineCard extends ConsumerWidget {
                   Row(
                     children: [
                       Text(_fmtMoney(line.grossAmount, currency),
-                          style: TextStyle(
+                          style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontWeight: FontWeight.w600,
                               fontSize: 12)),
                       if (line.underwritersPortion > 0) ...[
                         const SizedBox(width: 8),
                         Text('U/W ${_fmtMoney(line.underwritersPortion, currency)}',
-                            style: TextStyle(color: _kAccent, fontSize: 11)),
+                            style: const TextStyle(color: _kAccent, fontSize: 11)),
                       ],
                       if (line.ownersPortion > 0) ...[
                         const SizedBox(width: 8),
                         Text("Owners ${_fmtMoney(line.ownersPortion, currency)}",
-                            style: TextStyle(
+                            style: const TextStyle(
                                 color: Colors.orange, fontSize: 11)),
                       ],
                     ],
@@ -1082,7 +1082,7 @@ class _Chip extends StatelessWidget {
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(label,
-            style: TextStyle(
+            style: const TextStyle(
                 color: AppColors.textSecondary, fontSize: 10)),
       );
 }
@@ -1227,7 +1227,7 @@ class _AccountSummaryBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Account Summary',
+          const Text('Account Summary',
               style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 11,
@@ -1340,7 +1340,7 @@ class _FieldCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
-                style: TextStyle(
+                style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 11,
                     fontWeight: FontWeight.w500)),

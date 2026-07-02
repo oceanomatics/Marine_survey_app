@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/account_provider.dart';
 import '../../../shared/theme/app_theme.dart';
-import '../../../core/config/app_config.dart';
 import '../../../shared/widgets/save_bar.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
@@ -125,10 +124,41 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               const _SectionHeader(
                 icon: Icons.key_outlined,
                 color: AppColors.teal,
-                title: 'API Status',
+                title: 'API Keys',
               ),
               const SizedBox(height: 10),
-              _ApiKeyCard(),
+              _ApiKeyEditCard(
+                title: 'Anthropic (Claude)',
+                subtitle: 'Used for AI document extraction, drafting and '
+                    'OCR throughout the app. Get a key at console.anthropic.com.',
+                icon: Icons.psychology_outlined,
+                iconColor: AppColors.teal,
+                currentKey: account.anthropicApiKey,
+                onSave: (v) =>
+                    ref.read(accountProvider.notifier).saveAnthropicApiKey(v),
+              ),
+              const SizedBox(height: 10),
+              _ApiKeyEditCard(
+                title: 'OpenAI',
+                subtitle: 'Reserved for OpenAI-based features. '
+                    'Get a key at platform.openai.com.',
+                icon: Icons.auto_awesome_outlined,
+                iconColor: AppColors.purple,
+                currentKey: account.openAiApiKey,
+                onSave: (v) =>
+                    ref.read(accountProvider.notifier).saveOpenAiApiKey(v),
+              ),
+              const SizedBox(height: 10),
+              _ApiKeyEditCard(
+                title: 'Google',
+                subtitle: 'Reserved for Google Maps/Places features. '
+                    'Get a key at console.cloud.google.com.',
+                icon: Icons.map_outlined,
+                iconColor: AppColors.midBlue,
+                currentKey: account.googleApiKey,
+                onSave: (v) =>
+                    ref.read(accountProvider.notifier).saveGoogleApiKey(v),
+              ),
 
               const SizedBox(height: 24),
 
@@ -139,7 +169,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 title: 'FX Rates',
               ),
               const SizedBox(height: 10),
-              _FxApiKeyCard(currentKey: account.fxApiKey),
+              _ApiKeyEditCard(
+                title: 'openexchangerates.org',
+                subtitle: 'Free-tier App ID from openexchangerates.org, '
+                    'used for FX rate conversion.',
+                icon: Icons.currency_exchange_outlined,
+                iconColor: AppColors.teal,
+                currentKey: account.fxApiKey,
+                onSave: (v) =>
+                    ref.read(accountProvider.notifier).saveFxApiKey(v),
+              ),
 
               const SizedBox(height: 24),
 
@@ -365,88 +404,33 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
-// ── API key card ───────────────────────────────────────────────────────────
+// ── API key edit card ──────────────────────────────────────────────────────
+// Shared by every service key on this screen (Anthropic, OpenAI, Google, FX).
+// Keys are synced to the `profiles` table (see AccountNotifier) so they can
+// be changed here without a rebuild, rather than baked in via --dart-define.
 
-class _ApiKeyCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    const key = AppConfig.anthropicApiKey;
-    final masked = key.length > 6
-        ? '••••••••••${key.substring(key.length - 6)}'
-        : key.isEmpty
-            ? 'Not configured'
-            : '••••••';
+class _ApiKeyEditCard extends ConsumerStatefulWidget {
+  const _ApiKeyEditCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.currentKey,
+    required this.onSave,
+  });
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: AppColors.lightTeal,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Icon(Icons.psychology_outlined,
-              size: 18, color: AppColors.teal),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Anthropic (Claude)',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary)),
-              const SizedBox(height: 2),
-              Text(
-                masked,
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    color: AppColors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: key.isNotEmpty ? AppColors.lightTeal : AppColors.lightCoral,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            key.isNotEmpty ? 'Active' : 'Missing',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: key.isNotEmpty ? AppColors.teal : AppColors.coral,
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-// ── FX API key card ────────────────────────────────────────────────────────
-
-class _FxApiKeyCard extends ConsumerStatefulWidget {
-  const _FxApiKeyCard({required this.currentKey});
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
   final String currentKey;
+  final Future<void> Function(String key) onSave;
 
   @override
-  ConsumerState<_FxApiKeyCard> createState() => _FxApiKeyCardState();
+  ConsumerState<_ApiKeyEditCard> createState() => _ApiKeyEditCardState();
 }
 
-class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
+class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
   final _ctrl = TextEditingController();
   bool _editing = false;
   bool _obscure = true;
@@ -461,7 +445,7 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await ref.read(accountProvider.notifier).saveFxApiKey(_ctrl.text.trim());
+      await widget.onSave(_ctrl.text.trim());
       if (mounted) setState(() => _editing = false);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -483,7 +467,7 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
     );
     final focusBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: AppColors.teal, width: 1.5),
+      borderSide: BorderSide(color: widget.iconColor, width: 1.5),
     );
 
     return Container(
@@ -500,19 +484,18 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
             Container(
               width: 36, height: 36,
               decoration: BoxDecoration(
-                color: AppColors.teal.withValues(alpha: 0.1),
+                color: widget.iconColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.currency_exchange_outlined,
-                  size: 18, color: AppColors.teal),
+              child: Icon(widget.icon, size: 18, color: widget.iconColor),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('openexchangerates.org',
-                      style: TextStyle(
+                  Text(widget.title,
+                      style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textPrimary)),
@@ -559,9 +542,9 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
           ]),
           if (_editing) ...[
             const SizedBox(height: 12),
-            const Text(
-              'Free-tier App ID from openexchangerates.org — stored on device only.',
-              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            Text(
+              widget.subtitle,
+              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -569,7 +552,7 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
               obscureText: _obscure,
               style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
               decoration: InputDecoration(
-                labelText: 'App ID',
+                labelText: 'API Key',
                 labelStyle: const TextStyle(fontSize: 12),
                 border: border,
                 enabledBorder: border,
@@ -594,7 +577,7 @@ class _FxApiKeyCardState extends ConsumerState<_FxApiKeyCard> {
               child: ElevatedButton(
                 onPressed: _saving ? null : _save,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.teal,
+                  backgroundColor: widget.iconColor,
                   foregroundColor: Colors.white,
                 ),
                 child: _saving

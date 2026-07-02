@@ -11,12 +11,20 @@ class ClaudeApi {
     final dio = Dio(BaseOptions(
       baseUrl: 'https://api.anthropic.com/v1',
       headers: {
-        'x-api-key': AppConfig.anthropicApiKey,
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 120),
+    ));
+    // Read the key fresh on every request — it can change at runtime once
+    // loaded from / edited in the account profile, without needing a
+    // rebuild or app restart.
+    dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        options.headers['x-api-key'] = AppConfig.anthropicApiKey;
+        handler.next(options);
+      },
     ));
     dio.interceptors.add(InterceptorsWrapper(
       onResponse: (response, handler) {
@@ -393,17 +401,25 @@ Draft the background narrative paragraph now:''',
     return _extractText(response.data);
   }
 
-  /// Draft the cause consideration section
+  /// Draft the cause consideration section. [ownersAllegation] is the
+  /// owner's own stated cause (if any) — passed for context only; the
+  /// model must never adopt or restate it as the surveyor's own view
+  /// (spec §10 "Voice separation enforcement").
   static Future<String> draftCauseConsideration({
     required String vesselName,
     required String occurrenceTitle,
     required List<String> damageItems,
     required String? serviceEngineerFindings,
     required String reportFormat,
+    String? ownersAllegation,
   }) async {
     final damages = damageItems.join('\n- ');
     final findings = serviceEngineerFindings != null
         ? '\n\nSERVICE ENGINEER / TECHNICAL FINDINGS:\n$serviceEngineerFindings'
+        : '';
+    final allegation = ownersAllegation != null && ownersAllegation.isNotEmpty
+        ? '\n\nOWNERS\' STATED CAUSE (their words, provided for context only — '
+          'do not adopt or restate this as your own finding):\n$ownersAllegation'
         : '';
 
     final response = await _dio.post('/messages',
@@ -415,14 +431,16 @@ Draft the background narrative paragraph now:''',
         {
           'role': 'user',
           'content':
-              '''Draft the CAUSE CONSIDERATION section of a marine H&M survey report ($reportFormat format). Write in precise, semi-legalistic technical prose. One or two paragraphs. Do not speculate beyond the evidence provided.
+              '''Draft the surveyor's assessment for the CAUSE CONSIDERATION section of a marine H&M survey report ($reportFormat format). Write in precise, semi-legalistic technical prose. One or two paragraphs. Do not speculate beyond the evidence provided.
+
+This must be written entirely in the surveyor's own voice — introduce it with a phrase such as "It is the view of the Undersigned Surveyor that…" or "In the opinion of the Undersigned…". If owner's stated cause context is provided below, do not restate it as fact or blend it into your own sentence — your text is the surveyor's independent assessment, not a summary of the owner's account.
 
 VESSEL: $vesselName
 OCCURRENCE: $occurrenceTitle
 DAMAGE:
-- $damages$findings
+- $damages$findings$allegation
 
-Draft the cause consideration now:''',
+Draft the surveyor's assessment now:''',
         },
       ],
     });

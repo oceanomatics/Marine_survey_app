@@ -12,17 +12,26 @@ import '../config/app_config.dart';
 import 'usage_tracker.dart';
 
 class ReportExtraction {
-  static final _dio = Dio(BaseOptions(
-    baseUrl: 'https://api.anthropic.com/v1',
-    headers: {
-      'x-api-key': AppConfig.anthropicApiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    // sendTimeout covers the upload of the (potentially large) base64 payload.
-    sendTimeout: const Duration(seconds: 120),
-    receiveTimeout: const Duration(seconds: 300),
-  ));
+  static final _dio = () {
+    final dio = Dio(BaseOptions(
+      baseUrl: 'https://api.anthropic.com/v1',
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      // sendTimeout covers the upload of the (potentially large) base64 payload.
+      sendTimeout: const Duration(seconds: 120),
+      receiveTimeout: const Duration(seconds: 300),
+    ));
+    // Read the key fresh on every request — see claude_api.dart for why.
+    dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        options.headers['x-api-key'] = AppConfig.anthropicApiKey;
+        handler.next(options);
+      },
+    ));
+    return dio;
+  }();
 
   /// Extract full case data from a previous survey report (PDF or image).
   /// Returns a structured map covering vessel, occurrence, damage,

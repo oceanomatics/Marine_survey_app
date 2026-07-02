@@ -28,18 +28,13 @@ import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../accounts/providers/accounts_provider.dart';
 import '../../accounts/models/accounts_models.dart';
-import '../../settings/providers/organisations_provider.dart';
 import '../../vessel/providers/certificates_provider.dart';
 import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/screens/vessel_compliance_screen.dart';
 import '../../reports/providers/report_provider.dart';
+import '../../documents/providers/document_provider.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
-
-const _kCurrencies = [
-  'AUD', 'USD', 'GBP', 'EUR', 'SGD', 'NZD',
-  'JPY', 'HKD', 'AED', 'NOK', 'DKK', 'SEK',
-];
 
 // ── Shell ─────────────────────────────────────────────────────────────────
 
@@ -210,7 +205,7 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            survey.title ?? survey.vesselName ?? 'Vessel TBC',
+            survey.title ?? survey.vesselName ?? survey.technicalFileNo,
             style: const TextStyle(
                 color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
           ),
@@ -397,12 +392,7 @@ class _CaseEditorButton extends StatelessWidget {
     return Tooltip(
       message: 'Edit case details',
       child: InkWell(
-        onTap: () => showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (_) => _CaseEditorSheet(caseId: caseId),
-        ),
+        onTap: () => context.go('/cases/$caseId/edit'),
         child: SizedBox(
           width: 68,
           child: Padding(
@@ -436,456 +426,6 @@ class _CaseEditorButton extends StatelessWidget {
       ),
     );
   }
-}
-
-// ── Case editor sheet ─────────────────────────────────────────────────────
-
-class _CaseEditorSheet extends ConsumerStatefulWidget {
-  const _CaseEditorSheet({required this.caseId});
-  final String caseId;
-
-  @override
-  ConsumerState<_CaseEditorSheet> createState() => _CaseEditorSheetState();
-}
-
-class _CaseEditorSheetState extends ConsumerState<_CaseEditorSheet> {
-  late final TextEditingController _jobCtrl;
-  late final TextEditingController _claimCtrl;
-  late final TextEditingController _policyUcrCtrl;
-  late final TextEditingController _policyNumberCtrl;
-  late final TextEditingController _instructingPartyCtrl;
-  late final TextEditingController _assuredCtrl;
-  late final TextEditingController _surveyLocationCtrl;
-  DateTime? _instructionDate;
-  DateTime? _dateOfFirstAttendance;
-  CaseStatus? _status;
-  CaseType? _caseType;
-  OutputFormat? _outputFormat;
-  PolicyType? _policyType;
-  InstructingPartyRole? _instructingPartyRole;
-  String? _organisationId;
-  String? _baseCurrency;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final c = ref.read(caseProvider(widget.caseId)).value;
-    _jobCtrl               = TextEditingController(
-        text: c?.hasPlaceholderFileNo == true ? '' : (c?.technicalFileNo ?? ''));
-    _claimCtrl             = TextEditingController(text: c?.claimReference ?? '');
-    _policyUcrCtrl         = TextEditingController(text: c?.policyUcr ?? '');
-    _policyNumberCtrl      = TextEditingController(text: c?.policyNumber ?? '');
-    _instructingPartyCtrl  = TextEditingController(text: c?.instructingParty ?? '');
-    _assuredCtrl           = TextEditingController(text: c?.assured ?? '');
-    _surveyLocationCtrl    = TextEditingController(text: c?.surveyLocation ?? '');
-    _instructionDate       = c?.instructionDate;
-    _dateOfFirstAttendance = c?.dateOfFirstAttendance;
-    _status                = c?.status;
-    _caseType              = c?.caseType;
-    _outputFormat          = c?.outputFormat;
-    _policyType            = c?.policyType;
-    _instructingPartyRole  = c?.instructingPartyRole;
-    _organisationId        = c?.organisationId;
-    _baseCurrency          = c?.baseCurrency;
-  }
-
-  @override
-  void dispose() {
-    _jobCtrl.dispose();
-    _claimCtrl.dispose();
-    _policyUcrCtrl.dispose();
-    _policyNumberCtrl.dispose();
-    _instructingPartyCtrl.dispose();
-    _assuredCtrl.dispose();
-    _surveyLocationCtrl.dispose();
-    super.dispose();
-  }
-
-  String? _v(TextEditingController c) {
-    final t = c.text.trim();
-    return t.isEmpty ? null : t;
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      final rawJob = _v(_jobCtrl);
-      await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
-        technicalFileNo:             rawJob ?? 'TMP-${DateTime.now().millisecondsSinceEpoch}',
-        claimReference:        _v(_claimCtrl),
-        status:                _status,
-        caseType:              _caseType,
-        instructionDate:       _instructionDate,
-        outputFormat:          _outputFormat,
-        organisationId:        _organisationId,
-        baseCurrency:          _baseCurrency,
-        policyUcr:             _v(_policyUcrCtrl),
-        policyNumber:          _v(_policyNumberCtrl),
-        policyType:            _policyType,
-        instructingParty:      _v(_instructingPartyCtrl),
-        instructingPartyRole:  _instructingPartyRole,
-        assured:               _v(_assuredCtrl),
-        dateOfFirstAttendance: _dateOfFirstAttendance,
-        surveyLocation:        _v(_surveyLocationCtrl),
-      );
-      if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(
-                  color: AppColors.navy.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.edit_note_outlined,
-                    color: AppColors.navy, size: 17),
-              ),
-              const SizedBox(width: 10),
-              const Text('Edit Case Details',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.close, size: 20,
-                    color: AppColors.textSecondary),
-                onPressed: () => Navigator.pop(context),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ]),
-            const SizedBox(height: 16),
-
-            _field('Job / File Number', _jobCtrl,
-                hint: 'e.g. AU-M53-056789'),
-            const SizedBox(height: 10),
-            _field('Claim Reference', _claimCtrl,
-                hint: 'e.g. GARD-2025-0123456'),
-            const SizedBox(height: 10),
-            _field('Policy / UCR Reference', _policyUcrCtrl,
-                hint: 'TBC'),
-            const SizedBox(height: 10),
-            _field('Policy Number', _policyNumberCtrl,
-                hint: 'TBC'),
-            const SizedBox(height: 10),
-
-            // Instruction date
-            GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _instructionDate ?? DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                );
-                if (picked != null) setState(() => _instructionDate = picked);
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.calendar_today_outlined,
-                      size: 15, color: AppColors.textTertiary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _instructionDate != null
-                          ? '${_instructionDate!.day.toString().padLeft(2, '0')}/'
-                              '${_instructionDate!.month.toString().padLeft(2, '0')}/'
-                              '${_instructionDate!.year}'
-                          : 'Instruction Date',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: _instructionDate != null
-                            ? AppColors.textPrimary
-                            : AppColors.textTertiary,
-                      ),
-                    ),
-                  ),
-                  if (_instructionDate != null)
-                    GestureDetector(
-                      onTap: () => setState(() => _instructionDate = null),
-                      child: const Icon(Icons.clear,
-                          size: 16, color: AppColors.textTertiary),
-                    ),
-                ]),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Survey type
-            DropdownButtonFormField<CaseType>(
-              initialValue: _caseType,
-              decoration: _inputDeco('Survey Type'),
-              items: CaseType.values
-                  .map((t) => DropdownMenuItem(
-                        value: t,
-                        child: Text(t.label,
-                            style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _caseType = v),
-            ),
-            const SizedBox(height: 10),
-
-            // Status
-            DropdownButtonFormField<CaseStatus>(
-              initialValue: _status,
-              decoration: _inputDeco('Status'),
-              items: CaseStatus.values
-                  .map((s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(s.label,
-                            style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _status = v),
-            ),
-            const SizedBox(height: 10),
-
-            // Report format
-            DropdownButtonFormField<OutputFormat>(
-              initialValue: _outputFormat,
-              decoration: _inputDeco('Report Format'),
-              items: OutputFormat.values
-                  .map((f) => DropdownMenuItem(
-                        value: f,
-                        child: Text(f.label,
-                            style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _outputFormat = v),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Survey Details ───────────────────────────────────────────
-            const Divider(height: 1),
-            const SizedBox(height: 14),
-            const Text('Survey Details',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary)),
-            const SizedBox(height: 10),
-
-            _field('Instructing Party', _instructingPartyCtrl,
-                hint: 'e.g. Gard AS, Swedish Club'),
-            const SizedBox(height: 10),
-
-            DropdownButtonFormField<InstructingPartyRole>(
-              initialValue: _instructingPartyRole,
-              decoration: _inputDeco('Instructing Party Role'),
-              items: InstructingPartyRole.values
-                  .map((r) => DropdownMenuItem(
-                        value: r,
-                        child: Text(r.label,
-                            style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _instructingPartyRole = v),
-            ),
-            const SizedBox(height: 10),
-
-            _field('Assured', _assuredCtrl,
-                hint: 'e.g. Shipowner Pty Ltd'),
-            const SizedBox(height: 10),
-
-            DropdownButtonFormField<PolicyType>(
-              initialValue: _policyType,
-              decoration: _inputDeco('Policy Type'),
-              items: PolicyType.values
-                  .map((p) => DropdownMenuItem(
-                        value: p,
-                        child: Text(p.label,
-                            style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _policyType = v),
-            ),
-            const SizedBox(height: 10),
-
-            _field('Survey Location', _surveyLocationCtrl,
-                hint: 'e.g. Port of Brisbane, Qld'),
-            const SizedBox(height: 10),
-
-            // Date of first attendance
-            GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _dateOfFirstAttendance ?? DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                );
-                if (picked != null) {
-                  setState(() => _dateOfFirstAttendance = picked);
-                }
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.event_outlined,
-                      size: 15, color: AppColors.textTertiary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _dateOfFirstAttendance != null
-                          ? '${_dateOfFirstAttendance!.day.toString().padLeft(2, '0')}/'
-                              '${_dateOfFirstAttendance!.month.toString().padLeft(2, '0')}/'
-                              '${_dateOfFirstAttendance!.year}'
-                          : 'Date of First Attendance',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: _dateOfFirstAttendance != null
-                            ? AppColors.textPrimary
-                            : AppColors.textTertiary,
-                      ),
-                    ),
-                  ),
-                  if (_dateOfFirstAttendance != null)
-                    GestureDetector(
-                      onTap: () => setState(() => _dateOfFirstAttendance = null),
-                      child: const Icon(Icons.clear,
-                          size: 16, color: AppColors.textTertiary),
-                    ),
-                ]),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Organisation ─────────────────────────────────────────────
-            const Divider(height: 1),
-            const SizedBox(height: 14),
-            const Text('Organisation',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary)),
-            const SizedBox(height: 10),
-
-            Consumer(builder: (context, ref, _) {
-              final orgsAsync = ref.watch(organisationsProvider);
-              return orgsAsync.when(
-                loading: () => const SizedBox(height: 56,
-                    child: Center(child: LinearProgressIndicator())),
-                error: (_, __) => const SizedBox.shrink(),
-                data: (orgs) => DropdownButtonFormField<String?>(
-                  initialValue: orgs.any((o) => o.organisationId == _organisationId)
-                      ? _organisationId
-                      : null,
-                  decoration: _inputDeco('Firm / Organisation'),
-                  items: [
-                    const DropdownMenuItem(
-                        value: null,
-                        child: Text('— None —',
-                            style: TextStyle(fontSize: 13,
-                                color: AppColors.textTertiary))),
-                    ...orgs.map((o) => DropdownMenuItem(
-                          value: o.organisationId,
-                          child: Text(o.name,
-                              style: const TextStyle(fontSize: 13),
-                              overflow: TextOverflow.ellipsis),
-                        )),
-                  ],
-                  onChanged: (v) => setState(() => _organisationId = v),
-                ),
-              );
-            }),
-            const SizedBox(height: 16),
-
-            // ── Financials ───────────────────────────────────────────────
-            const Divider(height: 1),
-            const SizedBox(height: 14),
-            const Text('Financials',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary)),
-            const SizedBox(height: 10),
-
-            DropdownButtonFormField<String>(
-              initialValue: _kCurrencies.contains(_baseCurrency) ? _baseCurrency : null,
-              decoration: _inputDeco('Base Currency'),
-              items: _kCurrencies
-                  .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c, style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _baseCurrency = v),
-            ),
-            const SizedBox(height: 18),
-
-            ElevatedButton(
-              onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.navy,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              child: _saving
-                  ? const SizedBox(
-                      height: 18, width: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Text('Save',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDeco(String label, {String? hint}) => InputDecoration(
-        labelText: label,
-        hintText: hint,
-        labelStyle: const TextStyle(
-            fontSize: 13, color: AppColors.textSecondary),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.navy, width: 1.5),
-        ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        isDense: true,
-      );
-
-  Widget _field(String label, TextEditingController ctrl, {String? hint}) =>
-      TextField(
-        controller: ctrl,
-        style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
-        decoration: _inputDeco(label, hint: hint),
-      );
 }
 
 // ── Bottom capture toolbar ────────────────────────────────────────────────
@@ -1109,6 +649,7 @@ class _PseudoReport extends ConsumerWidget {
     final certs = ref.watch(certificatesProvider(caseId)).value ?? [];
     final outputs = ref.watch(reportOutputsProvider(caseId)).value ?? [];
     final vessel = ref.watch(vesselForCaseProvider(caseId)).value;
+    final documents = ref.watch(documentProvider(caseId)).value ?? [];
 
     // Show amber left-border highlight on sections touched by the latest import.
     final review = ref.watch(importReviewProvider);
@@ -1118,7 +659,7 @@ class _PseudoReport extends ConsumerWidget {
 
     final List<Widget> sections = _sections(
         context, damage, attendees, voices, visits, timeline, repairPeriods,
-        repairDocs, certs, outputs, vessel,
+        repairDocs, certs, outputs, vessel, documents,
         highlighted: highlighted);
 
     return SingleChildScrollView(
@@ -1146,7 +687,8 @@ class _PseudoReport extends ConsumerWidget {
     List<RepairDocumentModel> repairDocs,
     List<CertificateModel> certs,
     List<ReportOutput> outputs,
-    VesselModel? vessel, {
+    VesselModel? vessel,
+    List<DocumentModel> documents, {
     Set<String> highlighted = const <String>{},
   }) {
     final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
@@ -1242,6 +784,14 @@ class _PseudoReport extends ConsumerWidget {
         countLabel: repairDocs.isEmpty ? null : '${repairDocs.length}',
         onOpen: () => ctx.go('/cases/$caseId/accounts'),
         child: _accountsContent(repairDocs, damage?.occurrences ?? []),
+      ),
+      _SectionCard(
+        accentColor: AppColors.amber,
+        icon: Icons.folder_outlined,
+        title: 'Documentation',
+        countLabel: documents.isEmpty ? null : '${documents.length}',
+        onOpen: () => ctx.go('/cases/$caseId/documents'),
+        child: _documentationContent(documents),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -1368,62 +918,74 @@ class _PseudoReport extends ConsumerWidget {
     if (visits.isEmpty && attendees.isEmpty) {
       return const _SectionEmpty('No attendance recorded — tap Open to add');
     }
+    // Attendees carried over from the pre-attendance-linking era have no
+    // attendance_id — list them separately rather than under a visit.
+    final unlinked = attendees.where((a) => a.attendanceId == null).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ...visits.map((v) {
-          final dateStr = v.attendanceDate != null
-              ? '${v.attendanceDate!.day.toString().padLeft(2, '0')}/'
-                  '${v.attendanceDate!.month.toString().padLeft(2, '0')}/'
-                  '${v.attendanceDate!.year}'
-              : 'TBC';
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 7),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  margin: const EdgeInsets.only(top: 5, right: 8),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFBF7E3A),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Text(v.attendanceType.label,
-                            style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.textPrimary)),
-                        const SizedBox(width: 6),
-                        Text(dateStr,
-                            style: const TextStyle(
-                                fontSize: 11, color: AppColors.textSecondary)),
-                      ]),
-                      if (v.location != null)
-                        Text(v.location!,
-                            style: const TextStyle(
-                                fontSize: 11, color: AppColors.textSecondary)),
-                      if (v.vesselStatus != null)
-                        Text(v.vesselStatus!.label,
-                            style: const TextStyle(
-                                fontSize: 11, color: AppColors.textTertiary)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-        if (attendees.isNotEmpty && visits.isNotEmpty)
-          const Divider(height: 12, thickness: 0.5),
-        ...attendees.map((a) => _AttendeeRow(attendee: a)),
+        for (int i = 0; i < visits.length; i++) ...[
+          if (i > 0) const SizedBox(height: 10),
+          _visitRow(visits[i]),
+          ...attendees
+              .where((a) => a.attendanceId == visits[i].attendanceId)
+              .map((a) => Padding(
+                    padding: const EdgeInsets.only(left: 14, top: 4),
+                    child: _AttendeeRow(attendee: a),
+                  )),
+        ],
+        if (unlinked.isNotEmpty) ...[
+          if (visits.isNotEmpty) const Divider(height: 16, thickness: 0.5),
+          ...unlinked.map((a) => _AttendeeRow(attendee: a)),
+        ],
+      ],
+    );
+  }
+
+  Widget _visitRow(SurveyAttendanceModel v) {
+    final dateStr = v.attendanceDate != null
+        ? '${v.attendanceDate!.day.toString().padLeft(2, '0')}/'
+            '${v.attendanceDate!.month.toString().padLeft(2, '0')}/'
+            '${v.attendanceDate!.year}'
+        : 'TBC';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          margin: const EdgeInsets.only(top: 5, right: 8),
+          decoration: const BoxDecoration(
+            color: Color(0xFFBF7E3A),
+            shape: BoxShape.circle,
+          ),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Text(v.attendanceType.label,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary)),
+                const SizedBox(width: 6),
+                Text(dateStr,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textSecondary)),
+              ]),
+              if (v.location != null)
+                Text(v.location!,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textSecondary)),
+              if (v.vesselStatus != null)
+                Text(v.vesselStatus!.label,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary)),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2064,7 +1626,7 @@ class _PseudoReport extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Summary',
+        const Text('Summary',
             style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 10,
@@ -2135,6 +1697,31 @@ class _PseudoReport extends ConsumerWidget {
         ),
       );
 
+
+  Widget _documentationContent(List<DocumentModel> documents) {
+    if (documents.isEmpty) {
+      return const _SectionEmpty('No documents recorded — tap Open to add');
+    }
+    final enclosed = documents
+        .where((d) => d.availability == DocAvailability.enclosed)
+        .length;
+    final requested = documents
+        .where((d) => d.availability == DocAvailability.requested)
+        .length;
+    final notAvailable = documents
+        .where((d) => d.availability == DocAvailability.notAvailable)
+        .length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _accountAmountRow('On File', '$enclosed', AppColors.success),
+        if (requested > 0)
+          _accountAmountRow('Requested — Not Yet Received', '$requested', AppColors.amber),
+        if (notAvailable > 0)
+          _accountAmountRow('Not Available', '$notAvailable', AppColors.error),
+      ],
+    );
+  }
 
   Widget _reportStatusContent(List<ReportOutput> outputs) {
     if (outputs.isEmpty) {
@@ -2232,9 +1819,9 @@ class _PseudoReport extends ConsumerWidget {
           if (vessel.ispsStatus != null)
             _StatutoryRow(label: 'ISPS', value: vessel.ispsStatus!.value.replaceAll('_', ' ')),
           if (vessel.ismIncidentReported == true)
-            _StatutoryRow(label: 'ISM incident', value: 'Reported to flag/class'),
+            const _StatutoryRow(label: 'ISM', value: 'Incident reported in the ISM'),
           if (vessel.classIncidentReported == true)
-            _StatutoryRow(label: 'Class incident', value: 'Reported'),
+            const _StatutoryRow(label: 'Class', value: 'Incident reported to Class'),
         ],
       ),
     );
@@ -2514,7 +2101,9 @@ class _AttendeeRow extends StatelessWidget {
           Expanded(
             flex: 3,
             child: Text(
-              attendee.fullName,
+              attendee.title != null
+                  ? '${attendee.title!.label} ${attendee.fullName}'
+                  : attendee.fullName,
               style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,

@@ -11,6 +11,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../../core/config/app_config.dart';
 
 // ── External account type ──────────────────────────────────────────────────
 
@@ -101,6 +102,9 @@ class AccountState {
     this.address = '',
     this.externalAccounts = const [],
     this.fxApiKey = '',
+    this.anthropicApiKey = '',
+    this.openAiApiKey = '',
+    this.googleApiKey = '',
   });
 
   final String name;
@@ -110,6 +114,9 @@ class AccountState {
   final List<ExternalAccount> externalAccounts;
   /// openexchangerates.org App ID (free tier).
   final String fxApiKey;
+  final String anthropicApiKey;
+  final String openAiApiKey;
+  final String googleApiKey;
 
   bool get hasFxApiKey => fxApiKey.isNotEmpty;
 
@@ -120,6 +127,9 @@ class AccountState {
     String? address,
     List<ExternalAccount>? externalAccounts,
     String? fxApiKey,
+    String? anthropicApiKey,
+    String? openAiApiKey,
+    String? googleApiKey,
   }) =>
       AccountState(
         name: name ?? this.name,
@@ -128,6 +138,9 @@ class AccountState {
         address: address ?? this.address,
         externalAccounts: externalAccounts ?? this.externalAccounts,
         fxApiKey: fxApiKey ?? this.fxApiKey,
+        anthropicApiKey: anthropicApiKey ?? this.anthropicApiKey,
+        openAiApiKey: openAiApiKey ?? this.openAiApiKey,
+        googleApiKey: googleApiKey ?? this.googleApiKey,
       );
 
   ExternalAccount? get equasisAccount =>
@@ -160,6 +173,12 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
     String address = prefs.getString('profile_address') ?? '';
     List<ExternalAccount> remoteAccounts = accounts; // default to local
 
+    // API keys — local secure-storage cache is the offline fallback; the
+    // `profiles` row (synced across devices/builds) wins when reachable.
+    String anthropicApiKey = await _storage.read(key: 'anthropic_api_key') ?? '';
+    String openAiApiKey    = await _storage.read(key: 'openai_api_key')    ?? '';
+    String googleApiKey    = await _storage.read(key: 'google_api_key')   ?? '';
+
     try {
       final userId = SupabaseService.userId;
 
@@ -178,6 +197,22 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
         await prefs.setString('profile_email',   email);
         await prefs.setString('profile_phone',   phone);
         await prefs.setString('profile_address', address);
+
+        final remoteAnthropic = row['anthropic_api_key'] as String?;
+        final remoteOpenAi    = row['openai_api_key']    as String?;
+        final remoteGoogle    = row['google_api_key']    as String?;
+        if (remoteAnthropic != null && remoteAnthropic.isNotEmpty) {
+          anthropicApiKey = remoteAnthropic;
+          await _storage.write(key: 'anthropic_api_key', value: remoteAnthropic);
+        }
+        if (remoteOpenAi != null && remoteOpenAi.isNotEmpty) {
+          openAiApiKey = remoteOpenAi;
+          await _storage.write(key: 'openai_api_key', value: remoteOpenAi);
+        }
+        if (remoteGoogle != null && remoteGoogle.isNotEmpty) {
+          googleApiKey = remoteGoogle;
+          await _storage.write(key: 'google_api_key', value: remoteGoogle);
+        }
       }
 
       // External accounts
@@ -196,6 +231,12 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       // Offline or not authenticated — use cached values above.
     }
 
+    // Make the keys available to the AI/service clients for the rest of
+    // this app session (they read AppConfig fresh on every request).
+    if (anthropicApiKey.isNotEmpty) AppConfig.anthropicApiKey = anthropicApiKey;
+    if (openAiApiKey.isNotEmpty)    AppConfig.openAiApiKey    = openAiApiKey;
+    if (googleApiKey.isNotEmpty)    AppConfig.googleApiKey    = googleApiKey;
+
     return AccountState(
       name: name,
       email: email,
@@ -203,6 +244,9 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       address: address,
       externalAccounts: remoteAccounts,
       fxApiKey: fxApiKey,
+      anthropicApiKey: anthropicApiKey,
+      openAiApiKey: openAiApiKey,
+      googleApiKey: googleApiKey,
     );
   }
 
@@ -210,6 +254,52 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
     await _storage.write(key: 'fx_api_key', value: key);
     final cur = state.value ?? const AccountState();
     state = AsyncData(cur.copyWith(fxApiKey: key));
+  }
+
+  Future<void> _saveServiceApiKey({
+    required String column,
+    required String storageKey,
+    required String key,
+    required AccountState Function(AccountState cur) applyToState,
+  }) async {
+    await _storage.write(key: storageKey, value: key);
+    await SupabaseService.client.from('profiles').upsert({
+      'user_id': SupabaseService.userId,
+      column: key,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
+    final cur = state.value ?? const AccountState();
+    state = AsyncData(applyToState(cur));
+  }
+
+  Future<void> saveAnthropicApiKey(String key) async {
+    AppConfig.anthropicApiKey = key;
+    await _saveServiceApiKey(
+      column: 'anthropic_api_key',
+      storageKey: 'anthropic_api_key',
+      key: key,
+      applyToState: (cur) => cur.copyWith(anthropicApiKey: key),
+    );
+  }
+
+  Future<void> saveOpenAiApiKey(String key) async {
+    AppConfig.openAiApiKey = key;
+    await _saveServiceApiKey(
+      column: 'openai_api_key',
+      storageKey: 'openai_api_key',
+      key: key,
+      applyToState: (cur) => cur.copyWith(openAiApiKey: key),
+    );
+  }
+
+  Future<void> saveGoogleApiKey(String key) async {
+    AppConfig.googleApiKey = key;
+    await _saveServiceApiKey(
+      column: 'google_api_key',
+      storageKey: 'google_api_key',
+      key: key,
+      applyToState: (cur) => cur.copyWith(googleApiKey: key),
+    );
   }
 
   Future<void> saveProfile({

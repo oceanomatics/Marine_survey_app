@@ -1,8 +1,12 @@
 // lib/core/config/app_config.dart
 // ─────────────────────────────────────────────
-// Replace placeholder values with your real keys
-// NEVER commit real keys to version control
-// Use --dart-define or a .env approach for CI/CD
+// Supabase credentials are compile-time (--dart-define) since they're
+// needed to bootstrap the DB connection itself.
+// AI/service API keys are runtime-mutable: they're loaded from the
+// `profiles` table (see AccountNotifier) once the user is signed in, so
+// they can be changed from the Account screen without a rebuild.
+// A --dart-define value, if supplied, is used only until that DB load
+// completes (or as a fallback if the user never sets one in-app).
 // ─────────────────────────────────────────────
 
 class AppConfig {
@@ -19,16 +23,10 @@ class AppConfig {
   );
 
   // ── Anthropic (Claude API) ─────────────────
-  // Find this in: console.anthropic.com → API Keys
-  static const anthropicApiKey = String.fromEnvironment(
-    'ANTHROPIC_API_KEY',
-    defaultValue: 'YOUR_ANTHROPIC_API_KEY',
-  );
+  static String anthropicApiKey =
+      const String.fromEnvironment('ANTHROPIC_API_KEY');
 
-  // True when a real key was injected via --dart-define at build time.
-  static bool get isAnthropicKeySet =>
-      anthropicApiKey.isNotEmpty &&
-      anthropicApiKey != 'YOUR_ANTHROPIC_API_KEY';
+  static bool get isAnthropicKeySet => anthropicApiKey.isNotEmpty;
 
   // Last 6 chars for display — enough to confirm which key is active.
   static String get anthropicKeyHint => isAnthropicKeySet
@@ -38,12 +36,13 @@ class AppConfig {
   static const claudeModel = 'claude-sonnet-4-6';
   static const claudeMaxTokens = 4096;
 
-  // ── OpenAI (Whisper transcription) ────────
-  // Find this in: platform.openai.com → API Keys
-  static const openAiApiKey = String.fromEnvironment(
-    'OPENAI_API_KEY',
-    defaultValue: 'YOUR_OPENAI_API_KEY',
-  );
+  // ── OpenAI ─────────────────────────────────
+  static String openAiApiKey = const String.fromEnvironment('OPENAI_API_KEY');
+  static bool get isOpenAiKeySet => openAiApiKey.isNotEmpty;
+
+  // ── Google (Maps/Places etc.) ──────────────
+  static String googleApiKey = const String.fromEnvironment('GOOGLE_API_KEY');
+  static bool get isGoogleKeySet => googleApiKey.isNotEmpty;
 
   // ── App settings ──────────────────────────
   static const appName = 'Marine Survey';

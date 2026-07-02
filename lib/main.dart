@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/api/supabase_client.dart';
 import 'core/config/app_router.dart';
 import 'core/widgets/import_review_banner.dart';
+import 'features/settings/providers/account_provider.dart';
 import 'shared/theme/app_theme.dart';
 
 void main() async {
@@ -14,10 +15,22 @@ void main() async {
   // Initialise Supabase
   await SupabaseService.initialize();
 
+  // Preload the account profile (incl. AI/service API keys) before showing
+  // any UI, so AppConfig has the DB-stored keys warm before the first
+  // AI call — see AccountNotifier._load().
+  final container = ProviderContainer();
+  try {
+    await container.read(accountProvider.future);
+  } catch (_) {
+    // Offline or signed out — AppConfig keeps its --dart-define fallback.
+  }
+
   runApp(
-    // Riverpod scope wraps the entire app
-    const ProviderScope(
-      child: MarineSurveyApp(),
+    // Riverpod scope wraps the entire app, reusing the preloaded container
+    // so accountProvider isn't reloaded from scratch.
+    UncontrolledProviderScope(
+      container: container,
+      child: const MarineSurveyApp(),
     ),
   );
 }

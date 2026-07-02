@@ -48,6 +48,26 @@ class AiGenerationLogModel {
 
   final DateTime? createdAt;
 
+  Map<String, dynamic> toJson() => {
+        'id':           id,
+        'case_id':      caseId,
+        'call_type':    callType,
+        'model':        model,
+        'prompt_text':  promptText,
+        'prompt_sha256': promptSha256,
+        'response_text': responseText,
+        if (reportId     != null) 'report_id':     reportId,
+        if (sectionLabel != null) 'section_label': sectionLabel,
+        if (documentId   != null) 'document_id':   documentId,
+        if (inputTokens  != null) 'input_tokens':  inputTokens,
+        if (outputTokens != null) 'output_tokens': outputTokens,
+        'human_reviewed': humanReviewed,
+        'human_edited':   humanEdited,
+        if (reviewedAt != null) 'reviewed_at': reviewedAt!.toIso8601String(),
+        if (reviewedBy != null) 'reviewed_by': reviewedBy,
+        if (createdAt  != null) 'created_at':  createdAt!.toIso8601String(),
+      };
+
   factory AiGenerationLogModel.fromJson(Map<String, dynamic> json) =>
       AiGenerationLogModel(
         id:           json['id'] as String,

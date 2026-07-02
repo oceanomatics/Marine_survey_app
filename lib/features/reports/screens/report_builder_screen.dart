@@ -30,13 +30,19 @@ class _ReportBuilderScreenState
     extends ConsumerState<ReportBuilderScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  ReportOutput? _activeOutput;
+  // Only the id is kept as local state — the actual ReportOutput is always
+  // derived fresh from reportOutputsProvider on every build (see below).
+  // Previously this held the whole ReportOutput, frozen at selection time,
+  // which meant any mutation elsewhere (cover photo, changes summary) never
+  // showed up here without a matching manual patch — exactly the bug where
+  // changing the cover photo didn't update the preview.
+  String? _activeOutputId;
   bool _buildingDraft = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -49,7 +55,19 @@ class _ReportBuilderScreenState
   Widget build(BuildContext context) {
     final outputsAsync = ref.watch(reportOutputsProvider(widget.caseId));
     final assembledAsync = ref.watch(assembledDataProvider(widget.caseId));
-    final sections = ref.watch(sectionDraftProvider(widget.caseId));
+
+    final outputs = outputsAsync.value ?? const <ReportOutput>[];
+    final activeOutput = outputs.cast<ReportOutput?>().firstWhere(
+          (o) => o?.outputId == _activeOutputId,
+          orElse: () => null,
+        );
+    // Sections are scoped per report output — each output gets its own
+    // draft state so switching between e.g. Preliminary and Final on the
+    // same case doesn't bleed stale sections across.
+    final sections = activeOutput != null
+        ? ref.watch(sectionDraftProvider(
+            (caseId: widget.caseId, outputId: activeOutput.outputId)))
+        : const <SectionType, ReportSection>{};
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -58,18 +76,18 @@ class _ReportBuilderScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Report Builder'),
-            if (_activeOutput != null)
+            if (activeOutput != null)
               Text(
-                '${_activeOutput!.outputType.label}'
-                '${_activeOutput!.sequenceNo > 1 ? ' No.${_activeOutput!.sequenceNo}' : ''}'
-                ' — ${_activeOutput!.status.label}',
+                '${activeOutput.outputType.label}'
+                '${activeOutput.sequenceNo > 1 ? ' No.${activeOutput.sequenceNo}' : ''}'
+                ' — ${activeOutput.status.label}',
                 style: TextStyle(
                     fontSize: 11,
                     color: Colors.white.withValues(alpha: 0.7)),
               ),
           ],
         ),
-        bottom: _activeOutput != null
+        bottom: activeOutput != null
             ? TabBar(
                 controller: _tabController,
                 indicatorColor: Colors.white,
@@ -120,27 +138,28 @@ class _ReportBuilderScreenState
                       ],
                     ),
                   ),
+                  const Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.fact_check_outlined, size: 15),
+                        SizedBox(width: 6),
+                        Text('Postprocessing'),
+                      ],
+                    ),
+                  ),
                 ],
               )
             : null,
-        actions: [
-          if (_activeOutput != null && sections.isNotEmpty)
-            _StatusActions(
-              output: _activeOutput!,
-              allApproved:
-                  sections.values.every((s) => s.approved),
-              onStatusChange: (status) => _updateStatus(status),
-            ),
-        ],
       ),
       body: outputsAsync.when(
         loading: () => const AppLoadingWidget(),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (outputs) {
-          if (outputs.isEmpty || _activeOutput == null) {
+          if (outputs.isEmpty || activeOutput == null) {
             return _NoOutputs(
               outputs: outputs,
-              onSelect: (o) => setState(() => _activeOutput = o),
+              onSelect: (o) => setState(() => _activeOutputId = o.outputId),
               onCreate: () => _showNewOutput(context),
             );
           }
@@ -151,7 +170,7 @@ class _ReportBuilderScreenState
             data: (assembled) {
               if (sections.isEmpty && !_buildingDraft) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _buildDraft(assembled);
+                  _buildDraft(assembled, activeOutput.outputId);
                 });
               }
               return TabBarView(
@@ -161,27 +180,25 @@ class _ReportBuilderScreenState
                   _EditorTab(
                     sections: sections,
                     caseId: widget.caseId,
-                    isLocked: _activeOutput!.isLocked,
-                    onAiDraft: () => _buildDraft(assembled, aiDraft: true),
+                    outputId: activeOutput.outputId,
+                    isLocked: activeOutput.isLocked,
                     buildingDraft: _buildingDraft,
                   ),
                   // ── Preview tab ─────────────────────────────────
-                  Column(
-                    children: [
-                      Expanded(
-                        child: ReportPreview(
-                          output: _activeOutput!,
-                          assembled: assembled,
-                          sections: sections,
-                        ),
-                      ),
-                      _PreviewFooter(
-                        output:   _activeOutput!,
-                        assembled: assembled,
-                        sections: sections,
-                        caseId:   widget.caseId,
-                      ),
-                    ],
+                  ReportPreview(
+                    output: activeOutput,
+                    assembled: assembled,
+                    sections: sections,
+                    caseId: widget.caseId,
+                  ),
+                  // ── Postprocessing tab ───────────────────────────
+                  _PostprocessingTab(
+                    output:      activeOutput,
+                    assembled:   assembled,
+                    sections:    sections,
+                    caseId:      widget.caseId,
+                    allApproved: sections.values.every((s) => s.approved),
+                    onStatusChange: (status) => _updateStatus(status),
                   ),
                 ],
               );
@@ -189,7 +206,7 @@ class _ReportBuilderScreenState
           );
         },
       ),
-      floatingActionButton: _activeOutput == null
+      floatingActionButton: activeOutput == null
           ? FloatingActionButton.extended(
               onPressed: () => _showNewOutput(context),
               backgroundColor: AppColors.navy,
@@ -207,10 +224,12 @@ class _ReportBuilderScreenState
         .read(reportOutputsProvider(widget.caseId))
         .valueOrNull
         ?.length ?? 0;
-    final technicalFileNo = ref
-        .read(assembledDataProvider(widget.caseId))
-        .valueOrNull
-        ?.caseData['technical_file_no'] as String? ?? widget.caseId;
+    // Prefer assembled data; fall back to caseProvider (always loaded by now).
+    final technicalFileNo =
+        (ref.read(assembledDataProvider(widget.caseId)).valueOrNull
+                ?.caseData['technical_file_no'] as String?)
+            ?? ref.read(caseProvider(widget.caseId)).valueOrNull?.technicalFileNo
+            ?? '';
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -228,45 +247,30 @@ class _ReportBuilderScreenState
                 reportNumber: reportNumber,
                 sequenceNo:   sequenceNo,
               );
-          setState(() => _activeOutput = output);
+          setState(() => _activeOutputId = output.outputId);
         },
       ),
     );
   }
 
-  Future<void> _buildDraft(AssembledReportData assembled,
+  Future<void> _buildDraft(AssembledReportData assembled, String outputId,
       {bool aiDraft = false}) async {
     setState(() => _buildingDraft = true);
     await ref
-        .read(sectionDraftProvider(widget.caseId).notifier)
+        .read(sectionDraftProvider(
+                (caseId: widget.caseId, outputId: outputId))
+            .notifier)
         .buildSections(assembled, aiDraft: aiDraft);
     setState(() => _buildingDraft = false);
   }
 
   Future<void> _updateStatus(ReportStatus status) async {
+    final outputId = _activeOutputId;
+    if (outputId == null) return;
     await ref
         .read(reportOutputsProvider(widget.caseId).notifier)
-        .updateStatus(_activeOutput!.outputId, status);
-    setState(() => _activeOutput =
-        _activeOutput!.copyWith(status: status));
+        .updateStatus(outputId, status);
   }
-}
-
-extension on ReportOutput {
-  ReportOutput copyWith({ReportStatus? status}) => ReportOutput(
-        outputId:     outputId,
-        caseId:       caseId,
-        outputType:   outputType,
-        status:       status ?? this.status,
-        sections:     sections,
-        reportNumber: reportNumber,
-        sequenceNo:   sequenceNo,
-        issuedDate:   issuedDate,
-        issuedTo:     issuedTo,
-        filePath:     filePath,
-        createdAt:    createdAt,
-        coverPhotoId: coverPhotoId,
-      );
 }
 
 // ── No outputs state ───────────────────────────────────────────────────────
@@ -366,16 +370,21 @@ class _EditorTab extends ConsumerWidget {
   const _EditorTab({
     required this.sections,
     required this.caseId,
+    required this.outputId,
     required this.isLocked,
-    required this.onAiDraft,
     required this.buildingDraft,
   });
 
   final Map<SectionType, ReportSection> sections;
   final String caseId;
+  final String outputId;
   final bool isLocked;
-  final VoidCallback onAiDraft;
   final bool buildingDraft;
+
+  static const _aiDraftableTypes = {
+    SectionType.background,
+    SectionType.causation,
+  };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -393,41 +402,12 @@ class _EditorTab extends ConsumerWidget {
 
     return Column(
       children: [
-        // AI draft banner
-        if (!isLocked)
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 10),
-            color: AppColors.lightPurple,
-            child: Row(children: [
-              const Icon(Icons.auto_awesome,
-                  size: 14, color: AppColors.purple),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Narrative sections can be AI-drafted from your collected data',
-                  style: TextStyle(
-                      fontSize: 11, color: AppColors.purple),
-                ),
-              ),
-              TextButton(
-                onPressed: onAiDraft,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  backgroundColor:
-                      AppColors.purple.withValues(alpha: 0.1),
-                ),
-                child: const Text('Draft with AI',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: AppColors.purple,
-                        fontWeight: FontWeight.w600)),
-              ),
-            ]),
-          ),
-
-        // Sections list
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: _CoverPhotoPicker(caseId: caseId),
+        ),
+        const Divider(height: 1, color: AppColors.border),
+        // Sections list — ordered per spec §4.1 (Oceanoservices format)
         Expanded(
           child: sections.isEmpty
               ? const Center(
@@ -435,49 +415,166 @@ class _EditorTab extends ConsumerWidget {
                       style: TextStyle(
                           fontSize: 13,
                           color: AppColors.textSecondary)))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: sections.length,
-                  itemBuilder: (_, i) {
-                    final entry =
-                        sections.entries.toList()[i];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: SectionEditor(
-                        section: entry.value,
-                        isLocked: isLocked,
-                        onContentChanged: (content) => ref
-                            .read(sectionDraftProvider(caseId)
-                                .notifier)
-                            .updateContent(entry.key, content),
-                        onSurveyorReviewChanged: (review) => ref
-                            .read(sectionDraftProvider(caseId)
-                                .notifier)
-                            .setSurveyorReview(entry.key, review),
-                      ),
-                    );
-                  },
-                ),
+              : Builder(builder: (context) {
+                  final orderedKeys = oceanoSectionOrder
+                      .where(sections.containsKey)
+                      .toList();
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: orderedKeys.length,
+                    itemBuilder: (_, i) {
+                      final key     = orderedKeys[i];
+                      final section = sections[key]!;
+                      final notifier = ref.read(sectionDraftProvider(
+                              (caseId: caseId, outputId: outputId))
+                          .notifier);
+                      final canAiDraft = !isLocked &&
+                          !section.isLocked &&
+                          section.content.isEmpty &&
+                          _aiDraftableTypes.contains(key);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: SectionEditor(
+                          section: section,
+                          isLocked: isLocked,
+                          sectionNumber: oceanoSectionNumber(key),
+                          onContentChanged: (content) =>
+                              notifier.updateContent(key, content),
+                          onSurveyorReviewChanged: (review) =>
+                              notifier.setSurveyorReview(key, review),
+                          onDraftWithAi: canAiDraft
+                              ? () {
+                                  final assembled = ref
+                                      .read(assembledDataProvider(caseId))
+                                      .valueOrNull;
+                                  if (assembled != null) {
+                                    notifier.draftSectionWithAi(
+                                        key, assembled);
+                                  }
+                                }
+                              : null,
+                        ),
+                      );
+                    },
+                  );
+                }),
         ),
       ],
     );
   }
 }
 
+// ── Cover photo picker (top of Editor tab) ─────────────────────────────────
+
+class _CoverPhotoPicker extends ConsumerWidget {
+  const _CoverPhotoPicker({required this.caseId});
+
+  final String caseId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final photos = ref.watch(photosProvider(caseId)).value ?? [];
+    // Single case-wide cover photo — shared with the Photo Gallery and
+    // Vessel Particulars, kept in sync via PhotoAllocation.coverPage.
+    final coverPhoto = photos.coverPhoto;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          // Thumbnail
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.border),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: coverPhoto != null && coverPhoto.localPath.isNotEmpty
+                ? Image.file(File(coverPhoto.localPath),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.image_outlined,
+                            size: 16, color: AppColors.textTertiary))
+                : const Icon(Icons.image_outlined,
+                    size: 16, color: AppColors.textTertiary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  coverPhoto != null
+                      ? (coverPhoto.caption?.isNotEmpty == true
+                          ? coverPhoto.caption!
+                          : 'Cover photo')
+                      : 'No cover photo',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const Text(
+                  'Shared across Gallery, Vessel Particulars & Report',
+                  style: TextStyle(
+                      fontSize: 11, color: AppColors.textTertiary),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              final picked =
+                  await showModalBottomSheet<List<PhotoModel>>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => CasePhotoPickerSheet(
+                  caseId: caseId,
+                  title: 'Select Cover Photo',
+                ),
+              );
+              if (picked == null || picked.isEmpty) return;
+              await ref
+                  .read(photosProvider(caseId).notifier)
+                  .updateAllocation(picked.first.id, PhotoAllocation.coverPage);
+            },
+            style: TextButton.styleFrom(
+                foregroundColor: AppColors.navy,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4)),
+            child: const Text('Change',
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Preview tab footer ─────────────────────────────────────────────────────
 
-class _PreviewFooter extends ConsumerWidget {
-  const _PreviewFooter({
+class _PostprocessingTab extends ConsumerWidget {
+  const _PostprocessingTab({
     required this.output,
     required this.assembled,
     required this.sections,
     required this.caseId,
+    required this.allApproved,
+    required this.onStatusChange,
   });
 
   final ReportOutput output;
   final AssembledReportData assembled;
   final Map<SectionType, ReportSection> sections;
   final String caseId;
+  final bool allApproved;
+  final ValueChanged<ReportStatus> onStatusChange;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -488,119 +585,22 @@ class _PreviewFooter extends ConsumerWidget {
     final signed = (signedAttending ? 1 : 0) + (signedReviewing ? 1 : 0);
     final bothSigned = signedAttending && signedReviewing;
 
-    // Cover photo — from photos table (cover-allocated) or output override
-    final photos = ref.watch(photosProvider(caseId)).value ?? [];
-    PhotoModel? findPhoto(bool Function(PhotoModel) test) {
-      try { return photos.firstWhere(test); } catch (_) { return null; }
-    }
-    final overrideId = output.coverPhotoId;
-    final coverPhoto = overrideId != null
-        ? findPhoto((p) => p.id == overrideId)
-        : findPhoto((p) => p.allocation == PhotoAllocation.coverPage);
-    final isOverride = overrideId != null && coverPhoto != null;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Cover photo row
-          Row(
-            children: [
-              // Thumbnail
-              Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.border),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: coverPhoto != null && coverPhoto.localPath.isNotEmpty
-                    ? Image.file(File(coverPhoto.localPath),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Icon(Icons.image_outlined,
-                                size: 16, color: AppColors.textTertiary))
-                    : const Icon(Icons.image_outlined,
-                        size: 16, color: AppColors.textTertiary),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      coverPhoto != null
-                          ? (coverPhoto.caption?.isNotEmpty == true
-                              ? coverPhoto.caption!
-                              : 'Cover photo')
-                          : 'No cover photo',
-                      style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textPrimary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      isOverride ? 'Custom selection' : 'Vessel Particulars default',
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textTertiary),
-                    ),
-                  ],
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isOverride)
-                    TextButton(
-                      onPressed: () => ref
-                          .read(reportOutputsProvider(caseId).notifier)
-                          .setCoverPhoto(output.outputId, null),
-                      style: TextButton.styleFrom(
-                          foregroundColor: AppColors.textSecondary,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4)),
-                      child: const Text('Reset',
-                          style: TextStyle(fontSize: 12)),
-                    ),
-                  TextButton(
-                    onPressed: () async {
-                      final picked =
-                          await showModalBottomSheet<List<PhotoModel>>(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (_) => CasePhotoPickerSheet(
-                          caseId: caseId,
-                          title: 'Select Cover Photo',
-                        ),
-                      );
-                      if (picked == null || picked.isEmpty) return;
-                      if (!context.mounted) return;
-                      await ref
-                          .read(reportOutputsProvider(caseId).notifier)
-                          .setCoverPhoto(output.outputId, picked.first.id);
-                    },
-                    style: TextButton.styleFrom(
-                        foregroundColor: AppColors.navy,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4)),
-                    child: const Text('Change',
-                        style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600)),
-                  ),
-                ],
-              ),
-            ],
+          // Status / QC stepper
+          _StatusActions(
+            output: output,
+            allApproved: allApproved,
+            onStatusChange: onStatusChange,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
+
+          // Changes summary — only shown when this report supersedes a prior version
+          if (output.supersedesVersion != null)
+            _ChangesSummaryField(output: output, caseId: caseId),
 
           // Sign-off row — Final reports only
           if (isFinal) ...[
@@ -652,6 +652,93 @@ class _PreviewFooter extends ConsumerWidget {
   }
 }
 
+// ── Changes summary field ──────────────────────────────────────────────────
+
+class _ChangesSummaryField extends ConsumerStatefulWidget {
+  const _ChangesSummaryField({required this.output, required this.caseId});
+
+  final ReportOutput output;
+  final String caseId;
+
+  @override
+  ConsumerState<_ChangesSummaryField> createState() =>
+      _ChangesSummaryFieldState();
+}
+
+class _ChangesSummaryFieldState
+    extends ConsumerState<_ChangesSummaryField> {
+  late TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.output.changesSummary ?? '');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.history_outlined,
+              size: 15, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              maxLines: 1,
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Changes from ${widget.output.supersedesVersion}…',
+                hintStyle: const TextStyle(
+                    fontSize: 12, color: AppColors.textTertiary),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 6),
+                filled: true,
+                fillColor: AppColors.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide:
+                      const BorderSide(color: AppColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide:
+                      const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: const BorderSide(
+                      color: AppColors.midBlue, width: 1.5),
+                ),
+              ),
+              onSubmitted: (v) => _save(v.trim()),
+              onTapOutside: (_) => _save(_ctrl.text.trim()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _save(String value) async {
+    if (value == (widget.output.changesSummary ?? '')) return;
+    await ref
+        .read(reportOutputsProvider(widget.caseId).notifier)
+        .updateChangesSummary(widget.output.outputId, value);
+  }
+}
+
 // ── Status actions ─────────────────────────────────────────────────────────
 
 class _StatusActions extends StatelessWidget {
@@ -665,38 +752,70 @@ class _StatusActions extends StatelessWidget {
   final bool allApproved;
   final ValueChanged<ReportStatus> onStatusChange;
 
+  ({ReportStatus status, String label})? get _nextAction => switch (output.status) {
+        ReportStatus.draft        => (status: ReportStatus.selfReviewed, label: 'Mark Self-Reviewed'),
+        ReportStatus.selfReviewed => (status: ReportStatus.submittedQc,  label: 'Submit for QC'),
+        ReportStatus.submittedQc  => (status: ReportStatus.qcComments,  label: 'Add QC Comments'),
+        ReportStatus.qcComments   => (status: ReportStatus.approved,    label: 'Mark Approved'),
+        ReportStatus.approved     => (status: ReportStatus.issued,      label: 'Mark Issued'),
+        ReportStatus.issued       => (status: ReportStatus.locked,      label: 'Lock Report'),
+        ReportStatus.locked       => null,
+      };
+
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<ReportStatus>(
-      icon: const Icon(Icons.more_vert, color: Colors.white),
-      onSelected: onStatusChange,
-      itemBuilder: (_) => [
-        if (output.status == ReportStatus.draft)
-          const PopupMenuItem(
-            value: ReportStatus.submittedQc,
-            child: Text('Submit for QC'),
+    final next = _nextAction;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            output.status == ReportStatus.locked
+                ? Icons.lock_outline
+                : Icons.rule_outlined,
+            size: 18, color: AppColors.textSecondary,
           ),
-        if (output.status == ReportStatus.submittedQc)
-          const PopupMenuItem(
-            value: ReportStatus.qcComments,
-            child: Text('Add QC Comments'),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Status',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textTertiary,
+                        letterSpacing: 0.4)),
+                Text(output.status.label,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary)),
+              ],
+            ),
           ),
-        if (output.status == ReportStatus.qcComments)
-          const PopupMenuItem(
-            value: ReportStatus.approved,
-            child: Text('Mark Approved'),
-          ),
-        if (output.status == ReportStatus.approved)
-          const PopupMenuItem(
-            value: ReportStatus.issued,
-            child: Text('Mark Issued'),
-          ),
-        if (output.status == ReportStatus.issued)
-          const PopupMenuItem(
-            value: ReportStatus.locked,
-            child: Text('Lock Report'),
-          ),
-      ],
+          if (next != null)
+            ElevatedButton(
+              onPressed: () => onStatusChange(next.status),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.navy,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text(next.label,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+        ],
+      ),
     );
   }
 }

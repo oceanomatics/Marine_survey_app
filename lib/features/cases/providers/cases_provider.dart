@@ -1,5 +1,6 @@
 // lib/features/cases/providers/cases_provider.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/case_model.dart';
 import '../../../core/api/supabase_client.dart';
@@ -215,44 +216,80 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     OutputFormat? outputFormat,
     String? organisationId,
     String? baseCurrency,
-    String? policyUcr,
-    String? policyNumber,
-    PolicyType? policyType,
     String? instructingParty,
-    InstructingPartyRole? instructingPartyRole,
     String? assured,
-    DateTime? dateOfFirstAttendance,
-    String? surveyLocation,
+    String? costEstimateStatus,
+    double? estimatedRepairCost,
   }) async {
     final updates = <String, dynamic>{};
-    if (technicalFileNo != null)            updates['technical_file_no']               = technicalFileNo;
-    if (claimReference != null)       updates['claim_reference']          = claimReference;
-    if (status != null)               updates['status']                   = status.value;
-    if (caseType != null)             updates['case_type']                = caseType.value;
-    if (outputFormat != null)         updates['output_format']            = outputFormat.value;
+    if (technicalFileNo != null)  updates['technical_file_no'] = technicalFileNo;
+    if (claimReference != null)   updates['claim_reference']   = claimReference;
+    if (status != null)           updates['status']            = status.value;
+    if (caseType != null)         updates['case_type']         = caseType.value;
+    if (outputFormat != null)     updates['output_format']     = outputFormat.value;
     if (instructionDate != null) {
       updates['instruction_date'] = instructionDate.toIso8601String().split('T').first;
     }
-    if (organisationId != null)       updates['organisation_id']          = organisationId;
-    if (baseCurrency != null)         updates['base_currency']            = baseCurrency;
-    if (policyUcr != null)            updates['policy_ucr']               = policyUcr;
-    if (policyNumber != null)         updates['policy_number']            = policyNumber;
-    if (policyType != null)           updates['policy_type']              = policyType.value;
-    if (instructingParty != null)     updates['instructing_party']        = instructingParty;
-    if (instructingPartyRole != null) updates['instructing_party_role']   = instructingPartyRole.value;
-    if (assured != null)              updates['assured']                  = assured;
-    if (dateOfFirstAttendance != null) {
-      updates['date_of_first_attendance'] =
-          dateOfFirstAttendance.toIso8601String().split('T').first;
-    }
-    if (surveyLocation != null)       updates['survey_location']          = surveyLocation;
+    if (organisationId != null)   updates['organisation_id']   = organisationId;
+    if (baseCurrency != null)     updates['base_currency']     = baseCurrency;
+    if (instructingParty != null) updates['instructing_party'] = instructingParty;
+    if (assured != null)          updates['assured']           = assured;
+    if (costEstimateStatus != null)  updates['cost_estimate_status']  = costEstimateStatus;
+    if (estimatedRepairCost != null) updates['estimated_repair_cost'] = estimatedRepairCost;
+
     if (updates.isEmpty) return;
     await SupabaseService.client
         .from('cases')
         .update(updates)
         .eq('case_id', arg);
     state = await AsyncValue.guard(() => _fetch(arg));
+    // Rebuild composite title whenever file no, vessel, or case type may have changed.
+    if (technicalFileNo != null || caseType != null) await _rebuildTitle();
     ref.invalidate(casesProvider);
+  }
+
+  /// Rebuilds the composite case title: "JobNo – Vessel – SurveyType – Occurrence"
+  /// and persists it to cases.title. Skips if the file number is still a placeholder.
+  Future<void> _rebuildTitle() async {
+    try {
+      final c = state.value;
+      if (c == null) return;
+
+      final jobNo   = c.hasPlaceholderFileNo ? '' : c.technicalFileNo;
+      final vName   = c.vesselName ?? '';
+      final ctLabel = c.caseType.label;
+
+      // Primary (or only) occurrence title from DB
+      final occRows = await SupabaseService.client
+          .from('occurrences')
+          .select('title, is_primary, occurrence_no')
+          .eq('case_id', arg)
+          .order('is_primary', ascending: false)
+          .order('occurrence_no')
+          .limit(1);
+
+      final occTitle = (occRows as List).isNotEmpty
+          ? (occRows.first['title'] as String? ?? '')
+          : '';
+
+      final parts = [
+        if (jobNo.isNotEmpty)    jobNo,
+        if (vName.isNotEmpty)    vName,
+        if (ctLabel.isNotEmpty)  ctLabel,
+        if (occTitle.isNotEmpty) occTitle,
+      ];
+
+      if (parts.isEmpty) return;
+      final newTitle = parts.join(' – ');
+      await SupabaseService.client
+          .from('cases')
+          .update({'title': newTitle})
+          .eq('case_id', arg);
+      // Patch local state so the header updates instantly without a full refetch.
+      state = AsyncData(c.copyWith(title: newTitle));
+    } catch (e) {
+      debugPrint('[CaseNotifier] _rebuildTitle: $e');
+    }
   }
 
   /// Creates a vessel record (if case has none) or updates the existing one,
@@ -279,6 +316,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
           .eq('case_id', arg);
     }
     state = await AsyncValue.guard(() => _fetch(arg));
+    await _rebuildTitle();
     ref.invalidate(casesProvider);
   }
 }

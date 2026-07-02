@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/attendance_model.dart';
 import '../providers/attendances_provider.dart';
@@ -108,7 +109,13 @@ class AttendancesScreen extends ConsumerWidget {
                     caseId: caseId,
                     type: type,
                     date: date,
-                    location: location,
+                    location: location.text,
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    locationType: location.locationType,
+                    locationDetail: location.locationDetail,
+                    nearestPort: location.nearestPort,
+                    distanceOffshoreNm: location.distanceOffshoreNm,
                     surveyorName: surveyor,
                     vesselStatus: vesselStatus,
                     summary: summary,
@@ -122,6 +129,7 @@ class AttendancesScreen extends ConsumerWidget {
                     caseId:       caseId,
                     fullName:     prev.fullName,
                     attendanceId: created.attendanceId,
+                    title:        prev.title,
                     rankPosition: prev.rankPosition,
                     company:      prev.company,
                     representing: prev.representing,
@@ -140,6 +148,7 @@ class AttendancesScreen extends ConsumerWidget {
                     caseId:       caseId,
                     fullName:     entry.name,
                     attendanceId: created.attendanceId,
+                    title:        entry.title,
                     roleType:     entry.role,
                     company:      entry.company,
                   ),
@@ -387,6 +396,19 @@ class _AttendanceCard extends StatelessWidget {
                         label: attendance.location!,
                         color: AppColors.textSecondary,
                       ),
+                    if (attendance.latitude != null &&
+                        attendance.longitude != null)
+                      _InfoChip(
+                        icon: Icons.map_outlined,
+                        label:
+                            '${attendance.latitude!.toStringAsFixed(4)}, ${attendance.longitude!.toStringAsFixed(4)}',
+                        color: _kVisitsColor,
+                        onTap: () => launchUrl(
+                          Uri.parse(
+                              'https://www.google.com/maps/search/?api=1&query=${attendance.latitude},${attendance.longitude}'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      ),
                     if (attendance.vesselStatus != null)
                       _InfoChip(
                         icon: Icons.anchor_outlined,
@@ -530,21 +552,31 @@ class _InfoChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.color,
+    this.onTap,
   });
 
   final IconData icon;
   final String label;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final chip = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 12, color: color),
         const SizedBox(width: 3),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
+        Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                color: color,
+                decoration:
+                    onTap != null ? TextDecoration.underline : null)),
       ],
     );
+    return onTap == null
+        ? chip
+        : GestureDetector(onTap: onTap, child: chip);
   }
 }

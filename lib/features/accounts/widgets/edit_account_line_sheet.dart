@@ -136,9 +136,9 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.97,
       builder: (_, ctrl) => Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
         child: Column(
           children: [
@@ -149,14 +149,14 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
                 children: [
                   Text(
                     isEdit ? 'Edit Invoice Line Item' : 'Add Invoice Line Item',
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 17,
                         fontWeight: FontWeight.bold),
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.close, color: AppColors.textSecondary),
+                    icon: const Icon(Icons.close, color: AppColors.textSecondary),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -328,7 +328,7 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
   Widget _section(String label) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(label,
-            style: TextStyle(
+            style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -341,13 +341,13 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
           const SizedBox(height: 4),
           TextField(
             controller: ctrl,
             maxLines: maxLines,
             keyboardType: keyboardType,
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               filled: true,
               fillColor: AppColors.background,
@@ -355,7 +355,7 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide(color: AppColors.border),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
@@ -378,13 +378,13 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
           const SizedBox(height: 4),
           DropdownButtonFormField<T>(
-            value: value,
+            initialValue: value,
             isExpanded: true,
             dropdownColor: AppColors.surface,
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               filled: true,
               fillColor: AppColors.background,
@@ -392,7 +392,7 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide(color: AppColors.border),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
@@ -422,16 +422,16 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
           const SizedBox(height: 4),
           DropdownButtonFormField<T>(
-            value: value,
+            initialValue: value,
             isExpanded: true,
             dropdownColor: AppColors.surface,
-            hint: Text('— not allocated —',
+            hint: const Text('— not allocated —',
                 style: TextStyle(
                     color: AppColors.textSecondary, fontSize: 13)),
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               filled: true,
               fillColor: AppColors.background,
@@ -439,7 +439,7 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide(color: AppColors.border),
+                borderSide: const BorderSide(color: AppColors.border),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
@@ -599,7 +599,7 @@ class _AmountRow extends StatelessWidget {
           flex: 3,
           child: Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12,
                 fontWeight: FontWeight.w500),
@@ -611,7 +611,7 @@ class _AmountRow extends StatelessWidget {
           flex: 2,
           child: Row(
             children: [
-              Expanded(
+              const Expanded(
                 child: SizedBox(
                   height: 14,
                   child: CustomPaint(
@@ -688,7 +688,7 @@ class _ApportionSubOptions extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Apportionment basis',
+          const Text('Apportionment basis',
               style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 11,
@@ -709,20 +709,20 @@ class _ApportionSubOptions extends StatelessWidget {
               controller: valueCtrl,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
               decoration: InputDecoration(
                 hintText: selected == 'percentage'
                     ? 'e.g. 70  →  70% goes to claim'
                     : 'Amount to owner\'s account',
                 hintStyle:
-                    TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 filled: true,
                 fillColor: AppColors.background,
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 8),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
-                  borderSide: BorderSide(color: AppColors.border),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
@@ -735,7 +735,7 @@ class _ApportionSubOptions extends StatelessWidget {
           ],
           if (selected == 'defer') ...[
             const SizedBox(height: 6),
-            Text(
+            const Text(
               'Full line amount deferred — adjuster to determine allocation.',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
             ),

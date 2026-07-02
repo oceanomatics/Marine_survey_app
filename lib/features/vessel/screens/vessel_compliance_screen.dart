@@ -9,6 +9,8 @@ import '../../../features/cases/models/case_model.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
+import '../../../shared/widgets/chip_row.dart';
+import '../../../shared/widgets/tri_state_row.dart';
 import '../models/class_condition_model.dart';
 import '../models/psc_deficiency_model.dart';
 import '../providers/certificates_provider.dart';
@@ -39,8 +41,8 @@ class _VesselComplianceScreenState
   PscResult?   _pscResult;
   final _pscSummaryCtrl  = TextEditingController();
   IspsStatus?  _ispsStatus;
-  bool         _ismIncident   = false;
-  bool         _classIncident = false;
+  bool?        _ismIncident;
+  bool?        _classIncident;
 
   bool _populated = false;
   bool _hasChanges = false;
@@ -56,8 +58,8 @@ class _VesselComplianceScreenState
     _pscResult         = v.pscLastResult;
     _pscSummaryCtrl.text  = v.pscSummary ?? '';
     _ispsStatus        = v.ispsStatus;
-    _ismIncident       = v.ismIncidentReported   ?? false;
-    _classIncident     = v.classIncidentReported ?? false;
+    _ismIncident       = v.ismIncidentReported;
+    _classIncident     = v.classIncidentReported;
   }
 
   void _markChanged() => setState(() => _hasChanges = true);
@@ -203,14 +205,14 @@ class _VesselComplianceScreenState
                 const SizedBox(height: 20),
 
                 // ── CLASSIFICATION ──────────────────────────────────────────
-                _SectionHeader(
+                const _SectionHeader(
                   title: 'Classification',
                   icon: Icons.shield_outlined,
-                  color: const Color(0xFF4A7FA5),
+                  color: Color(0xFF4A7FA5),
                 ),
                 const SizedBox(height: 8),
                 const _FieldLabel('Class Status'),
-                _ChipRow<ClassStatus>(
+                ChipRow<ClassStatus>(
                   values: ClassStatus.values,
                   selected: _classStatus,
                   label: (s) => s.label,
@@ -248,7 +250,7 @@ class _VesselComplianceScreenState
                 const SizedBox(height: 20),
 
                 // ── DRYDOCKING ──────────────────────────────────────────────
-                _SectionHeader(
+                const _SectionHeader(
                   title: 'Drydocking',
                   icon: Icons.anchor_outlined,
                   color: AppColors.amber,
@@ -272,7 +274,7 @@ class _VesselComplianceScreenState
                 const SizedBox(height: 20),
 
                 // ── PORT STATE CONTROL ──────────────────────────────────────
-                _SectionHeader(
+                const _SectionHeader(
                   title: 'Port State Control',
                   icon: Icons.policy_outlined,
                   color: AppColors.coral,
@@ -285,7 +287,7 @@ class _VesselComplianceScreenState
                 ),
                 const SizedBox(height: 8),
                 const _FieldLabel('Inspection result'),
-                _ChipRow<PscResult>(
+                ChipRow<PscResult>(
                   values: PscResult.values,
                   selected: _pscResult,
                   label: (r) => r.label,
@@ -331,13 +333,13 @@ class _VesselComplianceScreenState
                 const SizedBox(height: 20),
 
                 // ── ISPS ────────────────────────────────────────────────────
-                _SectionHeader(
+                const _SectionHeader(
                   title: 'ISPS',
                   icon: Icons.security_outlined,
                   color: AppColors.midBlue,
                 ),
                 const SizedBox(height: 8),
-                _ChipRow<IspsStatus>(
+                ChipRow<IspsStatus>(
                   values: IspsStatus.values,
                   selected: _ispsStatus,
                   label: (s) => s.label,
@@ -347,7 +349,7 @@ class _VesselComplianceScreenState
                 const SizedBox(height: 20),
 
                 // ── INCIDENTS ───────────────────────────────────────────────
-                _SectionHeader(
+                const _SectionHeader(
                   title: 'Incidents',
                   icon: Icons.warning_amber_outlined,
                   color: AppColors.coral,
@@ -357,32 +359,22 @@ class _VesselComplianceScreenState
                   _OccurrenceCard(occurrence: primaryOcc),
                 ],
                 const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('ISM incident reported to flag/class',
-                      style: TextStyle(fontSize: 13)),
-                  subtitle: _ismIncident && primaryOcc != null
-                      ? const Text('Reported — ISM incident report should be on file',
-                          style: TextStyle(fontSize: 11, color: AppColors.textTertiary))
+                TriStateRow(
+                  label: 'Incident reported in the ISM',
+                  hint: _ismIncident == true && primaryOcc != null
+                      ? 'Reported — ISM incident report should be on file'
                       : null,
                   value: _ismIncident,
                   onChanged: (v) => setState(() { _ismIncident = v; _hasChanges = true; }),
-                  activeThumbColor: AppColors.midBlue,
                 ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Reported to classification society',
-                      style: TextStyle(fontSize: 13)),
-                  subtitle: _classIncident
-                      ? const Text(
-                          'Confirmed — check for class conditions linked to this occurrence',
-                          style: TextStyle(fontSize: 11, color: AppColors.textTertiary))
+                const SizedBox(height: 10),
+                TriStateRow(
+                  label: 'Incident reported to Class',
+                  hint: _classIncident == true
+                      ? 'Confirmed — check for class conditions linked to this occurrence'
                       : null,
                   value: _classIncident,
                   onChanged: (v) => setState(() { _classIncident = v; _hasChanges = true; }),
-                  activeThumbColor: AppColors.midBlue,
                 ),
 
                 // auto-hint: if any class condition is linked to primary occ, flag it
@@ -525,46 +517,6 @@ class _SectionHeader extends StatelessWidget {
       ),
       if (action != null) action!,
     ]);
-  }
-}
-
-// ── Generic chip row ───────────────────────────────────────────────────────────
-
-class _ChipRow<T> extends StatelessWidget {
-  const _ChipRow({
-    required this.values,
-    required this.selected,
-    required this.label,
-    required this.onChanged,
-  });
-  final List<T> values;
-  final T? selected;
-  final String Function(T) label;
-  final ValueChanged<T?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: values.map((v) {
-        final active = v == selected;
-        return ChoiceChip(
-          label: Text(label(v),
-              style: TextStyle(
-                  fontSize: 12,
-                  color: active ? Colors.white : AppColors.textSecondary)),
-          selected: active,
-          selectedColor: AppColors.midBlue,
-          backgroundColor: AppColors.surface,
-          side: BorderSide(
-              color: active ? AppColors.midBlue : AppColors.border),
-          onSelected: (_) => onChanged(active ? null : v),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          visualDensity: VisualDensity.compact,
-        );
-      }).toList(),
-    );
   }
 }
 
@@ -1014,7 +966,7 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
           ),
           if (_occRelated && widget.occurrences.isNotEmpty) ...[
             DropdownButtonFormField<String>(
-              value: _occId,
+              initialValue: _occId,
               decoration: const InputDecoration(
                 labelText: 'Related occurrence',
                 border: OutlineInputBorder(),

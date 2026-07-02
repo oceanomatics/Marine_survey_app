@@ -7,6 +7,23 @@ import '../../../shared/theme/app_theme.dart';
 
 const _kColor = Color(0xFF1A6B9E);
 
+const _kServicesOptions = {
+  'crane_lifting':        'Crane / Lifting',
+  'scaffolding':          'Scaffolding',
+  'gas_freeing':          'Gas Freeing',
+  'diving':               'Diving',
+  'class_attendance':     'Class Attendance',
+  'ndt_xray':             'NDT / X-Ray',
+  'hydraulic_testing':    'Hydraulic Testing',
+  'air_pressure_testing': 'Air Pressure Testing',
+  'hose_testing':         'Hose Testing',
+};
+
+const _kHotWorkOptions = {
+  'certs_valid':       'Conducted — Certs Valid',
+  'certs_not_sighted': 'Conducted — Certs Not Sighted',
+};
+
 class AddRepairPeriodSheet extends StatefulWidget {
   const AddRepairPeriodSheet({
     super.key,
@@ -27,9 +44,13 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
   final _titleCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  final _servicesNotesCtrl = TextEditingController();
+  final _hotWorkNotesCtrl = TextEditingController();
   DateTime? _startDate;
   DateTime? _endDate;
   PortContext _portContext = PortContext.planned;
+  final Set<String> _servicesProvided = {};
+  String? _hotWorkStatus;
   bool _saving = false;
   String? _error;
 
@@ -38,6 +59,8 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
     _titleCtrl.dispose();
     _locationCtrl.dispose();
     _notesCtrl.dispose();
+    _servicesNotesCtrl.dispose();
+    _hotWorkNotesCtrl.dispose();
     super.dispose();
   }
 
@@ -82,6 +105,14 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
         location:    _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
         portContext: _portContext,
         notes:       _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        servicesProvided: _servicesProvided.toList(),
+        servicesProvidedNotes: _servicesNotesCtrl.text.trim().isEmpty
+            ? null
+            : _servicesNotesCtrl.text.trim(),
+        hotWorkStatus: _hotWorkStatus,
+        hotWorkNotes: _hotWorkNotesCtrl.text.trim().isEmpty
+            ? null
+            : _hotWorkNotesCtrl.text.trim(),
       );
       await widget.onSave(period);
       if (mounted) Navigator.pop(context);
@@ -278,6 +309,83 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                     maxLines: 4,
                     decoration: _dec(hint: 'Any additional notes about this repair period'),
                   ),
+                  const SizedBox(height: 16),
+
+                  // Services provided
+                  _label('Services Provided'),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.border),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: _kServicesOptions.entries.map((e) {
+                        final checked = _servicesProvided.contains(e.key);
+                        return CheckboxListTile(
+                          value: checked,
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          activeColor: _kColor,
+                          title: Text(e.value,
+                              style: const TextStyle(
+                                  fontSize: 13, color: AppColors.textPrimary)),
+                          onChanged: (v) => setState(() {
+                            if (v == true) {
+                              _servicesProvided.add(e.key);
+                            } else {
+                              _servicesProvided.remove(e.key);
+                            }
+                          }),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _servicesNotesCtrl,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: _dec(
+                        hint: 'Context on services provided (from invoices '
+                            'or observed on site)'),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Hot work / gas freeing
+                  _label('Hot Work / Gas Freeing'),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(
+                      child: _ChipOption(
+                        label: 'Not Conducted',
+                        selected: _hotWorkStatus == null,
+                        color: AppColors.textTertiary,
+                        onTap: () => setState(() => _hotWorkStatus = null),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ..._kHotWorkOptions.entries.map((e) => Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: _ChipOption(
+                              label: e.value,
+                              selected: _hotWorkStatus == e.key,
+                              color: _kColor,
+                              onTap: () =>
+                                  setState(() => _hotWorkStatus = e.key),
+                            ),
+                          ),
+                        )),
+                  ]),
+                  if (_hotWorkStatus != null) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _hotWorkNotesCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: _dec(hint: 'Hot work context / notes'),
+                    ),
+                  ],
                   const SizedBox(height: 24),
 
                   SizedBox(
@@ -345,6 +453,46 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
         PortContext.planned   => Icons.anchor_outlined,
         PortContext.diversion => Icons.alt_route_outlined,
       };
+}
+
+class _ChipOption extends StatelessWidget {
+  const _ChipOption({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.12) : AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: selected ? color : AppColors.border,
+              width: selected ? 1.5 : 1),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? color : AppColors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DateTile extends StatelessWidget {

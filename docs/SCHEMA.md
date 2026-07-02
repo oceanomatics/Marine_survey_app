@@ -96,6 +96,7 @@ Trigger: `trg_attendances_updated_at` → `update_updated_at()`
 | attendee_id | uuid | NOT NULL | uuid_generate_v4() |
 | case_id | uuid | NOT NULL | |
 | attendance_id | uuid | | |
+| title | text | | |
 | full_name | text | NOT NULL | |
 | rank_position | text | | |
 | company | text | | |

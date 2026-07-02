@@ -95,7 +95,7 @@ class _CaseCard extends StatelessWidget {
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(survey.title ?? survey.vesselName ?? 'Vessel TBC',
+                Text(survey.title ?? survey.vesselName ?? survey.technicalFileNo,
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 14)),
                 const SizedBox(height: 2),

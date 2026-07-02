@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:exif/exif.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
@@ -26,6 +27,16 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   Future<List<PhotoModel>> build(String caseId) => _fetch(caseId);
 
   Future<List<PhotoModel>> _fetch(String caseId) async {
+    if (kIsWeb) {
+      // Photos are stored as local files (dart:io) with no web backend —
+      // photo capture/upload is not supported on web (see
+      // project_platform_target_desktop_cloud memory: future plan is
+      // cloud storage + standalone desktop apps, not browser support).
+      // Returning an empty list here only prevents screens that read the
+      // photo list (e.g. the Report Builder cover photo picker) from
+      // crash-looping the whole screen on web.
+      return [];
+    }
     final db = await AppDatabase.instance.database;
     final rows = await db.query(
       'photos',
@@ -235,33 +246,70 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
         : ph);
   }
 
+  Future<void> updatePlacementMode(
+      String photoId, PlacementMode? placementMode) async {
+    final db = await AppDatabase.instance.database;
+    await db.update(
+      'photos',
+      {'placement_mode': placementMode?.value},
+      where: 'id = ?',
+      whereArgs: [photoId],
+    );
+    _updateState((ph) =>
+        ph.id == photoId ? ph.copyWith(placementMode: placementMode) : ph);
+  }
+
+  Future<void> updatePhotoSource(String photoId, PhotoSource? photoSource) async {
+    final db = await AppDatabase.instance.database;
+    await db.update(
+      'photos',
+      {'photo_source': photoSource?.value},
+      where: 'id = ?',
+      whereArgs: [photoId],
+    );
+    _updateState(
+        (ph) => ph.id == photoId ? ph.copyWith(photoSource: photoSource) : ph);
+  }
+
   Future<void> updateAllocation(
       String photoId, PhotoAllocation? allocation) async {
     final db = await AppDatabase.instance.database;
+    final current = state.value ?? [];
+
+    // Only one photo per case may hold the Cover Page allocation — shared
+    // as the single cover photo across the Photo Gallery, Vessel
+    // Particulars, and Report Builder. Clear it from any other photo in
+    // this case before assigning it here.
+    if (allocation == PhotoAllocation.coverPage) {
+      final caseId = current.firstWhere((ph) => ph.id == photoId).caseId;
+      final others = current.where((ph) =>
+          ph.caseId == caseId &&
+          ph.id != photoId &&
+          ph.allocation == PhotoAllocation.coverPage);
+      for (final other in others) {
+        await db.update(
+          'photos',
+          {'photo_allocation': null},
+          where: 'id = ?',
+          whereArgs: [other.id],
+        );
+      }
+    }
+
     await db.update(
       'photos',
       {'photo_allocation': allocation?.value},
       where: 'id = ?',
       whereArgs: [photoId],
     );
-    final current = state.value ?? [];
+
     state = AsyncData(current.map((ph) {
-      if (ph.id != photoId) return ph;
-      return PhotoModel(
-        id: ph.id,
-        caseId: ph.caseId,
-        localPath: ph.localPath,
-        thumbnailPath: ph.thumbnailPath,
-        caption: ph.caption,
-        allocation: allocation,
-        linkedToType: ph.linkedToType,
-        linkedToId: ph.linkedToId,
-        attendanceId: ph.attendanceId,
-        takenAt: ph.takenAt,
-        syncStatus: ph.syncStatus,
-        remotePath: ph.remotePath,
-        fileSizeKb: ph.fileSizeKb,
-      );
+      if (ph.id == photoId) return ph.copyWith(allocation: allocation);
+      if (allocation == PhotoAllocation.coverPage &&
+          ph.allocation == PhotoAllocation.coverPage) {
+        return ph.copyWith(allocation: null);
+      }
+      return ph;
     }).toList());
   }
 
@@ -291,4 +339,15 @@ extension PhotoListX on List<PhotoModel> {
 
   List<PhotoModel> get allocated =>
       where((ph) => ph.allocation != null).toList();
+
+  /// The single case-wide cover photo (Clause/UI: shared identically by the
+  /// Photo Gallery, Vessel Particulars, and Report Builder — there is only
+  /// ever one photo with the Cover Page allocation per case).
+  PhotoModel? get coverPhoto {
+    try {
+      return firstWhere((p) => p.allocation == PhotoAllocation.coverPage);
+    } catch (_) {
+      return null;
+    }
+  }
 }

@@ -2,12 +2,40 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../providers/damage_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/chip_row.dart';
 import '../../vessel/widgets/survey_field.dart';
 import '../../../core/api/claude_api.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+
+const _uuid = Uuid();
+
+/// Suggested hedging language per certainty level (spec §10 table) — shown
+/// as a live preview, never auto-inserted into the assessment text field.
+String _certaintyLanguage(CertaintyLevel level) => switch (level) {
+      CertaintyLevel.agreedNoReservation =>
+        'The cause of loss as stated by owners appears to be reasonable '
+            'and is agreed with.',
+      CertaintyLevel.agreedPendingAnalysis =>
+        '…is agreed with, on a preliminary basis, pending further analysis.',
+      CertaintyLevel.consistentWithAllegation =>
+        'It is the opinion of the Undersigned that the damages detailed '
+            'above may reasonably be attributed to a casualty of the '
+            'nature of that alleged.',
+      CertaintyLevel.preliminaryOnly =>
+        'A final conclusion on the cause cannot be reached at this stage. '
+            'On a preliminary basis, the following potential causes are '
+            'considered:…',
+      CertaintyLevel.disagreeReserves =>
+        'The Undersigned Surveyor is unable to agree with the allegation '
+            'as stated, for the following reasons:…',
+      CertaintyLevel.noOpinion =>
+        'At this stage of the investigation, it is not possible to offer '
+            'an opinion on cause.',
+    };
 
 // ── Standard formulation generator ────────────────────────────────────────
 
@@ -21,6 +49,15 @@ String? buildAllegationFormulation(
   if (allegationType == 'no_formal_allegation') {
     return 'We are not aware of any formal allegation of cause having been '
         'raised by any party in connection with this casualty.';
+  }
+
+  if (allegationType == 'informal_allegation') {
+    final causeLabel = causeType != null
+        ? causeType.label.toLowerCase()
+        : 'the casualty';
+    return 'The Owners have, without formal written allegation, indicated '
+        'that the cause of $causeLabel was as summarised in the Owners\' '
+        'Stated Cause field. Our assessment is set out separately below.';
   }
 
   final causeLabel = causeType != null
@@ -65,11 +102,16 @@ class CausationSheet extends ConsumerStatefulWidget {
 class _CausationSheetState extends ConsumerState<CausationSheet> {
   HMCauseType? _causeType;
   String _allegationType = 'tbc';
-  String _causeAgreement = 'tbc';
   final _commentCtrl = TextEditingController();
   bool _saving = false;
   bool _generating = false;
   String? _saveError;
+
+  final _ownersCauseCtrl = TextEditingController();
+  final _ownersCauseSourceCtrl = TextEditingController();
+  final List<ThirdPartyFinding> _thirdPartyFindings = [];
+  final _assessmentCtrl = TextEditingController();
+  CertaintyLevel? _certaintyLevel;
 
   @override
   void initState() {
@@ -77,14 +119,90 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
     final occ = widget.occurrence;
     _causeType = HMCauseType.fromValue(occ.causeType);
     _allegationType = occ.allegationType ?? 'tbc';
-    _causeAgreement = occ.causeAgreement ?? 'tbc';
     _commentCtrl.text = occ.causeNarrative ?? '';
+    _ownersCauseCtrl.text = occ.ownersStatedCause ?? '';
+    _ownersCauseSourceCtrl.text = occ.ownersStatedCauseSource ?? '';
+    _thirdPartyFindings.addAll(occ.thirdPartyFindings);
+    _assessmentCtrl.text = occ.surveyorsAssessment ?? '';
+    _certaintyLevel = occ.certaintyLevel;
   }
 
   @override
   void dispose() {
     _commentCtrl.dispose();
+    _ownersCauseCtrl.dispose();
+    _ownersCauseSourceCtrl.dispose();
+    _assessmentCtrl.dispose();
     super.dispose();
+  }
+
+  /// Backward-compat derivation for case_home_screen.dart's existing
+  /// agree/disagree/tbc badge — the UI no longer collects this directly,
+  /// certainty level supersedes it.
+  String? get _derivedCauseAgreement => switch (_certaintyLevel) {
+        CertaintyLevel.agreedNoReservation ||
+        CertaintyLevel.agreedPendingAnalysis =>
+          'agree',
+        CertaintyLevel.disagreeReserves => 'disagree',
+        _ => _allegationType == 'formal_allegation' ? 'tbc' : null,
+      };
+
+  Future<void> _addThirdPartyFinding() async {
+    final sourceCtrl = TextEditingController();
+    final docCtrl = TextEditingController();
+    final findingCtrl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Third-Party Finding'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: sourceCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Source (e.g. Class Surveyor, OEM Engineer)'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: docCtrl,
+                decoration:
+                    const InputDecoration(labelText: 'Document reference'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: findingCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Finding'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add')),
+        ],
+      ),
+    );
+    if (result == true &&
+        sourceCtrl.text.trim().isNotEmpty &&
+        findingCtrl.text.trim().isNotEmpty) {
+      setState(() {
+        _thirdPartyFindings.add(ThirdPartyFinding(
+          id: _uuid.v4(),
+          sourceName: sourceCtrl.text.trim(),
+          documentReference: docCtrl.text.trim().isEmpty
+              ? null
+              : docCtrl.text.trim(),
+          finding: findingCtrl.text.trim(),
+        ));
+      });
+    }
   }
 
   Future<void> _generateSubCausation() async {
@@ -143,14 +261,26 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
         chronology:          occ.chronology,
         causeType:           _causeType?.value,
         allegationType:      _allegationType,
-        causeAgreement:      _allegationType == 'formal_allegation'
-            ? _causeAgreement
-            : null,
+        causeAgreement:      _derivedCauseAgreement,
         causeNarrative:      _commentCtrl.text.trim().isEmpty
             ? null
             : _commentCtrl.text.trim(),
         ismReported:         occ.ismReported,
         createdAt:           occ.createdAt,
+        vesselStatusAtCasualty: occ.vesselStatusAtCasualty,
+        aftermathStatus:        occ.aftermathStatus,
+        aftermathPort:          occ.aftermathPort,
+        ownersStatedCause:   _ownersCauseCtrl.text.trim().isEmpty
+            ? null
+            : _ownersCauseCtrl.text.trim(),
+        ownersStatedCauseSource: _ownersCauseSourceCtrl.text.trim().isEmpty
+            ? null
+            : _ownersCauseSourceCtrl.text.trim(),
+        thirdPartyFindings:  _thirdPartyFindings,
+        surveyorsAssessment: _assessmentCtrl.text.trim().isEmpty
+            ? null
+            : _assessmentCtrl.text.trim(),
+        certaintyLevel:      _certaintyLevel,
       );
       debugPrint('[CausationSheet._save] calling onSave, causeType=${updated.causeType} allegationType=${updated.allegationType}');
       await widget.onSave(updated);
@@ -167,7 +297,7 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
   @override
   Widget build(BuildContext context) {
     final formulation = buildAllegationFormulation(
-      _causeType, _allegationType, _causeAgreement,
+      _causeType, _allegationType, _derivedCauseAgreement,
     );
 
     return Padding(
@@ -254,12 +384,13 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
               ),
               const SizedBox(height: 22),
 
-              // ── FORMAL ALLEGATION ───────────────────────────────────
-              const _SectionLabel('FORMAL ALLEGATION OR STATEMENT OF CAUSE'),
+              // ── ALLEGATION STATUS ───────────────────────────────────
+              const _SectionLabel('ALLEGATION STATUS'),
               const SizedBox(height: 10),
               _TriSegment(
                 options: const [
-                  ('formal_allegation', 'Formal Allegation'),
+                  ('formal_allegation', 'Formal'),
+                  ('informal_allegation', 'Informal / Verbal'),
                   ('no_formal_allegation', 'No Allegation'),
                   ('tbc', 'TBC'),
                 ],
@@ -268,29 +399,159 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
                 activeColor: AppColors.amber,
               ),
 
-              // ── OUR POSITION (only when formal allegation) ──────────
-              if (_allegationType == 'formal_allegation') ...[
+              // ── OWNER'S STATED CAUSE (owner's voice) ────────────────
+              if (_allegationType == 'formal_allegation' ||
+                  _allegationType == 'informal_allegation') ...[
                 const SizedBox(height: 22),
-                const _SectionLabel('OUR POSITION ON THE ALLEGATION'),
-                const SizedBox(height: 10),
-                _TriSegment(
-                  options: const [
-                    ('agree', 'We Agree'),
-                    ('disagree', 'We Disagree'),
-                    ('tbc', 'TBC'),
-                  ],
-                  selected: _causeAgreement,
-                  onSelected: (v) => setState(() => _causeAgreement = v),
-                  activeColor: AppColors.midBlue,
+                const _SectionLabel("OWNER'S STATED CAUSE"),
+                const SizedBox(height: 4),
+                const Text(
+                  "The owner's own words — not the surveyor's view",
+                  style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+                ),
+                const SizedBox(height: 8),
+                SurveyField(
+                  label: '',
+                  controller: _ownersCauseCtrl,
+                  hint: 'e.g. As stated in the incident report dated…',
+                  maxLines: 3,
+                ),
+                SurveyField(
+                  label: 'Source document reference',
+                  controller: _ownersCauseSourceCtrl,
+                  hint: 'e.g. Master\'s Attestation dated 12 October 2025',
                 ),
               ],
 
               const SizedBox(height: 22),
 
-              // ── SUB-CAUSATION ───────────────────────────────────────
+              // ── THIRD-PARTY FINDINGS ────────────────────────────────
               Row(
                 children: [
-                  const _SectionLabel('SUB-CAUSATION / COMMENTS'),
+                  const _SectionLabel('THIRD-PARTY FINDINGS'),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _addThirdPartyFinding,
+                    icon: const Icon(Icons.add, size: 14),
+                    label: const Text('Add finding',
+                        style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.midBlue,
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
+              ),
+              if (_thirdPartyFindings.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    'No third-party findings recorded (Class, OEM, investigation reports, etc.)',
+                    style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+                  ),
+                )
+              else
+                ...List.generate(_thirdPartyFindings.length, (i) {
+                  final f = _thirdPartyFindings[i];
+                  return Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(f.sourceName,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary)),
+                              if (f.documentReference != null)
+                                Text(f.documentReference!,
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.textTertiary)),
+                              const SizedBox(height: 4),
+                              Text(f.finding,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary)),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16),
+                          color: AppColors.textTertiary,
+                          onPressed: () =>
+                              setState(() => _thirdPartyFindings.removeAt(i)),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+
+              const SizedBox(height: 22),
+
+              // ── SURVEYOR'S ASSESSMENT (surveyor's voice) ────────────
+              const _SectionLabel("SURVEYOR'S ASSESSMENT"),
+              const SizedBox(height: 4),
+              const Text(
+                "The Undersigned Surveyor's own professional opinion",
+                style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+              ),
+              const SizedBox(height: 8),
+              SurveyField(
+                label: '',
+                controller: _assessmentCtrl,
+                hint: 'e.g. It is the view of the Undersigned Surveyor that…',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 10),
+              const _SectionLabel('CERTAINTY LEVEL'),
+              const SizedBox(height: 8),
+              ChipRow<CertaintyLevel>(
+                values: CertaintyLevel.values,
+                selected: _certaintyLevel,
+                label: (c) => c.label,
+                onChanged: (v) => setState(() => _certaintyLevel = v),
+              ),
+              if (_certaintyLevel != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightBlue,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: AppColors.midBlue.withValues(alpha: 0.25)),
+                  ),
+                  child: Text(
+                    _certaintyLanguage(_certaintyLevel!),
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        fontStyle: FontStyle.italic,
+                        height: 1.5),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 22),
+
+              // ── ADDITIONAL ANALYTICAL NOTES ─────────────────────────
+              Row(
+                children: [
+                  const _SectionLabel('ADDITIONAL ANALYTICAL NOTES'),
                   const Spacer(),
                   GestureDetector(
                     onTap: _generating ? null : _generateSubCausation,
