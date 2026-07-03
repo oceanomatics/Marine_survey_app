@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/report_provider.dart';
 import '../services/docx_export_service.dart';
+import '../utils/export_validation.dart';
+import 'export_validation_sheet.dart';
 import '../../../features/photos/models/photo_model.dart';
 import '../../../features/photos/providers/photo_provider.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -36,7 +38,6 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
 
   @override
   Widget build(BuildContext context) {
-    final allApproved = widget.sections.values.every((s) => s.approved);
     final canExport   = widget.output.status != ReportStatus.locked;
     final isFinal     = widget.output.outputType == OutputType.final_;
     final caseData    = widget.assembled.caseData;
@@ -53,7 +54,7 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     final blocked = !canExport || _exporting || signOffBlocked || aiReviewBlocked;
 
     return ElevatedButton.icon(
-      onPressed: blocked ? null : () => _export(context, allApproved),
+      onPressed: blocked ? null : () => _export(context),
       icon: _exporting
           ? const SizedBox(
               width: 16, height: 16,
@@ -79,29 +80,15 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     );
   }
 
-  Future<void> _export(BuildContext context, bool allApproved) async {
-    // Warn if not all sections approved
-    if (!allApproved) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Not all sections approved'),
-          content: const Text(
-            'Some sections have not been approved yet. '
-            'The exported document will include unapproved content.\n\n'
-            'Do you want to export anyway?',
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel')),
-            ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Export anyway')),
-          ],
-        ),
-      );
-      if (proceed != true) return;
+  Future<void> _export(BuildContext context) async {
+    // Consolidated pre-export checklist (TODO.md §1.7) — soft warnings only;
+    // the hard blocks (sign-off, AI review) already disable the button and
+    // never reach this dialog.
+    final warnings = buildExportWarnings(
+        widget.output, widget.sections, widget.assembled);
+    if (warnings.isNotEmpty) {
+      final proceed = await showExportValidationSheet(context, warnings);
+      if (!proceed) return;
     }
 
     setState(() => _exporting = true);

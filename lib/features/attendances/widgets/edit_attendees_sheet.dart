@@ -14,6 +14,7 @@ class EditAttendeesSheet extends StatefulWidget {
     required this.initialAttendees,
     required this.onAdd,
     required this.onDelete,
+    required this.onReorder,
   });
 
   final String caseId;
@@ -21,6 +22,9 @@ class EditAttendeesSheet extends StatefulWidget {
   final List<AttendeeModel> initialAttendees;
   final Future<AttendeeModel> Function(AttendeeModel) onAdd;
   final Future<void> Function(String attendeeId) onDelete;
+  /// Persists a new drag-to-reorder order — full list of attendee ids for
+  /// this attendance, in the new display order.
+  final Future<void> Function(List<String> orderedAttendeeIds) onReorder;
 
   @override
   State<EditAttendeesSheet> createState() => _EditAttendeesSheetState();
@@ -39,10 +43,24 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
   @override
   void initState() {
     super.initState();
-    _attendees = [...widget.initialAttendees]
-      ..sort((a, b) =>
-          (a.roleType?.sortOrder ?? 99)
-              .compareTo(b.roleType?.sortOrder ?? 99));
+    _attendees = [...widget.initialAttendees]..sort(_compareAttendees);
+  }
+
+  /// Manual drag order (sort_order) wins; falls back to the old fixed
+  /// role-based order only for rows predating migration 015.
+  int _compareAttendees(AttendeeModel a, AttendeeModel b) {
+    if (a.sortOrder != null && b.sortOrder != null) {
+      return a.sortOrder!.compareTo(b.sortOrder!);
+    }
+    return (a.roleType?.sortOrder ?? 99).compareTo(b.roleType?.sortOrder ?? 99);
+  }
+
+  Future<void> _reorder(int oldIndex, int newIndex) async {
+    setState(() {
+      final item = _attendees.removeAt(oldIndex);
+      _attendees.insert(newIndex, item);
+    });
+    await widget.onReorder(_attendees.map((a) => a.attendeeId).toList());
   }
 
   @override
@@ -76,9 +94,7 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
       ));
       setState(() {
         _attendees.add(created);
-        _attendees.sort((a, b) =>
-            (a.roleType?.sortOrder ?? 99)
-                .compareTo(b.roleType?.sortOrder ?? 99));
+        _attendees.sort(_compareAttendees);
         _nameCtrl.clear();
         _companyCtrl.clear();
         _newTitle = null;
@@ -145,7 +161,15 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
                           color: AppColors.textTertiary,
                           fontStyle: FontStyle.italic)),
                 )
-              else
+              else ...[
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text('Drag the handle to reorder.',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textTertiary,
+                          fontStyle: FontStyle.italic)),
+                ),
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
@@ -153,20 +177,28 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppColors.border),
                   ),
-                  child: Column(
-                    children: [
-                      for (int i = 0; i < _attendees.length; i++) ...[
+                  child: ReorderableListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    buildDefaultDragHandles: false,
+                    onReorderItem: _reorder,
+                    itemCount: _attendees.length,
+                    itemBuilder: (context, i) => Column(
+                      key: ValueKey(_attendees[i].attendeeId),
+                      children: [
                         if (i > 0)
                           const Divider(
                               height: 1, color: AppColors.border),
                         _AttendeeRow(
+                          index: i,
                           attendee: _attendees[i],
                           onDelete: () => _delete(_attendees[i]),
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
+              ],
 
               // ── Add new attendee form ─────────────────────────────────
               const _Label('Add attendee'),
@@ -362,7 +394,12 @@ class _EditAttendeesSheetState extends State<EditAttendeesSheet> {
 // ── Attendee row with delete button ───────────────────────────────────────
 
 class _AttendeeRow extends StatefulWidget {
-  const _AttendeeRow({required this.attendee, required this.onDelete});
+  const _AttendeeRow({
+    required this.index,
+    required this.attendee,
+    required this.onDelete,
+  });
+  final int index;
   final AttendeeModel attendee;
   final Future<void> Function() onDelete;
 
@@ -382,6 +419,14 @@ class _AttendeeRowState extends State<_AttendeeRow> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(children: [
+        ReorderableDragStartListener(
+          index: widget.index,
+          child: const Padding(
+            padding: EdgeInsets.only(right: 10),
+            child: Icon(Icons.drag_indicator,
+                size: 18, color: AppColors.textTertiary),
+          ),
+        ),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

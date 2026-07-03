@@ -216,6 +216,21 @@ class ReportOutput {
     this.createdAt,
     this.supersedesVersion,
     this.changesSummary,
+    this.adviceNatureOfCasualty,
+    this.adviceDescriptionOfDamage,
+    this.adviceNatureOfRepairs,
+    this.adviceStatusOfRepairs,
+    this.adviceStatusOfRepairsDetail,
+    this.adviceCostAmount,
+    this.adviceCostCurrency,
+    this.adviceCostIncludesGeneralExpenses,
+    this.adviceCostIncludesTowing,
+    this.adviceFeeReserveHours,
+    this.adviceFeeReserveExpenses,
+    this.adviceFollowUpRequired,
+    this.adviceFollowUpDetail,
+    this.adviceRemarks,
+    this.adviceConfirmed = false,
   });
 
   final String outputId;
@@ -233,6 +248,23 @@ class ReportOutput {
   final String? supersedesVersion;
   /// Brief summary of changes from the prior version — editable by surveyor.
   final String? changesSummary;
+
+  // ── Advice Summary (Page 2 structured table) — see docs/migrations/014 ──
+  final String? adviceNatureOfCasualty;
+  final String? adviceDescriptionOfDamage;
+  final String? adviceNatureOfRepairs;
+  final String? adviceStatusOfRepairs;
+  final String? adviceStatusOfRepairsDetail;
+  final num? adviceCostAmount;
+  final String? adviceCostCurrency;
+  final bool? adviceCostIncludesGeneralExpenses;
+  final String? adviceCostIncludesTowing;
+  final num? adviceFeeReserveHours;
+  final num? adviceFeeReserveExpenses;
+  final bool? adviceFollowUpRequired;
+  final String? adviceFollowUpDetail;
+  final String? adviceRemarks;
+  final bool adviceConfirmed;
 
   int get approvedCount => sections.where((s) => s.approved).length;
   bool get allApproved => sections.every((s) => s.approved);
@@ -268,6 +300,22 @@ class ReportOutput {
             : null,
         supersedesVersion: j['supersedes_version']  as String?,
         changesSummary:    j['changes_summary']     as String?,
+        adviceNatureOfCasualty:     j['advice_nature_of_casualty']     as String?,
+        adviceDescriptionOfDamage:  j['advice_description_of_damage']  as String?,
+        adviceNatureOfRepairs:      j['advice_nature_of_repairs']      as String?,
+        adviceStatusOfRepairs:      j['advice_status_of_repairs']      as String?,
+        adviceStatusOfRepairsDetail: j['advice_status_of_repairs_detail'] as String?,
+        adviceCostAmount:           j['advice_cost_amount']            as num?,
+        adviceCostCurrency:         j['advice_cost_currency']          as String?,
+        adviceCostIncludesGeneralExpenses:
+            j['advice_cost_includes_general_expenses'] as bool?,
+        adviceCostIncludesTowing:   j['advice_cost_includes_towing']   as String?,
+        adviceFeeReserveHours:      j['advice_fee_reserve_hours']      as num?,
+        adviceFeeReserveExpenses:   j['advice_fee_reserve_expenses']   as num?,
+        adviceFollowUpRequired:     j['advice_follow_up_required']     as bool?,
+        adviceFollowUpDetail:       j['advice_follow_up_detail']       as String?,
+        adviceRemarks:              j['advice_remarks']                as String?,
+        adviceConfirmed:            j['advice_confirmed'] as bool? ?? false,
       );
 }
 
@@ -413,6 +461,19 @@ class ReportOutputsNotifier
     await refresh();
   }
 
+  /// Patches any subset of the Advice Summary fields (Page 2 structured
+  /// table — see docs/migrations/014_advice_summary.sql). Only the keys
+  /// present in [fields] are written; callers pass just what changed.
+  Future<void> updateAdviceSummary(
+      String outputId, Map<String, dynamic> fields) async {
+    if (fields.isEmpty) return;
+    await SupabaseService.client
+        .from('report_outputs')
+        .update(fields)
+        .eq('output_id', outputId);
+    await refresh();
+  }
+
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(arg));
@@ -444,6 +505,7 @@ final assembledDataProvider =
         .from('attendees')
         .select()
         .eq('case_id', caseId)
+        .order('sort_order', nullsFirst: false)
         .order('created_at'),
     SupabaseService.client
         .from('certificates')
@@ -717,6 +779,13 @@ class SectionDraftNotifier
   }) async {
     final sections = <SectionType, ReportSection>{};
 
+    // Fetched up-front (not just at the end) so the auto-draft-on-first-
+    // build gates below can tell "never drafted before" apart from "just
+    // computed empty this call" — without this, aiDraft:true would re-call
+    // the AI on every mount even for sections that already have persisted
+    // content, since the persisted overlay only overwrites afterward.
+    final persisted = await _fetchPersisted();
+
     // ── Page 2: Executive Summary ────────────────────────────────────
     sections[SectionType.executiveSummary] = ReportSection(
       type:    SectionType.executiveSummary,
@@ -785,7 +854,9 @@ class SectionDraftNotifier
     if (data.occurrences.isNotEmpty) {
       backgroundContent =
           data.occurrences.first['background_narrative'] as String? ?? '';
-      if (backgroundContent.isEmpty && aiDraft) {
+      if (backgroundContent.isEmpty &&
+          aiDraft &&
+          !persisted.containsKey(SectionType.background)) {
         final occ = data.occurrences.first;
         try {
           backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
@@ -922,7 +993,10 @@ class SectionDraftNotifier
           : '$causeContent\n\n$analyticalNotes';
     }
 
-    if (causeContent.isEmpty && aiDraft && occForCause != null) {
+    if (causeContent.isEmpty &&
+        aiDraft &&
+        occForCause != null &&
+        !persisted.containsKey(SectionType.causation)) {
       try {
         causeContent = await ClaudeApi.draftCauseConsideration(
           vesselName:      data.vessel?['name'] ?? 'the vessel',
@@ -936,7 +1010,12 @@ class SectionDraftNotifier
         );
         causeAiDrafted = true;
       } catch (_) {
+        // Marked drafted even on failure (matches Background's behaviour
+        // above) so a transient API failure gets persisted as an attempt
+        // and edited manually, rather than silently retrying the AI call
+        // on every future mount of this report forever.
         causeContent = '[Cause consideration — edit before issuing]';
+        causeAiDrafted = true;
       }
     }
     sections[SectionType.causation] = ReportSection(
@@ -962,10 +1041,41 @@ class SectionDraftNotifier
     );
 
     // ── §12: General Services & Access ───────────────────────────
-    sections[SectionType.generalServices] = const ReportSection(
-      type:    SectionType.generalServices,
-      title:   'General Services & Access',
-      content: '',
+    // Auto-drafted from `general_expenses`-tagged context cues on first
+    // build, same as Background/Causation above — never re-drafted once a
+    // persisted row exists (see draftGeneralServices() in ClaudeApi for the
+    // prompt; the manual "Draft with AI" button in the editor covers the
+    // case where cues are added later, after this first pass ran empty).
+    var generalServicesContent = '';
+    var generalServicesAiDrafted = false;
+    if (aiDraft && !persisted.containsKey(SectionType.generalServices)) {
+      final cues = data.surveyorNotes
+          .where((n) => n['report_section'] == 'general_expenses')
+          .map((n) => n['content'] as String? ?? '')
+          .where((c) => c.isNotEmpty)
+          .toList();
+      if (cues.isNotEmpty) {
+        try {
+          generalServicesContent = await ClaudeApi.draftGeneralServices(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+          );
+          generalServicesAiDrafted = generalServicesContent.isNotEmpty;
+        } catch (_) {
+          // Marked drafted even on failure (see the same note on the
+          // Cause Consideration attempt above) so a transient API failure
+          // doesn't retry silently on every future mount while cues exist.
+          generalServicesContent = '[Draft narrative — edit before issuing]';
+          generalServicesAiDrafted = true;
+        }
+      }
+    }
+    sections[SectionType.generalServices] = ReportSection(
+      type:      SectionType.generalServices,
+      title:     'General Services & Access',
+      content:   generalServicesContent,
+      aiDrafted: generalServicesAiDrafted,
     );
 
     // ── §13: Repair Costs (auto-table in export; narrative commentary here)
@@ -1083,8 +1193,8 @@ class SectionDraftNotifier
     // report output — persisted content always wins over the freshly
     // assembled default (locked clause sections are never overridden; the
     // editor never lets the surveyor edit them, so no persisted row for
-    // them should exist, but the check is kept defensive).
-    final persisted = await _fetchPersisted();
+    // them should exist, but the check is kept defensive). `persisted` was
+    // fetched up-front, above.
     for (final entry in persisted.entries) {
       final base = sections[entry.key];
       if (base == null || base.isLocked) continue;
@@ -1096,6 +1206,22 @@ class SectionDraftNotifier
     }
 
     state = sections;
+
+    // Persist any section auto-drafted just now (no prior persisted row) so
+    // the next mount finds it via `persisted` and doesn't call the AI
+    // again — auto-drafting is meant to run once per report, not on every
+    // screen open.
+    for (final type in const [
+      SectionType.background,
+      SectionType.causation,
+      SectionType.generalServices,
+    ]) {
+      final s = sections[type];
+      if (s != null && s.aiDrafted && s.content.isNotEmpty &&
+          !persisted.containsKey(type)) {
+        await _persist(type);
+      }
+    }
   }
 
   Future<Map<SectionType, _PersistedSection>> _fetchPersisted() async {
@@ -1160,6 +1286,18 @@ class SectionDraftNotifier
                 .toList(),
             ownersAllegation: occ?['owners_stated_cause'] as String?,
             serviceEngineerFindings: null,
+            reportFormat: data.outputFormat,
+          );
+        case SectionType.generalServices:
+          final cues = data.surveyorNotes
+              .where((n) => n['report_section'] == 'general_expenses')
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          if (cues.isEmpty) return;
+          content = await ClaudeApi.draftGeneralServices(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
             reportFormat: data.outputFormat,
           );
         default:

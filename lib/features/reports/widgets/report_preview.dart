@@ -8,7 +8,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/report_provider.dart';
+import '../../../core/models/ai_generation_log_model.dart';
 import '../utils/section_text.dart';
+import '../utils/advice_summary_rows.dart';
+import '../utils/annexure_groups.dart';
 import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
 
@@ -161,7 +164,11 @@ class ReportPreview extends ConsumerWidget {
     final contentW = pageW - 56; // 28px margins each side within the page
 
     final bodyPages = _paginateSections(bodySections, pageH, contentW);
-    final totalPages = bodyStartPage - 1 + bodyPages.length;
+    final annexureGroups = buildAnnexureGroups(assembled.caseDocuments);
+    final annexurePageCount =
+        annexureGroups.length + (assembled.aiGenerationLog.isNotEmpty ? 1 : 0);
+    final totalPages = bodyStartPage - 1 + bodyPages.length + annexurePageCount;
+    final annexureStartPage = bodyStartPage + bodyPages.length;
 
     // Map each body section to its actual page number (for TOC accuracy)
     final sectionPages = <int>[];
@@ -182,7 +189,14 @@ class ReportPreview extends ConsumerWidget {
             n != null ? '$n.  ${bodySections[i].title}' : bodySections[i].title;
         return _TocEntry(title, sectionPages[i]);
       },
-    );
+    )
+      ..addAll([
+        for (final g in annexureGroups)
+          _TocEntry('Annexure ${g.key}', annexureStartPage + annexureGroups.indexOf(g)),
+        if (assembled.aiGenerationLog.isNotEmpty)
+          _TocEntry('Annexure I — AI Generation Record',
+              annexureStartPage + annexureGroups.length),
+      ]);
 
     return ColoredBox(
       color: const Color(0xFFD0D0D0),
@@ -211,6 +225,8 @@ class ReportPreview extends ConsumerWidget {
                   fixed: true,
                   child: _SummaryContent(
                     section: summarySection,
+                    output: output,
+                    assembled: assembled,
                     brand: brand,
                     headerLeft: hLeft,
                     headerRight: hRight,
@@ -253,6 +269,40 @@ class ReportPreview extends ConsumerWidget {
                       ),
                     ),
                   )),
+
+              // Annexures — one page per lettered group, then the AI
+              // Generation Record last. Grouping logic shared with the docx
+              // export via annexure_groups.dart.
+              ...annexureGroups.asMap().entries.map((e) => Padding(
+                    padding: const EdgeInsets.only(top: 20),
+                    child: _A4Page(
+                      fixed: false,
+                      child: _AnnexureContent(
+                        letter: e.value.key,
+                        documents: e.value.value,
+                        brand: brand,
+                        headerLeft: hLeft,
+                        headerRight: hRight,
+                        pageNum: annexureStartPage + e.key,
+                        totalPages: totalPages,
+                      ),
+                    ),
+                  )),
+              if (assembled.aiGenerationLog.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: _A4Page(
+                    fixed: false,
+                    child: _AiGenerationRecordContent(
+                      log: assembled.aiGenerationLog,
+                      brand: brand,
+                      headerLeft: hLeft,
+                      headerRight: hRight,
+                      pageNum: annexureStartPage + annexureGroups.length,
+                      totalPages: totalPages,
+                    ),
+                  ),
+                ),
 
               const SizedBox(height: 24),
             ],
@@ -678,6 +728,8 @@ class _CoverInfoBlock extends StatelessWidget {
 class _SummaryContent extends StatelessWidget {
   const _SummaryContent({
     required this.section,
+    required this.output,
+    required this.assembled,
     required this.brand,
     required this.headerLeft,
     required this.headerRight,
@@ -686,6 +738,8 @@ class _SummaryContent extends StatelessWidget {
   });
 
   final ReportSection section;
+  final ReportOutput output;
+  final AssembledReportData assembled;
   final _Brand brand;
   final String headerLeft;
   final String headerRight;
@@ -706,6 +760,13 @@ class _SummaryContent extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (buildAdviceSummaryRows(output, assembled).isNotEmpty) ...[
+                    _AdviceSummaryTable(
+                      rows: buildAdviceSummaryRows(output, assembled),
+                      brand: brand,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                   // Prominent page-2 heading
                   Container(
                     width: double.infinity,
@@ -734,6 +795,52 @@ class _SummaryContent extends StatelessWidget {
           ),
         ),
         _PageFooter(brand: brand, pageNum: pageNum, totalPages: totalPages),
+      ],
+    );
+  }
+}
+
+// ── Advice Summary table (page 2, above the free-text narrative) ──────────
+
+class _AdviceSummaryTable extends StatelessWidget {
+  const _AdviceSummaryTable({required this.rows, required this.brand});
+
+  final List<List<String>> rows;
+  final _Brand brand;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'ADVICE SUMMARY',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: brand.primary,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Table(
+          border: TableBorder.all(color: Colors.grey.shade300, width: 0.6),
+          columnWidths: const {0: FlexColumnWidth(1), 1: FlexColumnWidth(2.2)},
+          children: rows
+              .map((r) => TableRow(children: [
+                    Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Text(r[0],
+                          style: const TextStyle(
+                              fontSize: 9.5, fontWeight: FontWeight.w700)),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Text(r[1], style: const TextStyle(fontSize: 9.5)),
+                    ),
+                  ]))
+              .toList(),
+        ),
       ],
     );
   }
@@ -953,6 +1060,182 @@ class _MultiSectionBodyContent extends StatelessWidget {
       ],
     );
   }
+}
+
+// ── Annexure page content ──────────────────────────────────────────────────
+//
+// Per spec ("Preview Rendering of Annexures" in
+// docs/report_builder_editor_notes.md): title page + document manifest
+// (filename + date). Full document rendering / thumbnails deliberately not
+// attempted here — the spec itself allows a manifest-only preview, with the
+// document opened in the vault viewer on tap in a future pass.
+
+class _AnnexureContent extends StatelessWidget {
+  const _AnnexureContent({
+    required this.letter,
+    required this.documents,
+    required this.brand,
+    required this.headerLeft,
+    required this.headerRight,
+    required this.pageNum,
+    required this.totalPages,
+  });
+
+  final String letter;
+  final List<Map<String, dynamic>> documents;
+  final _Brand brand;
+  final String headerLeft;
+  final String headerRight;
+  final int pageNum;
+  final int totalPages;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _RunningHeader(left: headerLeft, right: headerRight, brand: brand),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Text(
+                    'ANNEXURE $letter',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: brand.primary,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                for (final d in documents)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.description_outlined,
+                            size: 13, color: brand.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            d['title'] as String? ?? 'Untitled',
+                            style: const TextStyle(fontSize: 10.5),
+                          ),
+                        ),
+                        Text(
+                          _fmtDocDate(d['doc_date'] as String?),
+                          style: const TextStyle(
+                              fontSize: 9.5, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        _PageFooter(brand: brand, pageNum: pageNum, totalPages: totalPages),
+      ],
+    );
+  }
+}
+
+String _fmtDocDate(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+}
+
+// ── AI Generation Record (Annexure I) page content ─────────────────────────
+
+class _AiGenerationRecordContent extends StatelessWidget {
+  const _AiGenerationRecordContent({
+    required this.log,
+    required this.brand,
+    required this.headerLeft,
+    required this.headerRight,
+    required this.pageNum,
+    required this.totalPages,
+  });
+
+  final List<AiGenerationLogModel> log;
+  final _Brand brand;
+  final String headerLeft;
+  final String headerRight;
+  final int pageNum;
+  final int totalPages;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _RunningHeader(left: headerLeft, right: headerRight, brand: brand),
+        Expanded(
+          child: SingleChildScrollView(
+            physics: const NeverScrollableScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Text(
+                      'ANNEXURE I — AI GENERATION RECORD',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: brand.primary,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Table(
+                    border: TableBorder.all(color: Colors.grey.shade300, width: 0.6),
+                    children: [
+                      TableRow(children: [
+                        for (final h in ['#', 'Type', 'Section', 'Model', 'Reviewed'])
+                          Padding(
+                            padding: const EdgeInsets.all(5),
+                            child: Text(h,
+                                style: const TextStyle(
+                                    fontSize: 9, fontWeight: FontWeight.w700)),
+                          ),
+                      ]),
+                      for (final e in log.asMap().entries)
+                        TableRow(children: [
+                          _aiCell('${e.key + 1}'),
+                          _aiCell(e.value.callType.replaceAll('_', ' ')),
+                          _aiCell(e.value.sectionLabel?.replaceAll('_', ' ') ?? '—'),
+                          _aiCell(e.value.model),
+                          _aiCell(e.value.humanReviewed
+                              ? (e.value.humanEdited ? 'Amended' : 'Accepted')
+                              : 'Pending'),
+                        ]),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        _PageFooter(brand: brand, pageNum: pageNum, totalPages: totalPages),
+      ],
+    );
+  }
+
+  Widget _aiCell(String text) => Padding(
+        padding: const EdgeInsets.all(5),
+        child: Text(text, style: const TextStyle(fontSize: 9)),
+      );
 }
 
 // ── Running header ────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import '../providers/report_provider.dart';
 import '../widgets/report_preview.dart';
 import '../widgets/section_editor.dart';
 import '../widgets/new_output_sheet.dart';
+import '../widgets/advice_summary_card.dart';
 import 'dart:io';
 
 import '../widgets/export_button.dart';
@@ -170,7 +171,14 @@ class _ReportBuilderScreenState
             data: (assembled) {
               if (sections.isEmpty && !_buildingDraft) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _buildDraft(assembled, activeOutput.outputId);
+                  // aiDraft: true — Background / Causation / General
+                  // Services auto-draft from available data and context
+                  // cues on first build of a report, rather than requiring
+                  // a manual "Draft with AI" click per section. Safe to
+                  // call on every mount: buildSections() only actually
+                  // invokes the AI when no persisted section content
+                  // exists yet for that type (see report_provider.dart).
+                  _buildDraft(assembled, activeOutput.outputId, aiDraft: true);
                 });
               }
               return TabBarView(
@@ -183,6 +191,8 @@ class _ReportBuilderScreenState
                     outputId: activeOutput.outputId,
                     isLocked: activeOutput.isLocked,
                     buildingDraft: _buildingDraft,
+                    output: activeOutput,
+                    assembled: assembled,
                   ),
                   // ── Preview tab ─────────────────────────────────
                   ReportPreview(
@@ -373,6 +383,8 @@ class _EditorTab extends ConsumerWidget {
     required this.outputId,
     required this.isLocked,
     required this.buildingDraft,
+    required this.output,
+    required this.assembled,
   });
 
   final Map<SectionType, ReportSection> sections;
@@ -380,10 +392,13 @@ class _EditorTab extends ConsumerWidget {
   final String outputId;
   final bool isLocked;
   final bool buildingDraft;
+  final ReportOutput output;
+  final AssembledReportData assembled;
 
   static const _aiDraftableTypes = {
     SectionType.background,
     SectionType.causation,
+    SectionType.generalServices,
   };
 
   @override
@@ -400,66 +415,87 @@ class _EditorTab extends ConsumerWidget {
       );
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: _CoverPhotoPicker(caseId: caseId),
-        ),
-        const Divider(height: 1, color: AppColors.border),
-        // Sections list — ordered per spec §4.1 (Oceanoservices format)
-        Expanded(
-          child: sections.isEmpty
-              ? const Center(
-                  child: Text('Building sections...',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary)))
-              : Builder(builder: (context) {
-                  final orderedKeys = oceanoSectionOrder
-                      .where(sections.containsKey)
-                      .toList();
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: orderedKeys.length,
-                    itemBuilder: (_, i) {
-                      final key     = orderedKeys[i];
-                      final section = sections[key]!;
-                      final notifier = ref.read(sectionDraftProvider(
-                              (caseId: caseId, outputId: outputId))
-                          .notifier);
-                      final canAiDraft = !isLocked &&
-                          !section.isLocked &&
-                          section.content.isEmpty &&
-                          _aiDraftableTypes.contains(key);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: SectionEditor(
-                          section: section,
-                          isLocked: isLocked,
-                          sectionNumber: oceanoSectionNumber(key),
-                          onContentChanged: (content) =>
-                              notifier.updateContent(key, content),
-                          onSurveyorReviewChanged: (review) =>
-                              notifier.setSurveyorReview(key, review),
-                          onDraftWithAi: canAiDraft
-                              ? () {
-                                  final assembled = ref
-                                      .read(assembledDataProvider(caseId))
-                                      .valueOrNull;
-                                  if (assembled != null) {
-                                    notifier.draftSectionWithAi(
-                                        key, assembled);
-                                  }
-                                }
-                              : null,
-                        ),
-                      );
-                    },
-                  );
-                }),
-        ),
-      ],
+    if (sections.isEmpty) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: _CoverPhotoPicker(caseId: caseId),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text('Building sections...',
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Single scrollable list — the cover photo picker and Advice Summary
+    // card are header items (index 0/1) rather than fixed siblings of the
+    // section list, so a tall/expanded Advice Summary card can never starve
+    // the section list of height (that was a real overflow-and-disappear
+    // bug found on-device: a RenderFlex overflow here hid the entire
+    // section-by-section editor below it).
+    final orderedKeys = oceanoSectionOrder.where(sections.containsKey).toList();
+    final notifier = ref.read(
+        sectionDraftProvider((caseId: caseId, outputId: outputId)).notifier);
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: orderedKeys.length + 2,
+      itemBuilder: (_, i) {
+        if (i == 0) return _CoverPhotoPicker(caseId: caseId);
+        if (i == 1) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 10),
+            child: Column(
+              children: [
+                AdviceSummaryCard(
+                  output: output,
+                  assembled: assembled,
+                  isLocked: isLocked,
+                ),
+                const SizedBox(height: 4),
+                const Divider(height: 1, color: AppColors.border),
+              ],
+            ),
+          );
+        }
+
+        final key     = orderedKeys[i - 2];
+        final section = sections[key]!;
+        final hasGeneralServiceCues = assembled.surveyorNotes
+            .any((n) => n['report_section'] == 'general_expenses');
+        final canAiDraft = !isLocked &&
+            !section.isLocked &&
+            section.content.isEmpty &&
+            _aiDraftableTypes.contains(key) &&
+            (key != SectionType.generalServices || hasGeneralServiceCues);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: SectionEditor(
+            section: section,
+            isLocked: isLocked,
+            sectionNumber: oceanoSectionNumber(key),
+            onContentChanged: (content) =>
+                notifier.updateContent(key, content),
+            onSurveyorReviewChanged: (review) =>
+                notifier.setSurveyorReview(key, review),
+            onDraftWithAi: canAiDraft
+                ? () {
+                    final assembled = ref
+                        .read(assembledDataProvider(caseId))
+                        .valueOrNull;
+                    if (assembled != null) {
+                      notifier.draftSectionWithAi(key, assembled);
+                    }
+                  }
+                : null,
+          ),
+        );
+      },
     );
   }
 }

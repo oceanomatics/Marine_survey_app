@@ -12,6 +12,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../providers/report_provider.dart';
 import '../utils/section_text.dart';
+import '../utils/advice_summary_rows.dart';
+import '../utils/annexure_groups.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/docx/docx_builder.dart';
 import '../../survey/models/repair_period_model.dart';
@@ -289,6 +291,20 @@ class DocxExportService {
       doc.addParagraph(aiDisclosure,
           italic: true, halfPtSize: 18, colorHex: '374151');
       doc.addSpacer();
+    }
+
+    // Advice Summary — structured table (spec: "Section: Executive Summary
+    // (Advice Summary Table)" in docs/report_builder_editor_notes.md).
+    // Row-building logic is shared with the Preview tab — see
+    // advice_summary_rows.dart (avoids the renderer-drift class of bug
+    // described in gap #5 of docs/report_builder_editor_notes.md).
+    {
+      final adviceRows = buildAdviceSummaryRows(output, assembled);
+      if (adviceRows.isNotEmpty) {
+        doc.addHeading('ADVICE SUMMARY', 2);
+        doc.addTable(adviceRows, colWidths: [3000, 6355]);
+        doc.addSpacer();
+      }
     }
 
     // Executive Summary (page 2 — editable)
@@ -956,29 +972,17 @@ class DocxExportService {
     }
 
     // ── Annexures A–H (documents grouped by annexure_assignment) ─────
-    final annexured = assembled.caseDocuments.where((d) {
-      final a = d['annexure_assignment'] as String?;
-      return a != null && a.isNotEmpty;
-    }).toList();
-    if (annexured.isNotEmpty) {
-      final grouped = <String, List<Map<String, dynamic>>>{};
-      for (final d in annexured) {
-        final letter = (d['annexure_assignment'] as String).toUpperCase().trim();
-        grouped.putIfAbsent(letter, () => []).add(d);
+    for (final group in buildAnnexureGroups(assembled.caseDocuments)) {
+      doc.addPageBreak();
+      doc.addHeading('ANNEXURE ${group.key}', 1);
+      for (final d in group.value) {
+        final title = d['title'] as String? ?? 'Untitled';
+        final date  = _formatDate(d['doc_date'] as String? ?? '');
+        doc.addParagraph(date.isNotEmpty ? '$title  —  $date' : title);
       }
-      for (final letter in (grouped.keys.toList()..sort())) {
-        if (letter == 'I') continue; // Reserved for AI generation record
-        doc.addPageBreak();
-        doc.addHeading('ANNEXURE $letter', 1);
-        for (final d in grouped[letter]!) {
-          final title = d['title'] as String? ?? 'Untitled';
-          final date  = _formatDate(d['doc_date'] as String? ?? '');
-          doc.addParagraph(date.isNotEmpty ? '$title  —  $date' : title);
-        }
-        doc.addSpacer();
-        doc.addParagraph('[See attached document(s)]',
-            italic: true, colorHex: '9CA3AF', halfPtSize: 18);
-      }
+      doc.addSpacer();
+      doc.addParagraph('[See attached document(s)]',
+          italic: true, colorHex: '9CA3AF', halfPtSize: 18);
     }
 
     // ── Annexure I — AI Generation Record ────────────────────────────

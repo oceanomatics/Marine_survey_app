@@ -499,6 +499,46 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
     return _extractText(response.data);
   }
 
+  // ── General Services & Access draft (spec §8.4) ───────────────────────────
+
+  /// Drafts the "General Services and Access" subsection from tagged
+  /// context cues (surveyor_notes with report_section = 'general_expenses') —
+  /// e.g. drydocking, staging, gas freeing, crane hire. Per spec output
+  /// rule: states what services were provided, by whom, and when — never
+  /// includes costs (those belong in the cost section).
+  static Future<String> draftGeneralServices({
+    required String vesselName,
+    required List<String> contextCues,
+    String? reportFormat,
+  }) async {
+    final cuesText = contextCues.map((c) => '• $c').join('\n');
+
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'general_services_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "General Services and Access" subsection of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This covers work required to access damage for inspection or repair but which is not itself a repair — e.g. drydocking, slipping, hardstanding, gas freeing, hot work certification, staging, crane hire, diving for access, tug assistance for repositioning.
+
+Write one short prose paragraph stating what services were provided, by whom, and when, based only on the surveyor's notes below. Do NOT mention or estimate any costs — those are covered elsewhere in the report. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
   // ── Generalized Document Extraction ──────────────────────────────────────
 
   /// Extract hard structured data + soft context findings from any marine doc.

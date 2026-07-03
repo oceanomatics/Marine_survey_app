@@ -389,3 +389,17 @@ ALTER TABLE report_outputs
 
 ### All spec requirements now met — ready for test session
 No remaining implementation gaps. Begin heavy testing on document generation.
+
+---
+
+### ⚠️ 3 July 2026 addendum — "15/15" claim above is inaccurate, do not trust without verification
+
+A documentation-accuracy pass against the actual codebase (grep + direct file reads, not doc claims) found this scorecard is **wrong on at least two items**, and `docs/TODO.md` had a mirror-image set of errors in the opposite direction (several genuinely-done items marked missing). Specifics:
+
+- **Item #5 "Advice Summary auto-populated + editable" — claimed ✅ Done via `SectionType.adviceSummary`.** This is false: a repo-wide grep for `adviceSummary`/`AdviceSummary` returns **zero matches**. No such enum value, model, or screen exists anywhere in `lib/`. What actually exists is `SectionType.executiveSummary` (`report_provider.dart`), a much simpler auto-populated template (vessel/casualty/date/claim ref + one free-text placeholder paragraph) — not the 12-field `AdviceSummaryModel` (policy_ucr, assured, instructing_party, damage_description_summary, probable_cause, repair_status, cost_claim, cost_owners, cost_adjustment, loh_implication, outstanding_actions, remarks) described in `TODO.md` §2.6. **Still fully missing.**
+- **Item #14 "Cover page: vessel band, status badge, vessel photo, info box" — claimed ✅ Done.** Mostly true (band/badge/photo/info-table all confirmed in `docx_export_service.dart:190-259`), but the claim silently drops "logo" from its own title — the firm logo is genuinely **not** placed on the cover page itself, only in the body running header. Partial, not full, credit.
+- Also worth flagging: `policy_ucr` (Lloyd's UCR, flagged as a genuinely-new field needed in decision B4 above) was **never actually implemented** — no model field, no DB column, no UI, no report rendering. `TODO.md` §2.10 previously and wrongly claimed this field existed on `CaseModel`; corrected there.
+
+Conversely, several items this file and the old `TODO.md` marked as gaps turned out to already be implemented and have now been corrected in `TODO.md`: sign-off UI (drawn signature + PNG upload), AI disclosure paragraph + Annexure I snapshot, cover-page `w:titlePg`/running-header split, logo in running header, export gate on AI section review, Section 17 (Documents Requested), Annexure A–H sorting (fixed-letter model), and the Document Control / Version Control Block table.
+
+**Net effect:** neither the "15/15" here nor the superseded "9/15" in `TODO.md` was reliable. Treat both as stale until the next explicit re-audit. `docs/TODO.md` (re-audited 3 July 2026) is the more current source — cross-check against actual code before relying on either document's checkmarks.

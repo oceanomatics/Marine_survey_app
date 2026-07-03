@@ -86,6 +86,9 @@ class AttendancesScreen extends ConsumerWidget {
             ref.read(attendeesProvider(caseId).notifier).addAttendee(a),
         onDelete: (id) =>
             ref.read(attendeesProvider(caseId).notifier).deleteAttendee(id),
+        onReorder: (orderedIds) => ref
+            .read(attendeesProvider(caseId).notifier)
+            .reorderAttendees(orderedIds),
       ),
     );
   }

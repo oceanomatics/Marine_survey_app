@@ -1,6 +1,7 @@
 # Marine Survey App — Master To-Do List
 
-**Last updated:** 1 July 2026 — added attendance reorder, EXIF photo assignment, section sub-paragraphs  
+**Last updated:** 3 July 2026 — documentation-accuracy re-audit against actual code (see note below)  
+**Note (3 July 2026):** The "1 July 2026 — added attendance reorder, EXIF photo assignment, section sub-paragraphs" line above was aspirational and never followed through — verified against code: attendance reorder and section sub-paragraphs are still NOT implemented (§3.1, §2.12); only EXIF *capture* (not attendance auto-assignment) exists (§3.2). Several other items in this file were also found stale in both directions (marked done when missing, and vice versa) and have been corrected below with file pointers.  
 **Spec reference:** `docs/report_builder_specs`  
 **Schema reference:** `docs/SCHEMA.md`  
 **Test sheet:** `TEST_SHEET.md` (110 items, all untested)
@@ -25,9 +26,9 @@ Nothing here is optional. A report that misses these items is not professionally
 ### 1.1 Dual Sign-Off Gate
 - [✓] `signed_off_attending`, `signed_off_reviewing`, `signed_off_at`, `dualSignOffComplete` on `CaseModel` — **DONE**
 - [✓] Export button (`export_button.dart`) hard-blocks Final export unless both flags true — **DONE**
-- [ ] Build Sign-Off UI screen: drawn signature (touch) / PNG upload (desktop); captured at sign-off time only — **MISSING**
-- [ ] Notification to reviewing surveyor when attending surveyor submits for QC — **MISSING**
-- [ ] Surveyor declaration text embedded in sign-off block — **MISSING**
+- [✓] Sign-Off UI screen: drawn signature (touch, `CustomPaint`) / PNG upload (desktop) — **DONE** (`lib/features/reports/widgets/sign_off_sheet.dart` — `_SignaturePad`/`_SignaturePainter` for drawing, `_uploadPng()` for PNG upload, uploaded to `exports` storage bucket)
+- [ ] Notification to reviewing surveyor when attending surveyor submits for QC — **MISSING** (confirmed: no email/notification/push code anywhere in `lib/features/reports/`, `lib/core/services/`, or `supabase/functions/` — only `supabase/functions/case-analyst` exists, unrelated)
+- [✓] Surveyor declaration text embedded in sign-off block — **DONE** (`sign_off_sheet.dart:441` — "By signing, I confirm that the professional opinions and…")
 
 **Spec:** §2.1, §4.10, §5.4
 
@@ -45,7 +46,7 @@ Nothing here is optional. A report that misses these items is not professionally
 - [✓] `AiLogService` writes to `ai_generation_log` Supabase table — **DONE** (`lib/core/services/ai_log_service.dart`)
 - [✓] `ClaudeApi` wired to `AiLogService` on every call — **DONE**
 - [✓] Per-section review UI in `section_editor.dart`: `SurveyorReview` (reviewedAccepted / reviewedAmended / surveyorAuthored) — **DONE**
-- [ ] Gate export on: all AI-generated sections having a `surveyor_review` value set — **MISSING**
+- [✓] Gate export on: all AI-generated sections having a `surveyor_review` value set — **DONE** (`lib/features/reports/widgets/export_button.dart:48-53` — `aiReviewBlocked`/`aiUnreviewedCount` hard-disables the export button, label changes to "AI review required (N)")
 
 **Spec:** §3.3, §8.1
 
@@ -72,16 +73,17 @@ Nothing here is optional. A report that misses these items is not professionally
 - [✓] Vessel Particulars table on cover — **DONE**
 - [✓] Machinery & Equipment table on cover (conditional) — **DONE**
 - [✓] Certificates & Class Conditions tables on cover — **DONE**
-- [ ] Distinct visual cover page design: vessel name in large coloured title band, status badge, vessel cover photo, 2-column info box, firm logo — **MISSING**
-- [ ] Running header on body pages (2+): logo + right-aligned title text + rule — **MISSING**
-- [ ] No running header on page 1 (cover) — **MISSING**
+- [✓] Distinct visual cover page design: vessel name in large coloured title band, status badge, vessel cover photo, 2-column info box — **DONE** (`lib/features/reports/services/docx_export_service.dart:197-259` — `doc.addShadedBlock()` for the vessel-name band and the status-colour badge (green/blue/amber by output type), `coverPhotoBytes` image, `doc.addTable(infoRows, ...)` 2-column info box). **Caveat:** firm logo is NOT placed on the cover page itself — only the firm name as text (line 190-194); the logo image is only embedded in the body running header (see §2.8)
+- [✓] Running header on body pages (2+): logo + right-aligned title text + rule — **DONE** (`lib/core/docx/docx_builder.dart:94-112` `setBodyHeader()`; `lib/core/docx/ooxml_helpers.dart:355-419` `_bodyHeaderXml()` — inline `w:drawing` logo, `w:tab w:val="right"` tab stop for title, `w:pBdr` bottom rule in primary colour)
+- [✓] No running header on page 1 (cover) — **DONE** (`lib/core/docx/ooxml_helpers.dart:450-454` — `w:titlePg` + separate empty `header1.xml` for the first page vs. `header2.xml` for body pages)
 
 **Spec:** §1.2.1, §1.2.2, §4.2
 
 ### 1.7 Export Validation Gate
-- [✓] Hard-blocks Final export if dual sign-off incomplete — **DONE**
-- [ ] Full validation checklist before export (empty mandatory sections, allegation vs. opinion check, cost total, all AI sections reviewed, Advice Summary confirmed) — **MISSING**
-- [ ] User-friendly error summary sheet — **MISSING**
+- [✓] Hard-blocks Final export if dual sign-off incomplete — **DONE** (`export_button.dart:43-53` `signOffBlocked`)
+- [✓] Hard-blocks export if any AI-drafted section lacks surveyor review — **DONE** (see §1.3 above, same file)
+- [✓] Full validation checklist before export — **DONE 3 July 2026** (`lib/features/reports/utils/export_validation.dart` `buildExportWarnings()`): checks sections approved, Advice Summary confirmed (§2.6), Vessel's Particulars / Occurrence / Waiver sections non-empty, Damage Description non-empty when damage items exist, and Cause Consideration non-empty when an allegation has been recorded. Deliberately conservative (only checks that should never legitimately false-positive across report types) — cost-total and full mandatory-section-per-report-type modelling deferred as lower value / higher false-positive risk.
+- [✓] User-friendly error summary sheet — **DONE** (`export_validation_sheet.dart` `showExportValidationSheet()`) — replaces the old two sequential ad hoc `AlertDialog`s with one consolidated checklist dialog listing every warning, "Cancel" / "Export anyway".
 
 **Spec:** §5.4
 
@@ -95,9 +97,9 @@ Nothing here is optional. A report that misses these items is not professionally
 - [✓] Organisation list screen + detail screen (3-tab: Identity / Legal Text / Surveyor Profiles) — **DONE** (`lib/features/settings/screens/`)
 - [✓] Docx export reads all branding from org config — zero hardcoded values — **DONE**
 - [✓] `org_id` on `CaseModel`, resolved at report build time — **DONE**
-- [ ] Logo file upload to Supabase Storage in org detail screen — **MISSING**
-- [ ] Colour picker UI (currently text hex fields only) — **MISSING**
-- [ ] Logo embedded in running header of body pages — **MISSING**
+- [ ] Logo file upload to Supabase Storage in org detail screen — **MISSING** (confirmed: `organisation_detail_screen.dart:254-255` only shows instructional text — "Place your logo file at org-assets/&lt;org-id&gt;/logo.png in Supabase Storage for now" — no actual file picker/upload widget)
+- [ ] Colour picker UI (currently text hex fields only) — **MISSING** (confirmed: `_ColourField` in `organisation_detail_screen.dart` is a plain hex `TextField`, no swatch/picker widget)
+- [✓] Logo embedded in running header of body pages — **DONE** (see §1.6/§2.8 — logo fetched from `organisation.logo_path` in `docx_export_service.dart:44-51` and rendered via `DocxBuilder.setBodyHeader()`)
 
 **Spec:** §1.1, §1.2, §9.4
 
@@ -119,6 +121,7 @@ Nothing here is optional. A report that misses these items is not professionally
 **Spec:** §4.3
 
 ### 2.4 Photo Register + Annexure E
+**Re-verified 3 July 2026: confirmed still fully missing.** `PhotoModel` (`lib/features/photos/models/photo_model.dart`) only has `caption` and `allocation` — no location/direction/significance fields; no "photo register" or "Annexure E" reference anywhere in the codebase.
 - [ ] Add photo metadata fields: location/component, direction/context, significance-to-claim
 - [ ] Build photo register table (Photo No. | Location | Direction | Date | Significance) as Annexure E opener
 - [ ] Thumbnails at ~120px wide in register; full-size captioned photos follow
@@ -129,17 +132,20 @@ Nothing here is optional. A report that misses these items is not professionally
 ### 2.5 Report Version Numbering (R001, R002…)
 - [✓] `sequenceNo` int on `ReportOutput`; `versionString` computed as `R001` format — **DONE**
 - [✓] Auto-increment picker in `new_output_sheet.dart` — **DONE**
-- [ ] Final Report "this report supersedes all prior…" statement — **MISSING**
-- [ ] Progress/Supplementary "this report supplements Report [R00N]…" statement — **MISSING**
-- [ ] Version Control Block showing document management history (version, date, type, attending surveyor, "changes from previous" field) — **MISSING**
+- [ ] Final Report "this report supersedes all prior…" narrative statement — **MISSING** (only a `Supersedes` column value in the table below, no prose statement)
+- [ ] Progress/Supplementary "this report supplements Report [R00N]…" narrative statement — **MISSING** (same as above)
+- [✓] Version Control Block showing document management history (version, date, type, "changes from previous" field) — **DONE** (`docx_export_service.dart:305-336` — "DOCUMENT CONTROL" table with Version/Date/Type/Supersedes/Changes columns, from `report_outputs.supersedes_version`/`changes_summary`); **note:** "attending surveyor" column is not included, only version/date/type/supersedes/changes
 
 **Spec:** §4.9, §7
 
 ### 2.6 Advice Summary Editor Screen
-- [ ] `AdviceSummaryModel` (policy_ucr, assured, instructing_party, date_nature, damage_description_summary, probable_cause, repair_status, cost_claim, cost_owners, cost_adjustment, loh_implication, outstanding_actions, remarks) — **MISSING**
-- [ ] Auto-populate from case data; AI draft for narrative fields — **MISSING**
-- [ ] `AdviceSummaryScreen` tab inside Report Builder — **MISSING**
-- [ ] Gate export on Advice Summary confirmed — **MISSING**
+**Built 3 July 2026** (same session as the re-verification above that confirmed it was missing).
+- [✓] Structured fields on `report_outputs` (per-report, not per-case — status/cost legitimately change across successive reports): nature_of_casualty, description_of_damage, nature_of_repairs, status_of_repairs(+detail), cost_amount/currency/inclusions, fee_reserve hours+expenses, follow_up_required(+detail), remarks, confirmed — **DONE** (`docs/migrations/014_advice_summary.sql`, `ReportOutput` fields in `report_provider.dart`)
+- [✓] Auto-populate read-only fields from case/vessel/occurrence data (vessel, IMO/flag, report type/no., tech file no.); allegation status reused from the existing Cause Consideration `allegation_type` rather than re-entered — **DONE** (`advice_summary_card.dart`). Also: "UCR / Reference" deliberately has **no** separate `advice_*` column — an `advice_ucr_reference` field was added then dropped in this same session on realising `cases.claim_reference` (already editable in Edit Case Details, e.g. "GARD-2025-0123456") is the same concept; the Advice Summary just displays it read-only. This also resolves TODO.md's old open question about a `policyUcr` field — it doesn't need to exist separately (see §2.10 below).
+- [✓] Editor UI — **DONE**, but as a card in the existing Report Builder Editor tab (`AdviceSummaryCard` in `advice_summary_card.dart`, wired into `report_builder_screen.dart` above the section list) rather than a separate tab — simpler integration, same "Page 2" concern per decision D1.
+- [✓] Rendered as a formal 2-column table in both the docx export and the Preview tab, sharing row-building logic via `advice_summary_rows.dart` (avoids the renderer-drift class of bug in gap #5) — **DONE** (`docx_export_service.dart`, `report_preview.dart`)
+- [ ] AI draft for narrative fields (description of damage / nature of repairs) — **MISSING**, deliberately deferred; fields are plain surveyor-entered text for now.
+- [✓] Gate export on Advice Summary confirmed — **DONE**, as a soft (dismissible) warning dialog matching the existing "not all sections approved" pattern, not a hard block — `export_button.dart`.
 
 **Spec:** §2.17, §4.1
 
@@ -154,15 +160,16 @@ Current state: all major sections coded. Re-audit against spec:
 - [✓] Section 16: Documents Retained on File — **DONE** (assembled as formal table in docx)
 - [✓] Section 19: Waiver / Limitation of Liability — **DONE** (`SectionType.waiver`, from org `waiverText`)
 - [✓] Chronology — **DONE** (formal table, assembled from `timeline_events`)
-- [ ] Section 17: Documents Requested — new model + section needed — **MISSING**
-- [ ] Section 18: Principal Dates (milestone timeline events) — **MISSING**
-- [ ] Annexures A–H: Cost Assessment, Invoices, Certificates, Incident Report, Third-party Reports, Correspondence, Prior Reports — **MISSING** (docs listed but not sorted/formatted as annexures)
+- [✓] Section 17: Documents Requested — **DONE** (`SectionType.documentsRequested` exists in `report_provider.dart:69`, editable text section built at `report_provider.dart:1019-1024`, rendered in `docx_export_service.dart:918` as "DOCUMENTS REQUESTED")
+- [ ] Section 18: Principal Dates (milestone timeline events) — **MISSING, and deliberately so** — `report_provider.dart:70-71` has a code comment: "§18 Principal Dates — not implemented; the Chronology auto-table (built from `timeline_events`, see §7) covers this in practice." Not an oversight; a conscious design call. Revisit only if a dedicated milestone view is actually needed.
+- [✓] Annexures A–H sorted/formatted at export — **DONE, but only the fixed-letter model, not the dynamic one** — `docx_export_service.dart:958-982` groups `assembled.caseDocuments` by the manually-set `annexure_assignment` letter (A–I, I reserved for AI record), sorts alphabetically, and renders each as its own "ANNEXURE X" page-break section. **Nuance confirmed against `docs/report_builder_editor_notes.md`:** this is the simple fixed-letter allocation (surveyor manually tags each document A–I in the Document Vault), NOT the fully dynamic category-driven allocation + auto-generated cross-reference hyperlinks described in that notes file (§"Annexure allocation" / "Cross-references", still aspirational, not built) — do not treat the two as the same feature.
 
 **Spec:** §4.1 (full section order)
 
 ### 2.8 Logo in Running Header
-- [ ] Embed firm logo as inline image in body-page header paragraph (NOT table cell) — **MISSING**
-- [ ] Right-aligned tab stop for title text: `[Vessel Name] — [Report Type] — [Claim Reference]` — **MISSING**
+**Duplicates §1.6 / §2.1 — reconciled 3 July 2026: both items are DONE, not missing.**
+- [✓] Embed firm logo as inline image in body-page header paragraph (NOT table cell) — **DONE** (`ooxml_helpers.dart:373-401` — `w:drawing`/`wp:inline` inside the header `<w:p>`, not a table cell)
+- [✓] Right-aligned tab stop for title text: `[Vessel Name] — [Report Type] — [Claim Reference]` — **DONE, close variant** — `docx_export_service.dart:157-175` builds `headerRight` as `[jobNo] — [vesselName] — [reportTypeLabel]` (technical file no. instead of claim reference, since claim ref is already elsewhere on the cover), joined with the em-dash and right-tabbed via `ooxml_helpers.dart:412-418` (`w:tab w:val="right"`)
 
 **Spec:** §1.2.2, §1.2.5
 
@@ -172,18 +179,22 @@ Current state: all major sections coded. Re-audit against spec:
 **Spec:** §6.4
 
 ### 2.10 Case Header — Fields
-- [✓] `policyUcr`, `instructingParty`, `instructingPartyRole`, `assured`, `baseCurrency`, `organisationId` on `CaseModel` — **DONE**
-- [ ] UI to edit `policyUcr` in new case / case editor screen — **CHECK** (may already be there)
+- [✓] `instructingParty`, `instructingPartyRole`, `assured`, `baseCurrency`, `organisationId` on `CaseModel` — **DONE** (`lib/features/cases/models/case_model.dart`)
+- [✓] `policyUcr` — **RECONCILED 3 July 2026, while building the Advice Summary (§2.6):** no separate field needed. `cases.claim_reference` (editable in Edit Case Details as "Claim Reference", e.g. "GARD-2025-0123456") already covers this exact concept — it's a single case-level UCR/claim-reference field, and building `AdviceSummaryCard` confirmed it's already surfaced in report output (now shown read-only in the Advice Summary table, see §2.6). Not building a second, differently-named field for the same data — **DONE** (`cases.claim_reference`, `edit_case_screen.dart`, rendered via `advice_summary_rows.dart`)
 
 **Spec:** §2.1
 
 ### 2.11 Vessel Model — Statutory Fields
-- [ ] Add `official_number`, `class_status`, `construction_standard`, `registered_owner`, `last_drydock_date`, `last_drydock_yard`, `ism_incident_reported`, `class_incident_reported`, `psc_last_inspection`, `psc_last_result`, `pi_club`, `isps_status` to `vessels` table + `VesselModel` + Vessel Particulars screen — **MISSING**
+- [✓] All 12 fields (`official_number`, `class_status`, `construction_standard`, `registered_owner`, `last_drydock_date`, `last_drydock_yard`, `ism_incident_reported`, `class_incident_reported`, `psc_last_inspection`, `psc_last_result`, `pi_club`, `isps_status`) exist on `VesselModel` (`lib/features/cases/models/case_model.dart:459-582`, note: `VesselModel` lives in `case_model.dart`, not a separate file) and are rendered on the report cover/body (`docx_export_service.dart:387-390`) — **DONE for the data model.** UI coverage confirmed per-field:
+  - `official_number`, `construction_standard`, `pi_club`, `ism_incident_reported`, `class_incident_reported`, `psc_last_inspection`, `psc_last_result`, `isps_status` — editable in `lib/features/vessel/screens/vessel_particulars_screen.dart` (**DONE**, 8/12 fields)
+  - `class_status`, `last_drydock_date`, `last_drydock_yard` — editable in a separate screen, `lib/features/vessel/screens/vessel_compliance_screen.dart` (**DONE**, 3/12 fields)
+  - `registered_owner` — **no editor UI anywhere** (grepped the whole repo — only appears in `case_model.dart`'s constructor/fromJson/toJson) — **MISSING** (1/12 fields, UI gap only)
 - [✓] Document-level cert fields (`survey_cert_no`, `equipment_due`, etc.) remain in `certificates` table — **DONE** (per decision B3)
 
 **Spec:** §2.2
 
 ### 2.12 Section Sub-Paragraphs (Oceanoservices format only)
+**Re-verified 3 July 2026: confirmed still fully missing** — no sub-paragraph/child-section model, numbering scheme, editor UI, or TOC-indent logic found anywhere in `lib/features/reports/`. The "1 July 2026" header note claiming this was added is inaccurate (see top-of-file note).
 - [ ] Data model: allow narrative sections to have child paragraphs, each with its own title and content
 - [ ] Numbering: parent section gets `N.` prefix; children get `N.1`, `N.2`, … — e.g. §3 Opening → §3.1 Background, §3.2 Notifications
 - [ ] Editor UI: add / remove / reorder sub-paragraphs within a section card
@@ -198,10 +209,8 @@ Current state: all major sections coded. Re-audit against spec:
 **Spec:** see `docs/legal_clauses.md` Part D (D-1)
 
 ### 2.14 REPAIR TIMES section likely always blank in real reports
-- [ ] Discovered 2026-07-03 while building Phase 2 UI: the "REPAIR TIMES" table in `docx_export_service.dart` (and Clause I-1's guidance text) reads from `assembled.repairRecords`, sourced from the `repair_records` table — which has **zero rows and no Dart model or screen writing to it at all**. It's dead/legacy.
-- [ ] The actively-used table for this concept is `repair_periods` (`RepairPeriodModel`, has a real screen: `repair_periods_screen.dart`), which stores drydock/alongside days in a `repair_times` jsonb column (`RepairTimeEntry`), keyed by occurrence/owner — a different shape from `repair_records`' flat `drydock_days`/`afloat_days`/`owner_days` columns.
-- [ ] Fix: rewrite the REPAIR TIMES table + Clause I-1 rendering to aggregate `repair_periods.repair_times` instead of `repair_records`. Not fixed yet — flagged only, out of scope for the Phase 2 clause UI work (see `docs/legal_clauses.md`).
-- [ ] Note: F-2/F-5 (services provided / hot work) were correctly placed on `repair_periods` during this same session, once this table confusion was caught — see `docs/legal_clauses.md` 2026-07-03 entry.
+- [✓] Discovered 2026-07-03 while building Phase 2 UI: the "REPAIR TIMES" table in `docx_export_service.dart` (and Clause I-1's guidance text) read from `assembled.repairRecords`, sourced from the `repair_records` table — which had **zero rows and no Dart model or screen writing to it at all**. Dead/legacy. — **FIXED** (landed in the same session, commit `481b196`): the table now reads `repairPeriodModels` and aggregates via `RepairPeriodModel.drydockDaysTotal`/`alongsideDaysTotal`/`ownerDaysTotal` (`repair_period_model.dart:212-228`), which sum the `repair_times` jsonb column keyed by occurrence/owner. `repairRecords` field and query removed entirely — confirmed no remaining references in any `.dart`/`.sql` file. See also gap #3 in `docs/report_builder_editor_notes.md` (already marked done there).
+- [✓] Note: F-2/F-5 (services provided / hot work) were correctly placed on `repair_periods` during this same session, once this table confusion was caught — see `docs/legal_clauses.md` 2026-07-03 entry.
 
 ### 2.15 Documentation section: only 2 meaningful availability states, not 3
 - [ ] The new case-home "Documentation" card (K-2, added 2026-07-03) wants three categories — enclosed in report / retained on file / requested — but `DocAvailability` only has `enclosed`/`requested`/`not_available`/`tbc`, i.e. no distinction between "enclosed in the exported report" and "retained on file but not enclosed". Currently both concepts collapse into `enclosed`, labelled "On File" in the summary card.
@@ -212,17 +221,19 @@ Current state: all major sections coded. Re-audit against spec:
 ## PHASE 1 — Case Management Enhancements
 
 ### 3.1 Attendance Editor — Attendee Ordering
-- [ ] Manual drag-to-reorder attendees within an attendance record
-- [ ] Persist order via `sort_order` int on `attendees` table (add migration)
-- [ ] Attendance list renders attendees sorted by `sort_order`
-- [ ] Default order: insertion order (existing rows get `sort_order` = row index on migration)
+**Built 3 July 2026** (same session as the re-verification above that confirmed it was missing).
+- [✓] Manual drag-to-reorder attendees within an attendance record — **DONE**, `ReorderableListView.builder` + drag handle in `edit_attendees_sheet.dart` (replaces the plain `Column` list)
+- [✓] Persist order via `sort_order` int on `attendees` table — **DONE**, `docs/migrations/015_attendee_sort_order.sql`, applied
+- [✓] Attendance list renders attendees sorted by `sort_order` — **DONE**, `.order('sort_order', nullsFirst: false)` in both `attendees_provider.dart` (editor) and `report_provider.dart`'s `assembledDataProvider` (report/docx) — falls back to the old fixed role-based sort only for legacy rows with no `sort_order` (shouldn't occur post-backfill)
+- [✓] Default order: insertion order — **DONE**, migration backfills existing rows via `row_number() OVER (PARTITION BY case_id, attendance_id ORDER BY created_at)`; new attendees append at the end of their attendance (`AttendeesNotifier.addAttendee`)
 
 ### 3.2 Photo-to-Attendance Assignment (EXIF-based)
-- [ ] Read `DateTimeOriginal` EXIF tag from each imported photo at import time; store as `taken_at` on `photos` table
-- [ ] Auto-assign: after import, match `taken_at` against available attendance date ranges and set `attendance_id` automatically where unambiguous
-- [ ] Conflict handling: if a photo timestamp falls in more than one attendance range (or in none), leave unassigned and flag for manual review
-- [ ] Manual assignment UI: unassigned photos surfaced in a review sheet; surveyor picks the attendance from a list
-- [ ] Bulk auto-assign action: re-run the EXIF matching pass on demand (e.g. after adding a new attendance)
+**Re-verified 3 July 2026: EXIF capture is genuinely done; auto-assignment is genuinely still missing.** The "1 July 2026 added EXIF photo assignment" header note conflates the two — only the capture half happened.
+- [✓] Read `DateTimeOriginal` EXIF tag from each imported photo at import time; store as `taken_at` on `photos` table — **DONE** (`lib/features/photos/providers/photo_provider.dart` — uses the `exif` package (`readExifFromBytes`), reads `EXIF DateTimeOriginal` then falls back to `EXIF DateTimeDigitized`, stored on `PhotoModel.takenAt`)
+- [ ] Auto-assign: after import, match `taken_at` against available attendance date ranges and set `attendance_id` automatically where unambiguous — **MISSING**: `attendanceId` on `PhotoModel` is only ever set by explicit caller context (e.g. the surveyor adding photos from within a specific attendance's gallery view, `photo_gallery_screen.dart`) — no date-range matching logic exists anywhere
+- [ ] Conflict handling: if a photo timestamp falls in more than one attendance range (or in none), leave unassigned and flag for manual review — **MISSING** (no such logic exists, since there's no auto-matching to begin with)
+- [ ] Manual assignment UI: unassigned photos surfaced in a review sheet; surveyor picks the attendance from a list — **MISSING** (no review-sheet-for-unassigned-photos feature found)
+- [ ] Bulk auto-assign action: re-run the EXIF matching pass on demand (e.g. after adding a new attendance) — **MISSING**
 
 ### 3.3 Google Photos Integration — Photos Routed to Visit Date
 - [ ] When photos are added to an attendance/visit, upload them to Google Photos and file them under an album named for that visit date (e.g. `"2026-06-28 — MV Surveyor — Attendance 1"`)
@@ -232,10 +243,10 @@ Current state: all major sections coded. Re-audit against spec:
 - [ ] See also Phase 3 — Google Workspace integration (broader Drive/Gmail/Photos roadmap)
 
 ### 3.4 Documentation Section (Case Page) + Auto-Generated Document Request Email
-- [ ] New case-page "Documentation" section summarising three categories: documents enclosed in the report, documents retained on file, documents requested (not yet received) — backed by `documents.availability` (`enclosed`/`requested`/`not_available`/`tbc`, already exists) plus new `documents.requested_date` (added 2026-07-02) and existing `received_date`
-- [ ] Support free-form ad-hoc "requested" line items with no file attached yet (e.g. requesting something on site during a visit) — `documents` already supports a nullable `file_path`, so no schema change needed there
-- [ ] Works both pre-survey and post-survey, not tied to a specific attendance
-- [ ] Auto-generate an email listing all outstanding requested documents (to Owners/Repairers), from the same data — **not started**
+- [✓] New case-page "Documentation" section/card summarising availability counts — **DONE** (`lib/features/cases/screens/case_home_screen.dart:789-795` `_SectionCard` + `_documentationContent()` at ~line 1701, showing counts for `enclosed` ("On File"), `requested`, `notAvailable` from `DocAvailability`). **Note:** per §2.15 (already correctly logged), this surfaces 2 meaningful states in practice, not the full 3-way "enclosed in report / retained on file / requested" split — that's a known, deliberately-deferred nuance, not a bug.
+- [✓] Support free-form ad-hoc "requested" line items with no file attached yet — **DONE** (`lib/features/documents/providers/document_provider.dart` — `DocumentModel.filePath` is nullable (`hasFile` getter guards on it); a dedicated request-creation path around line 482 sets `availability: DocAvailability.requested` with an auto-set `requestedDate` and no file)
+- [✓] Works both pre-survey and post-survey, not tied to a specific attendance — **DONE** (`documents` records are case-scoped, not attendance-scoped — no `attendance_id` FK on the documents model)
+- [ ] Auto-generate an email listing all outstanding requested documents (to Owners/Repairers), from the same data — **MISSING, confirmed** (grepped for "document request"/"requestEmail"/"generateEmail"/"mailto" — no hits)
 - [ ] See `docs/legal_clauses.md` Part K (K-2) for the report-side rendering, already implemented
 
 ---
@@ -298,27 +309,27 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 
 ## SPEC COMPLIANCE SCORECARD
 
-Answering the 15 questions from Spec §10.3 — **re-audited 30 June 2026**:
+Answering the 15 questions from Spec §10.3 — **re-audited 3 July 2026 against actual code** (the 30 June re-audit below was itself stale in several places — corrected):
 
 | # | Question | Current Answer |
 |---|----------|---------------|
 | 1 | Colours/fonts from config or hardcoded? | ✅ All colours from `OrganisationModel` — docx reads org config |
-| 2 | Firm logo in running header on every page? | ❌ Logo upload exists; not yet embedded in body-page header |
+| 2 | Firm logo in running header on every page? | ✅ **CORRECTED** — embedded as inline `w:drawing` in `header2.xml` (`docx_builder.dart:94-112`, `ooxml_helpers.dart:373-401`), fetched from `organisation.logo_path` in Supabase Storage at export time |
 | 3 | AI audit log (model_version, prompt_hash, prompt_text, ai_output_text, surveyor_review)? | ✅ `AiGenerationLogModel` + `AiLogService` + wired into `ClaudeApi` + per-section review UI |
-| 4 | AI disclosure paragraph auto-generated from audit log? | ❌ Missing |
-| 5 | Advice Summary auto-populated and editable? | ❌ No model or screen yet |
+| 4 | AI disclosure paragraph auto-generated from audit log? | ✅ **CORRECTED** — `docx_export_service.dart:281-292`, "AI USAGE DISCLOSURE" heading + paragraph rendered whenever `assembled.aiGenerationLog` is non-empty; snapshotted to `report_outputs.ai_log_snapshot` at export (`docx_export_service.dart:98-105`) |
+| 5 | Advice Summary auto-populated and editable? | ❌ Confirmed still missing — no model or screen (see §2.6) |
 | 6 | Chronology as formal table? | ✅ Rendered as formal Date\|Event table in docx |
 | 7 | Cost section as formal accounts table + WP notation? | ✅ Fully assembled: repair docs + account lines + totals + WP cost notice |
-| 8 | Sign-off block gating Final Report export? | ✅ Export gate exists; ❌ sign-off UI screen (drawn sig / PNG upload) missing |
+| 8 | Sign-off block gating Final Report export? | ✅ **CORRECTED** — export gate exists (`export_button.dart`) AND sign-off UI screen exists with drawn signature + PNG upload (`sign_off_sheet.dart`) |
 | 9 | Report version numbering (R001, R002…)? | ✅ `versionString` computed as R001 format; auto-increment picker in new output sheet |
 | 10 | Document Vault tracks `annexure_assignment`? | ✅ Field exists on `DocumentModel`; badges on tile; editable in detail sheet |
 | 11 | `cantSplit` on table rows? | ✅ Applied in `ooxml_helpers.dart` |
 | 12 | WP in all four required locations? | ✅ All four locations rendered from org config (header/cover/cost/footer) |
-| 13 | Cover page separate template (no running header on page 1)? | ❌ Programmatic builder in place; separate cover design not yet implemented |
-| 14 | Cover page: vessel band, status badge, info box, photo, logo? | ❌ Metadata table exists; visual cover page elements missing |
-| 15 | Logo in header as inline paragraph (not table cell)? | ❌ No running header logo yet |
+| 13 | Cover page separate template (no running header on page 1)? | ✅ **CORRECTED** — `w:titlePg` + distinct empty `header1.xml` vs. body `header2.xml` (`ooxml_helpers.dart:450-454`) |
+| 14 | Cover page: vessel band, status badge, info box, photo, logo? | ⚠️ **PARTIALLY CORRECTED** — vessel-name colour band, status badge, cover photo, and 2-column info table are all done (`docx_export_service.dart:190-259`); firm **logo** is not placed on the cover page itself (only firm name as text) — logo only appears in the body running header |
+| 15 | Logo in header as inline image (not table cell)? | ✅ **CORRECTED** — see #2 above |
 
-**Score: 9 / 15** ↑ from 0/15 — major progress; remaining gaps: cover page design, logo in header, AI disclosure, Advice Summary, sign-off UI.
+**Score: 13 / 15 done, 1 partial (#14), 1 missing (#5)** — the 30 June "9/15" count undercounted; most of the previously-listed gaps (cover page, running header, AI disclosure, sign-off UI) were actually completed in the same or a subsequent session but never checked off here. Genuine remaining gaps: Advice Summary (§2.6) and firm logo specifically on the cover page (§1.6).
 
 ---
 

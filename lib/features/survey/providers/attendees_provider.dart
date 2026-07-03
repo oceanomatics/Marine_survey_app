@@ -89,6 +89,7 @@ class AttendeeModel {
     this.contactEmail,
     this.contactPhone,
     this.createdAt,
+    this.sortOrder,
   });
 
   final String attendeeId;
@@ -105,6 +106,9 @@ class AttendeeModel {
   final String? contactEmail;
   final String? contactPhone;
   final DateTime? createdAt;
+  /// Manual drag-to-reorder position within an attendance (TODO.md §3.1).
+  /// Nulls sort last — only possible for rows created before migration 015.
+  final int? sortOrder;
 
   /// Label used in the report attendees table
   String get reportLabel {
@@ -148,6 +152,7 @@ class AttendeeModel {
         createdAt:      j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
+        sortOrder:      j['sort_order'] as int?,
       );
 
   Map<String, dynamic> toInsertJson() => {
@@ -164,7 +169,26 @@ class AttendeeModel {
           'cert_expiry': certExpiry!.toIso8601String().split('T').first,
         if (contactEmail != null)    'contact_email':    contactEmail,
         if (contactPhone != null)    'contact_phone':    contactPhone,
+        if (sortOrder != null)       'sort_order':        sortOrder,
       };
+
+  AttendeeModel copyWith({int? sortOrder}) => AttendeeModel(
+        attendeeId:      attendeeId,
+        caseId:          caseId,
+        fullName:        fullName,
+        attendanceId:    attendanceId,
+        title:           title,
+        rankPosition:    rankPosition,
+        company:         company,
+        representing:    representing,
+        roleType:        roleType,
+        dpCertification: dpCertification,
+        certExpiry:      certExpiry,
+        contactEmail:    contactEmail,
+        contactPhone:    contactPhone,
+        createdAt:       createdAt,
+        sortOrder:       sortOrder ?? this.sortOrder,
+      );
 }
 
 // ── Provider ───────────────────────────────────────────────────────────────
@@ -184,21 +208,53 @@ class AttendeesNotifier
         .from('attendees')
         .select()
         .eq('case_id', caseId)
+        .order('sort_order', nullsFirst: false)
         .order('created_at');
     return (data as List).map((e) => AttendeeModel.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<AttendeeModel> addAttendee(AttendeeModel attendee) async {
+    // New attendees append at the end of their attendance's order
+    // (TODO.md §3.1 "Default order: insertion order").
+    final current = state.value ?? [];
+    final siblingMax = current
+        .where((a) => a.attendanceId == attendee.attendanceId)
+        .map((a) => a.sortOrder ?? 0)
+        .fold(0, (m, v) => v > m ? v : m);
+
     final data = await SupabaseService.client
         .from('attendees')
-        .insert(attendee.toInsertJson())
+        .insert(attendee.copyWith(sortOrder: siblingMax + 1).toInsertJson())
         .select()
         .single();
 
     final created = AttendeeModel.fromJson(data);
-    final current = state.value ?? [];
     state = AsyncData([...current, created]);
     return created;
+  }
+
+  /// Persists a manual drag-to-reorder within one attendance — [orderedIds]
+  /// is the full new attendee-id order for that attendance.
+  Future<void> reorderAttendees(List<String> orderedIds) async {
+    final current = state.value ?? [];
+    final byId = {for (final a in current) a.attendeeId: a};
+    final updated = <AttendeeModel>[];
+    for (var i = 0; i < orderedIds.length; i++) {
+      final a = byId[orderedIds[i]];
+      if (a == null) continue;
+      updated.add(a.copyWith(sortOrder: i + 1));
+    }
+
+    state = AsyncData(current
+        .map((a) => updated.firstWhere(
+            (u) => u.attendeeId == a.attendeeId,
+            orElse: () => a))
+        .toList());
+
+    await Future.wait(updated.map((a) => SupabaseService.client
+        .from('attendees')
+        .update({'sort_order': a.sortOrder})
+        .eq('attendee_id', a.attendeeId)));
   }
 
   Future<void> updateAttendee(AttendeeModel attendee) async {
