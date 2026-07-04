@@ -161,10 +161,17 @@ class ReportSection {
     this.aiDrafted = false,
     this.surveyorReview,
     this.sectionId,
+    this.carriedForwardContent,
   });
 
   final SectionType type;
   final String title;
+  /// This report output's own new/incremental text. On a successive
+  /// report (Progress/Interim/Supplementary/Final) that carries forward
+  /// prior narrative, this is the delta only — the prior text lives in
+  /// [carriedForwardContent], frozen and read-only. On a first report, or
+  /// any section type not eligible for carry-forward, this is the entire
+  /// section content, same as before this feature existed.
   final String content;
   final String? clauseId;
   final bool isLocked;   // clause text — cannot be edited by surveyor
@@ -172,9 +179,29 @@ class ReportSection {
   /// GPN-AI: surveyor must set this before export is allowed.
   final SurveyorReview? surveyorReview;
   final String? sectionId;
+  /// Frozen copy of the prior report output's approved text for this
+  /// section (spec: "Successive Report Behaviour" — docs/report_builder_
+  /// editor_notes.md gap #10). Null when there is no prior report in the
+  /// chain, or this section type doesn't carry forward. Never edited once
+  /// set — the surveyor's new work goes in [content] instead. See
+  /// [fullContent] for the seamless concatenation used by every renderer.
+  final String? carriedForwardContent;
 
   /// True once the surveyor has set any review status.
   bool get approved => surveyorReview != null;
+
+  /// What every renderer (docx, Preview, reference panels) should display
+  /// — the carried-forward base plus this report's new delta, joined with
+  /// no visible marker (spec: "the rendered output presents the complete
+  /// narrative seamlessly with no visible breaks"). Falls back to plain
+  /// [content] when there's nothing carried forward, so call sites can
+  /// always use this getter unconditionally.
+  String get fullContent {
+    final base = carriedForwardContent ?? '';
+    if (base.isEmpty) return content;
+    if (content.isEmpty) return base;
+    return '$base\n\n$content';
+  }
 
   static const _sentinel = Object();
 
@@ -183,6 +210,7 @@ class ReportSection {
     Object? surveyorReview = _sentinel,
     String? sectionId,
     bool? aiDrafted,
+    Object? carriedForwardContent = _sentinel,
   }) =>
       ReportSection(
         type:           type,
@@ -195,6 +223,9 @@ class ReportSection {
             ? this.surveyorReview
             : surveyorReview as SurveyorReview?,
         sectionId:      sectionId      ?? this.sectionId,
+        carriedForwardContent: carriedForwardContent == _sentinel
+            ? this.carriedForwardContent
+            : carriedForwardContent as String?,
       );
 }
 
@@ -701,10 +732,22 @@ class _PersistedSection {
     required this.content,
     required this.aiDrafted,
     required this.surveyorReview,
+    this.carriedForwardContent,
   });
   final String content;
   final bool aiDrafted;
   final SurveyorReview? surveyorReview;
+  final String? carriedForwardContent;
+
+  /// Same seamless concatenation as [ReportSection.fullContent] — used
+  /// when reading a *prior* output's section as the carry-forward base for
+  /// a new one (see [SectionDraftNotifier._priorFullContent]).
+  String get fullContent {
+    final base = carriedForwardContent ?? '';
+    if (base.isEmpty) return content;
+    if (content.isEmpty) return base;
+    return '$base\n\n$content';
+  }
 }
 
 class SectionDraftNotifier
@@ -765,6 +808,7 @@ class SectionDraftNotifier
         'content':         section.content,
         'ai_drafted':      section.aiDrafted,
         'surveyor_review': section.surveyorReview?.name,
+        'carried_forward_content': section.carriedForwardContent,
       }, onConflict: 'output_id,section_type');
     } catch (_) {
       // Persistence failure must never break the editor.
@@ -775,6 +819,7 @@ class SectionDraftNotifier
   /// Every section is always created — empty string if no data yet.
   Future<void> buildSections(
     AssembledReportData data, {
+    required ReportOutput output,
     bool aiDraft = false,
   }) async {
     final sections = <SectionType, ReportSection>{};
@@ -785,6 +830,15 @@ class SectionDraftNotifier
     // the AI on every mount even for sections that already have persisted
     // content, since the persisted overlay only overwrites afterward.
     final persisted = await _fetchPersisted();
+
+    // Successive-report carry-forward (gap #10) — resolve the immediately
+    // preceding output in this case's chain (if any) and pull its
+    // persisted sections once, up front, for the two carry-forward-
+    // eligible types below (background/generalServices) to use.
+    final priorOutputId = _priorOutputId(output, data);
+    final priorPersisted = priorOutputId != null
+        ? await _fetchPersistedFor(priorOutputId)
+        : const <SectionType, _PersistedSection>{};
 
     // ── Page 2: Executive Summary ────────────────────────────────────
     sections[SectionType.executiveSummary] = ReportSection(
@@ -850,13 +904,49 @@ class SectionDraftNotifier
     // ── §7: Chronology — auto-table from timeline_events, no text box ───
 
     // ── §8: Background ────────────────────────────────────────────
+    // Successive-report carry-forward (gap #10): if this output has never
+    // had its own Background saved yet, and a prior report on this case
+    // has approved Background text, that text becomes this output's
+    // frozen `carriedForwardContent` and the new `content` starts as the
+    // incremental delta (blank, or AI-amended) — takes priority over the
+    // scratch `background_narrative` field on the occurrence row, since a
+    // previously-issued report's actual approved wording is a stronger
+    // source of truth than that field.
     String backgroundContent = '';
-    if (data.occurrences.isNotEmpty) {
+    String? backgroundCarriedForward;
+    final priorBackground = priorPersisted[SectionType.background];
+    final backgroundIsFirstBuild = !persisted.containsKey(SectionType.background);
+    if (backgroundIsFirstBuild &&
+        priorBackground != null &&
+        priorBackground.fullContent.isNotEmpty) {
+      backgroundCarriedForward = priorBackground.fullContent;
+      if (aiDraft && data.occurrences.isNotEmpty) {
+        final occ = data.occurrences.first;
+        try {
+          backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
+            vesselName:          data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate:      occ['date_time'] as String? ?? '',
+            occurrenceLocation:  occ['location']  as String? ?? '',
+            occurrenceTitle:     occ['title']      as String? ?? '',
+            damageItems: data.damageItems
+                .map((d) => d['component_name'] as String? ?? '')
+                .toList(),
+            interviewTranscript: null,
+            reportFormat: data.outputFormat,
+            priorApprovedText: backgroundCarriedForward,
+          );
+        } catch (_) {
+          // Leave blank rather than showing an error placeholder — unlike
+          // the from-scratch path below, the carried-forward text is
+          // already real content the surveyor can see and extend
+          // manually, so a failed amend attempt isn't a dead end.
+          backgroundContent = '';
+        }
+      }
+    } else if (data.occurrences.isNotEmpty) {
       backgroundContent =
           data.occurrences.first['background_narrative'] as String? ?? '';
-      if (backgroundContent.isEmpty &&
-          aiDraft &&
-          !persisted.containsKey(SectionType.background)) {
+      if (backgroundContent.isEmpty && aiDraft && backgroundIsFirstBuild) {
         final occ = data.occurrences.first;
         try {
           backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
@@ -880,6 +970,7 @@ class SectionDraftNotifier
       title:     'Background',
       content:   backgroundContent,
       aiDrafted: aiDraft && backgroundContent.isNotEmpty,
+      carriedForwardContent: backgroundCarriedForward,
     );
 
     // ── §9: Occurrence + Damage Description ───────────────────────
@@ -1046,11 +1137,62 @@ class SectionDraftNotifier
     // persisted row exists (see draftGeneralServices() in ClaudeApi for the
     // prompt; the manual "Draft with AI" button in the editor covers the
     // case where cues are added later, after this first pass ran empty).
+    //
+    // Successive-report carry-forward (gap #10): same pattern as
+    // Background above. When this output has no persisted row yet and a
+    // prior report's approved text exists, that text is frozen as
+    // `carriedForwardContent` and only cues *new since that prior report*
+    // (by `created_at`, compared to the prior output's issued/created
+    // date) are offered to the amend prompt — passing already-covered cues
+    // again risks the model restating them despite instructions not to.
     var generalServicesContent = '';
     var generalServicesAiDrafted = false;
-    if (aiDraft && !persisted.containsKey(SectionType.generalServices)) {
-      final cues = data.surveyorNotes
-          .where((n) => n['report_section'] == 'general_expenses')
+    String? generalServicesCarriedForward;
+    final priorGeneralServices = priorPersisted[SectionType.generalServices];
+    final generalServicesIsFirstBuild =
+        !persisted.containsKey(SectionType.generalServices);
+    final allGeneralServiceCues = data.surveyorNotes
+        .where((n) => n['report_section'] == 'general_expenses')
+        .toList();
+
+    if (generalServicesIsFirstBuild &&
+        priorGeneralServices != null &&
+        priorGeneralServices.fullContent.isNotEmpty) {
+      generalServicesCarriedForward = priorGeneralServices.fullContent;
+      if (aiDraft) {
+        final priorRaw = data.allReportOutputs
+            .where((o) => o['output_id'] == priorOutputId)
+            .firstOrNull;
+        final cutoff = priorRaw != null
+            ? DateTime.tryParse((priorRaw['issued_date']
+                    ?? priorRaw['created_at']) as String? ?? '')
+            : null;
+        final newCues = allGeneralServiceCues
+            .where((n) => cutoff == null ||
+                (DateTime.tryParse(n['created_at'] as String? ?? '')
+                        ?.isAfter(cutoff) ??
+                    true))
+            .map((n) => n['content'] as String? ?? '')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (newCues.isNotEmpty) {
+          try {
+            generalServicesContent = await ClaudeApi.draftGeneralServices(
+              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues:  newCues,
+              reportFormat: data.outputFormat,
+              priorApprovedText: generalServicesCarriedForward,
+            );
+            generalServicesAiDrafted = generalServicesContent.isNotEmpty;
+          } catch (_) {
+            // Leave blank rather than an error placeholder — see the same
+            // note on Background's amend path above.
+            generalServicesContent = '';
+          }
+        }
+      }
+    } else if (aiDraft && generalServicesIsFirstBuild) {
+      final cues = allGeneralServiceCues
           .map((n) => n['content'] as String? ?? '')
           .where((c) => c.isNotEmpty)
           .toList();
@@ -1076,6 +1218,7 @@ class SectionDraftNotifier
       title:     'General Services & Access',
       content:   generalServicesContent,
       aiDrafted: generalServicesAiDrafted,
+      carriedForwardContent: generalServicesCarriedForward,
     );
 
     // ── §13: Repair Costs (auto-table in export; narrative commentary here)
@@ -1202,6 +1345,7 @@ class SectionDraftNotifier
         content:        entry.value.content,
         surveyorReview: entry.value.surveyorReview,
         aiDrafted:      entry.value.aiDrafted,
+        carriedForwardContent: entry.value.carriedForwardContent,
       );
     }
 
@@ -1210,26 +1354,39 @@ class SectionDraftNotifier
     // Persist any section auto-drafted just now (no prior persisted row) so
     // the next mount finds it via `persisted` and doesn't call the AI
     // again — auto-drafting is meant to run once per report, not on every
-    // screen open.
+    // screen open. Also persists a freshly-resolved carry-forward base
+    // even when the amend draft came back blank/failed (aiDrafted stays
+    // false in that case) — otherwise `persisted` would still be empty
+    // for that type next mount, and the (cheap but pointless) carry-
+    // forward lookup + any AI amend attempt would re-run every time the
+    // screen opens instead of once per report.
     for (final type in const [
       SectionType.background,
       SectionType.causation,
       SectionType.generalServices,
     ]) {
       final s = sections[type];
-      if (s != null && s.aiDrafted && s.content.isNotEmpty &&
-          !persisted.containsKey(type)) {
+      if (s == null || persisted.containsKey(type)) continue;
+      if ((s.aiDrafted && s.content.isNotEmpty) ||
+          s.carriedForwardContent != null) {
         await _persist(type);
       }
     }
   }
 
-  Future<Map<SectionType, _PersistedSection>> _fetchPersisted() async {
+  Future<Map<SectionType, _PersistedSection>> _fetchPersisted() =>
+      _fetchPersistedFor(outputId);
+
+  /// Generalised over [_fetchPersisted] so the carry-forward lookup below
+  /// can read a *different* (prior) output's persisted sections, not just
+  /// this notifier's own.
+  Future<Map<SectionType, _PersistedSection>> _fetchPersistedFor(
+      String forOutputId) async {
     try {
       final rows = await SupabaseService.client
           .from('report_sections')
           .select()
-          .eq('output_id', outputId);
+          .eq('output_id', forOutputId);
       final map = <SectionType, _PersistedSection>{};
       for (final row in (rows as List).cast<Map<String, dynamic>>()) {
         final type = SectionType.values
@@ -1242,12 +1399,69 @@ class SectionDraftNotifier
           surveyorReview: SurveyorReview.values
               .where((r) => r.name == row['surveyor_review'])
               .firstOrNull,
+          carriedForwardContent: row['carried_forward_content'] as String?,
         );
       }
       return map;
     } catch (_) {
       return {};
     }
+  }
+
+  /// Section types eligible for successive-report carry-forward.
+  ///
+  /// Deliberately narrow — see the design note in gap #10 of
+  /// docs/report_builder_editor_notes.md for the full reasoning. In short:
+  /// most narrative sections (`occurrence`, `damageDescription`, `repairs`,
+  /// `allegation`, `causation`, `surveyorNotes`) are deterministically
+  /// *rebuilt from scratch every time* from shared, case-level tables
+  /// (occurrences, damage_items, repair_periods, surveyor_notes) that
+  /// already accumulate old + new rows regardless of which report output
+  /// is open — so they never actually lose data between reports, and
+  /// freezing a prior output's text as a carry-forward base for them would
+  /// just duplicate everything (the frozen block *and* the fresh rebuild
+  /// both containing the same old material).
+  ///
+  /// `background` and `generalServices` are different: their default is
+  /// blank unless AI-drafted (see the sections building them, above) —
+  /// there is no deterministic regeneration to fall back on, so whatever
+  /// prose the surveyor approved for report N is genuinely gone once
+  /// report N+1 starts with a blank slate. These are the two sections this
+  /// pass actually fixes.
+  static const carryForwardEligibleTypes = {
+    SectionType.background,
+    SectionType.generalServices,
+  };
+
+  /// Version code (e.g. "R002") computed from a raw `report_outputs` row —
+  /// same logic as `ReportOutput.versionCode` / the Document Control table
+  /// builders, duplicated here because this operates on the raw
+  /// `allReportOutputs` maps rather than a parsed `ReportOutput`.
+  static String _rawVersionCode(Map<String, dynamic> o) {
+    final rn = o['report_number'] as String?;
+    if (rn != null) {
+      final m = RegExp(r'R\d{3,}$').firstMatch(rn);
+      if (m != null) return m.group(0)!;
+    }
+    final seq = o['sequence_no'] as int? ?? 1;
+    return 'R${seq.toString().padLeft(3, '0')}';
+  }
+
+  /// Resolves the immediately-preceding report output in this case's
+  /// successive chain, via `supersedes_version` (set automatically at
+  /// output creation to the then-most-recent output's version code — see
+  /// `ReportOutputsNotifier.createOutput`). This is the correct signal for
+  /// "prior report", not `sequence_no` (which is scoped per output *type*,
+  /// e.g. "Advice No. 2", and not globally chronological) or `created_at`
+  /// alone (which doesn't capture the surveyor's own understanding of
+  /// which report a new one continues from).
+  String? _priorOutputId(ReportOutput output, AssembledReportData data) {
+    final supersedes = output.supersedesVersion;
+    if (supersedes == null) return null;
+    final prior = data.allReportOutputs
+        .where((o) => _rawVersionCode(o) == supersedes)
+        .firstOrNull;
+    return prior?['output_id'] as String?;
   }
 
   /// Drafts [type] (background or causation only) with AI on demand,
@@ -1275,6 +1489,12 @@ class SectionDraftNotifier
                 .toList(),
             interviewTranscript: null,
             reportFormat: data.outputFormat,
+            // Successive-report carry-forward (gap #10) — if this
+            // section already has a frozen carried-forward base (set once
+            // by buildSections() on the first mount of this output), a
+            // manual re-draft via the "Draft with AI" button should also
+            // amend rather than redraft from scratch.
+            priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.causation:
           final occ = data.occurrences.isNotEmpty ? data.occurrences.first : null;
@@ -1299,6 +1519,7 @@ class SectionDraftNotifier
             vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
             contextCues:  cues,
             reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
           );
         default:
           return;
@@ -1902,7 +2123,15 @@ class SectionDraftNotifier
 
   String _buildCostSummaryText(List<Map<String, dynamic>> repairDocs,
       {String? approvalIntro}) {
-    if (repairDocs.isEmpty) return '';
+    // Spec §11 "Estimate Caveats (Preliminary/Progress)": the cost-status
+    // caveat clause (Clause G-1, via approvalIntro) must still render when
+    // no repair accounts have been received yet — previously this returned
+    // '' before approvalIntro was ever used, silently dropping the caveat
+    // from the Editor/Preview (docx was unaffected — it builds its cost
+    // text independently, not from this section's content).
+    if (repairDocs.isEmpty) {
+      return approvalIntro ?? '';
+    }
     var total = 0.0;
     final lines = <String>[];
     for (final doc in repairDocs) {
@@ -1915,7 +2144,7 @@ class SectionDraftNotifier
         lines.add('$supplier: ${_formatAmount(docTotal)}');
       }
     }
-    if (lines.isEmpty) return '';
+    if (lines.isEmpty) return approvalIntro ?? '';
     lines.add('Total: ${_formatAmount(total)}');
     final body = lines.join('\n');
     return approvalIntro != null && approvalIntro.isNotEmpty

@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import '../providers/report_provider.dart';
+import '../utils/writing_style_lint.dart';
+import 'section_reference_panel.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class SectionEditor extends StatefulWidget {
@@ -13,6 +15,7 @@ class SectionEditor extends StatefulWidget {
     required this.onSurveyorReviewChanged,
     this.sectionNumber,
     this.onDraftWithAi,
+    this.assembled,
   });
 
   final ReportSection section;
@@ -23,6 +26,11 @@ class SectionEditor extends StatefulWidget {
   /// When non-null, shows a "Draft with AI" button in the header — offered
   /// only for empty, unlocked, AI-draftable sections (background/causation).
   final VoidCallback? onDraftWithAi;
+  /// When provided, shows a read-only structured reference panel (tables/
+  /// blocks matching the spec's suggested layout — see
+  /// docs/report_builder_editor_notes.md line 486 onward) above the
+  /// free-text box, for section types that have one.
+  final AssembledReportData? assembled;
 
   @override
   State<SectionEditor> createState() => _SectionEditorState();
@@ -141,6 +149,59 @@ class _SectionEditorState extends State<SectionEditor> {
           // ── Content editor ────────────────────────────────────────
           if (_expanded) ...[
             const Divider(height: 1),
+
+            // Carried-forward text from the prior report in this case's
+            // successive chain (spec gap #10) — frozen, read-only, shown
+            // above the new-content box below so the two are visually
+            // distinguished per spec ("visually distinguished from
+            // carried-forward content in the editor"); rendered
+            // seamlessly with no marker in the exported docx/Preview via
+            // ReportSection.fullContent.
+            if ((section.carriedForwardContent ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(children: [
+                        Icon(Icons.history, size: 11, color: AppColors.textTertiary),
+                        SizedBox(width: 4),
+                        Text('Carried forward from prior report — read only',
+                            style: TextStyle(
+                                fontSize: 9,
+                                color: AppColors.textTertiary,
+                                fontWeight: FontWeight.w600)),
+                      ]),
+                      const SizedBox(height: 6),
+                      Text(
+                        section.carriedForwardContent!,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                            height: 1.5),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Add what\'s new since the above below — it will '
+                        'appear as a seamless continuation in the report.',
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontStyle: FontStyle.italic,
+                            color: AppColors.textTertiary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             Padding(
               padding: const EdgeInsets.all(12),
               child: section.isLocked || widget.isLocked
@@ -214,6 +275,15 @@ class _SectionEditorState extends State<SectionEditor> {
                       ),
                     ),
             ),
+
+            // ── Structured reference panel (tables/blocks matching the
+            // spec's suggested layout) ────────────────────────────
+            if (widget.assembled != null)
+              SectionReferencePanel(
+                  type: section.type, assembled: widget.assembled!),
+
+            // ── Writing style rulebook advisory ───────────────────
+            if (!locked) _StyleFlagsBanner(type: section.type, text: section.content),
 
             // ── Surveyor review chips ─────────────────────────────
             if (!locked)
@@ -308,6 +378,68 @@ class _ReviewDot extends StatelessWidget {
         borderRadius: BorderRadius.circular(5),
       ),
       child: Icon(icon, size: 13, color: color),
+    );
+  }
+}
+
+// ── Writing style rulebook advisory banner ──────────────────────────────────
+
+class _StyleFlagsBanner extends StatelessWidget {
+  const _StyleFlagsBanner({required this.type, required this.text});
+
+  final SectionType type;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final flags = lintSection(type, text);
+    if (flags.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFD97706).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: const Color(0xFFD97706).withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.flag_outlined, size: 12, color: Color(0xFFD97706)),
+              SizedBox(width: 5),
+              Text('Writing style check',
+                  style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFD97706))),
+            ]),
+            const SizedBox(height: 6),
+            ...flags.map((f) => Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                          fontSize: 10.5,
+                          height: 1.4,
+                          color: AppColors.textSecondary),
+                      children: [
+                        TextSpan(
+                          text: '"${f.phrase}" — ',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        TextSpan(text: f.reason),
+                      ],
+                    ),
+                  ),
+                )),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -178,7 +178,7 @@ class _ReportBuilderScreenState
                   // call on every mount: buildSections() only actually
                   // invokes the AI when no persisted section content
                   // exists yet for that type (see report_provider.dart).
-                  _buildDraft(assembled, activeOutput.outputId, aiDraft: true);
+                  _buildDraft(assembled, activeOutput, aiDraft: true);
                 });
               }
               return TabBarView(
@@ -263,14 +263,14 @@ class _ReportBuilderScreenState
     );
   }
 
-  Future<void> _buildDraft(AssembledReportData assembled, String outputId,
+  Future<void> _buildDraft(AssembledReportData assembled, ReportOutput output,
       {bool aiDraft = false}) async {
     setState(() => _buildingDraft = true);
     await ref
         .read(sectionDraftProvider(
-                (caseId: widget.caseId, outputId: outputId))
+                (caseId: widget.caseId, outputId: output.outputId))
             .notifier)
-        .buildSections(assembled, aiDraft: aiDraft);
+        .buildSections(assembled, output: output, aiDraft: aiDraft);
     setState(() => _buildingDraft = false);
   }
 
@@ -438,7 +438,15 @@ class _EditorTab extends ConsumerWidget {
     // the section list of height (that was a real overflow-and-disappear
     // bug found on-device: a RenderFlex overflow here hid the entire
     // section-by-section editor below it).
-    final orderedKeys = oceanoSectionOrder.where(sections.containsKey).toList();
+    // executiveSummary is excluded here — the AdviceSummaryCard above *is*
+    // its editor (spec: the Advice Summary table is the Executive Summary,
+    // there is no separate free-text section rendered anywhere anymore —
+    // see docs/report_builder_editor_notes.md "Section: Executive Summary
+    // (Advice Summary Table)"), so showing its old free-text box here
+    // would be a dead field the surveyor could fill in for nothing.
+    final orderedKeys = oceanoSectionOrder
+        .where((t) => t != SectionType.executiveSummary && sections.containsKey(t))
+        .toList();
     final notifier = ref.read(
         sectionDraftProvider((caseId: caseId, outputId: outputId)).notifier);
 
@@ -478,6 +486,7 @@ class _EditorTab extends ConsumerWidget {
           child: SectionEditor(
             section: section,
             isLocked: isLocked,
+            assembled: assembled,
             sectionNumber: oceanoSectionNumber(key),
             onContentChanged: (content) =>
                 notifier.updateContent(key, content),

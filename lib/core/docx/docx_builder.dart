@@ -74,6 +74,7 @@ class DocxBuilder {
     List<List<String>> rows, {
     bool boldFirstRow = false,
     List<int>? colWidths,
+    WAlignment cellAlign = WAlignment.left,
   }) {
     _body.write(_table(
       rows,
@@ -81,6 +82,7 @@ class DocxBuilder {
       colWidths: colWidths,
       headerBgHex: boldFirstRow ? _primaryHex : null,
       altRowBgHex: _accentHex,
+      cellAlign: cellAlign,
     ));
   }
 

@@ -7,6 +7,7 @@
 // them as skippable.
 
 import '../providers/report_provider.dart';
+import 'writing_style_lint.dart';
 
 class ExportWarning {
   const ExportWarning(this.message);
@@ -57,6 +58,15 @@ List<ExportWarning> buildExportWarnings(
       isEmpty(SectionType.causation)) {
     warnings.add(const ExportWarning(
         'An allegation has been recorded but Cause Consideration is empty.'));
+  }
+
+  final flaggedSections = sections.entries
+      .where((e) => lintSection(e.key, e.value.content).isNotEmpty)
+      .length;
+  if (flaggedSections > 0) {
+    warnings.add(ExportWarning(
+        '$flaggedSections section${flaggedSections == 1 ? '' : 's'} '
+        'flagged by the writing style rulebook (see editor).'));
   }
 
   return warnings;

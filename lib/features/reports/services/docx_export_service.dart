@@ -14,6 +14,8 @@ import '../providers/report_provider.dart';
 import '../utils/section_text.dart';
 import '../utils/advice_summary_rows.dart';
 import '../utils/annexure_groups.dart';
+import '../utils/section_table_rows.dart';
+import '../utils/page2_legal_text.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/docx/docx_builder.dart';
 import '../../survey/models/repair_period_model.dart';
@@ -80,11 +82,31 @@ class DocxExportService {
       }
     }
 
+    // Fetch surveyor signature image from Supabase Storage (non-fatal — the
+    // signature upload flow isn't built yet, so this path is null on every
+    // case today; the sign-off block falls back to a text placeholder).
+    Uint8List? signatureBytes;
+    String signatureExt = 'png';
+    final signOff = buildReportSignOff(assembled.organisation);
+    final signaturePath = signOff.signatureStoragePath;
+    if (signaturePath != null && signaturePath.isNotEmpty) {
+      try {
+        final parts = signaturePath.split('.');
+        if (parts.length > 1) signatureExt = parts.last.toLowerCase();
+        signatureBytes = await SupabaseService.client.storage
+            .from('organisation_assets')
+            .download(signaturePath);
+      } catch (e) {
+        debugPrint('Signature fetch skipped: $e');
+      }
+    }
+
     final bytes = _buildDocx(output, assembled, sections,
         coverPhotoBytes: coverPhotoBytes, coverPhotoExt: coverPhotoExt,
         coverPhotoWidthEmu: coverPhotoWidthEmu,
         coverPhotoHeightEmu: coverPhotoHeightEmu,
         logoBytes: logoBytes, logoExt: logoExt,
+        signatureBytes: signatureBytes, signatureExt: signatureExt,
         damagePhotosByItemId: damagePhotosByItemId);
     final filename = _filename(output, assembled);
 
@@ -126,6 +148,8 @@ class DocxExportService {
     int? coverPhotoHeightEmu,
     Uint8List? logoBytes,
     String logoExt = 'png',
+    Uint8List? signatureBytes,
+    String signatureExt = 'png',
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
   }) {
     final doc = DocxBuilder();
@@ -246,7 +270,7 @@ class DocxExportService {
     final occFirst = assembled.occurrences.isNotEmpty
         ? assembled.occurrences.first
         : <String, dynamic>{};
-    final occDate   = _formatDate(occFirst['occurrence_date'] as String? ?? '');
+    final occDate   = _formatDate(occFirst['date_time'] as String? ?? '');
     final occTitle  = occFirst['title']    as String? ?? '';
     final occLoc    = occFirst['location'] as String? ?? '';
     final infoRows  = <List<String>>[
@@ -269,32 +293,44 @@ class DocxExportService {
     // Helper to render a text section if it has content
     void renderTextSection(SectionType type, String heading) {
       final section = sections[type];
-      if (section == null || section.content.trim().isEmpty) return;
+      // fullContent seamlessly joins any carried-forward prior-report text
+      // with this report's new delta (spec gap #10 — "no visible breaks"
+      // in the rendered output); equals plain .content when there's
+      // nothing carried forward.
+      if (section == null || section.fullContent.trim().isEmpty) return;
       doc.addHeading(heading, 2);
-      for (final para in splitSectionParagraphs(section.content)) {
+      for (final para in splitSectionParagraphs(section.fullContent)) {
         doc.addParagraph(para);
       }
       doc.addSpacer();
     }
 
-    // ── Page 2: AI Disclosure → Executive Summary → Document Control ────
+    // ── Page 2: title block → Advice Summary → Legal Designations → AI
+    // Declaration → Document Control ─────────────────────────────────
+    // Per surveyor direction (4 July 2026): the title block renders as an
+    // actual table (matching the spec's suggested-layout ASCII, which
+    // draws it as a bordered box), and Legal Designations / AI Usage
+    // Declaration sit after the Advice Summary table rather than before it
+    // — still the same page, just reordered. The Advice Summary table
+    // itself *is* the Executive Summary (the spec section is literally
+    // titled "Section: Executive Summary (Advice Summary Table)") — there
+    // is no separate free-text narrative block.
 
-    // AI usage disclosure (page 2, before Executive Summary — spec §3.5)
-    if (assembled.aiGenerationLog.isNotEmpty) {
-      doc.addHeading('AI USAGE DISCLOSURE', 2);
-      final aiDisclosure = org?['ai_disclosure_text'] as String?
-          ?? 'In preparing this report, artificial intelligence tools were '
-             'used to assist with the drafting of certain sections. All '
-             'AI-generated content was reviewed, verified, and approved by '
-             'the attending surveyor prior to issue. This report complies with '
-             'the Federal Court of Australia Practice Note GPN-AI (2026).';
-      doc.addParagraph(aiDisclosure,
-          italic: true, halfPtSize: 18, colorHex: '374151');
-      doc.addSpacer();
-    }
+    // Title block — Vessel Name / Assured / Report Type, "continues from
+    // cover" — as a single bordered, centred table cell (tabular per
+    // spec's suggested-layout ASCII, which draws this as one boxed block).
+    final assuredName = case_['assured'] as String?;
+    final titleLines = [
+      if (vesselName.isNotEmpty) 'M.V.  "$vesselName"',
+      if (assuredName != null && assuredName.isNotEmpty) 'ASSURED: $assuredName',
+      '${reportTypeLabel.toUpperCase()} SUMMARY',
+    ];
+    doc.addTable([[titleLines.join('\n')]],
+        colWidths: [9355], cellAlign: WAlignment.center);
+    doc.addSpacer();
 
-    // Advice Summary — structured table (spec: "Section: Executive Summary
-    // (Advice Summary Table)" in docs/report_builder_editor_notes.md).
+    // (c) Advice Summary — structured table (spec: "Section: Executive
+    // Summary (Advice Summary Table)" in docs/report_builder_editor_notes.md).
     // Row-building logic is shared with the Preview tab — see
     // advice_summary_rows.dart (avoids the renderer-drift class of bug
     // described in gap #5 of docs/report_builder_editor_notes.md).
@@ -307,14 +343,24 @@ class DocxExportService {
       }
     }
 
-    // Executive Summary (page 2 — editable)
-    final executiveSummarySection = sections[SectionType.executiveSummary];
-    if (executiveSummarySection != null &&
-        executiveSummarySection.content.trim().isNotEmpty) {
-      doc.addHeading('EXECUTIVE SUMMARY', 2);
-      for (final para in splitSectionParagraphs(executiveSummarySection.content)) {
-        doc.addParagraph(para);
-      }
+    // (a) Legal Designations — verbatim locked clauses.
+    final legal = buildLegalDesignationLines(assembled);
+    doc.addHeading('LEGAL DESIGNATIONS', 2);
+    doc.addParagraph(legal.withoutPrejudice,
+        bold: true, halfPtSize: 18, colorHex: '374151');
+    doc.addSpacer();
+    doc.addParagraph(legal.confidentiality, halfPtSize: 18, colorHex: '374151');
+    doc.addSpacer();
+    doc.addParagraph(legal.copyright, halfPtSize: 18, colorHex: '374151');
+    doc.addSpacer();
+
+    // (b) AI Usage Declaration — auto-generated, suppressed entirely when
+    // no AI calls are on record (no surveyor toggle, per spec).
+    final aiDisclosure = buildAiUsageDeclaration(assembled.aiGenerationLog);
+    if (aiDisclosure != null) {
+      doc.addHeading('AI USAGE DECLARATION', 2);
+      doc.addParagraph(aiDisclosure,
+          italic: true, halfPtSize: 18, colorHex: '374151');
       doc.addSpacer();
     }
 
@@ -356,141 +402,114 @@ class DocxExportService {
     // seeded opening_certification clause text — confirmed via clause_library
     // discovery query, 2026-07-02. Do not add it again here.
     renderTextSection(SectionType.opening, 'INTRODUCTION');
-
-    // ── Section 2: Attending Representatives ─────────────────────────
-    if (assembled.attendees.isNotEmpty) {
-      doc.addHeading('ATTENDANCE & REPRESENTATIVES', 2);
-      final attRows = [
-        ['Name / Rank', 'Representing'],
-        ...assembled.attendees.map((a) => [
-              '${a['rank_position'] ?? ''} ${a['full_name'] ?? ''}'.trim(),
-              a['representing'] as String? ?? a['company'] as String? ?? '',
-            ]),
-      ];
-      doc.addTable(attRows, boldFirstRow: true, colWidths: [4677, 4678]);
+    // Spec §1 suggested layout — "Occurrence No. 1 | [date] | [title]"
+    // table under the certifying paragraph. Supports multi-occurrence
+    // cases (previously only ever `occurrences.first` was rendered
+    // anywhere in this file).
+    final occRows = buildOccurrenceRows(assembled.occurrences);
+    if (occRows.isNotEmpty) {
+      doc.addTable(occRows, boldFirstRow: true, colWidths: [2500, 2000, 4855]);
       doc.addSpacer();
     }
 
-    // ── Section 3: Vessel Particulars ────────────────────────────────
-    if (v.isNotEmpty) {
-      doc.addHeading('VESSEL PARTICULARS', 2);
-      final vpRows = [
-        ['Vessel Name',         v['name']             ?? ''],
-        ['IMO Number',          v['imo_number']        ?? ''],
-        ['Type',                v['vessel_type']       ?? ''],
-        ['Flag',                v['flag']              ?? ''],
-        ['Port of Registry',    v['port_of_registry']  ?? ''],
-        ['Gross Tonnage',       v['gross_tonnage']?.toString() ?? ''],
-        ['Net Tonnage',         v['net_tonnage']?.toString()  ?? ''],
-        ['Deadweight',          v['deadweight']?.toString()   ?? ''],
-        ['LOA',                 v['length_oa']?.toString()    ?? ''],
-        // Clauses C-2/C-3: the row label itself is the qualifier the
-        // surveyor picked on the vessel screen (e.g. "Moulded Breadth"),
-        // so no separate phrase lookup is needed.
-        [v['breadth_qualifier'] as String? ?? 'Breadth',
-         v['breadth'] != null ? '${v['breadth']} m' : ''],
-        [v['draft_qualifier'] as String? ?? 'Draft',
-         v['max_draft'] != null ? '${v['max_draft']} m' : ''],
-        // Clauses C-4/C-5: propeller/drive type
-        ['Propeller Type',      v['propeller_type']       ?? ''],
-        ['Propulsion Drive',    v['propulsion_drive_type'] ?? ''],
-        ['Year Built',          v['year_built']?.toString()   ?? ''],
-        ['Build Yard',          v['build_yard']        ?? ''],
-        ['Owners',              v['owners']            ?? ''],
-        ['Operators',           v['operators']         ?? ''],
-        ['Class Society',       v['class_society']     ?? ''],
-        ['Class Notation',      v['class_notation']    ?? ''],
-        ['P&I Club',            v['pi_club']           ?? ''],
-        ['ISPS Status',         v['isps_status']       ?? ''],
-        ['Last Drydock',        _formatDate(v['last_drydock_date'] as String? ?? '')],
-        ['PSC Last Inspection', _formatDate(v['psc_last_inspection'] as String? ?? '')],
-        // DCV — National Law only (empty-row filter below hides these for
-        // Convention vessels automatically).
-        ['Hull Material',            v['hull_material']            ?? ''],
-        ['Unique Vessel Identifier', v['unique_vessel_identifier'] ?? ''],
-        ['Survey Certificate No.',   v['survey_certificate_no']    ?? ''],
-        ['AMSA Class',
-         (v['amsa_vessel_use_class'] != null && v['amsa_service_category'] != null)
-             ? 'Class ${v['amsa_vessel_use_class']}${(v['amsa_service_category'] as String).toUpperCase()}'
-             : ''],
-        ['Equipment Due',  _formatDate(v['equipment_survey_due']  as String? ?? '')],
-        ['Hull Due',       _formatDate(v['hull_survey_due']       as String? ?? '')],
-        ['Tail Shaft Due', _formatDate(v['tail_shaft_survey_due'] as String? ?? '')],
-      ].where((r) => (r[1] as String).isNotEmpty)
-       .map((r) => [r[0] as String, r[1] as String])
-       .toList();
-      if (vpRows.isNotEmpty) {
-        doc.addTable(vpRows, colWidths: [3000, 6355]);
+    // ── Section 2: Attending Representatives ─────────────────────────
+    // One block per attendance (spec §2), each with its own intro line,
+    // date/location/purpose, and attendee register. Block-building shared
+    // with the Preview tab — see section_table_rows.dart (avoids the
+    // renderer-drift class of bug described in gap #5/#11 of
+    // docs/report_builder_editor_notes.md).
+    final attendanceBlocks =
+        buildAttendanceBlocks(assembled.attendances, assembled.attendees);
+    if (attendanceBlocks.isNotEmpty) {
+      doc.addHeading('ATTENDANCE & REPRESENTATIVES', 2);
+      for (final block in attendanceBlocks) {
+        if (block.label.isNotEmpty) {
+          doc.addParagraph(block.label, bold: true);
+        }
+        doc.addParagraph(block.introLine, italic: true);
+        final details = [
+          if ((block.date ?? '').isNotEmpty) 'Date: ${block.date}',
+          if ((block.location ?? '').isNotEmpty) 'Location: ${block.location}',
+          if ((block.purpose ?? '').isNotEmpty) 'Purpose: ${block.purpose}',
+        ];
+        for (final line in details) {
+          doc.addParagraph(line);
+        }
+        doc.addTable(block.rows, boldFirstRow: true,
+            colWidths: [3100, 3100, 3155]);
+        doc.addSpacer();
       }
+    }
+
+    // ── Section 3: Vessel Particulars ────────────────────────────────
+    final vpRows = buildVesselParticularsRows(v);
+    if (vpRows.isNotEmpty) {
+      doc.addHeading('VESSEL PARTICULARS', 2);
+      doc.addTable(vpRows, colWidths: [3000, 6355]);
       doc.addSpacer();
     }
 
     // ── Section 4: Machinery & Equipment Particulars (if applicable) ──
-    if (assembled.machinery.isNotEmpty) {
+    // Spec §5 suggested layout — one bordered key:value block per claim
+    // object, "Not Confirmed" placeholder for any field not yet captured
+    // (never left blank). Shared with the Preview tab via
+    // section_table_rows.dart (gap #11 convention).
+    final machineryBlocks = buildMachineryBlocks(assembled.machinery);
+    if (machineryBlocks.isNotEmpty) {
       doc.addHeading('MACHINERY & EQUIPMENT PARTICULARS', 2);
-      final mRows = [
-        ['Item', 'Make / Model', 'Serial No.', 'MCR'],
-        ...assembled.machinery.map((m) {
-          final kw  = (m['mcr_kw']  as num?)?.toStringAsFixed(0);
-          final rpm = (m['mcr_rpm'] as num?)?.toStringAsFixed(0);
-          final mcr = [if (kw != null) '$kw kW', if (rpm != null) '$rpm rpm']
-              .join(' / ');
-          return [
-            '${m['machinery_type'] ?? ''}${m['role'] != null ? '\n${m['role']}' : ''}',
-            '${m['make'] ?? ''} ${m['model'] ?? ''}'.trim(),
-            m['serial_number'] as String? ?? '',
-            mcr,
-          ];
-        }),
-      ];
-      doc.addTable(mRows, boldFirstRow: true, colWidths: [2500, 3000, 2000, 1855]);
-      doc.addSpacer();
+      for (final block in machineryBlocks) {
+        doc.addParagraph(block.label, bold: true, halfPtSize: 20);
+        doc.addTable(block.rows, colWidths: [3000, 6355]);
+        doc.addSpacer();
+      }
     }
 
     // ── Section 5: Class & Statutory Certification ────────────────────
-    if (assembled.certificates.isNotEmpty) {
-      doc.addHeading('CLASS & STATUTORY CERTIFICATES', 2);
-      final certRows = [
-        ['Certificate', 'Issuing Authority', 'Issue Date', 'Expiry'],
-        ...assembled.certificates.map((c) => [
-              c['cert_name'] as String? ?? c['cert_type'] as String? ?? '',
-              c['issuing_authority'] as String? ?? '',
-              _formatDate(c['issue_date']  as String? ?? ''),
-              _formatDate(c['expiry_date'] as String? ?? ''),
-            ]),
-      ];
+    // Narrative clause text (clauses C-6a/b/c/e/f, built in report_provider's
+    // sectionDraftProvider) was previously never rendered here at all — the
+    // surveyor could review/approve it in the editor but it silently never
+    // reached the exported docx. Fixed: render it as the section's lead-in
+    // text, ahead of the certificates/conditions-of-class tables below.
+    final classStatutorySection = sections[SectionType.classStatutory];
+    final hasClassStatutoryText =
+        classStatutorySection != null && classStatutorySection.content.trim().isNotEmpty;
+    final certRows = buildCertificateRows(assembled.certificates);
+    final ccRows = buildClassConditionRows(assembled.classConditions);
+    if (hasClassStatutoryText || certRows.isNotEmpty || ccRows.isNotEmpty) {
+      doc.addHeading('CLASS & STATUTORY CERTIFICATION', 2);
+    }
+    if (hasClassStatutoryText) {
+      for (final para in splitSectionParagraphs(classStatutorySection.content)) {
+        doc.addParagraph(para);
+      }
+      doc.addSpacer();
+    }
+    if (certRows.isNotEmpty) {
       doc.addTable(certRows, boldFirstRow: true,
           colWidths: [3000, 3000, 1500, 1855]);
       doc.addSpacer();
     }
-    if (assembled.classConditions.isNotEmpty) {
+    if (ccRows.isNotEmpty) {
       doc.addHeading('CONDITIONS OF CLASS', 2);
-      final ccRows = [
-        ['Reference', 'Description', 'Due Date'],
-        ...assembled.classConditions.map((cc) => [
-              cc['reference']   as String? ?? '',
-              cc['description'] as String? ?? '',
-              _formatDate(cc['expiry_date'] as String? ?? ''),
-            ]),
-      ];
       doc.addTable(ccRows, boldFirstRow: true, colWidths: [1800, 5700, 1855]);
       doc.addSpacer();
     }
 
     // ── Section 6: Available Information Sources ──────────────────────
     renderTextSection(SectionType.informationSources, 'AVAILABLE INFORMATION SOURCES');
+    // Spec §12 — MINRES BALDER Document | Status table, the platform's
+    // preferred default over the flat bullet-list rendering above.
+    final availInfoRows = buildAvailableInformationRows(
+        assembled.caseDocuments, assembled.requestedDocuments);
+    if (availInfoRows.isNotEmpty) {
+      doc.addTable(availInfoRows, boldFirstRow: true, colWidths: [6355, 3000]);
+      doc.addSpacer();
+    }
 
     // ── Section 7: Chronology of Events ──────────────────────────────
-    final timeline = assembled.timelineEvents;
-    if (timeline.isNotEmpty) {
+    final chronoRows = buildChronologyRows(assembled.timelineEvents);
+    if (chronoRows.isNotEmpty) {
       doc.addHeading('CHRONOLOGY OF EVENTS', 2);
-      final chronoRows = [
-        ['Date', 'Event'],
-        ...timeline.map((e) => [
-              _formatDate(e['event_date'] as String? ?? ''),
-              e['description'] as String? ?? e['title'] as String? ?? '',
-            ]),
-      ];
       doc.addTable(chronoRows, boldFirstRow: true, colWidths: [2000, 7355]);
       doc.addSpacer();
     }
@@ -613,6 +632,22 @@ class DocxExportService {
     // ── Section 10: Cause Consideration ──────────────────────────────
     renderTextSection(SectionType.allegation, "OWNER'S ALLEGATION");
     renderTextSection(SectionType.causation,  'CAUSE CONSIDERATION');
+    // Spec §10 — third-party findings register + certainty level, shown
+    // alongside (not replacing) the free-text narrative so the three-voice
+    // separation is visible as structured data without constraining the
+    // surveyor's ability to edit the generated prose.
+    final tpRows = buildThirdPartyFindingRows(assembled.occurrences);
+    if (tpRows.isNotEmpty) {
+      doc.addParagraph('Third-Party Findings', bold: true, halfPtSize: 20);
+      doc.addTable(tpRows, boldFirstRow: true, colWidths: [2000, 2500, 4855]);
+      doc.addSpacer();
+    }
+    final certaintyLabel = buildCertaintyLevelLabel(assembled.occurrences);
+    if (certaintyLabel != null) {
+      doc.addParagraph('Certainty Level: $certaintyLabel', italic: true,
+          halfPtSize: 18, colorHex: '6B7280');
+      doc.addSpacer();
+    }
 
     // ── Section 11: Repairs ───────────────────────────────────────────
     renderTextSection(SectionType.repairs, 'REPAIRS');
@@ -632,6 +667,20 @@ class DocxExportService {
       ];
       doc.addTable(repairRows, boldFirstRow: true,
           colWidths: [2500, 1900, 1000, 1000, 1200, 1455]);
+      doc.addSpacer();
+    }
+
+    // ── Section 8.6: Work Not Concerning Average ──────────────────────
+    // Fixed, locked opening clause (spec verbatim) — not AI-generated,
+    // not editable. Populated from repair_periods.not_average_items,
+    // which already existed on the model; only rendering was missing.
+    final wncaItems = buildWncaItems(repairPeriodModels);
+    if (wncaItems.isNotEmpty) {
+      doc.addHeading('WORK NOT CONCERNING AVERAGE', 2);
+      doc.addParagraph(wncaOpeningClause);
+      for (final item in wncaItems) {
+        doc.addParagraph('•  $item');
+      }
       doc.addSpacer();
     }
 
@@ -948,6 +997,32 @@ class DocxExportService {
     // override → clause_library → hardcoded fallback in report_provider.dart.
     renderTextSection(SectionType.closing, 'DISCLAIMER');
 
+    // ── Section 13 sign-off block (spec §13 — every report type) ──────
+    // "Yours faithfully" + surveyor identity, distinct from the internal
+    // attending/reviewing QC authentication block below.
+    {
+      final signOff = buildReportSignOff(assembled.organisation);
+      final city = org?['firm_city'] as String? ?? '[City]';
+      doc.addParagraph('$city, ${_today()}');
+      doc.addSpacer();
+      doc.addParagraph('Yours faithfully');
+      doc.addSpacer();
+      if (signatureBytes != null) {
+        doc.addImage(signatureBytes, signatureExt,
+            widthEmu: DocxBuilder.kPageWidthEmu ~/ 3);
+      } else {
+        doc.addParagraph('[Signature not yet uploaded]',
+            italic: true, colorHex: '9CA3AF', halfPtSize: 18);
+      }
+      doc.addParagraph(signOff.name, bold: true);
+      if ((signOff.title ?? '').isNotEmpty) doc.addParagraph(signOff.title!);
+      if ((signOff.company ?? '').isNotEmpty) doc.addParagraph(signOff.company!);
+      if ((signOff.mobile ?? '').isNotEmpty) doc.addParagraph('Mob: ${signOff.mobile}');
+      if ((signOff.email ?? '').isNotEmpty) doc.addParagraph('E: ${signOff.email}');
+      if ((signOff.website ?? '').isNotEmpty) doc.addParagraph('W: ${signOff.website}');
+      doc.addSpacer();
+    }
+
     // ── Sign-off authentication block (Final reports only) ───────────
     if (output.outputType == OutputType.final_) {
       final caseData = assembled.caseData;
@@ -1074,15 +1149,8 @@ class DocxExportService {
         _                     => value ?? '',
       };
 
-  static String _formatDate(String iso) {
-    if (iso.isEmpty) return '';
-    try {
-      final d = DateTime.parse(iso);
-      const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return '${d.day.toString().padLeft(2, '0')}-${m[d.month]}-${d.year}';
-    } catch (_) {
-      return iso;
-    }
-  }
+  // Delegates to the shared formatter in section_table_rows.dart so the
+  // date format used here stays identical to the one used by the
+  // buildVesselParticularsRows/buildCertificateRows/etc. helpers above.
+  static String _formatDate(String iso) => formatSectionDate(iso);
 }

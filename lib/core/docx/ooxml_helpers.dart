@@ -130,6 +130,7 @@ String _table(
   List<int>? colWidths,
   String? headerBgHex,      // primary_colour for table header rows
   String? altRowBgHex,      // accent_colour for alternating rows (optional)
+  WAlignment cellAlign = WAlignment.left, // applied to every cell's paragraph
 }) {
   final buf = StringBuffer();
   buf.write('<w:tbl>');
@@ -177,10 +178,10 @@ String _table(
       if (isHeader && headerBgHex != null) {
         // White bold text on coloured background
         buf.write(_para(rows[r][c],
-            bold: true, halfPtSize: 20, colorHex: 'FFFFFF'));
+            bold: true, halfPtSize: 20, colorHex: 'FFFFFF', align: cellAlign));
       } else {
         buf.write(_para(rows[r][c],
-            bold: isHeader, halfPtSize: isHeader ? 20 : 18));
+            bold: isHeader, halfPtSize: isHeader ? 20 : 18, align: cellAlign));
       }
       buf.write('</w:tc>');
     }

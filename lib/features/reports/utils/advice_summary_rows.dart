@@ -33,7 +33,17 @@ String _fmtAmt(num v) {
 /// Builds the label/value rows for the Advice Summary table (spec:
 /// "Section: Executive Summary (Advice Summary Table)" in
 /// docs/report_builder_editor_notes.md), populated from
-/// `report_outputs.advice_*` fields. Rows with no data are omitted.
+/// `report_outputs.advice_*` fields.
+///
+/// Always returns the full fixed 8-row spec layout — rows are never
+/// omitted for missing data, matching the spec's own suggested layout
+/// (which shows bracketed placeholders like "[auto or TBD]" for every
+/// field) and the explicit instruction that this table must render with
+/// placeholders rather than disappear before the surveyor has filled in
+/// AdviceSummaryCard. Previously every row (and the whole table, since the
+/// Preview/docx callers both gated on `rows.isNotEmpty`) was silently
+/// dropped whenever a report had not yet had its Advice Summary fields
+/// entered — which is the normal state for a freshly-built report.
 List<List<String>> buildAdviceSummaryRows(
     ReportOutput output, AssembledReportData assembled) {
   final occ =
@@ -41,49 +51,47 @@ List<List<String>> buildAdviceSummaryRows(
   final costApproved = output.adviceStatusOfRepairs == 'complete' ||
       output.adviceStatusOfRepairs == 'ongoing';
 
+  final occDate =
+      occ != null ? _formatOccDate(occ['date_time'] as String? ?? '') : '';
   final dateAndNature = [
-    if (occ != null) _formatOccDate(occ['date_time'] as String? ?? ''),
-    output.adviceNatureOfCasualty,
-  ].where((e) => e != null && e.isNotEmpty).join(' — ');
+    occDate.isNotEmpty ? occDate : '[DOL date not yet recorded]',
+    (output.adviceNatureOfCasualty ?? '').isNotEmpty
+        ? output.adviceNatureOfCasualty!
+        : '[nature of casualty not yet recorded]',
+  ].join(' — ');
 
-  var statusLine = _statusLabels[output.adviceStatusOfRepairs];
-  if (statusLine != null &&
+  var statusLine =
+      _statusLabels[output.adviceStatusOfRepairs] ?? '[not yet recorded]';
+  if (_statusLabels.containsKey(output.adviceStatusOfRepairs) &&
       (output.adviceStatusOfRepairsDetail ?? '').isNotEmpty) {
     statusLine = '$statusLine ${output.adviceStatusOfRepairsDetail}';
   }
 
-  final costLines = <String>[];
-  if (output.adviceCostAmount != null) {
-    final ccy = output.adviceCostCurrency ?? '';
-    costLines.add('$ccy ${_fmtAmt(output.adviceCostAmount!)}');
-  }
-  if (output.adviceCostIncludesGeneralExpenses != null) {
-    costLines.add('Incl. general expenses: '
-        '${output.adviceCostIncludesGeneralExpenses! ? 'Yes' : 'No'}');
-  }
-  if (output.adviceCostIncludesTowing != null) {
-    costLines.add('Incl. towing costs: '
-        '${{'yes': 'Yes', 'no': 'No', 'n_a': 'N/A'}[output.adviceCostIncludesTowing] ?? '—'}');
-  }
+  final costAmountLine = output.adviceCostAmount != null
+      ? '${output.adviceCostCurrency ?? ''} ${_fmtAmt(output.adviceCostAmount!)}'
+      : '[not yet estimated]';
+  final generalExpensesLine = 'Including general expenses: '
+      '${output.adviceCostIncludesGeneralExpenses == null ? '[TBD]' : (output.adviceCostIncludesGeneralExpenses! ? 'Yes' : 'No')}';
+  final towingLine = 'Including towing costs: '
+      '${{'yes': 'Yes', 'no': 'No', 'n_a': 'N/A'}[output.adviceCostIncludesTowing] ?? '[TBD]'}';
+  final costLines = [costAmountLine, generalExpensesLine, towingLine];
 
-  final feeLines = <String>[];
-  if (output.adviceFeeReserveHours != null) {
-    feeLines.add('Hours: ${output.adviceFeeReserveHours}');
-  }
-  if (output.adviceFeeReserveExpenses != null) {
-    feeLines.add('Expenses: ${output.adviceCostCurrency ?? ''} '
-        '${_fmtAmt(output.adviceFeeReserveExpenses!)}');
-  }
+  final feeHoursLine = 'Hours: '
+      '${output.adviceFeeReserveHours ?? '[not yet set]'}';
+  final feeExpensesLine = 'Expenses: '
+      '${output.adviceFeeReserveExpenses != null ? '${output.adviceCostCurrency ?? ''} ${_fmtAmt(output.adviceFeeReserveExpenses!)}' : '[not yet set]'}';
+  final feeLines = [feeHoursLine, feeExpensesLine];
 
   final allegationType = occ?['allegation_type'] as String?;
   final remarksLines = <String>[
-    if (allegationType != null && _allegationLabels.containsKey(allegationType))
-      _allegationLabels[allegationType]!,
+    _allegationLabels[allegationType] ?? '[allegation status not yet recorded]',
     if (output.adviceFollowUpRequired == true)
       'Follow-up attendance required'
           '${(output.adviceFollowUpDetail ?? '').isNotEmpty ? ': ${output.adviceFollowUpDetail}' : ''}'
     else if (output.adviceFollowUpRequired == false)
-      'No follow-up attendance required',
+      'No follow-up attendance required'
+    else
+      'Follow-up required: [not yet recorded]',
     if ((output.adviceRemarks ?? '').isNotEmpty) output.adviceRemarks!,
   ];
 
@@ -92,22 +100,24 @@ List<List<String>> buildAdviceSummaryRows(
   final claimReference = assembled.caseData['claim_reference'] as String?;
 
   return [
-    if ((claimReference ?? '').isNotEmpty)
-      ['UCR / Reference', claimReference!],
-    if (dateAndNature.isNotEmpty)
-      ['Date and Nature of Casualty', dateAndNature],
-    if ((output.adviceDescriptionOfDamage ?? '').isNotEmpty)
-      ['Description of Damage', output.adviceDescriptionOfDamage!],
-    if ((output.adviceNatureOfRepairs ?? '').isNotEmpty)
-      ['Nature of Repairs', output.adviceNatureOfRepairs!],
-    if (statusLine != null) ['Status of Repairs', statusLine],
-    if (costLines.isNotEmpty)
-      [
-        costApproved ? 'Sum Approved Without Prejudice' : 'Estimated Cost of Repairs',
-        costLines.join('\n'),
-      ],
-    if (feeLines.isNotEmpty) ['Survey Fee Reserve', feeLines.join('\n')],
-    if (remarksLines.isNotEmpty) ['Remarks', remarksLines.join('\n')],
+    ['UCR / Reference',
+     (claimReference ?? '').isNotEmpty ? claimReference! : '[TBD]'],
+    ['Date and Nature of Casualty', dateAndNature],
+    ['Description of Damage',
+     (output.adviceDescriptionOfDamage ?? '').isNotEmpty
+         ? output.adviceDescriptionOfDamage!
+         : '[description of damage — pending]'],
+    ['Nature of Repairs',
+     (output.adviceNatureOfRepairs ?? '').isNotEmpty
+         ? output.adviceNatureOfRepairs!
+         : '[nature of repairs — pending]'],
+    ['Status of Repairs', statusLine],
+    [
+      costApproved ? 'Sum Approved Without Prejudice' : 'Estimated Cost of Repairs',
+      costLines.join('\n'),
+    ],
+    ['Survey Fee Reserve', feeLines.join('\n')],
+    ['Remarks', remarksLines.join('\n')],
   ];
 }
 

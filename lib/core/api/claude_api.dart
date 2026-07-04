@@ -6,6 +6,21 @@ import '../config/app_config.dart';
 import '../services/ai_log_service.dart';
 import 'usage_tracker.dart';
 
+/// Shared instruction block appended to every narrative report-section
+/// drafting prompt. Encodes the non-negotiable parts of the Writing Style
+/// Rulebook (docs/report_builder_editor_notes.md) so AI-drafted text is
+/// compliant by construction rather than relying solely on the surveyor
+/// catching violations at review. Kept short — this is guidance for the
+/// model, not the full rulebook.
+const _writingStyleGuardrails = '''
+
+WRITING STYLE RULES (must follow):
+- Refer to the surveyor only as "the Undersigned" or "the Undersigned Surveyor" — never "I", "we", "my", or "our".
+- Mark any information not directly witnessed by the surveyor with an attribution phrase such as "reportedly", "according to the Master…", or "it is understood that…" — never state an unwitnessed event as if it were directly observed fact.
+- Do not use unquantified qualifiers ("apparently", "seemingly", "obviously") or vague conditions ("good condition", "fair wear and tear") without stating the standard or basis for the description.
+- Do not use emotive or speculative language ("unfortunately", "clearly", "as anyone can see").
+- Keep a neutral, factual, third-person register throughout.''';
+
 class ClaudeApi {
   static final _dio = () {
     final dio = Dio(BaseOptions(
@@ -362,10 +377,26 @@ Dates in ISO format. Return null for missing fields.''',
     required String? interviewTranscript,
     required String reportFormat, // 'nordic' or 'abl'
     String? caseId,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10): the prior report output's already-approved Background
+    /// text for this case, when this is not the first report. When
+    /// provided, the model drafts only the *incremental* narrative — new
+    /// developments since that text — rather than restating it.
+    String? priorApprovedText,
   }) async {
     final damages = damageItems.join('\n- ');
     final transcriptSection = interviewTranscript != null
         ? '\n\nINTERVIEW TRANSCRIPT EXTRACT:\n$interviewTranscript'
+        : '';
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED BACKGROUND (already issued in an earlier report '
+          'on this case — do not repeat or restate any of this; it is '
+          'shown only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation paragraph that reads naturally after it. If '
+          'nothing in the information provided below is genuinely new '
+          'compared to the prior text, return an empty string.'
         : '';
 
     final response = await _dio.post('/messages',
@@ -384,7 +415,7 @@ Dates in ISO format. Return null for missing fields.''',
           'content':
               '''You are a marine surveyor drafting a Hull & Machinery survey report section in the $reportFormat format.
 
-Draft the BACKGROUND / OCCURRENCE section (the owners' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. 
+Draft the BACKGROUND / OCCURRENCE section (the owners' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. Synthesise the events into a short narrative of what led to the casualty — do not write it as a day-by-day diary of the surveyor's activities. Do not state or imply a cause of the casualty here — causation belongs in a separate section; confine this section to the owners' account of what happened.
 
 VESSEL: $vesselName
 DATE: $occurrenceDate
@@ -392,6 +423,7 @@ LOCATION: $occurrenceLocation
 OCCURRENCE: $occurrenceTitle
 DAMAGE ITEMS:
 - $damages$transcriptSection
+$_writingStyleGuardrails$amendSection
 
 Draft the background narrative paragraph now:''',
         },
@@ -439,6 +471,7 @@ VESSEL: $vesselName
 OCCURRENCE: $occurrenceTitle
 DAMAGE:
 - $damages$findings$allegation
+$_writingStyleGuardrails
 
 Draft the surveyor's assessment now:''',
         },
@@ -490,6 +523,7 @@ Write in precise technical prose. Explain the sequence of events or contributing
 OCCURRENCE: $occurrenceTitle
 CAUSE TYPE: $causeTypeLabel
 ALLEGATION STATUS: $allegLabel$descText$bgText$cuesText
+$_writingStyleGuardrails
 
 Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
           },
@@ -510,8 +544,21 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
+    String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+          'this case — do not repeat or restate any of this; it is shown '
+          'only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation that reads naturally after it. If none of the '
+          'context cues above are genuinely new compared to the prior '
+          'text, return an empty string.'
+        : '';
 
     final response = await _dio.post('/messages',
       options: Options(extra: {'feature': 'general_services_draft'}),
@@ -530,6 +577,7 @@ VESSEL: $vesselName
 
 SURVEYOR CONTEXT CUES:
 $cuesText
+$_writingStyleGuardrails$amendSection
 
 Draft the paragraph now:''',
           },
