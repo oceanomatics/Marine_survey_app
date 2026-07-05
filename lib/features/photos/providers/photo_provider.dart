@@ -1,10 +1,17 @@
 // lib/features/photos/providers/photo_provider.dart
+//
+// Drive-backed unified storage (2026-07-05): Supabase is the authoritative
+// metadata store (same offline-cache/write-queue pattern as
+// surveyor_notes_provider.dart), the full-resolution original is uploaded to
+// Google Drive (DriveStorageService) as the canonical cross-platform file,
+// and native platforms additionally keep a local file cache for fast
+// offline access (local_path/thumbnail_path — per-device, never synced).
 
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:exif/exif.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
@@ -12,10 +19,15 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/api/supabase_client.dart';
 import '../../../core/database/app_database.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/drive_storage_service.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../models/photo_model.dart';
 
 const _uuid = Uuid();
+const _table = 'photos';
 
 final photosProvider =
     AsyncNotifierProviderFamily<PhotoNotifier, List<PhotoModel>, String>(
@@ -23,23 +35,139 @@ final photosProvider =
 );
 
 class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
-  @override
-  Future<List<PhotoModel>> build(String caseId) => _fetch(caseId);
+  String get _caseId => arg;
 
-  Future<List<PhotoModel>> _fetch(String caseId) async {
+  @override
+  Future<List<PhotoModel>> build(String caseId) async {
+    ref.listen<AsyncValue<bool>>(connectivityProvider, (_, next) {
+      if (next.value == true) _refresh();
+    });
     if (kIsWeb) {
-      // Photos are stored as local files (dart:io) with no web backend —
-      // photo capture/upload is not supported on web (see
-      // project_platform_target_desktop_cloud memory: future plan is
-      // cloud storage + standalone desktop apps, not browser support).
-      // Returning an empty list here only prevents screens that read the
-      // photo list (e.g. the Report Builder cover photo picker) from
-      // crash-looping the whole screen on web.
-      return [];
+      // No sqflite/dart:io on web — Supabase is fetched directly, no
+      // offline cache/write-queue (matches surveyor_notes_provider).
+      return _fetchSupabase(caseId);
     }
+    // Return the local cache immediately, then refresh from Supabase.
+    _refresh();
+    return _fetchOffline(caseId);
+  }
+
+  // ── Supabase (canonical metadata) ─────────────────────────────────────────
+
+  Future<List<PhotoModel>> _fetchSupabase(String caseId) async {
+    final rows = await SupabaseService.client
+        .from(_table)
+        .select()
+        .eq('case_id', caseId)
+        .order('taken_at', ascending: false);
+    return (rows as List)
+        .map((r) => PhotoModel.fromSupabaseMap(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      if (kIsWeb) {
+        state = AsyncData(await _fetchSupabase(_caseId));
+        return;
+      }
+      await _syncPending();
+      final remote = await _fetchSupabase(_caseId);
+      await _mergeIntoLocalCache(remote);
+      state = AsyncData(await _fetchOffline(_caseId));
+    } catch (e, st) {
+      debugPrint('PhotoNotifier._refresh error: $e\n$st');
+      // Keep whatever state is already shown.
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  /// Writes remote rows into the local cache, preserving each row's
+  /// per-device local_path/thumbnail_path and not clobbering an edit still
+  /// queued for upload (local_sync_status == pending_upsert).
+  Future<void> _mergeIntoLocalCache(List<PhotoModel> remoteRows) async {
+    final db = await AppDatabase.instance.database;
+    for (final remote in remoteRows) {
+      final existingRows =
+          await db.query(_table, where: 'id = ?', whereArgs: [remote.id]);
+      if (existingRows.isEmpty) {
+        await db.insert(_table, {
+          ...remote.toMap(),
+          'local_sync_status': 'synced',
+        });
+        continue;
+      }
+      final existingRow = existingRows.first;
+      if (existingRow['local_sync_status'] == 'pending_upsert') continue;
+      final existing = PhotoModel.fromMap(existingRow);
+      final merged = remote.copyWith(
+        localPath: existing.localPath,
+        thumbnailPath: existing.thumbnailPath,
+        syncStatus: existing.syncStatus, // preserve Google Photos state too
+        remotePath: existing.remotePath,
+      );
+      await db.update(
+          _table, {...merged.toMap(), 'local_sync_status': 'synced'},
+          where: 'id = ?', whereArgs: [remote.id]);
+    }
+
+    // A photo synced elsewhere and since removed remotely — drop the local
+    // cache row for it, unless it's a not-yet-uploaded local edit.
+    final remoteIds = remoteRows.map((r) => r.id).toSet();
+    final localRows =
+        await db.query(_table, where: 'case_id = ?', whereArgs: [_caseId]);
+    for (final row in localRows) {
+      final id = row['id'] as String;
+      if (!remoteIds.contains(id) && row['local_sync_status'] == 'synced') {
+        await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+      }
+    }
+  }
+
+  Future<void> _syncPending() async {
+    final db = await AppDatabase.instance.database;
+
+    final toUpsert = await db.query(_table,
+        where: 'case_id = ? AND local_sync_status = ?',
+        whereArgs: [_caseId, 'pending_upsert']);
+    for (final row in toUpsert) {
+      try {
+        final photo = PhotoModel.fromMap(row);
+        await SupabaseService.client
+            .from(_table)
+            .upsert(photo.toSupabaseMap(), onConflict: 'id');
+        await db.update(_table, {'local_sync_status': 'synced'},
+            where: 'id = ?', whereArgs: [photo.id]);
+      } catch (_) {
+        return; // Still offline — stop and retry later
+      }
+    }
+
+    final toDelete = await db.query(_table,
+        where: 'case_id = ? AND local_sync_status = ?',
+        whereArgs: [_caseId, 'pending_delete']);
+    for (final row in toDelete) {
+      final id = row['id'] as String;
+      try {
+        await SupabaseService.client.from(_table).delete().eq('id', id);
+        await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+      } catch (_) {
+        return; // Still offline
+      }
+    }
+  }
+
+  // ── Local cache read + orphan recovery ────────────────────────────────────
+
+  Future<List<PhotoModel>> _fetchOffline(String caseId) async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query(
-      'photos',
+      _table,
       where: 'case_id = ?',
       whereArgs: [caseId],
       orderBy: 'taken_at DESC',
@@ -73,7 +201,8 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       final ext = p.extension(entity.path).toLowerCase();
       if (ext != '.jpg' && ext != '.jpeg') continue;
 
-      final thumbPath = p.join(dir.path, 'cases', caseId, 'thumbnails', '$name.jpg');
+      final thumbPath =
+          p.join(dir.path, 'cases', caseId, 'thumbnails', '$name.jpg');
       final fileBytes = await entity.readAsBytes();
       final takenAt = await _exifDate(fileBytes) ?? entity.statSync().modified;
 
@@ -85,7 +214,8 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
         takenAt: takenAt,
       );
       try {
-        await db.insert('photos', photo.toMap());
+        await db.insert(
+            _table, {...photo.toMap(), 'local_sync_status': 'pending_upsert'});
         recovered.add(photo);
       } catch (_) {
         // Already inserted by a concurrent call — skip.
@@ -117,8 +247,28 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     return null;
   }
 
-  /// Save bytes as a compressed JPEG locally, generate a thumbnail, and
-  /// record metadata in SQLite.
+  Future<String> _caseTitle(String caseId) async {
+    final cached = ref.read(caseProvider(caseId)).value?.title;
+    if (cached != null && cached.isNotEmpty) return cached;
+    try {
+      final row = await SupabaseService.client
+          .from('cases')
+          .select('title')
+          .eq('case_id', caseId)
+          .maybeSingle();
+      final title = row?['title'] as String?;
+      return (title != null && title.isNotEmpty) ? title : caseId;
+    } catch (_) {
+      return caseId;
+    }
+  }
+
+  // ── Public mutations ──────────────────────────────────────────────────────
+
+  /// Compresses [bytes], caches locally (native only), uploads the
+  /// full-resolution copy to Drive (best-effort — offline/misconfigured
+  /// Drive doesn't block saving the photo, just leaves driveFileId null for
+  /// now), and records metadata in Supabase + the local cache.
   Future<PhotoModel> addPhoto({
     required String caseId,
     required Uint8List bytes,
@@ -128,13 +278,11 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     String? attendanceId,
     PhotoAllocation? allocation,
   }) async {
-    final dir = await getApplicationDocumentsDirectory();
     final id = _uuid.v4();
 
-    // Read EXIF date from originals bytes before compression strips metadata.
+    // Read EXIF date from original bytes before compression strips metadata.
     final takenAt = await _exifDate(bytes) ?? DateTime.now();
 
-    // Compress full-res JPEG.
     final compressed = await FlutterImageCompress.compressWithList(
       bytes,
       minWidth: 1920,
@@ -142,12 +290,6 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       quality: 82,
       format: CompressFormat.jpeg,
     );
-    final photosDir = Directory(p.join(dir.path, 'cases', caseId, 'photos'));
-    await photosDir.create(recursive: true);
-    final filePath = p.join(photosDir.path, '$id.jpg');
-    await File(filePath).writeAsBytes(compressed);
-
-    // Generate small thumbnail for fast grid display.
     final thumbBytes = await FlutterImageCompress.compressWithList(
       bytes,
       minWidth: 240,
@@ -155,11 +297,46 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       quality: 72,
       format: CompressFormat.jpeg,
     );
-    final thumbDir =
-        Directory(p.join(dir.path, 'cases', caseId, 'thumbnails'));
-    await thumbDir.create(recursive: true);
-    final thumbPath = p.join(thumbDir.path, '$id.jpg');
-    await File(thumbPath).writeAsBytes(thumbBytes);
+
+    String? filePath;
+    String? thumbPath;
+    if (!kIsWeb) {
+      final dir = await getApplicationDocumentsDirectory();
+      final photosDir = Directory(p.join(dir.path, 'cases', caseId, 'photos'));
+      await photosDir.create(recursive: true);
+      filePath = p.join(photosDir.path, '$id.jpg');
+      await File(filePath).writeAsBytes(compressed);
+
+      final thumbDir =
+          Directory(p.join(dir.path, 'cases', caseId, 'thumbnails'));
+      await thumbDir.create(recursive: true);
+      thumbPath = p.join(thumbDir.path, '$id.jpg');
+      await File(thumbPath).writeAsBytes(thumbBytes);
+    }
+
+    String? driveFileId;
+    String? thumbDriveFileId;
+    try {
+      final caseTitle = await _caseTitle(caseId);
+      driveFileId = await DriveStorageService.uploadCaseFile(
+        caseId: caseId,
+        caseTitle: caseTitle,
+        category: CaseFileCategory.photos,
+        bytes: compressed,
+        filename: '$id.jpg',
+        mimeType: 'image/jpeg',
+      );
+      thumbDriveFileId = await DriveStorageService.uploadCaseFile(
+        caseId: caseId,
+        caseTitle: caseTitle,
+        category: CaseFileCategory.photos,
+        bytes: thumbBytes,
+        filename: '${id}_thumb.jpg',
+        mimeType: 'image/jpeg',
+      );
+    } catch (e) {
+      debugPrint('Drive photo upload skipped (offline or not configured): $e');
+    }
 
     final photo = PhotoModel(
       id: id,
@@ -173,10 +350,23 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       attendanceId: attendanceId,
       takenAt: takenAt,
       fileSizeKb: compressed.length / 1024,
+      driveFileId: driveFileId,
+      thumbnailDriveFileId: thumbDriveFileId,
     );
 
-    final db = await AppDatabase.instance.database;
-    await db.insert('photos', photo.toMap());
+    var localSyncStatus = 'pending_upsert';
+    try {
+      await SupabaseService.client.from(_table).insert(photo.toSupabaseMap());
+      localSyncStatus = 'synced';
+    } catch (_) {
+      // Offline — queued for _syncPending to pick up later.
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      await db.insert(
+          _table, {...photo.toMap(), 'local_sync_status': localSyncStatus});
+    }
 
     final current = state.value ?? [];
     state = AsyncData([photo, ...current]);
@@ -202,13 +392,49 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     );
   }
 
-  Future<void> attachToDamageItem(
-      String photoId, String damageItemId) async {
+  /// Downloads the full-resolution original from Drive and caches it
+  /// locally — for viewing a photo that was synced from another device (or
+  /// on a fresh install) and has no local file yet. No-op on web (no local
+  /// cache to write) or if there's no Drive copy to fetch.
+  Future<PhotoModel?> ensureLocalFile(String photoId) async {
+    if (kIsWeb) return null;
+    final current = state.value ?? [];
+    final photo = current.firstWhere((ph) => ph.id == photoId);
+    if (photo.hasLocalFile || photo.driveFileId == null) return photo;
+
+    final bytes = await DriveStorageService.downloadFile(photo.driveFileId!);
+    final dir = await getApplicationDocumentsDirectory();
+    final photosDir =
+        Directory(p.join(dir.path, 'cases', photo.caseId, 'photos'));
+    await photosDir.create(recursive: true);
+    final filePath = p.join(photosDir.path, '$photoId.jpg');
+    await File(filePath).writeAsBytes(bytes);
+
+    String? thumbPath;
+    if (photo.thumbnailDriveFileId != null) {
+      final thumbBytes =
+          await DriveStorageService.downloadFile(photo.thumbnailDriveFileId!);
+      final thumbDir =
+          Directory(p.join(dir.path, 'cases', photo.caseId, 'thumbnails'));
+      await thumbDir.create(recursive: true);
+      thumbPath = p.join(thumbDir.path, '$photoId.jpg');
+      await File(thumbPath).writeAsBytes(thumbBytes);
+    }
+
+    final updated =
+        photo.copyWith(localPath: filePath, thumbnailPath: thumbPath);
+    final db = await AppDatabase.instance.database;
+    await db
+        .update(_table, updated.toMap(), where: 'id = ?', whereArgs: [photoId]);
+    _updateState((ph) => ph.id == photoId ? updated : ph);
+    return updated;
+  }
+
+  Future<void> attachToDamageItem(String photoId, String damageItemId) async {
     await _updateLink(photoId, 'damage_item', damageItemId);
   }
 
-  Future<void> attachToOccurrence(
-      String photoId, String occurrenceId) async {
+  Future<void> attachToOccurrence(String photoId, String occurrenceId) async {
     await _updateLink(photoId, 'occurrence', occurrenceId);
   }
 
@@ -218,62 +444,25 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   Future<void> attachLink(String photoId, String type, String id) =>
       _updateLink(photoId, type, id);
 
-  Future<void> _updateLink(
-      String photoId, String type, String linkedId) async {
-    final db = await AppDatabase.instance.database;
-    await db.update(
-      'photos',
-      {'linked_to_type': type, 'linked_to_id': linkedId},
-      where: 'id = ?',
-      whereArgs: [photoId],
-    );
-    _updateState((ph) => ph.id == photoId
-        ? ph.copyWith(linkedToType: type, linkedToId: linkedId)
-        : ph);
-  }
+  Future<void> _updateLink(String photoId, String type, String linkedId) =>
+      _applyUpdate(photoId,
+          (ph) => ph.copyWith(linkedToType: type, linkedToId: linkedId));
 
   Future<void> updateCaption(String photoId, String caption) async {
     final trimmed = caption.trim();
-    final db = await AppDatabase.instance.database;
-    await db.update(
-      'photos',
-      {'caption': trimmed.isEmpty ? null : trimmed},
-      where: 'id = ?',
-      whereArgs: [photoId],
-    );
-    _updateState((ph) => ph.id == photoId
-        ? ph.copyWith(caption: trimmed.isEmpty ? null : trimmed)
-        : ph);
+    await _applyUpdate(photoId,
+        (ph) => ph.copyWith(caption: trimmed.isEmpty ? null : trimmed));
   }
 
   Future<void> updatePlacementMode(
-      String photoId, PlacementMode? placementMode) async {
-    final db = await AppDatabase.instance.database;
-    await db.update(
-      'photos',
-      {'placement_mode': placementMode?.value},
-      where: 'id = ?',
-      whereArgs: [photoId],
-    );
-    _updateState((ph) =>
-        ph.id == photoId ? ph.copyWith(placementMode: placementMode) : ph);
-  }
+          String photoId, PlacementMode? placementMode) =>
+      _applyUpdate(photoId, (ph) => ph.copyWith(placementMode: placementMode));
 
-  Future<void> updatePhotoSource(String photoId, PhotoSource? photoSource) async {
-    final db = await AppDatabase.instance.database;
-    await db.update(
-      'photos',
-      {'photo_source': photoSource?.value},
-      where: 'id = ?',
-      whereArgs: [photoId],
-    );
-    _updateState(
-        (ph) => ph.id == photoId ? ph.copyWith(photoSource: photoSource) : ph);
-  }
+  Future<void> updatePhotoSource(String photoId, PhotoSource? photoSource) =>
+      _applyUpdate(photoId, (ph) => ph.copyWith(photoSource: photoSource));
 
   Future<void> updateAllocation(
       String photoId, PhotoAllocation? allocation) async {
-    final db = await AppDatabase.instance.database;
     final current = state.value ?? [];
 
     // Only one photo per case may hold the Cover Page allocation — shared
@@ -287,41 +476,83 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
           ph.id != photoId &&
           ph.allocation == PhotoAllocation.coverPage);
       for (final other in others) {
-        await db.update(
-          'photos',
-          {'photo_allocation': null},
-          where: 'id = ?',
-          whereArgs: [other.id],
-        );
+        await _applyUpdate(other.id, (ph) => ph.copyWith(allocation: null));
       }
     }
 
-    await db.update(
-      'photos',
-      {'photo_allocation': allocation?.value},
-      where: 'id = ?',
-      whereArgs: [photoId],
-    );
+    await _applyUpdate(photoId, (ph) => ph.copyWith(allocation: allocation));
+  }
 
-    state = AsyncData(current.map((ph) {
-      if (ph.id == photoId) return ph.copyWith(allocation: allocation);
-      if (allocation == PhotoAllocation.coverPage &&
-          ph.allocation == PhotoAllocation.coverPage) {
-        return ph.copyWith(allocation: null);
-      }
-      return ph;
-    }).toList());
+  /// Marks a photo as synced to an external store (Google Photos) and
+  /// records where — [remotePath] here is the shared album's URL, since
+  /// individual media-item baseUrls expire and aren't stable references.
+  Future<void> markSynced(String photoId, String? remotePath) => _applyUpdate(
+      photoId,
+      (ph) => ph.copyWith(
+          syncStatus: PhotoSyncStatus.synced, remotePath: remotePath));
+
+  /// Applies [transform] to the in-memory photo, then pushes it to
+  /// Supabase (falling back to a queued local pending_upsert if offline)
+  /// and the local cache, then updates state.
+  Future<void> _applyUpdate(
+      String photoId, PhotoModel Function(PhotoModel) transform) async {
+    final current = state.value ?? [];
+    final existing = current.firstWhere((ph) => ph.id == photoId);
+    final updated = transform(existing);
+
+    var localSyncStatus = 'pending_upsert';
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update(updated.toSupabaseMap())
+          .eq('id', photoId);
+      localSyncStatus = 'synced';
+    } catch (_) {
+      // Offline
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      await db.update(
+          _table, {...updated.toMap(), 'local_sync_status': localSyncStatus},
+          where: 'id = ?', whereArgs: [photoId]);
+    }
+
+    _updateState((ph) => ph.id == photoId ? updated : ph);
   }
 
   Future<void> deletePhoto(String photoId) async {
     final current = state.value ?? [];
     final photo = current.firstWhere((ph) => ph.id == photoId);
-    try { await File(photo.localPath).delete(); } catch (_) {}
-    if (photo.thumbnailPath != null) {
-      try { await File(photo.thumbnailPath!).delete(); } catch (_) {}
+    if (photo.localPath != null) {
+      try {
+        await File(photo.localPath!).delete();
+      } catch (_) {}
     }
-    final db = await AppDatabase.instance.database;
-    await db.delete('photos', where: 'id = ?', whereArgs: [photoId]);
+    if (photo.thumbnailPath != null) {
+      try {
+        await File(photo.thumbnailPath!).delete();
+      } catch (_) {}
+    }
+
+    var deleted = false;
+    try {
+      await SupabaseService.client.from(_table).delete().eq('id', photoId);
+      deleted = true;
+    } catch (_) {
+      // Offline
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      if (deleted) {
+        await db.delete(_table, where: 'id = ?', whereArgs: [photoId]);
+      } else {
+        await db.update(_table, {'local_sync_status': 'pending_delete'},
+            where: 'id = ?', whereArgs: [photoId]);
+      }
+    }
+
     state = AsyncData(current.where((ph) => ph.id != photoId).toList());
   }
 
@@ -334,7 +565,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
 // Convenience: filter photos for a specific damage item from existing state.
 extension PhotoListX on List<PhotoModel> {
   List<PhotoModel> forDamageItem(String damageId) => where(
-      (ph) => ph.linkedToType == 'damage_item' && ph.linkedToId == damageId)
+          (ph) => ph.linkedToType == 'damage_item' && ph.linkedToId == damageId)
       .toList();
 
   List<PhotoModel> get allocated =>

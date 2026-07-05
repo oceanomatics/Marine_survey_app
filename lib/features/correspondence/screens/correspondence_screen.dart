@@ -10,6 +10,8 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../models/correspondence_model.dart';
 import '../providers/correspondence_provider.dart';
+import '../../../core/services/gmail_service.dart';
+import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/eml_parser.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
@@ -18,6 +20,7 @@ import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart'
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import 'gmail_message_picker_screen.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -79,7 +82,8 @@ class CorrespondenceScreen extends ConsumerWidget {
           children: [
             const SizedBox(height: 8),
             Container(
-              width: 36, height: 4,
+              width: 36,
+              height: 4,
               decoration: BoxDecoration(
                 color: AppColors.border,
                 borderRadius: BorderRadius.circular(2),
@@ -88,7 +92,8 @@ class CorrespondenceScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             ListTile(
               leading: Container(
-                width: 40, height: 40,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: _kColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
@@ -99,22 +104,48 @@ class CorrespondenceScreen extends ConsumerWidget {
               title: const Text('Upload PDF',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               subtitle: const Text('Scanned letter, fax or email printout'),
-              onTap: () { Navigator.pop(ctx); _uploadPdf(context, ref); },
+              onTap: () {
+                Navigator.pop(ctx);
+                _uploadPdf(context, ref);
+              },
             ),
             ListTile(
               leading: Container(
-                width: 40, height: 40,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: _kColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.email_outlined,
-                    color: _kColor, size: 22),
+                child:
+                    const Icon(Icons.email_outlined, color: _kColor, size: 22),
               ),
               title: const Text('Import Email (.eml)',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               subtitle: const Text('EML file — attachments saved to Doc Vault'),
-              onTap: () { Navigator.pop(ctx); _importEml(context, ref); },
+              onTap: () {
+                Navigator.pop(ctx);
+                _importEml(context, ref);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _kColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.mark_email_read_outlined,
+                    color: _kColor, size: 22),
+              ),
+              title: const Text('Import from Gmail',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Pick a message from your inbox'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _importFromGmail(context, ref);
+              },
             ),
             const SizedBox(height: 8),
           ],
@@ -170,6 +201,82 @@ class CorrespondenceScreen extends ConsumerWidget {
     final selected = await showDialog<List<EmlAttachment>>(
       context: context,
       builder: (ctx) => _AttachmentDialog(attachments: attachments),
+    );
+
+    if (selected != null && selected.isNotEmpty && context.mounted) {
+      final docNotifier = ref.read(documentProvider(caseId).notifier);
+      for (final att in selected) {
+        await docNotifier.uploadAndCreate(
+          caseId: caseId,
+          bytes: att.bytes,
+          filename: att.filename,
+          mimeType: att.mimeType,
+          title: att.filename,
+          category: DocCategory.correspondence,
+          willExtract: false,
+        );
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '${selected.length} attachment(s) saved to Document Vault'),
+          ),
+        );
+      }
+    }
+  }
+
+  // ── Gmail import ───────────────────────────────────────────────────────────
+
+  /// Builds a Gmail search query from the case's identifying data (vessel
+  /// name, job number, claim reference) so the import picker opens already
+  /// filtered to case-relevant conversations instead of the whole inbox.
+  String? _caseGmailQuery(WidgetRef ref) {
+    final c = ref.read(caseProvider(caseId)).value;
+    if (c == null) return null;
+    final terms = <String>[
+      if (c.vesselName != null && c.vesselName!.isNotEmpty) c.vesselName!,
+      if (!c.hasPlaceholderFileNo) c.technicalFileNo,
+      if (c.claimReference != null && c.claimReference!.isNotEmpty)
+        c.claimReference!,
+    ];
+    if (terms.isEmpty) return null;
+    return terms.map((t) => '"$t"').join(' OR ');
+  }
+
+  Future<void> _importFromGmail(BuildContext context, WidgetRef ref) async {
+    final query = _caseGmailQuery(ref);
+    final result = await Navigator.push<List<(Uint8List, String)>>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => GmailMessagePickerScreen(initialQuery: query),
+      ),
+    );
+    if (result == null || result.isEmpty || !context.mounted) return;
+
+    final notifier = ref.read(correspondenceProvider(caseId).notifier);
+    final allAttachments = <EmlAttachment>[];
+    for (final (bytes, subject) in result) {
+      final (_, attachments) = await notifier.importEml(
+          caseId: caseId, bytes: bytes, filename: '$subject.eml');
+      allAttachments.addAll(attachments);
+    }
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text(
+              '${result.length} message(s) imported — ready for AI extraction')),
+    );
+
+    if (allAttachments.isEmpty) return;
+
+    final selected = await showDialog<List<EmlAttachment>>(
+      context: context,
+      builder: (ctx) => _AttachmentDialog(attachments: allAttachments),
     );
 
     if (selected != null && selected.isNotEmpty && context.mounted) {
@@ -252,8 +359,9 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-          added == 0 ? 'All parties already in the stakeholders list'
-                     : '$added stakeholder(s) added to Parties',
+          added == 0
+              ? 'All parties already in the stakeholders list'
+              : '$added stakeholder(s) added to Parties',
         ),
       ));
     }
@@ -280,14 +388,28 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     );
   }
 
+  // ── Reply via Gmail ────────────────────────────────────────────────────────
+
+  Future<void> _reply() async {
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (_) => _GmailReplyDialog(item: item),
+    );
+    if (sent == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reply sent')),
+      );
+    }
+  }
+
   // ── Send action to context notes ──────────────────────────────────────────
 
   Future<void> _sendToContext(String action) async {
     await ref.read(surveyorNotesProvider(widget.caseId).notifier).add(
-          caseId:          widget.caseId,
-          content:         action,
+          caseId: widget.caseId,
+          content: action,
           natureOfContent: NatureOfContent.followUpOpenQuestion,
-          priority:        CuePriority.important,
+          priority: CuePriority.important,
         );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -318,7 +440,8 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                 children: [
                   // Icon
                   Container(
-                    width: 34, height: 34,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
                       color: _kColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -327,7 +450,8 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                       item.isEml
                           ? Icons.email_outlined
                           : Icons.picture_as_pdf_outlined,
-                      color: _kColor, size: 18,
+                      color: _kColor,
+                      size: 18,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -359,8 +483,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                             Text(
                               DateFormat('dd MMM yy').format(item.corrDate!),
                               style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.textTertiary),
+                                  fontSize: 10, color: AppColors.textTertiary),
                             ),
                           ],
                           if (!_expanded && item.parties.isNotEmpty) ...[
@@ -368,8 +491,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                             Text(
                               '${item.parties.length} parties',
                               style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.textTertiary),
+                                  fontSize: 10, color: AppColors.textTertiary),
                             ),
                           ],
                           if (!_expanded && item.actions.isNotEmpty) ...[
@@ -377,8 +499,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                             Text(
                               '${item.actions.length} actions',
                               style: const TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.textTertiary),
+                                  fontSize: 10, color: AppColors.textTertiary),
                             ),
                           ],
                         ]),
@@ -394,6 +515,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                       onSelected: (v) {
                         if (v == 'preview') widget.onPreview();
                         if (v == 'extract') _extract();
+                        if (v == 'reply') _reply();
                         if (v == 'delete') _confirmDelete();
                       },
                       itemBuilder: (_) => [
@@ -413,10 +535,21 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                                 size: 16, color: _kColor),
                             SizedBox(width: 8),
                             Text('Extract with AI',
-                                style: TextStyle(
-                                    fontSize: 13, color: _kColor)),
+                                style: TextStyle(fontSize: 13, color: _kColor)),
                           ]),
                         ),
+                        if (item.isEml && item.sender != null)
+                          const PopupMenuItem(
+                            value: 'reply',
+                            child: Row(children: [
+                              Icon(Icons.reply_outlined,
+                                  size: 16, color: _kColor),
+                              SizedBox(width: 8),
+                              Text('Reply via Gmail',
+                                  style:
+                                      TextStyle(fontSize: 13, color: _kColor)),
+                            ]),
+                          ),
                         const PopupMenuItem(
                           value: 'delete',
                           child: Row(children: [
@@ -424,8 +557,8 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                                 color: Colors.red, size: 16),
                             SizedBox(width: 8),
                             Text('Delete',
-                                style: TextStyle(
-                                    color: Colors.red, fontSize: 13)),
+                                style:
+                                    TextStyle(color: Colors.red, fontSize: 13)),
                           ]),
                         ),
                       ],
@@ -507,24 +640,26 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                       child: Wrap(
                         spacing: 6,
                         runSpacing: 4,
-                        children: item.parties.map((p) => Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _kColor.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                                color: _kColor.withValues(alpha: 0.2)),
-                          ),
-                          child: Text(
-                            p.role != null
-                                ? '${p.name} · ${p.role}'
-                                : p.name,
-                            style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textPrimary),
-                          ),
-                        )).toList(),
+                        children: item.parties
+                            .map((p) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 7, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: _kColor.withValues(alpha: 0.07),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: _kColor.withValues(alpha: 0.2)),
+                                  ),
+                                  child: Text(
+                                    p.role != null
+                                        ? '${p.name} · ${p.role}'
+                                        : p.name,
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textPrimary),
+                                  ),
+                                ))
+                            .toList(),
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -566,8 +701,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Icon(Icons.arrow_right,
-                                  size: 14,
-                                  color: AppColors.textTertiary),
+                                  size: 14, color: AppColors.textTertiary),
                               const SizedBox(width: 2),
                               Expanded(
                                 child: Text(a,
@@ -616,20 +750,20 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _kColor,
                     side: const BorderSide(color: _kColor),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   ),
                 ),
                 const SizedBox(width: 8),
                 if (item.status == CorrStatus.pending ||
                     item.status == CorrStatus.failed)
                   OutlinedButton.icon(
-                    onPressed: item.status == CorrStatus.processing
-                        ? null
-                        : _extract,
+                    onPressed:
+                        item.status == CorrStatus.processing ? null : _extract,
                     icon: item.status == CorrStatus.processing
                         ? const SizedBox(
-                            width: 12, height: 12,
+                            width: 12,
+                            height: 12,
                             child: CircularProgressIndicator(strokeWidth: 1.5))
                         : const Icon(Icons.auto_awesome_outlined,
                             size: 14, color: _kColor),
@@ -667,15 +801,140 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
         content: const Text('The local file will also be removed.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
-            onPressed: () { Navigator.pop(ctx); widget.onDelete(); },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onDelete();
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Gmail reply dialog ─────────────────────────────────────────────────────
+
+class _GmailReplyDialog extends StatefulWidget {
+  const _GmailReplyDialog({required this.item});
+  final CorrespondenceModel item;
+
+  @override
+  State<_GmailReplyDialog> createState() => _GmailReplyDialogState();
+}
+
+class _GmailReplyDialogState extends State<_GmailReplyDialog> {
+  late final TextEditingController _toCtrl;
+  late final TextEditingController _subjectCtrl;
+  final _bodyCtrl = TextEditingController();
+  bool _sending = false;
+  String? _error;
+
+  /// Extracts the bare address from a "Display Name <addr@host>" header, or
+  /// returns the input unchanged if it's already a bare address.
+  static String _extractEmail(String raw) {
+    final match = RegExp(r'<([^>]+)>').firstMatch(raw);
+    return match?.group(1) ?? raw.trim();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _toCtrl =
+        TextEditingController(text: _extractEmail(widget.item.sender ?? ''));
+    _subjectCtrl = TextEditingController(
+        text: widget.item.title.startsWith('Re: ')
+            ? widget.item.title
+            : 'Re: ${widget.item.title}');
+  }
+
+  @override
+  void dispose() {
+    _toCtrl.dispose();
+    _subjectCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_toCtrl.text.trim().isEmpty || _bodyCtrl.text.trim().isEmpty) return;
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await GmailService.sendMessage(
+        to: _toCtrl.text.trim(),
+        subject: _subjectCtrl.text.trim(),
+        bodyText: _bodyCtrl.text,
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on GoogleSignInCancelled {
+      if (mounted) Navigator.pop(context, false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Send failed: $e';
+          _sending = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reply via Gmail'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _toCtrl,
+              decoration: const InputDecoration(labelText: 'To'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _subjectCtrl,
+              decoration: const InputDecoration(labelText: 'Subject'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _bodyCtrl,
+              decoration: const InputDecoration(labelText: 'Message'),
+              maxLines: 6,
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _sending ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _sending ? null : _send,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _kColor,
+            foregroundColor: Colors.white,
+          ),
+          child: _sending
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.5, color: Colors.white))
+              : const Text('Send'),
+        ),
+      ],
     );
   }
 }
@@ -707,12 +966,12 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
   void initState() {
     super.initState();
     final c = widget.currentCase;
-    _applyJob    = widget.refs.technicalFileNo != null &&
+    _applyJob = widget.refs.technicalFileNo != null &&
         (c == null || (c.hasPlaceholderFileNo as bool));
-    _applyClaim  = widget.refs.claimReference != null &&
+    _applyClaim = widget.refs.claimReference != null &&
         (c == null || (c.claimReference == null));
     _applyVessel = widget.refs.vesselName != null;
-    _applyDate   = widget.refs.instructionDate != null &&
+    _applyDate = widget.refs.instructionDate != null &&
         (c == null || c.instructionDate == null);
   }
 
@@ -721,9 +980,9 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
     try {
       final notifier = ref.read(caseProvider(widget.caseId).notifier);
       await notifier.updateCaseRefs(
-        technicalFileNo:       _applyJob    ? widget.refs.technicalFileNo       : null,
-        claimReference:  _applyClaim  ? widget.refs.claimReference  : null,
-        instructionDate: _applyDate   ? widget.refs.instructionDate : null,
+        technicalFileNo: _applyJob ? widget.refs.technicalFileNo : null,
+        claimReference: _applyClaim ? widget.refs.claimReference : null,
+        instructionDate: _applyDate ? widget.refs.instructionDate : null,
       );
       if (_applyVessel && widget.refs.vesselName != null) {
         await notifier.upsertVesselName(widget.refs.vesselName!);
@@ -737,7 +996,7 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
   @override
   Widget build(BuildContext context) {
     final refs = widget.refs;
-    final c    = widget.currentCase;
+    final c = widget.currentCase;
 
     return AlertDialog(
       title: const Row(children: [
@@ -760,8 +1019,10 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
               _RefRow(
                 label: 'Technical File No.',
                 extracted: refs.technicalFileNo!,
-                current: (c?.hasPlaceholderFileNo == true || c?.technicalFileNo == null)
-                    ? null : c?.technicalFileNo as String?,
+                current: (c?.hasPlaceholderFileNo == true ||
+                        c?.technicalFileNo == null)
+                    ? null
+                    : c?.technicalFileNo as String?,
                 checked: _applyJob,
                 onChanged: (v) => setState(() => _applyJob = v ?? false),
               ),
@@ -784,7 +1045,8 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
             if (refs.instructionDate != null)
               _RefRow(
                 label: 'Instruction Date',
-                extracted: '${refs.instructionDate!.day.toString().padLeft(2, '0')}/'
+                extracted:
+                    '${refs.instructionDate!.day.toString().padLeft(2, '0')}/'
                     '${refs.instructionDate!.month.toString().padLeft(2, '0')}/'
                     '${refs.instructionDate!.year}',
                 current: c?.instructionDate != null
@@ -811,7 +1073,8 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
           ),
           child: _saving
               ? const SizedBox(
-                  width: 14, height: 14,
+                  width: 14,
+                  height: 14,
                   child: CircularProgressIndicator(
                       strokeWidth: 1.5, color: Colors.white))
               : const Text('Apply'),
@@ -846,8 +1109,7 @@ class _RefRow extends StatelessWidget {
       tileColor: Colors.transparent,
       dense: true,
       title: Text(label,
-          style: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600)),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1004,7 +1266,9 @@ class _AttachmentDialogState extends State<_AttachmentDialog> {
                 Expanded(
                   child: Slider(
                     value: _minImageKb,
-                    min: 0, max: 200, divisions: 20,
+                    min: 0,
+                    max: 200,
+                    divisions: 20,
                     activeColor: _kColor,
                     onChanged: (v) => setState(() {
                       _minImageKb = v;
@@ -1057,8 +1321,7 @@ class _AttachmentDialogState extends State<_AttachmentDialog> {
                               maxLines: 1),
                           subtitle: Text(att.displaySize,
                               style: const TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textTertiary)),
+                                  fontSize: 11, color: AppColors.textTertiary)),
                         );
                       },
                     ),
@@ -1115,13 +1378,13 @@ class _ImageThumb extends StatelessWidget {
                 child: Row(children: [
                   Expanded(
                     child: Text(filename,
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 12),
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
                         overflow: TextOverflow.ellipsis),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close,
-                        color: Colors.white, size: 20),
+                    icon:
+                        const Icon(Icons.close, color: Colors.white, size: 20),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ]),
@@ -1135,7 +1398,8 @@ class _ImageThumb extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(6),
         child: SizedBox(
-          width: 48, height: 48,
+          width: 48,
+          height: 48,
           child: Image.memory(bytes, fit: BoxFit.cover),
         ),
       ),
@@ -1154,13 +1418,16 @@ class _FileTypeIcon extends StatelessWidget {
     final mt = mimeType.toLowerCase();
     final icon = mt.contains('pdf')
         ? Icons.picture_as_pdf_outlined
-        : mt.contains('word') || mt.contains('document') || mt.contains('msword')
+        : mt.contains('word') ||
+                mt.contains('document') ||
+                mt.contains('msword')
             ? Icons.description_outlined
             : mt.contains('excel') || mt.contains('spreadsheet')
                 ? Icons.table_chart_outlined
                 : Icons.attach_file;
     return Container(
-      width: 48, height: 48,
+      width: 48,
+      height: 48,
       decoration: BoxDecoration(
         color: _kColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
@@ -1179,8 +1446,8 @@ class _PdfPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-            title: Text(item.title,
-                maxLines: 1, overflow: TextOverflow.ellipsis)),
+            title:
+                Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
         body: PdfViewer.file(item.localPath),
       );
 }
@@ -1194,8 +1461,8 @@ class _EmailPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-            title: Text(item.title,
-                maxLines: 1, overflow: TextOverflow.ellipsis)),
+            title:
+                Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -1216,9 +1483,7 @@ class _EmailPreviewScreen extends StatelessWidget {
               SelectableText(
                 item.bodyText ?? '(No body text)',
                 style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textPrimary,
-                    height: 1.5),
+                    fontSize: 13, color: AppColors.textPrimary, height: 1.5),
               ),
             ],
           ),
@@ -1246,8 +1511,8 @@ class _HeaderRow extends StatelessWidget {
         ),
         Expanded(
           child: Text(value,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textPrimary)),
+              style:
+                  const TextStyle(fontSize: 12, color: AppColors.textPrimary)),
         ),
       ]),
     );
@@ -1261,10 +1526,10 @@ class _StatusChip extends StatelessWidget {
   final CorrStatus status;
 
   Color get _color => switch (status) {
-        CorrStatus.pending    => AppColors.textTertiary,
+        CorrStatus.pending => AppColors.textTertiary,
         CorrStatus.processing => AppColors.warning,
-        CorrStatus.completed  => AppColors.success,
-        CorrStatus.failed     => AppColors.error,
+        CorrStatus.completed => AppColors.success,
+        CorrStatus.failed => AppColors.error,
       };
 
   @override
@@ -1297,8 +1562,8 @@ class _MetaChip extends StatelessWidget {
       const SizedBox(width: 3),
       Flexible(
         child: Text(label,
-            style: const TextStyle(
-                fontSize: 11, color: AppColors.textSecondary),
+            style:
+                const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             overflow: TextOverflow.ellipsis),
       ),
     ]);
@@ -1318,7 +1583,8 @@ class _EmptyState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 64, height: 64,
+            width: 64,
+            height: 64,
             decoration: BoxDecoration(
               color: _kColor.withValues(alpha: 0.1),
               shape: BoxShape.circle,
@@ -1335,8 +1601,7 @@ class _EmptyState extends StatelessWidget {
           const Text(
               'Upload PDFs or import .eml emails\nAI extracts parties, summary and actions',
               textAlign: TextAlign.center,
-              style:
-                  TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onAdd,
@@ -1376,7 +1641,8 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
         child: Column(children: [
           const SizedBox(height: 8),
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             decoration: BoxDecoration(
                 color: AppColors.border,
                 borderRadius: BorderRadius.circular(2)),
@@ -1385,7 +1651,8 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(children: [
-              const Icon(Icons.auto_awesome, size: 16, color: AppColors.success),
+              const Icon(Icons.auto_awesome,
+                  size: 16, color: AppColors.success),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1411,10 +1678,8 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
                   color: _kColor,
                   icon: Icons.email_outlined,
                   rows: [
-                    if (item.sender != null)
-                      _CorrRow('From', item.sender!),
-                    if (item.recipient != null)
-                      _CorrRow('To', item.recipient!),
+                    if (item.sender != null) _CorrRow('From', item.sender!),
+                    if (item.recipient != null) _CorrRow('To', item.recipient!),
                     if (item.corrDate != null)
                       _CorrRow('Date',
                           DateFormat('dd MMM yyyy').format(item.corrDate!)),
@@ -1494,8 +1759,7 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Text('• $d',
                             style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textPrimary)),
+                                fontSize: 12, color: AppColors.textPrimary)),
                       )),
                 ],
               ],

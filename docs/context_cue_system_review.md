@@ -57,24 +57,37 @@ has changed since the last summary (signature = note ids + updatedAt), shown as 
 line under the collapsed header in place of the old plain count. Collapsed height grows
 from 44→62 to fit it.
 
-**Step 5 (AI-extraction auto-classification) — groundwork done, extraction wiring not
-yet started, 5 July 2026.** Added `SurveyorNote.pendingReview` (migration
-`024_cue_pending_review.sql` + SQLite v13) — true for an unconfirmed AI-suggested
-allocation; `editNote()` always clears it (any explicit save = human review), and a new
-`confirmAllocation(noteId)` provider method does a one-tap clear for a future "Suggested"
-tab action. `add()` takes an optional `pendingReview` param. **Not yet done**: the
-extraction prompt itself (`ClaudeApi.extractDocument()`) doesn't request a
-`case_section`/`origin` suggestion yet; `document_provider.dart`/
-`document_vault_screen.dart`'s import flow doesn't set `caseSection`/`origin`/
-`pendingReview` on created cues yet; there's no "Suggested" tab in
-`surveyor_notes_screen.dart` yet; `report_provider.dart`'s AI-draft cue reads (5 filters,
-×2 for the manual-redraft switch) don't yet exclude `pending_review = true` cues — this
-last part is the actual safety guarantee from the original decision ("nothing reaches
-report content until confirmed") and **must** land together with the rest of step 5, not
-be skipped.
+**Step 5 (AI-extraction auto-classification) — done, 6 July 2026.** Added
+`SurveyorNote.pendingReview` (migration `024_cue_pending_review.sql` + SQLite v13) — true
+for an unconfirmed AI-suggested allocation; `editNote()` always clears it (any explicit
+save = human review), and `confirmAllocation(noteId)` does a one-tap clear from the
+"Suggested" tab. `add()` takes an optional `pendingReview` param.
+`ClaudeApi.extractDocument()`'s `context_findings` schema now asks for a `case_section`
+(the 14 `CaseSection.ordered` machine values) and an `origin`
+(`assured_owner`/`third_party`/`surveyor`) guess per finding, with rules telling the model
+to make its best guess rather than omit — a human confirms or corrects regardless.
+`document_provider.dart`'s extraction parsing and both of `document_vault_screen.dart`'s
+parsing sites (`_parsePhotoExtraction`, `reapplyExtraction`) carry the new fields through
+as parallel `findingCaseSections`/`findingOrigins` lists on `DocExtractionResult`; the
+single `notesNotifier.add(...)` call site that creates cues from extraction results
+(`_ExtractionResultSheet._apply()`) now passes `caseSection`/`origin` (via
+`CaseSection.fromValue`/`CueOrigin.fromValue`) and `pendingReview: true` unconditionally —
+including when the model didn't offer a section guess, so an unclassified extracted cue
+still lands in review rather than silently as "retained." `surveyor_notes_screen.dart`
+gained a 4th "Suggested" tab (`priority != ignored && pendingReview == true`, badge count
+in `AppColors.midBlue`); the Retained/Unallocated partitions now also require
+`pendingReview == false`. Each `_NoteCard` in that tab shows a "Suggested" meta chip and a
+quick check-circle icon (next to the existing edit/delete menu) calling
+`confirmAllocation(noteId)`. `report_provider.dart`'s 10 AI-draft cue filters (the 5
+case-build blocks × first-build and manual-redraft paths) all gained `&&
+n['pending_review'] != true` — the actual safety guarantee behind the whole feature, now
+shipped together with the rest of step 5 as required. `flutter analyze` clean; app
+smoke-tested launching on Chrome with no startup errors (full click-through + a live
+extraction-API test not yet done — left for the user to verify manually).
 
-**Not started:** nothing else from the original plan — steps 1–4 and step 5's groundwork
-are complete; only step 5's extraction-wiring remains, detailed above.
+**Not started:** nothing — steps 1–5 are all complete. See §4 for the handful of
+explicitly-deferred/out-of-scope follow-ons (per-format section mapping, formal
+repair-phase concept) that were never in scope for this pass.
 
 ---
 
@@ -426,41 +439,21 @@ those sections). What's left:
 3. ✅ **Done.** Re-embedded the remaining orphaned flat tags (§3.2: Occurrence,
    Attendance, Timeline, Extent of Damage, Repair Times).
 4. ✅ **Done.** Case-screen quick-summary feature (§3.3).
-5. 🚧 **Groundwork done, extraction wiring not started** (§3.5) — see the Implementation
-   Status section above for the precise remaining checklist. Picking this back up should
-   start with `ClaudeApi.extractDocument()`'s prompt schema, since everything else in
-   step 5 depends on the shape of what it returns.
+5. ✅ **Done.** AI-extraction auto-classification, including the report-drafting
+   exclusion safety guarantee (§3.5).
 
-## 6. Resuming this work — start here
+## 6. Follow-on work — not attempted this pass
 
-Next session, pick up step 5 in this order:
+Everything in the original plan (§5, steps 1–5) is built. What's left is exactly the
+items §4 already called out as deferred/out-of-scope, plus one verification gap:
 
-1. **Extend the extraction prompt** — `lib/core/api/claude_api.dart`'s
-   `extractDocument()`, the `context_findings` schema block (~line 929) and its rules
-   note (~line 1002). Add a `case_section` field (list the 14 `CaseSection.ordered`
-   machine values as the allowed options) and an `origin` field (`assured_owner` /
-   `third_party` / `surveyor`) alongside the existing `text`/`note_category`.
-2. **Wire the import flow** — `lib/features/documents/providers/document_provider.dart`
-   (~line 353) and `lib/features/documents/screens/document_vault_screen.dart` (three
-   separate parsing sites, ~1916/2055/2157 — this file already had pre-existing
-   duplication here before this work, not introduced by it) need to also capture the new
-   `case_section`/`origin` fields into parallel lists, then pass
-   `caseSection: CaseSection.fromValue(...)`, `origin: CueOrigin.fromValue(...)`, and
-   `pendingReview: true` into every `notesNotifier.add(...)` call built from extraction
-   results (there are two such call sites in `document_vault_screen.dart`).
-3. **Add the "Suggested" tab** — `lib/features/surveyor_notes/screens/
-   surveyor_notes_screen.dart` currently has 3 tabs (Retained/Unallocated/Ignored,
-   ~line 74). Add a 4th for `priority != ignored && pendingReview == true`, and adjust
-   the Retained/Unallocated partitioning (~line 54) to also require
-   `pendingReview == false` so a freshly-extracted cue doesn't appear "retained" before
-   it's actually been reviewed. Give each card in this tab a quick "Confirm" action
-   calling the new `confirmAllocation(noteId)` provider method, alongside the existing
-   edit/delete.
-4. **Exclude pending cues from AI-drafted report content** — `lib/features/reports/
-   providers/report_provider.dart` has 10 occurrences of `n['case_section'] == '...'`
-   (5 case-build blocks × first-build and manual-redraft paths). Each needs
-   `&& n['pending_review'] != true` added to its `.where(...)` filter. This is the actual
-   safety guarantee behind the whole feature — don't ship 1–3 without this.
-5. Run `flutter analyze` and manually verify: import a test document, confirm extracted
-   cues land in "Suggested" (not "Retained"), confirm one, verify it now counts toward
-   its case section's AI draft.
+1. **Live end-to-end verification of step 5** — import a real test document, confirm
+   extracted cues land in "Suggested" (not "Retained"), confirm one, verify it now counts
+   toward its case section's AI draft. Not done yet because it requires a real (paid)
+   Claude extraction call; `flutter analyze` is clean and the app was smoke-tested
+   launching without errors, but the actual extraction → Suggested → confirm → report-draft
+   round-trip hasn't been exercised against live data.
+2. Per-format `case_section → report_section` mapping (§3.4's forward-looking note) —
+   explicitly out of scope, would only matter once a second output format ships.
+3. Formal repair-phase concept (preliminary/temporary/permanent), flagged as a gap in
+   §3.1 — not modeled today, no immediate need identified.

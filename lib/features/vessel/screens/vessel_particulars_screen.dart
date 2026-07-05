@@ -35,23 +35,58 @@ import '../../../core/api/supabase_client.dart';
 // ── ABL London H&M Report template option lists ───────────────────────────────
 
 const _vesselTypes = [
-  'General Cargo Ship', 'Oil Tanker', 'Products Carrier', 'Ro Ro',
-  'Passenger Ferry', 'Offshore Support Vessel', 'Offshore Supply Vessel',
-  'Container Ship', 'Anchor Handling Tug', 'Tug', 'Bulk Carrier',
-  'Chemical Tanker', 'Container Carrier', 'Reefer Vessel', 'LNG Carrier',
-  'LPG Carrier', 'Oceanographic Research Vessel', 'Seismic Survey Vessel',
-  'Dive Support Vessel', 'Tender', 'Crew Boat', 'Cable Layer',
-  'Pipe Layer', 'Work Boat', 'Pilot Boat', 'Private Yacht', 'Sailing Vessel',
+  'General Cargo Ship',
+  'Oil Tanker',
+  'Products Carrier',
+  'Ro Ro',
+  'Passenger Ferry',
+  'Offshore Support Vessel',
+  'Offshore Supply Vessel',
+  'Container Ship',
+  'Anchor Handling Tug',
+  'Tug',
+  'Bulk Carrier',
+  'Chemical Tanker',
+  'Container Carrier',
+  'Reefer Vessel',
+  'LNG Carrier',
+  'LPG Carrier',
+  'Oceanographic Research Vessel',
+  'Seismic Survey Vessel',
+  'Dive Support Vessel',
+  'Tender',
+  'Crew Boat',
+  'Cable Layer',
+  'Pipe Layer',
+  'Work Boat',
+  'Pilot Boat',
+  'Private Yacht',
+  'Sailing Vessel',
 ];
 
 const _classSocieties = [
-  'American Bureau of Shipping', 'Bureau Veritas', 'DNV GL',
-  'Lloyds Register of Shipping', 'Nippon Kaiji Kyokai', 'R.I.N.A.',
-  'China Classification Society', 'Russian Maritime Register of Shipping',
-  'Korean Register of Shipping', 'Polish Register of Shipping',
-  'Indian Register of Shipping', 'Croatian Register of Shipping',
-  'A.B.S.', 'B.V.', 'C.C.S.', 'C.R.S', 'I.R.S', 'K.R.S.',
-  'L.R.S.', 'N.K.K.', 'R.M.R.S', 'P.R.S',
+  'American Bureau of Shipping',
+  'Bureau Veritas',
+  'DNV GL',
+  'Lloyds Register of Shipping',
+  'Nippon Kaiji Kyokai',
+  'R.I.N.A.',
+  'China Classification Society',
+  'Russian Maritime Register of Shipping',
+  'Korean Register of Shipping',
+  'Polish Register of Shipping',
+  'Indian Register of Shipping',
+  'Croatian Register of Shipping',
+  'A.B.S.',
+  'B.V.',
+  'C.C.S.',
+  'C.R.S',
+  'I.R.S',
+  'K.R.S.',
+  'L.R.S.',
+  'N.K.K.',
+  'R.M.R.S',
+  'P.R.S',
 ];
 
 const _propulsionTypes = [
@@ -61,9 +96,12 @@ const _propulsionTypes = [
 ];
 
 const _propellerTypes = [
-  'Single screw fixed pitch', 'Twin screw fixed pitch',
-  'Single Azipod', 'Twin Azipods',
-  'Single screw variable pitch', 'Twin screw variable pitch',
+  'Single screw fixed pitch',
+  'Twin screw fixed pitch',
+  'Single Azipod',
+  'Twin Azipods',
+  'Single screw variable pitch',
+  'Twin screw variable pitch',
   'Water Jet',
 ];
 
@@ -75,18 +113,29 @@ const _propulsionDriveTypes = [
 ];
 
 const _breadthQualifiers = [
-  'Moulded Breadth', 'Extreme Breadth', 'Beam (OA)', 'Breadth', 'Beam',
+  'Moulded Breadth',
+  'Extreme Breadth',
+  'Beam (OA)',
+  'Breadth',
+  'Beam',
 ];
 
 const _draftQualifiers = ['Load Line Draft', 'Max Draft', 'Draft'];
 
 const _tankerTypes = {
-  'oil tanker', 'products carrier', 'chemical tanker',
-  'LNG carrier', 'LPG carrier', 'Reefer vessel',
+  'oil tanker',
+  'products carrier',
+  'chemical tanker',
+  'LNG carrier',
+  'LPG carrier',
+  'Reefer vessel',
 };
 
 const _cargoTypes = {
-  'general cargo ship', 'bulk carrier', 'container ship', 'container carrier',
+  'general cargo ship',
+  'bulk carrier',
+  'container ship',
+  'container carrier',
 };
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -109,39 +158,39 @@ class _VesselParticularsScreenState
   bool _fetchingEquasis = false;
 
   // Text controllers
-  final _nameCtrl         = TextEditingController();
-  final _prevNameCtrl     = TextEditingController();
-  final _imoCtrl          = TextEditingController();
-  final _callSignCtrl     = TextEditingController();
-  final _mmsiCtrl         = TextEditingController();
-  final _flagCtrl         = TextEditingController();
-  final _portCtrl         = TextEditingController();
-  final _gtCtrl           = TextEditingController();
-  final _ntCtrl           = TextEditingController();
-  final _dwtCtrl          = TextEditingController();
-  final _loaCtrl          = TextEditingController();
-  final _lbpCtrl          = TextEditingController();
-  final _breadthCtrl      = TextEditingController();
-  final _depthCtrl        = TextEditingController();
-  final _draftCtrl        = TextEditingController();
-  final _yearBuiltCtrl    = TextEditingController();
-  final _buildYardCtrl    = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _prevNameCtrl = TextEditingController();
+  final _imoCtrl = TextEditingController();
+  final _callSignCtrl = TextEditingController();
+  final _mmsiCtrl = TextEditingController();
+  final _flagCtrl = TextEditingController();
+  final _portCtrl = TextEditingController();
+  final _gtCtrl = TextEditingController();
+  final _ntCtrl = TextEditingController();
+  final _dwtCtrl = TextEditingController();
+  final _loaCtrl = TextEditingController();
+  final _lbpCtrl = TextEditingController();
+  final _breadthCtrl = TextEditingController();
+  final _depthCtrl = TextEditingController();
+  final _draftCtrl = TextEditingController();
+  final _yearBuiltCtrl = TextEditingController();
+  final _buildYardCtrl = TextEditingController();
   final _buildCountryCtrl = TextEditingController();
-  final _ownersCtrl       = TextEditingController();
-  final _operatorsCtrl    = TextEditingController();
-  final _notationCtrl     = TextEditingController();
-  final _speedCtrl        = TextEditingController();
-  final _holdsCtrl        = TextEditingController();
-  final _tanksCtrl        = TextEditingController();
-  final _mcrValueCtrl     = TextEditingController();
-  final _mcrRpmCtrl       = TextEditingController();
+  final _ownersCtrl = TextEditingController();
+  final _operatorsCtrl = TextEditingController();
+  final _notationCtrl = TextEditingController();
+  final _speedCtrl = TextEditingController();
+  final _holdsCtrl = TextEditingController();
+  final _tanksCtrl = TextEditingController();
+  final _mcrValueCtrl = TextEditingController();
+  final _mcrRpmCtrl = TextEditingController();
   // Fields moved to Identity tab
-  final _officialNumberCtrl       = TextEditingController();
+  final _officialNumberCtrl = TextEditingController();
   final _constructionStandardCtrl = TextEditingController();
-  final _piClubCtrl               = TextEditingController();
+  final _piClubCtrl = TextEditingController();
   // Regulatory Standard / AMSA DCV fields (Identity tab)
-  final _uviCtrl           = TextEditingController();
-  final _surveyCertNoCtrl  = TextEditingController();
+  final _uviCtrl = TextEditingController();
+  final _surveyCertNoCtrl = TextEditingController();
   RegulatoryStandard? _regulatoryStandard;
   AmsaVesselUseClass? _amsaVesselUseClass;
   AmsaServiceCategory? _amsaServiceCategory;
@@ -150,7 +199,7 @@ class _VesselParticularsScreenState
   DateTime? _hullSurveyDue;
   DateTime? _tailShaftSurveyDue;
   // Class & Statutory tab — PSC / ISPS (ISM/Class reporting)
-  final _pscSummaryCtrl           = TextEditingController();
+  final _pscSummaryCtrl = TextEditingController();
   bool? _ismIncidentReported;
   bool? _classIncidentReported;
   DateTime? _pscLastInspection;
@@ -179,15 +228,38 @@ class _VesselParticularsScreenState
   void dispose() {
     _tabController.dispose();
     for (final c in [
-      _nameCtrl, _prevNameCtrl, _imoCtrl, _callSignCtrl, _mmsiCtrl, _flagCtrl, _portCtrl,
-      _gtCtrl, _ntCtrl, _dwtCtrl, _loaCtrl, _lbpCtrl,
-      _breadthCtrl, _depthCtrl, _draftCtrl, _yearBuiltCtrl,
-      _buildYardCtrl, _buildCountryCtrl, _ownersCtrl, _operatorsCtrl,
-      _notationCtrl, _speedCtrl, _holdsCtrl, _tanksCtrl,
-      _mcrValueCtrl, _mcrRpmCtrl,
-      _officialNumberCtrl, _constructionStandardCtrl, _piClubCtrl,
+      _nameCtrl,
+      _prevNameCtrl,
+      _imoCtrl,
+      _callSignCtrl,
+      _mmsiCtrl,
+      _flagCtrl,
+      _portCtrl,
+      _gtCtrl,
+      _ntCtrl,
+      _dwtCtrl,
+      _loaCtrl,
+      _lbpCtrl,
+      _breadthCtrl,
+      _depthCtrl,
+      _draftCtrl,
+      _yearBuiltCtrl,
+      _buildYardCtrl,
+      _buildCountryCtrl,
+      _ownersCtrl,
+      _operatorsCtrl,
+      _notationCtrl,
+      _speedCtrl,
+      _holdsCtrl,
+      _tanksCtrl,
+      _mcrValueCtrl,
+      _mcrRpmCtrl,
+      _officialNumberCtrl,
+      _constructionStandardCtrl,
+      _piClubCtrl,
       _pscSummaryCtrl,
-      _uviCtrl, _surveyCertNoCtrl,
+      _uviCtrl,
+      _surveyCertNoCtrl,
     ]) {
       c.dispose();
     }
@@ -195,115 +267,143 @@ class _VesselParticularsScreenState
   }
 
   void _populateFields(VesselModel v) {
-    _vesselId           = v.vesselId;
-    _nameCtrl.text      = v.name;
-    _prevNameCtrl.text  = v.previousName        ?? '';
-    _imoCtrl.text       = v.imoNumber          ?? '';
-    _callSignCtrl.text  = v.callSign           ?? '';
-    _mmsiCtrl.text      = v.mmsi               ?? '';
-    _vesselType         = v.vesselType;
-    _flagCtrl.text      = v.flag               ?? '';
-    _portCtrl.text      = v.portOfRegistry     ?? '';
-    _gtCtrl.text        = v.grossTonnage?.toString()    ?? '';
-    _ntCtrl.text        = v.netTonnage?.toString()      ?? '';
-    _dwtCtrl.text       = v.deadweight?.toString()      ?? '';
-    _holdsCtrl.text     = v.holdsCount?.toString()      ?? '';
-    _tanksCtrl.text     = v.tanksCount?.toString()      ?? '';
-    _loaCtrl.text       = v.lengthOa?.toString()        ?? '';
-    _lbpCtrl.text       = v.lengthBp?.toString()        ?? '';
-    _breadthCtrl.text   = v.breadth?.toString()         ?? '';
-    _breadthQualifier   = v.breadthQualifier;
-    _depthCtrl.text     = v.depth?.toString()           ?? '';
-    _draftCtrl.text     = v.maxDraft?.toString()        ?? '';
-    _draftQualifier     = v.draftQualifier;
-    _yearBuiltCtrl.text     = v.yearBuilt?.toString()   ?? '';
-    _buildYardCtrl.text     = v.buildYard               ?? '';
-    _buildCountryCtrl.text  = v.buildCountry            ?? '';
-    _ownersCtrl.text        = v.owners                  ?? '';
-    _operatorsCtrl.text     = v.operators               ?? '';
-    _classSociety           = v.classSociety;
-    _notationCtrl.text      = v.classNotation           ?? '';
-    _speedCtrl.text         = v.serviceSpeed?.toString()  ?? '';
-    _propulsionType         = v.propulsionType;
-    _propellerType          = v.propellerType;
-    _propulsionDriveType    = v.propulsionDriveType;
-    _mcrValueCtrl.text      = v.mcrPowerValue?.toString() ?? '';
-    _mcrRpmCtrl.text        = v.mcrRpm?.toString()        ?? '';
-    _mcrPowerUnit           = v.mcrPowerUnit ?? 'kW';
-    _officialNumberCtrl.text       = v.officialNumber       ?? '';
+    _vesselId = v.vesselId;
+    _nameCtrl.text = v.name;
+    _prevNameCtrl.text = v.previousName ?? '';
+    _imoCtrl.text = v.imoNumber ?? '';
+    _callSignCtrl.text = v.callSign ?? '';
+    _mmsiCtrl.text = v.mmsi ?? '';
+    _vesselType = v.vesselType;
+    _flagCtrl.text = v.flag ?? '';
+    _portCtrl.text = v.portOfRegistry ?? '';
+    _gtCtrl.text = v.grossTonnage?.toString() ?? '';
+    _ntCtrl.text = v.netTonnage?.toString() ?? '';
+    _dwtCtrl.text = v.deadweight?.toString() ?? '';
+    _holdsCtrl.text = v.holdsCount?.toString() ?? '';
+    _tanksCtrl.text = v.tanksCount?.toString() ?? '';
+    _loaCtrl.text = v.lengthOa?.toString() ?? '';
+    _lbpCtrl.text = v.lengthBp?.toString() ?? '';
+    _breadthCtrl.text = v.breadth?.toString() ?? '';
+    _breadthQualifier = v.breadthQualifier;
+    _depthCtrl.text = v.depth?.toString() ?? '';
+    _draftCtrl.text = v.maxDraft?.toString() ?? '';
+    _draftQualifier = v.draftQualifier;
+    _yearBuiltCtrl.text = v.yearBuilt?.toString() ?? '';
+    _buildYardCtrl.text = v.buildYard ?? '';
+    _buildCountryCtrl.text = v.buildCountry ?? '';
+    _ownersCtrl.text = v.owners ?? '';
+    _operatorsCtrl.text = v.operators ?? '';
+    _classSociety = v.classSociety;
+    _notationCtrl.text = v.classNotation ?? '';
+    _speedCtrl.text = v.serviceSpeed?.toString() ?? '';
+    _propulsionType = v.propulsionType;
+    _propellerType = v.propellerType;
+    _propulsionDriveType = v.propulsionDriveType;
+    _mcrValueCtrl.text = v.mcrPowerValue?.toString() ?? '';
+    _mcrRpmCtrl.text = v.mcrRpm?.toString() ?? '';
+    _mcrPowerUnit = v.mcrPowerUnit ?? 'kW';
+    _officialNumberCtrl.text = v.officialNumber ?? '';
     _constructionStandardCtrl.text = v.constructionStandard ?? '';
-    _piClubCtrl.text               = v.piClub               ?? '';
-    _ismIncidentReported   = v.ismIncidentReported;
+    _piClubCtrl.text = v.piClub ?? '';
+    _ismIncidentReported = v.ismIncidentReported;
     _classIncidentReported = v.classIncidentReported;
-    _pscLastInspection     = v.pscLastInspection;
-    _pscLastResult         = v.pscLastResult;
-    _pscSummaryCtrl.text   = v.pscSummary ?? '';
-    _ispsStatus            = v.ispsStatus;
-    _regulatoryStandard    = v.regulatoryStandard;
-    _amsaVesselUseClass    = v.amsaVesselUseClass;
-    _amsaServiceCategory   = v.amsaServiceCategory;
-    _hullMaterial          = v.hullMaterial;
-    _uviCtrl.text          = v.uniqueVesselIdentifier ?? '';
-    _surveyCertNoCtrl.text = v.surveyCertificateNo    ?? '';
-    _equipmentSurveyDue    = v.equipmentSurveyDue;
-    _hullSurveyDue         = v.hullSurveyDue;
-    _tailShaftSurveyDue    = v.tailShaftSurveyDue;
+    _pscLastInspection = v.pscLastInspection;
+    _pscLastResult = v.pscLastResult;
+    _pscSummaryCtrl.text = v.pscSummary ?? '';
+    _ispsStatus = v.ispsStatus;
+    _regulatoryStandard = v.regulatoryStandard;
+    _amsaVesselUseClass = v.amsaVesselUseClass;
+    _amsaServiceCategory = v.amsaServiceCategory;
+    _hullMaterial = v.hullMaterial;
+    _uviCtrl.text = v.uniqueVesselIdentifier ?? '';
+    _surveyCertNoCtrl.text = v.surveyCertificateNo ?? '';
+    _equipmentSurveyDue = v.equipmentSurveyDue;
+    _hullSurveyDue = v.hullSurveyDue;
+    _tailShaftSurveyDue = v.tailShaftSurveyDue;
   }
 
   Map<String, dynamic> _collectFields() => {
-    'name':                 _nameCtrl.text.trim(),
-    'previous_name':        _prevNameCtrl.text.trim().isEmpty ? null : _prevNameCtrl.text.trim(),
-    'imo_number':           _imoCtrl.text.trim().isEmpty      ? null : _imoCtrl.text.trim(),
-    'call_sign':            _callSignCtrl.text.trim().isEmpty ? null : _callSignCtrl.text.trim(),
-    'mmsi':                 _mmsiCtrl.text.trim().isEmpty     ? null : _mmsiCtrl.text.trim(),
-    'vessel_type':          _vesselType,
-    'flag':                 _flagCtrl.text.trim().isEmpty     ? null : _flagCtrl.text.trim(),
-    'port_of_registry':     _portCtrl.text.trim().isEmpty     ? null : _portCtrl.text.trim(),
-    'gross_tonnage':        double.tryParse(_gtCtrl.text.trim()),
-    'net_tonnage':          double.tryParse(_ntCtrl.text.trim()),
-    'deadweight':           double.tryParse(_dwtCtrl.text.trim()),
-    'holds_count':          int.tryParse(_holdsCtrl.text.trim()),
-    'tanks_count':          int.tryParse(_tanksCtrl.text.trim()),
-    'length_oa':            double.tryParse(_loaCtrl.text.trim()),
-    'length_bp':            double.tryParse(_lbpCtrl.text.trim()),
-    'breadth':              double.tryParse(_breadthCtrl.text.trim()),
-    'breadth_qualifier':    _breadthQualifier,
-    'depth':                double.tryParse(_depthCtrl.text.trim()),
-    'max_draft':            double.tryParse(_draftCtrl.text.trim()),
-    'draft_qualifier':      _draftQualifier,
-    'year_built':           int.tryParse(_yearBuiltCtrl.text.trim()),
-    'build_yard':           _buildYardCtrl.text.trim().isEmpty     ? null : _buildYardCtrl.text.trim(),
-    'build_country':        _buildCountryCtrl.text.trim().isEmpty  ? null : _buildCountryCtrl.text.trim(),
-    'owners':               _ownersCtrl.text.trim().isEmpty        ? null : _ownersCtrl.text.trim(),
-    'operators':            _operatorsCtrl.text.trim().isEmpty     ? null : _operatorsCtrl.text.trim(),
-    'class_society':        _classSociety,
-    'class_notation':       _notationCtrl.text.trim().isEmpty      ? null : _notationCtrl.text.trim(),
-    'service_speed':        double.tryParse(_speedCtrl.text.trim()),
-    'propulsion_type':      _propulsionType,
-    'propeller_type':       _propellerType,
-    'propulsion_drive_type': _propulsionDriveType,
-    'mcr_power_value':      double.tryParse(_mcrValueCtrl.text.trim()),
-    'mcr_rpm':              int.tryParse(_mcrRpmCtrl.text.trim()),
-    'mcr_power_unit':       _mcrPowerUnit,
-    'official_number':         _officialNumberCtrl.text.trim().isEmpty       ? null : _officialNumberCtrl.text.trim(),
-    'construction_standard':   _constructionStandardCtrl.text.trim().isEmpty ? null : _constructionStandardCtrl.text.trim(),
-    'pi_club':                 _piClubCtrl.text.trim().isEmpty               ? null : _piClubCtrl.text.trim(),
-    'ism_incident_reported':   _ismIncidentReported,
-    'class_incident_reported': _classIncidentReported,
-    'psc_last_inspection':     _pscLastInspection?.toIso8601String().split('T').first,
-    'psc_last_result':         _pscLastResult?.value,
-    'psc_summary':             _pscSummaryCtrl.text.trim().isEmpty ? null : _pscSummaryCtrl.text.trim(),
-    'isps_status':             _ispsStatus?.value,
-    'regulatory_standard':     _regulatoryStandard?.value,
-    'amsa_vessel_use_class':   _amsaVesselUseClass?.value,
-    'amsa_service_category':   _amsaServiceCategory?.value,
-    'hull_material':           _hullMaterial?.value,
-    'unique_vessel_identifier': _uviCtrl.text.trim().isEmpty ? null : _uviCtrl.text.trim(),
-    'survey_certificate_no':   _surveyCertNoCtrl.text.trim().isEmpty ? null : _surveyCertNoCtrl.text.trim(),
-    'equipment_survey_due':    _equipmentSurveyDue?.toIso8601String().split('T').first,
-    'hull_survey_due':         _hullSurveyDue?.toIso8601String().split('T').first,
-    'tail_shaft_survey_due':   _tailShaftSurveyDue?.toIso8601String().split('T').first,
-  };
+        'name': _nameCtrl.text.trim(),
+        'previous_name': _prevNameCtrl.text.trim().isEmpty
+            ? null
+            : _prevNameCtrl.text.trim(),
+        'imo_number':
+            _imoCtrl.text.trim().isEmpty ? null : _imoCtrl.text.trim(),
+        'call_sign': _callSignCtrl.text.trim().isEmpty
+            ? null
+            : _callSignCtrl.text.trim(),
+        'mmsi': _mmsiCtrl.text.trim().isEmpty ? null : _mmsiCtrl.text.trim(),
+        'vessel_type': _vesselType,
+        'flag': _flagCtrl.text.trim().isEmpty ? null : _flagCtrl.text.trim(),
+        'port_of_registry':
+            _portCtrl.text.trim().isEmpty ? null : _portCtrl.text.trim(),
+        'gross_tonnage': double.tryParse(_gtCtrl.text.trim()),
+        'net_tonnage': double.tryParse(_ntCtrl.text.trim()),
+        'deadweight': double.tryParse(_dwtCtrl.text.trim()),
+        'holds_count': int.tryParse(_holdsCtrl.text.trim()),
+        'tanks_count': int.tryParse(_tanksCtrl.text.trim()),
+        'length_oa': double.tryParse(_loaCtrl.text.trim()),
+        'length_bp': double.tryParse(_lbpCtrl.text.trim()),
+        'breadth': double.tryParse(_breadthCtrl.text.trim()),
+        'breadth_qualifier': _breadthQualifier,
+        'depth': double.tryParse(_depthCtrl.text.trim()),
+        'max_draft': double.tryParse(_draftCtrl.text.trim()),
+        'draft_qualifier': _draftQualifier,
+        'year_built': int.tryParse(_yearBuiltCtrl.text.trim()),
+        'build_yard': _buildYardCtrl.text.trim().isEmpty
+            ? null
+            : _buildYardCtrl.text.trim(),
+        'build_country': _buildCountryCtrl.text.trim().isEmpty
+            ? null
+            : _buildCountryCtrl.text.trim(),
+        'owners':
+            _ownersCtrl.text.trim().isEmpty ? null : _ownersCtrl.text.trim(),
+        'operators': _operatorsCtrl.text.trim().isEmpty
+            ? null
+            : _operatorsCtrl.text.trim(),
+        'class_society': _classSociety,
+        'class_notation': _notationCtrl.text.trim().isEmpty
+            ? null
+            : _notationCtrl.text.trim(),
+        'service_speed': double.tryParse(_speedCtrl.text.trim()),
+        'propulsion_type': _propulsionType,
+        'propeller_type': _propellerType,
+        'propulsion_drive_type': _propulsionDriveType,
+        'mcr_power_value': double.tryParse(_mcrValueCtrl.text.trim()),
+        'mcr_rpm': int.tryParse(_mcrRpmCtrl.text.trim()),
+        'mcr_power_unit': _mcrPowerUnit,
+        'official_number': _officialNumberCtrl.text.trim().isEmpty
+            ? null
+            : _officialNumberCtrl.text.trim(),
+        'construction_standard': _constructionStandardCtrl.text.trim().isEmpty
+            ? null
+            : _constructionStandardCtrl.text.trim(),
+        'pi_club':
+            _piClubCtrl.text.trim().isEmpty ? null : _piClubCtrl.text.trim(),
+        'ism_incident_reported': _ismIncidentReported,
+        'class_incident_reported': _classIncidentReported,
+        'psc_last_inspection':
+            _pscLastInspection?.toIso8601String().split('T').first,
+        'psc_last_result': _pscLastResult?.value,
+        'psc_summary': _pscSummaryCtrl.text.trim().isEmpty
+            ? null
+            : _pscSummaryCtrl.text.trim(),
+        'isps_status': _ispsStatus?.value,
+        'regulatory_standard': _regulatoryStandard?.value,
+        'amsa_vessel_use_class': _amsaVesselUseClass?.value,
+        'amsa_service_category': _amsaServiceCategory?.value,
+        'hull_material': _hullMaterial?.value,
+        'unique_vessel_identifier':
+            _uviCtrl.text.trim().isEmpty ? null : _uviCtrl.text.trim(),
+        'survey_certificate_no': _surveyCertNoCtrl.text.trim().isEmpty
+            ? null
+            : _surveyCertNoCtrl.text.trim(),
+        'equipment_survey_due':
+            _equipmentSurveyDue?.toIso8601String().split('T').first,
+        'hull_survey_due': _hullSurveyDue?.toIso8601String().split('T').first,
+        'tail_shaft_survey_due':
+            _tailShaftSurveyDue?.toIso8601String().split('T').first,
+      };
 
   Future<void> _syncCaseTitle(String vesselName) async {
     try {
@@ -326,12 +426,12 @@ class _VesselParticularsScreenState
           ? ((occRows.first as Map)['title'] as String? ?? '').trim()
           : '';
       final parts = [jobNo, vesselName.trim(), caseTypeLabel, occTitle]
-          .where((p) => p.isNotEmpty).toList();
+          .where((p) => p.isNotEmpty)
+          .toList();
       if (parts.isNotEmpty) {
         await SupabaseService.client
             .from('cases')
-            .update({'title': parts.join(' – ')})
-            .eq('case_id', widget.caseId);
+            .update({'title': parts.join(' – ')}).eq('case_id', widget.caseId);
       }
     } catch (_) {}
   }
@@ -348,8 +448,9 @@ class _VesselParticularsScreenState
           .read(vesselForCaseProvider(widget.caseId).notifier)
           .findVesselByImo(imo, excludeVesselId: vesselId);
       if (existing != null) {
-        final existingName =
-            (existing.name?.isNotEmpty ?? false) ? existing.name! : 'this vessel';
+        final existingName = (existing.name?.isNotEmpty ?? false)
+            ? existing.name!
+            : 'this vessel';
         if (!mounted) return;
         final shouldLink = await showDialog<bool>(
           context: context,
@@ -395,7 +496,10 @@ class _VesselParticularsScreenState
             );
           }
         } catch (e, st) {
-          if (mounted) showError(context, 'Link failed: $e', error: e, stack: st, tag: 'Vessel');
+          if (mounted) {
+            showError(context, 'Link failed: $e',
+                error: e, stack: st, tag: 'Vessel');
+          }
         } finally {
           if (mounted) setState(() => _saving = false);
         }
@@ -432,7 +536,10 @@ class _VesselParticularsScreenState
     } on ImoConflictException catch (e) {
       if (mounted) showError(context, e.toString(), tag: 'Vessel');
     } catch (e, st) {
-      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Vessel');
+      if (mounted) {
+        showError(context, 'Save failed: $e',
+            error: e, stack: st, tag: 'Vessel');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -472,7 +579,10 @@ class _VesselParticularsScreenState
     } on ImoConflictException catch (e) {
       if (mounted) showError(context, e.toString(), tag: 'Vessel');
     } catch (e, st) {
-      if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Vessel');
+      if (mounted) {
+        showError(context, 'Save failed: $e',
+            error: e, stack: st, tag: 'Vessel');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -488,7 +598,8 @@ class _VesselParticularsScreenState
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
-          ..showSnackBar(const SnackBar(content: Text('Enter an IMO number first')));
+          ..showSnackBar(
+              const SnackBar(content: Text('Enter an IMO number first')));
       }
       return;
     }
@@ -517,7 +628,8 @@ class _VesselParticularsScreenState
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
           content: const Text('No Equasis account configured'),
-          action: SnackBarAction(label: 'Set up', onPressed: () => router.go('/account')),
+          action: SnackBarAction(
+              label: 'Set up', onPressed: () => router.go('/account')),
           duration: const Duration(seconds: 5),
         ));
       return;
@@ -557,7 +669,10 @@ class _VesselParticularsScreenState
         );
       }
     } catch (e, st) {
-      if (mounted) showError(context, 'Equasis fetch failed: $e', error: e, stack: st, tag: 'Vessel');
+      if (mounted) {
+        showError(context, 'Equasis fetch failed: $e',
+            error: e, stack: st, tag: 'Vessel');
+      }
     } finally {
       if (mounted) setState(() => _fetchingEquasis = false);
     }
@@ -579,7 +694,8 @@ class _VesselParticularsScreenState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const Icon(Icons.error_outline,
+                    size: 48, color: AppColors.error),
                 const SizedBox(height: 16),
                 Text(
                   'Failed to load vessel data',
@@ -589,11 +705,13 @@ class _VesselParticularsScreenState
                 Text(
                   e.toString(),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
-                  onPressed: () => ref.invalidate(vesselForCaseProvider(widget.caseId)),
+                  onPressed: () =>
+                      ref.invalidate(vesselForCaseProvider(widget.caseId)),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
                 ),
@@ -627,7 +745,8 @@ class _VesselParticularsScreenState
             if (vessel != null)
               Text(
                 vessel.name,
-                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                style: TextStyle(
+                    fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
               ),
           ],
         ),
@@ -655,97 +774,197 @@ class _VesselParticularsScreenState
         controller: _tabController,
         children: [
           _IdentityTab(
-            caseId:                  widget.caseId,
-            nameCtrl:                _nameCtrl,
-            prevNameCtrl:            _prevNameCtrl,
-            imoCtrl:                 _imoCtrl,
-            callSignCtrl:            _callSignCtrl,
-            mmsiCtrl:                _mmsiCtrl,
-            vesselType:              _vesselType,
-            flagCtrl:                _flagCtrl,
-            portCtrl:                _portCtrl,
-            officialNumberCtrl:      _officialNumberCtrl,
-            ownersCtrl:              _ownersCtrl,
-            operatorsCtrl:           _operatorsCtrl,
-            classSociety:            _classSociety,
-            notationCtrl:            _notationCtrl,
-            piClubCtrl:              _piClubCtrl,
-            yearBuiltCtrl:           _yearBuiltCtrl,
-            buildYardCtrl:           _buildYardCtrl,
-            buildCountryCtrl:        _buildCountryCtrl,
-            regulatoryStandard:      _regulatoryStandard,
-            amsaVesselUseClass:      _amsaVesselUseClass,
-            amsaServiceCategory:     _amsaServiceCategory,
-            hullMaterial:            _hullMaterial,
-            uviCtrl:                 _uviCtrl,
-            surveyCertNoCtrl:        _surveyCertNoCtrl,
-            equipmentSurveyDue:      _equipmentSurveyDue,
-            hullSurveyDue:           _hullSurveyDue,
-            tailShaftSurveyDue:      _tailShaftSurveyDue,
-            onChanged:               _markChanged,
-            onVesselTypeChanged:     (v) { setState(() { _vesselType = v; _hasChanges = true; }); },
-            onClassSocietyChanged:   (v) { setState(() { _classSociety = v; _hasChanges = true; }); },
-            onRegulatoryStandardChanged: (v) { setState(() { _regulatoryStandard = v; _hasChanges = true; }); },
-            onAmsaVesselUseClassChanged: (v) { setState(() { _amsaVesselUseClass = v; _hasChanges = true; }); },
-            onAmsaServiceCategoryChanged: (v) { setState(() { _amsaServiceCategory = v; _hasChanges = true; }); },
-            onHullMaterialChanged:   (v) { setState(() { _hullMaterial = v; _hasChanges = true; }); },
-            onEquipmentSurveyDueChanged: (v) { setState(() { _equipmentSurveyDue = v; _hasChanges = true; }); },
-            onHullSurveyDueChanged:  (v) { setState(() { _hullSurveyDue = v; _hasChanges = true; }); },
-            onTailShaftSurveyDueChanged: (v) { setState(() { _tailShaftSurveyDue = v; _hasChanges = true; }); },
-            onEquasisFetch:          _fetchFromEquasis,
-            fetchingEquasis:         _fetchingEquasis,
+            caseId: widget.caseId,
+            nameCtrl: _nameCtrl,
+            prevNameCtrl: _prevNameCtrl,
+            imoCtrl: _imoCtrl,
+            callSignCtrl: _callSignCtrl,
+            mmsiCtrl: _mmsiCtrl,
+            vesselType: _vesselType,
+            flagCtrl: _flagCtrl,
+            portCtrl: _portCtrl,
+            officialNumberCtrl: _officialNumberCtrl,
+            ownersCtrl: _ownersCtrl,
+            operatorsCtrl: _operatorsCtrl,
+            classSociety: _classSociety,
+            notationCtrl: _notationCtrl,
+            piClubCtrl: _piClubCtrl,
+            yearBuiltCtrl: _yearBuiltCtrl,
+            buildYardCtrl: _buildYardCtrl,
+            buildCountryCtrl: _buildCountryCtrl,
+            regulatoryStandard: _regulatoryStandard,
+            amsaVesselUseClass: _amsaVesselUseClass,
+            amsaServiceCategory: _amsaServiceCategory,
+            hullMaterial: _hullMaterial,
+            uviCtrl: _uviCtrl,
+            surveyCertNoCtrl: _surveyCertNoCtrl,
+            equipmentSurveyDue: _equipmentSurveyDue,
+            hullSurveyDue: _hullSurveyDue,
+            tailShaftSurveyDue: _tailShaftSurveyDue,
+            onChanged: _markChanged,
+            onVesselTypeChanged: (v) {
+              setState(() {
+                _vesselType = v;
+                _hasChanges = true;
+              });
+            },
+            onClassSocietyChanged: (v) {
+              setState(() {
+                _classSociety = v;
+                _hasChanges = true;
+              });
+            },
+            onRegulatoryStandardChanged: (v) {
+              setState(() {
+                _regulatoryStandard = v;
+                _hasChanges = true;
+              });
+            },
+            onAmsaVesselUseClassChanged: (v) {
+              setState(() {
+                _amsaVesselUseClass = v;
+                _hasChanges = true;
+              });
+            },
+            onAmsaServiceCategoryChanged: (v) {
+              setState(() {
+                _amsaServiceCategory = v;
+                _hasChanges = true;
+              });
+            },
+            onHullMaterialChanged: (v) {
+              setState(() {
+                _hullMaterial = v;
+                _hasChanges = true;
+              });
+            },
+            onEquipmentSurveyDueChanged: (v) {
+              setState(() {
+                _equipmentSurveyDue = v;
+                _hasChanges = true;
+              });
+            },
+            onHullSurveyDueChanged: (v) {
+              setState(() {
+                _hullSurveyDue = v;
+                _hasChanges = true;
+              });
+            },
+            onTailShaftSurveyDueChanged: (v) {
+              setState(() {
+                _tailShaftSurveyDue = v;
+                _hasChanges = true;
+              });
+            },
+            onEquasisFetch: _fetchFromEquasis,
+            fetchingEquasis: _fetchingEquasis,
           ),
           _DimensionsTab(
-            gtCtrl:      _gtCtrl,
-            ntCtrl:      _ntCtrl,
-            dwtCtrl:     _dwtCtrl,
-            holdsCtrl:   _holdsCtrl,
-            tanksCtrl:   _tanksCtrl,
-            vesselType:  _vesselType,
-            loaCtrl:     _loaCtrl,
-            lbpCtrl:     _lbpCtrl,
+            gtCtrl: _gtCtrl,
+            ntCtrl: _ntCtrl,
+            dwtCtrl: _dwtCtrl,
+            holdsCtrl: _holdsCtrl,
+            tanksCtrl: _tanksCtrl,
+            vesselType: _vesselType,
+            loaCtrl: _loaCtrl,
+            lbpCtrl: _lbpCtrl,
             breadthCtrl: _breadthCtrl,
-            depthCtrl:   _depthCtrl,
-            draftCtrl:   _draftCtrl,
-            speedCtrl:   _speedCtrl,
+            depthCtrl: _depthCtrl,
+            draftCtrl: _draftCtrl,
+            speedCtrl: _speedCtrl,
             breadthQualifier: _breadthQualifier,
-            draftQualifier:   _draftQualifier,
-            onChanged:                  _markChanged,
-            onBreadthQualifierChanged:  (v) { setState(() { _breadthQualifier = v; _hasChanges = true; }); },
-            onDraftQualifierChanged:    (v) { setState(() { _draftQualifier = v; _hasChanges = true; }); },
+            draftQualifier: _draftQualifier,
+            onChanged: _markChanged,
+            onBreadthQualifierChanged: (v) {
+              setState(() {
+                _breadthQualifier = v;
+                _hasChanges = true;
+              });
+            },
+            onDraftQualifierChanged: (v) {
+              setState(() {
+                _draftQualifier = v;
+                _hasChanges = true;
+              });
+            },
           ),
           vessel?.vesselId != null
               ? _MachineryTab(
-                  vesselId:            vessel!.vesselId,
-                  caseId:              widget.caseId,
-                  propulsionType:      _propulsionType,
-                  propellerType:       _propellerType,
+                  vesselId: vessel!.vesselId,
+                  caseId: widget.caseId,
+                  propulsionType: _propulsionType,
+                  propellerType: _propellerType,
                   propulsionDriveType: _propulsionDriveType,
-                  mcrPowerUnit:        _mcrPowerUnit,
-                  mcrValueCtrl:        _mcrValueCtrl,
-                  mcrRpmCtrl:          _mcrRpmCtrl,
-                  onPropulsionTypeChanged:    (v) { setState(() { _propulsionType = v; _hasChanges = true; }); },
-                  onPropellerTypeChanged:     (v) { setState(() { _propellerType = v; _hasChanges = true; }); },
-                  onDriveTypeChanged:         (v) { setState(() { _propulsionDriveType = v; _hasChanges = true; }); },
-                  onMcrUnitChanged:           (v) { setState(() { _mcrPowerUnit = v; _hasChanges = true; }); },
-                  onChanged:                  _markChanged,
+                  mcrPowerUnit: _mcrPowerUnit,
+                  mcrValueCtrl: _mcrValueCtrl,
+                  mcrRpmCtrl: _mcrRpmCtrl,
+                  onPropulsionTypeChanged: (v) {
+                    setState(() {
+                      _propulsionType = v;
+                      _hasChanges = true;
+                    });
+                  },
+                  onPropellerTypeChanged: (v) {
+                    setState(() {
+                      _propellerType = v;
+                      _hasChanges = true;
+                    });
+                  },
+                  onDriveTypeChanged: (v) {
+                    setState(() {
+                      _propulsionDriveType = v;
+                      _hasChanges = true;
+                    });
+                  },
+                  onMcrUnitChanged: (v) {
+                    setState(() {
+                      _mcrPowerUnit = v;
+                      _hasChanges = true;
+                    });
+                  },
+                  onChanged: _markChanged,
                 )
               : const _MachineryPlaceholder(),
           _ClassStatutoryTab(
-            caseId:                vessel?.vesselId != null ? widget.caseId : widget.caseId,
-            vesselId:              vessel?.vesselId,
-            ismIncidentReported:   _ismIncidentReported,
+            caseId: vessel?.vesselId != null ? widget.caseId : widget.caseId,
+            vesselId: vessel?.vesselId,
+            ismIncidentReported: _ismIncidentReported,
             classIncidentReported: _classIncidentReported,
-            pscLastInspection:     _pscLastInspection,
-            pscLastResult:         _pscLastResult,
-            pscSummaryCtrl:        _pscSummaryCtrl,
-            ispsStatus:            _ispsStatus,
-            onChanged:             _markChanged,
-            onIsmChanged:          (v) { setState(() { _ismIncidentReported = v; _hasChanges = true; }); },
-            onClassReportedChanged: (v) { setState(() { _classIncidentReported = v; _hasChanges = true; }); },
-            onPscDateChanged:      (v) { setState(() { _pscLastInspection = v; _hasChanges = true; }); },
-            onPscResultChanged:    (v) { setState(() { _pscLastResult = v; _hasChanges = true; }); },
-            onIspsStatusChanged:   (v) { setState(() { _ispsStatus = v; _hasChanges = true; }); },
+            pscLastInspection: _pscLastInspection,
+            pscLastResult: _pscLastResult,
+            pscSummaryCtrl: _pscSummaryCtrl,
+            ispsStatus: _ispsStatus,
+            onChanged: _markChanged,
+            onIsmChanged: (v) {
+              setState(() {
+                _ismIncidentReported = v;
+                _hasChanges = true;
+              });
+            },
+            onClassReportedChanged: (v) {
+              setState(() {
+                _classIncidentReported = v;
+                _hasChanges = true;
+              });
+            },
+            onPscDateChanged: (v) {
+              setState(() {
+                _pscLastInspection = v;
+                _hasChanges = true;
+              });
+            },
+            onPscResultChanged: (v) {
+              setState(() {
+                _pscLastResult = v;
+                _hasChanges = true;
+              });
+            },
+            onIspsStatusChanged: (v) {
+              setState(() {
+                _ispsStatus = v;
+                _hasChanges = true;
+              });
+            },
           ),
         ],
       ),
@@ -799,7 +1018,11 @@ class _IdentityTab extends ConsumerStatefulWidget {
   });
 
   final String caseId;
-  final TextEditingController nameCtrl, prevNameCtrl, imoCtrl, callSignCtrl, mmsiCtrl;
+  final TextEditingController nameCtrl,
+      prevNameCtrl,
+      imoCtrl,
+      callSignCtrl,
+      mmsiCtrl;
   final String? vesselType;
   final TextEditingController flagCtrl, portCtrl;
   final TextEditingController officialNumberCtrl;
@@ -860,7 +1083,8 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
     if (imo.isEmpty) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('Enter an IMO number first')));
+        ..showSnackBar(
+            const SnackBar(content: Text('Enter an IMO number first')));
       return;
     }
     await launchUrl(
@@ -883,20 +1107,29 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
             onTap: _pickVesselPhoto,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: Image.file(
-                File(vesselPhoto.thumbnailPath ?? vesselPhoto.localPath),
-                width: double.infinity,
-                height: 160,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  height: 160,
-                  color: AppColors.surface,
-                  child: const Center(
-                    child: Icon(Icons.broken_image_outlined,
-                        color: AppColors.textTertiary),
-                  ),
-                ),
-              ),
+              child: !vesselPhoto.hasLocalFile
+                  ? Container(
+                      height: 160,
+                      color: AppColors.surface,
+                      child: const Center(
+                        child: Icon(Icons.cloud_download_outlined,
+                            color: AppColors.textTertiary),
+                      ),
+                    )
+                  : Image.file(
+                      File(vesselPhoto.thumbnailPath ?? vesselPhoto.localPath!),
+                      width: double.infinity,
+                      height: 160,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 160,
+                        color: AppColors.surface,
+                        child: const Center(
+                          child: Icon(Icons.broken_image_outlined,
+                              color: AppColors.textTertiary),
+                        ),
+                      ),
+                    ),
             ),
           )
         else
@@ -964,9 +1197,12 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
               padding: const EdgeInsets.only(bottom: 14),
               child: widget.fetchingEquasis
                   ? const SizedBox(
-                      width: 36, height: 36,
-                      child: Center(child: SizedBox(
-                        width: 16, height: 16,
+                      width: 36,
+                      height: 36,
+                      child: Center(
+                          child: SizedBox(
+                        width: 16,
+                        height: 16,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: AppColors.teal),
                       )))
@@ -990,14 +1226,16 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.travel_explore, size: 15,
+                            Icon(Icons.travel_explore,
+                                size: 15,
                                 color: widget.onEquasisFetch != null
                                     ? AppColors.teal
                                     : AppColors.textTertiary),
                             const SizedBox(width: 5),
                             Text('Equasis',
                                 style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
                                   color: widget.onEquasisFetch != null
                                       ? AppColors.teal
                                       : AppColors.textTertiary,
@@ -1028,7 +1266,8 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
                       SizedBox(width: 5),
                       Text('MarineTraffic',
                           style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                             color: AppColors.amber,
                           )),
                     ]),
@@ -1050,8 +1289,10 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
 
         const Text('Regulatory Standard',
             style: TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary, letterSpacing: 0.3)),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+                letterSpacing: 0.3)),
         const SizedBox(height: 6),
         ChipRow<RegulatoryStandard>(
           values: RegulatoryStandard.values,
@@ -1167,7 +1408,8 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
         ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Year Built',
             controller: widget.yearBuiltCtrl,
             hint: 'e.g. 2007',
@@ -1175,7 +1417,8 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
             onChanged: (_) => widget.onChanged(),
           )),
           const SizedBox(width: 12),
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Build Country',
             controller: widget.buildCountryCtrl,
             hint: 'e.g. Hong Kong',
@@ -1200,8 +1443,10 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 12),
           const Text('Hull Material',
               style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.3)),
           const SizedBox(height: 6),
           ChipRow<HullMaterial>(
             values: HullMaterial.values,
@@ -1225,8 +1470,10 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 6),
           const Text('AMSA Vessel Use Class',
               style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.3)),
           const SizedBox(height: 6),
           ChipRow<AmsaVesselUseClass>(
             values: AmsaVesselUseClass.values,
@@ -1237,8 +1484,10 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 12),
           const Text('Service Category',
               style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.3)),
           const SizedBox(height: 6),
           ChipRow<AmsaServiceCategory>(
             values: AmsaServiceCategory.values,
@@ -1246,14 +1495,16 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
             label: (c) => c.label,
             onChanged: widget.onAmsaServiceCategoryChanged,
           ),
-          if (widget.amsaVesselUseClass != null && widget.amsaServiceCategory != null)
+          if (widget.amsaVesselUseClass != null &&
+              widget.amsaServiceCategory != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 'Class ${widget.amsaVesselUseClass!.value}'
                 '${widget.amsaServiceCategory!.value.toUpperCase()}',
                 style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.teal),
               ),
             ),
@@ -1306,7 +1557,11 @@ class _DimensionsTab extends StatelessWidget {
   final TextEditingController gtCtrl, ntCtrl, dwtCtrl;
   final TextEditingController holdsCtrl, tanksCtrl;
   final String? vesselType;
-  final TextEditingController loaCtrl, lbpCtrl, breadthCtrl, depthCtrl, draftCtrl;
+  final TextEditingController loaCtrl,
+      lbpCtrl,
+      breadthCtrl,
+      depthCtrl,
+      draftCtrl;
   final TextEditingController speedCtrl;
   final String? breadthQualifier;
   final String? draftQualifier;
@@ -1315,7 +1570,7 @@ class _DimensionsTab extends StatelessWidget {
   final ValueChanged<String?> onDraftQualifierChanged;
 
   bool get _isTanker => _tankerTypes.contains(vesselType);
-  bool get _isCargo  => _cargoTypes.contains(vesselType);
+  bool get _isCargo => _cargoTypes.contains(vesselType);
 
   @override
   Widget build(BuildContext context) {
@@ -1329,7 +1584,8 @@ class _DimensionsTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Gross Tonnage (GT)',
             controller: gtCtrl,
             hint: 'e.g. 1311',
@@ -1337,7 +1593,8 @@ class _DimensionsTab extends StatelessWidget {
             onChanged: (_) => onChanged(),
           )),
           const SizedBox(width: 12),
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Net Tonnage (NT)',
             controller: ntCtrl,
             hint: 'e.g. 393',
@@ -1377,7 +1634,8 @@ class _DimensionsTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Length OA (m)',
             controller: loaCtrl,
             hint: 'e.g. 75.30',
@@ -1385,7 +1643,8 @@ class _DimensionsTab extends StatelessWidget {
             onChanged: (_) => onChanged(),
           )),
           const SizedBox(width: 12),
-          Expanded(child: SurveyField(
+          Expanded(
+              child: SurveyField(
             label: 'Length BP (m)',
             controller: lbpCtrl,
             hint: 'e.g. 68.00',
@@ -1608,7 +1867,8 @@ class _MachineryTab extends ConsumerWidget {
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _showAddEdit(context, ref, vesselId: vesselId),
+                  onPressed: () =>
+                      _showAddEdit(context, ref, vesselId: vesselId),
                   icon: const Icon(Icons.add),
                   label: const Text('Add Machinery / Equipment'),
                   style: OutlinedButton.styleFrom(
@@ -1636,9 +1896,13 @@ class _MachineryTab extends ConsumerWidget {
         existing: existing,
         onSave: (m) async {
           if (existing != null) {
-            await ref.read(machineryProvider(vesselId).notifier).updateMachinery(m);
+            await ref
+                .read(machineryProvider(vesselId).notifier)
+                .updateMachinery(m);
           } else {
-            await ref.read(machineryProvider(vesselId).notifier).addMachinery(m);
+            await ref
+                .read(machineryProvider(vesselId).notifier)
+                .addMachinery(m);
           }
         },
       ),
@@ -1658,12 +1922,15 @@ class _MachineryTab extends ConsumerWidget {
               child: const Text('Cancel')),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete', style: TextStyle(color: AppColors.error))),
+              child: const Text('Delete',
+                  style: TextStyle(color: AppColors.error))),
         ],
       ),
     );
     if (confirmed == true) {
-      await ref.read(machineryProvider(m.vesselId).notifier).deleteMachinery(m.machineryId);
+      await ref
+          .read(machineryProvider(m.vesselId).notifier)
+          .deleteMachinery(m.machineryId);
     }
   }
 }
@@ -1743,8 +2010,8 @@ class _ClassStatutoryTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final certsAsync  = ref.watch(certificatesProvider(caseId));
-    final condsAsync  = vesselId != null
+    final certsAsync = ref.watch(certificatesProvider(caseId));
+    final condsAsync = vesselId != null
         ? ref.watch(classConditionsProvider(vesselId!))
         : const AsyncData(<ClassConditionModel>[]);
     final damageState = ref.watch(damageProvider(caseId)).value;
@@ -1753,7 +2020,6 @@ class _ClassStatutoryTab extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
-
         // ── 1. Certificates ────────────────────────────────────────────
         VesselSectionHeader(
           title: 'Certificates',
@@ -1772,8 +2038,8 @@ class _ClassStatutoryTab extends ConsumerWidget {
             padding: EdgeInsets.symmetric(vertical: 12),
             child: Center(child: CircularProgressIndicator()),
           ),
-          error: (e, _) => Text('Error: $e',
-              style: const TextStyle(color: AppColors.error)),
+          error: (e, _) =>
+              Text('Error: $e', style: const TextStyle(color: AppColors.error)),
           data: (certs) => certs.isEmpty
               ? const _EmptyHint('No certificates — tap + to add')
               : Column(
@@ -1801,8 +2067,7 @@ class _ClassStatutoryTab extends ConsumerWidget {
                   icon: const Icon(Icons.add_circle_outline, size: 20),
                   color: AppColors.coral,
                   tooltip: 'Add condition',
-                  onPressed: () =>
-                      _addCondition(context, ref, occurrences),
+                  onPressed: () => _addCondition(context, ref, occurrences),
                 )
               : null,
         ),
@@ -1876,7 +2141,8 @@ class _ClassStatutoryTab extends ConsumerWidget {
         const SizedBox(height: 10),
         TriStateRow(
           label: 'Reported to Class',
-          hint: 'Set to Yes if a Condition of Class was issued for this occurrence',
+          hint:
+              'Set to Yes if a Condition of Class was issued for this occurrence',
           value: classIncidentReported,
           onChanged: onClassReportedChanged,
         ),
@@ -1899,8 +2165,9 @@ class _ClassStatutoryTab extends ConsumerWidget {
           label: 'PSC Result',
           options: PscResult.values.map((e) => e.label).toList(),
           selected: pscLastResult?.label,
-          onSelected: (v) => onPscResultChanged(
-              v == null ? null : PscResult.values.firstWhere((e) => e.label == v)),
+          onSelected: (v) => onPscResultChanged(v == null
+              ? null
+              : PscResult.values.firstWhere((e) => e.label == v)),
         ),
         const SizedBox(height: 4),
         SurveyField(
@@ -1923,8 +2190,9 @@ class _ClassStatutoryTab extends ConsumerWidget {
           label: 'ISPS Compliance',
           options: IspsStatus.values.map((e) => e.label).toList(),
           selected: ispsStatus?.label,
-          onSelected: (v) => onIspsStatusChanged(
-              v == null ? null : IspsStatus.values.firstWhere((e) => e.label == v)),
+          onSelected: (v) => onIspsStatusChanged(v == null
+              ? null
+              : IspsStatus.values.firstWhere((e) => e.label == v)),
         ),
         const SizedBox(height: 32),
       ],
@@ -1939,13 +2207,15 @@ class _ClassStatutoryTab extends ConsumerWidget {
         builder: (_) => AddCertificateSheet(
           caseId: caseId,
           onSave: (cert) async {
-            await ref.read(certificatesProvider(caseId).notifier).addCertificate(cert);
+            await ref
+                .read(certificatesProvider(caseId).notifier)
+                .addCertificate(cert);
           },
         ),
       );
 
   Future<void> _editCert(
-      BuildContext context, WidgetRef ref, CertificateModel cert) =>
+          BuildContext context, WidgetRef ref, CertificateModel cert) =>
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -1954,7 +2224,9 @@ class _ClassStatutoryTab extends ConsumerWidget {
           caseId: caseId,
           existing: cert,
           onSave: (updated) async {
-            await ref.read(certificatesProvider(caseId).notifier).updateCertificate(updated);
+            await ref
+                .read(certificatesProvider(caseId).notifier)
+                .updateCertificate(updated);
           },
         ),
       );
@@ -1967,21 +2239,26 @@ class _ClassStatutoryTab extends ConsumerWidget {
         title: const Text('Delete certificate?'),
         content: Text('Remove "${cert.certName ?? cert.certType.label}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+            child:
+                const Text('Delete', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
     );
     if (ok == true) {
-      await ref.read(certificatesProvider(caseId).notifier).deleteCertificate(cert.certId);
+      await ref
+          .read(certificatesProvider(caseId).notifier)
+          .deleteCertificate(cert.certId);
     }
   }
 
   void _addCondition(BuildContext context, WidgetRef ref,
-      List<OccurrenceModel> occurrences) =>
+          List<OccurrenceModel> occurrences) =>
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -1989,23 +2266,21 @@ class _ClassStatutoryTab extends ConsumerWidget {
         builder: (_) => _AddConditionSheet(
           occurrences: occurrences,
           onSave: (ref_, desc, expiry, dur, occRel, occId) async {
-            await ref
-                .read(classConditionsProvider(vesselId!).notifier)
-                .add(
-                  vesselId:          vesselId!,
-                  reference:         ref_,
-                  description:       desc,
-                  expiryDate:        expiry,
-                  duration:          dur,
+            await ref.read(classConditionsProvider(vesselId!).notifier).add(
+                  vesselId: vesselId!,
+                  reference: ref_,
+                  description: desc,
+                  expiryDate: expiry,
+                  duration: dur,
                   occurrenceRelated: occRel,
-                  occurrenceId:      occId,
+                  occurrenceId: occId,
                 );
           },
         ),
       );
 
   void _editCondition(BuildContext context, WidgetRef ref,
-      ClassConditionModel cond, List<OccurrenceModel> occurrences) =>
+          ClassConditionModel cond, List<OccurrenceModel> occurrences) =>
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -2018,12 +2293,12 @@ class _ClassStatutoryTab extends ConsumerWidget {
                 .read(classConditionsProvider(vesselId!).notifier)
                 .updateCondition(
                   cond.conditionId,
-                  reference:         ref_,
-                  description:       desc,
-                  expiryDate:        expiry,
-                  duration:          dur,
+                  reference: ref_,
+                  description: desc,
+                  expiryDate: expiry,
+                  duration: dur,
                   occurrenceRelated: occRel,
-                  occurrenceId:      occId,
+                  occurrenceId: occId,
                 );
           },
         ),
@@ -2035,18 +2310,24 @@ class _ClassStatutoryTab extends ConsumerWidget {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete condition?'),
-        content: Text('Remove "${cond.reference ?? cond.description ?? 'this condition'}"?'),
+        content: Text(
+            'Remove "${cond.reference ?? cond.description ?? 'this condition'}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+            child:
+                const Text('Delete', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
     );
     if (ok == true) {
-      await ref.read(classConditionsProvider(vesselId!).notifier).delete(cond.conditionId);
+      await ref
+          .read(classConditionsProvider(vesselId!).notifier)
+          .delete(cond.conditionId);
     }
   }
 }
@@ -2070,7 +2351,8 @@ class _ConditionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final expiry = condition.expiryDate;
     final isExpired = expiry != null && expiry.isBefore(DateTime.now());
-    final expirySoon = expiry != null && !isExpired &&
+    final expirySoon = expiry != null &&
+        !isExpired &&
         expiry.difference(DateTime.now()).inDays <= 90;
     final expiryColor = isExpired
         ? AppColors.error
@@ -2099,7 +2381,8 @@ class _ConditionCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
-            width: 32, height: 32,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: AppColors.coral.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(8),
@@ -2109,7 +2392,8 @@ class _ConditionCard extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (condition.reference != null)
                 Text(condition.reference!,
                     style: const TextStyle(
@@ -2132,7 +2416,8 @@ class _ConditionCard extends StatelessWidget {
                     label: 'Raised: ${_fmtDate(condition.createdAt!)}',
                     color: AppColors.textTertiary,
                   ),
-                if (condition.duration != null && condition.duration!.isNotEmpty)
+                if (condition.duration != null &&
+                    condition.duration!.isNotEmpty)
                   _pill(
                     icon: Icons.hourglass_bottom_outlined,
                     label: condition.duration!,
@@ -2146,8 +2431,8 @@ class _ConditionCard extends StatelessWidget {
                   ),
                 if (condition.occurrenceRelated)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppColors.coral.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(4),
@@ -2188,8 +2473,21 @@ class _ConditionCard extends StatelessWidget {
   }
 
   static String _fmtDate(DateTime d) {
-    const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
     return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
   }
 
@@ -2229,8 +2527,8 @@ class _AddConditionSheet extends StatefulWidget {
 }
 
 class _AddConditionSheetState extends State<_AddConditionSheet> {
-  final _refCtrl      = TextEditingController();
-  final _descCtrl     = TextEditingController();
+  final _refCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
   final _durationCtrl = TextEditingController();
   DateTime? _expiryDate;
   bool _occRel = false;
@@ -2242,12 +2540,12 @@ class _AddConditionSheetState extends State<_AddConditionSheet> {
     super.initState();
     final e = widget.existing;
     if (e != null) {
-      _refCtrl.text      = e.reference   ?? '';
-      _descCtrl.text     = e.description ?? '';
-      _durationCtrl.text = e.duration    ?? '';
-      _expiryDate        = e.expiryDate;
-      _occRel            = e.occurrenceRelated;
-      _occId             = e.occurrenceId;
+      _refCtrl.text = e.reference ?? '';
+      _descCtrl.text = e.description ?? '';
+      _durationCtrl.text = e.duration ?? '';
+      _expiryDate = e.expiryDate;
+      _occRel = e.occurrenceRelated;
+      _occId = e.occurrenceId;
     }
   }
 
@@ -2263,8 +2561,8 @@ class _AddConditionSheetState extends State<_AddConditionSheet> {
     setState(() => _saving = true);
     try {
       await widget.onSave(
-        _refCtrl.text.trim().isEmpty      ? null : _refCtrl.text.trim(),
-        _descCtrl.text.trim().isEmpty     ? null : _descCtrl.text.trim(),
+        _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
+        _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
         _expiryDate,
         _durationCtrl.text.trim().isEmpty ? null : _durationCtrl.text.trim(),
         _occRel,
@@ -2280,136 +2578,146 @@ class _AddConditionSheetState extends State<_AddConditionSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
-      decoration: const BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-      child: SingleChildScrollView(
-        child: Column(mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Center(
-            child: Container(
-              width: 36, height: 4,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: AppColors.border, borderRadius: BorderRadius.circular(2)),
-            ),
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          Text(
-            widget.existing == null
-                ? 'Add Condition of Class'
-                : 'Edit Condition of Class',
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 16),
-
-          SurveyField(
-            label: 'Reference No.',
-            controller: _refCtrl,
-            hint: 'e.g. COC 2024-001',
-          ),
-          SurveyField(
-            label: 'Description',
-            controller: _descCtrl,
-            hint: 'Brief description of the condition',
-            maxLines: 3,
-          ),
-          _DatePickerField(
-            label: 'Due / Expiry Date',
-            value: _expiryDate,
-            onChanged: (v) => setState(() => _expiryDate = v),
-          ),
-          SurveyField(
-            label: 'Duration',
-            controller: _durationCtrl,
-            hint: 'e.g. Until next class renewal, 90 days',
-          ),
-          const SizedBox(height: 4),
-
-          // Occurrence related toggle
-          InkWell(
-            onTap: () => setState(() {
-              _occRel = !_occRel;
-              if (!_occRel) _occId = null;
-            }),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(children: [
-                Checkbox(
-                  value: _occRel,
-                  activeColor: AppColors.coral,
-                  onChanged: (v) => setState(() {
-                    _occRel = v ?? false;
-                    if (!_occRel) _occId = null;
-                  }),
-                ),
-                const SizedBox(width: 4),
-                const Expanded(
-                  child: Text('Related to a case occurrence',
-                      style: TextStyle(fontSize: 13)),
-                ),
-              ]),
-            ),
-          ),
-
-          if (_occRel && widget.occurrences.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _occId,
-              decoration: InputDecoration(
-                labelText: 'Select Occurrence',
-                labelStyle: const TextStyle(
-                    fontSize: 13, color: AppColors.textSecondary),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.border)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.border)),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
-                isDense: true,
-              ),
-              items: widget.occurrences
-                  .map((o) => DropdownMenuItem(
-                        value: o.occurrenceId,
-                        child: Text(
-                          o.title ?? 'Occurrence ${o.occurrenceNo}',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _occId = v),
-            ),
-          ],
-
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _saving ? null : _save,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.coral,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            child: _saving
-                ? const SizedBox(
-                    width: 16, height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : Text(
-                    widget.existing == null ? 'Add Condition' : 'Save Changes',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: SingleChildScrollView(
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(2)),
+                    ),
                   ),
+                  Text(
+                    widget.existing == null
+                        ? 'Add Condition of Class'
+                        : 'Edit Condition of Class',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 16),
+
+                  SurveyField(
+                    label: 'Reference No.',
+                    controller: _refCtrl,
+                    hint: 'e.g. COC 2024-001',
+                  ),
+                  SurveyField(
+                    label: 'Description',
+                    controller: _descCtrl,
+                    hint: 'Brief description of the condition',
+                    maxLines: 3,
+                  ),
+                  _DatePickerField(
+                    label: 'Due / Expiry Date',
+                    value: _expiryDate,
+                    onChanged: (v) => setState(() => _expiryDate = v),
+                  ),
+                  SurveyField(
+                    label: 'Duration',
+                    controller: _durationCtrl,
+                    hint: 'e.g. Until next class renewal, 90 days',
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Occurrence related toggle
+                  InkWell(
+                    onTap: () => setState(() {
+                      _occRel = !_occRel;
+                      if (!_occRel) _occId = null;
+                    }),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(children: [
+                        Checkbox(
+                          value: _occRel,
+                          activeColor: AppColors.coral,
+                          onChanged: (v) => setState(() {
+                            _occRel = v ?? false;
+                            if (!_occRel) _occId = null;
+                          }),
+                        ),
+                        const SizedBox(width: 4),
+                        const Expanded(
+                          child: Text('Related to a case occurrence',
+                              style: TextStyle(fontSize: 13)),
+                        ),
+                      ]),
+                    ),
+                  ),
+
+                  if (_occRel && widget.occurrences.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      initialValue: _occId,
+                      decoration: InputDecoration(
+                        labelText: 'Select Occurrence',
+                        labelStyle: const TextStyle(
+                            fontSize: 13, color: AppColors.textSecondary),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide:
+                                const BorderSide(color: AppColors.border)),
+                        enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide:
+                                const BorderSide(color: AppColors.border)),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        isDense: true,
+                      ),
+                      items: widget.occurrences
+                          .map((o) => DropdownMenuItem(
+                                value: o.occurrenceId,
+                                child: Text(
+                                  o.title ?? 'Occurrence ${o.occurrenceNo}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => _occId = v),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.coral,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text(
+                            widget.existing == null
+                                ? 'Add Condition'
+                                : 'Save Changes',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                  ),
+                ]),
           ),
-        ]),
-      ),
-    ));
+        ));
   }
 }
 
@@ -2431,15 +2739,17 @@ class _DatePickerField extends StatelessWidget {
     final formatted = value == null
         ? null
         : '${value!.day.toString().padLeft(2, '0')} '
-          '${_mon(value!.month)} ${value!.year}';
+            '${_mon(value!.month)} ${value!.year}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
             style: const TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary, letterSpacing: 0.3)),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+                letterSpacing: 0.3)),
         const SizedBox(height: 5),
         GestureDetector(
           onTap: () async {
@@ -2481,9 +2791,20 @@ class _DatePickerField extends StatelessWidget {
   }
 
   static String _mon(int m) => const [
-    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ][m];
+        '',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ][m];
 }
 
 class _EmptyHint extends StatelessWidget {
@@ -2496,7 +2817,8 @@ class _EmptyHint extends StatelessWidget {
         child: Center(
           child: Text(text,
               style: const TextStyle(
-                  fontSize: 12, color: AppColors.textTertiary,
+                  fontSize: 12,
+                  color: AppColors.textTertiary,
                   fontStyle: FontStyle.italic)),
         ),
       );
@@ -2529,8 +2851,10 @@ class _PickerField extends StatelessWidget {
         children: [
           Text(label,
               style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.3)),
           const SizedBox(height: 5),
           GestureDetector(
             onTap: () => _openPicker(context),
@@ -2549,11 +2873,14 @@ class _PickerField extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: value != null ? AppColors.textPrimary : AppColors.textTertiary,
+                      color: value != null
+                          ? AppColors.textPrimary
+                          : AppColors.textTertiary,
                     ),
                   ),
                 ),
-                const Icon(Icons.expand_more, size: 18, color: AppColors.textTertiary),
+                const Icon(Icons.expand_more,
+                    size: 18, color: AppColors.textTertiary),
               ]),
             ),
           ),
@@ -2651,7 +2978,9 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: Column(children: [
               const SizedBox(height: 8),
-              Container(width: 40, height: 4,
+              Container(
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
                       color: AppColors.border,
                       borderRadius: BorderRadius.circular(2))),
@@ -2659,7 +2988,8 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(widget.title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(height: 12),
               Padding(
@@ -2670,8 +3000,8 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
                   decoration: InputDecoration(
                     hintText: 'Search or type a custom value…',
                     prefixIcon: const Icon(Icons.search, size: 18),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     filled: true,
                     fillColor: AppColors.surface,
                     border: OutlineInputBorder(
@@ -2682,8 +3012,8 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
                         borderSide: const BorderSide(color: AppColors.border)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide:
-                            const BorderSide(color: AppColors.midBlue, width: 2)),
+                        borderSide: const BorderSide(
+                            color: AppColors.midBlue, width: 2)),
                   ),
                 ),
               ),
@@ -2691,9 +3021,11 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
               if (widget.selected != null)
                 ListTile(
                   dense: true,
-                  leading: const Icon(Icons.clear, color: AppColors.textTertiary, size: 18),
+                  leading: const Icon(Icons.clear,
+                      color: AppColors.textTertiary, size: 18),
                   title: const Text('Clear selection',
-                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.textSecondary)),
                   onTap: widget.onClear,
                 ),
               const Divider(height: 1),
@@ -2714,14 +3046,19 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
                             style: const TextStyle(
                                 fontSize: 14, color: AppColors.textPrimary),
                             children: [
-                              const TextSpan(text: 'Use "',
-                                  style: TextStyle(color: AppColors.textSecondary)),
-                              TextSpan(text: custom,
+                              const TextSpan(
+                                  text: 'Use "',
+                                  style: TextStyle(
+                                      color: AppColors.textSecondary)),
+                              TextSpan(
+                                  text: custom,
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w600,
                                       color: AppColors.teal)),
-                              const TextSpan(text: '"',
-                                  style: TextStyle(color: AppColors.textSecondary)),
+                              const TextSpan(
+                                  text: '"',
+                                  style: TextStyle(
+                                      color: AppColors.textSecondary)),
                             ],
                           ),
                         ),
@@ -2735,12 +3072,15 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
                       title: Text(opt,
                           style: TextStyle(
                               fontSize: 14,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
                               color: isSelected
                                   ? AppColors.midBlue
                                   : AppColors.textPrimary)),
                       trailing: isSelected
-                          ? const Icon(Icons.check, color: AppColors.midBlue, size: 18)
+                          ? const Icon(Icons.check,
+                              color: AppColors.midBlue, size: 18)
                           : null,
                       onTap: () => widget.onSelected(opt),
                     );
@@ -2778,8 +3118,10 @@ class _ChipSelector extends StatelessWidget {
         children: [
           Text(label,
               style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 0.3)),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.3)),
           const SizedBox(height: 6),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -2791,20 +3133,26 @@ class _ChipSelector extends StatelessWidget {
                   child: GestureDetector(
                     onTap: () => onSelected(isSelected ? null : opt),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: isSelected ? AppColors.lightBlue : Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: isSelected ? AppColors.midBlue : AppColors.border,
+                          color:
+                              isSelected ? AppColors.midBlue : AppColors.border,
                           width: isSelected ? 1.5 : 1,
                         ),
                       ),
                       child: Text(opt,
                           style: TextStyle(
                               fontSize: 12,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                              color: isSelected ? AppColors.midBlue : AppColors.textSecondary)),
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: isSelected
+                                  ? AppColors.midBlue
+                                  : AppColors.textSecondary)),
                     ),
                   ),
                 );
@@ -2854,7 +3202,8 @@ class _UnitToggle extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? Colors.white : AppColors.textSecondary)),
+                      color:
+                          isSelected ? Colors.white : AppColors.textSecondary)),
             ),
           );
         }).toList(),
@@ -2862,4 +3211,3 @@ class _UnitToggle extends StatelessWidget {
     );
   }
 }
-

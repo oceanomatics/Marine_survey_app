@@ -204,26 +204,25 @@ class _DriveFolderPickerScreenState extends State<DriveFolderPickerScreen> {
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 52, color: AppColors.coral),
-              const SizedBox(height: 14),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _load,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 52, color: AppColors.coral),
+            const SizedBox(height: 14),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _load,
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }
@@ -251,7 +250,8 @@ class _DriveFolderPickerScreenState extends State<DriveFolderPickerScreen> {
 
   Widget _buildFolderTile(DriveItem folder) {
     return ListTile(
-      leading: const Icon(Icons.folder_rounded, color: AppColors.amber, size: 30),
+      leading:
+          const Icon(Icons.folder_rounded, color: AppColors.amber, size: 30),
       title: Text(folder.name,
           style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
       trailing: const Icon(Icons.chevron_right, color: AppColors.textTertiary),
@@ -263,12 +263,14 @@ class _DriveFolderPickerScreenState extends State<DriveFolderPickerScreen> {
     final selected = _selected.contains(img.id);
     return ListTile(
       leading: Container(
-        width: 42, height: 42,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
           color: AppColors.purple.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(7),
         ),
-        child: const Icon(Icons.image_outlined, color: AppColors.purple, size: 22),
+        child:
+            const Icon(Icons.image_outlined, color: AppColors.purple, size: 22),
       ),
       title: Text(img.name,
           style: const TextStyle(fontSize: 13),
@@ -298,7 +300,8 @@ class _DriveFolderPickerScreenState extends State<DriveFolderPickerScreen> {
         decoration: const BoxDecoration(
           color: Colors.white,
           boxShadow: [
-            BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))
+            BoxShadow(
+                color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))
           ],
         ),
         child: Column(
@@ -308,7 +311,8 @@ class _DriveFolderPickerScreenState extends State<DriveFolderPickerScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: _downloadTotal > 0 ? _downloadDone / _downloadTotal : null,
+                value:
+                    _downloadTotal > 0 ? _downloadDone / _downloadTotal : null,
                 backgroundColor: AppColors.border,
                 color: AppColors.purple,
                 minHeight: 7,

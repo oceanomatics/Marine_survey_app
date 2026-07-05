@@ -85,7 +85,7 @@ class ExternalAccount {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'label': type.name,   // store the enum name — consistent key
+        'label': type.name, // store the enum name — consistent key
         'url': '',
         'username': username,
         'password': password,
@@ -105,6 +105,7 @@ class AccountState {
     this.anthropicApiKey = '',
     this.openAiApiKey = '',
     this.googleApiKey = '',
+    this.driveBaseFolder = '',
   });
 
   final String name;
@@ -112,11 +113,16 @@ class AccountState {
   final String phone;
   final String address;
   final List<ExternalAccount> externalAccounts;
+
   /// openexchangerates.org App ID (free tier).
   final String fxApiKey;
   final String anthropicApiKey;
   final String openAiApiKey;
   final String googleApiKey;
+
+  /// Root Drive folder name under which Cases/ and Admin/ live — empty
+  /// means directly under "My Drive" (see DriveStorageService).
+  final String driveBaseFolder;
 
   bool get hasFxApiKey => fxApiKey.isNotEmpty;
 
@@ -130,6 +136,7 @@ class AccountState {
     String? anthropicApiKey,
     String? openAiApiKey,
     String? googleApiKey,
+    String? driveBaseFolder,
   }) =>
       AccountState(
         name: name ?? this.name,
@@ -141,6 +148,7 @@ class AccountState {
         anthropicApiKey: anthropicApiKey ?? this.anthropicApiKey,
         openAiApiKey: openAiApiKey ?? this.openAiApiKey,
         googleApiKey: googleApiKey ?? this.googleApiKey,
+        driveBaseFolder: driveBaseFolder ?? this.driveBaseFolder,
       );
 
   ExternalAccount? get equasisAccount =>
@@ -159,25 +167,26 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
 
   Future<AccountState> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final accountsJson =
-        await _storage.read(key: 'external_accounts') ?? '[]';
+    final accountsJson = await _storage.read(key: 'external_accounts') ?? '[]';
     final fxApiKey = await _storage.read(key: 'fx_api_key') ?? '';
     final accounts = (jsonDecode(accountsJson) as List)
         .map((e) => ExternalAccount.fromJson(e as Map<String, dynamic>))
         .toList();
 
     // Try remote first; fall back to local cache if offline or error.
-    String name    = prefs.getString('profile_name')    ?? '';
-    String email   = prefs.getString('profile_email')   ?? '';
-    String phone   = prefs.getString('profile_phone')   ?? '';
+    String name = prefs.getString('profile_name') ?? '';
+    String email = prefs.getString('profile_email') ?? '';
+    String phone = prefs.getString('profile_phone') ?? '';
     String address = prefs.getString('profile_address') ?? '';
     List<ExternalAccount> remoteAccounts = accounts; // default to local
 
     // API keys — local secure-storage cache is the offline fallback; the
     // `profiles` row (synced across devices/builds) wins when reachable.
-    String anthropicApiKey = await _storage.read(key: 'anthropic_api_key') ?? '';
-    String openAiApiKey    = await _storage.read(key: 'openai_api_key')    ?? '';
-    String googleApiKey    = await _storage.read(key: 'google_api_key')   ?? '';
+    String anthropicApiKey =
+        await _storage.read(key: 'anthropic_api_key') ?? '';
+    String openAiApiKey = await _storage.read(key: 'openai_api_key') ?? '';
+    String googleApiKey = await _storage.read(key: 'google_api_key') ?? '';
+    String driveBaseFolder = prefs.getString('drive_base_folder') ?? '';
 
     try {
       final userId = SupabaseService.userId;
@@ -189,21 +198,23 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
           .eq('user_id', userId)
           .maybeSingle();
       if (row != null) {
-        name    = row['name']    as String? ?? name;
-        email   = row['email']   as String? ?? email;
-        phone   = row['phone']   as String? ?? phone;
+        name = row['name'] as String? ?? name;
+        email = row['email'] as String? ?? email;
+        phone = row['phone'] as String? ?? phone;
         address = row['address'] as String? ?? address;
-        await prefs.setString('profile_name',    name);
-        await prefs.setString('profile_email',   email);
-        await prefs.setString('profile_phone',   phone);
+        await prefs.setString('profile_name', name);
+        await prefs.setString('profile_email', email);
+        await prefs.setString('profile_phone', phone);
         await prefs.setString('profile_address', address);
 
         final remoteAnthropic = row['anthropic_api_key'] as String?;
-        final remoteOpenAi    = row['openai_api_key']    as String?;
-        final remoteGoogle    = row['google_api_key']    as String?;
+        final remoteOpenAi = row['openai_api_key'] as String?;
+        final remoteGoogle = row['google_api_key'] as String?;
+        final remoteDriveBase = row['drive_base_folder'] as String?;
         if (remoteAnthropic != null && remoteAnthropic.isNotEmpty) {
           anthropicApiKey = remoteAnthropic;
-          await _storage.write(key: 'anthropic_api_key', value: remoteAnthropic);
+          await _storage.write(
+              key: 'anthropic_api_key', value: remoteAnthropic);
         }
         if (remoteOpenAi != null && remoteOpenAi.isNotEmpty) {
           openAiApiKey = remoteOpenAi;
@@ -212,6 +223,10 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
         if (remoteGoogle != null && remoteGoogle.isNotEmpty) {
           googleApiKey = remoteGoogle;
           await _storage.write(key: 'google_api_key', value: remoteGoogle);
+        }
+        if (remoteDriveBase != null && remoteDriveBase.isNotEmpty) {
+          driveBaseFolder = remoteDriveBase;
+          await prefs.setString('drive_base_folder', remoteDriveBase);
         }
       }
 
@@ -234,8 +249,10 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
     // Make the keys available to the AI/service clients for the rest of
     // this app session (they read AppConfig fresh on every request).
     if (anthropicApiKey.isNotEmpty) AppConfig.anthropicApiKey = anthropicApiKey;
-    if (openAiApiKey.isNotEmpty)    AppConfig.openAiApiKey    = openAiApiKey;
-    if (googleApiKey.isNotEmpty)    AppConfig.googleApiKey    = googleApiKey;
+    if (openAiApiKey.isNotEmpty) AppConfig.openAiApiKey = openAiApiKey;
+    if (googleApiKey.isNotEmpty) AppConfig.googleApiKey = googleApiKey;
+    AppConfig.driveBaseFolder =
+        driveBaseFolder.isNotEmpty ? driveBaseFolder : null;
 
     return AccountState(
       name: name,
@@ -247,6 +264,7 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       anthropicApiKey: anthropicApiKey,
       openAiApiKey: openAiApiKey,
       googleApiKey: googleApiKey,
+      driveBaseFolder: driveBaseFolder,
     );
   }
 
@@ -302,6 +320,19 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
     );
   }
 
+  Future<void> saveDriveBaseFolder(String folder) async {
+    AppConfig.driveBaseFolder = folder.isNotEmpty ? folder : null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('drive_base_folder', folder);
+    await SupabaseService.client.from('profiles').upsert({
+      'user_id': SupabaseService.userId,
+      'drive_base_folder': folder,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
+    final cur = state.value ?? const AccountState();
+    state = AsyncData(cur.copyWith(driveBaseFolder: folder));
+  }
+
   Future<void> saveProfile({
     required String name,
     required String email,
@@ -310,17 +341,17 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
   }) async {
     // Write to local cache first so the UI is never blocked by network.
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('profile_name',    name);
-    await prefs.setString('profile_email',   email);
-    await prefs.setString('profile_phone',   phone);
+    await prefs.setString('profile_name', name);
+    await prefs.setString('profile_email', email);
+    await prefs.setString('profile_phone', phone);
     await prefs.setString('profile_address', address);
 
     // Upsert to Supabase.
     await SupabaseService.client.from('profiles').upsert({
       'user_id': SupabaseService.userId,
-      'name':    name,
-      'email':   email,
-      'phone':   phone,
+      'name': name,
+      'email': email,
+      'phone': phone,
       'address': address,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     });
@@ -344,7 +375,10 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
       ...account.toJson(),
       'user_id': userId,
     });
-    final current = [...(state.value?.externalAccounts ?? <ExternalAccount>[]), account];
+    final current = [
+      ...(state.value?.externalAccounts ?? <ExternalAccount>[]),
+      account
+    ];
     await _persistAccounts(current);
   }
 
@@ -365,9 +399,8 @@ class AccountNotifier extends AsyncNotifier<AccountState> {
         .from('external_accounts')
         .delete()
         .eq('id', id);
-    final current = (state.value?.externalAccounts ?? [])
-        .where((a) => a.id != id)
-        .toList();
+    final current =
+        (state.value?.externalAccounts ?? []).where((a) => a.id != id).toList();
     await _persistAccounts(current);
   }
 }

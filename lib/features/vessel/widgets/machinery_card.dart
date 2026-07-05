@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/vessel_provider.dart';
 import 'add_component_sheet.dart';
+import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -30,8 +31,8 @@ class MachineryCard extends ConsumerStatefulWidget {
 }
 
 class _MachineryCardState extends ConsumerState<MachineryCard> {
-  bool _expanded       = false;
-  bool _scanningPlate  = false;
+  bool _expanded = false;
+  bool _scanningPlate = false;
 
   // ── Machinery nameplate scan ───────────────────────────────────────────────
 
@@ -50,28 +51,37 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
 
     setState(() => _scanningPlate = true);
     try {
-      final photo  = picked.first;
-      final bytes  = await File(photo.localPath as String).readAsBytes();
-      final b64    = base64Encode(bytes);
-      const mime   = 'image/jpeg';
-      final result = await ClaudeApi.extractNameplate(
-          base64Image: b64, mediaType: mime);
+      final PhotoModel photo = picked.first;
+      final resolved = photo.hasLocalFile
+          ? photo
+          : await ref
+                  .read(photosProvider(widget.caseId).notifier)
+                  .ensureLocalFile(photo.id) ??
+              photo;
+      if (!resolved.hasLocalFile) {
+        throw Exception('Photo file not available');
+      }
+      final bytes = await File(resolved.localPath!).readAsBytes();
+      final b64 = base64Encode(bytes);
+      const mime = 'image/jpeg';
+      final result =
+          await ClaudeApi.extractNameplate(base64Image: b64, mediaType: mime);
       if (!mounted) return;
 
       // Build an updated MachineryModel from the extracted data
-      final make  = result['manufacturer'] as String? ?? '';
+      final make = result['manufacturer'] as String? ?? '';
       final model = result['model'] as String? ?? '';
       final serial = result['serial_number'] as String? ?? '';
       final powerKw = (result['rated_power_kw'] as num?)?.toDouble();
-      final rpm    = (result['rated_rpm'] as num?)?.toDouble();
-      final addl   = result['additional_info'] as String? ?? '';
+      final rpm = (result['rated_rpm'] as num?)?.toDouble();
+      final addl = result['additional_info'] as String? ?? '';
 
       final updated = widget.machinery.copyWith(
-        make:         make.isNotEmpty   ? make   : null,
-        model:        model.isNotEmpty  ? model  : null,
+        make: make.isNotEmpty ? make : null,
+        model: model.isNotEmpty ? model : null,
         serialNumber: serial.isNotEmpty ? serial : null,
-        mcrKw:        powerKw,
-        mcrRpm:       rpm,
+        mcrKw: powerKw,
+        mcrRpm: rpm,
       );
 
       // Show confirmation before writing
@@ -80,12 +90,12 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
         builder: (ctx) => AlertDialog(
           title: const Text('Nameplate extracted'),
           content: _NameplatePreview(
-            make:   make,
-            model:  model,
+            make: make,
+            model: model,
             serial: serial,
             powerKw: powerKw,
-            rpm:    rpm,
-            addl:   addl,
+            rpm: rpm,
+            addl: addl,
           ),
           actions: [
             TextButton(
@@ -106,10 +116,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
           .updateMachinery(updated);
 
       // Pin this photo as the nameplate reference for the card thumbnail.
-      await ref
-          .read(photosProvider(widget.caseId).notifier)
-          .attachLink(photo.id as String, 'machinery_nameplate',
-              widget.machinery.machineryId);
+      await ref.read(photosProvider(widget.caseId).notifier).attachLink(
+          photo.id, 'machinery_nameplate', widget.machinery.machineryId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -145,12 +153,13 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       useSafeArea: true,
       builder: (_) => AddComponentSheet(
         machineryId: widget.machinery.machineryId,
-        vesselId:    widget.machinery.vesselId,
-        caseId:      widget.caseId,
-        nextSeqNo:   nextSeq,
+        vesselId: widget.machinery.vesselId,
+        caseId: widget.caseId,
+        nextSeqNo: nextSeq,
         onSave: (comp) {
           return ref
-              .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
+              .read(vesselComponentsProvider(widget.machinery.machineryId)
+                  .notifier)
               .addComponent(comp);
         },
       ),
@@ -165,15 +174,17 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       useSafeArea: true,
       builder: (_) => AddComponentSheet(
         machineryId: widget.machinery.machineryId,
-        vesselId:    widget.machinery.vesselId,
-        caseId:      widget.caseId,
-        existing:    comp,
+        vesselId: widget.machinery.vesselId,
+        caseId: widget.caseId,
+        existing: comp,
         onSave: (updated) async {
           await ref
-              .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
+              .read(vesselComponentsProvider(widget.machinery.machineryId)
+                  .notifier)
               .deleteComponent(comp.componentId);
           return ref
-              .read(vesselComponentsProvider(widget.machinery.machineryId).notifier)
+              .read(vesselComponentsProvider(widget.machinery.machineryId)
+                  .notifier)
               .addComponent(updated);
         },
       ),
@@ -185,8 +196,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove sub-component?'),
-        content: Text(
-            'Remove "${comp.name}" from ${widget.machinery.displayName}?'),
+        content:
+            Text('Remove "${comp.name}" from ${widget.machinery.displayName}?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -260,7 +271,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
               // Nameplate scan
               _scanningPlate
                   ? const SizedBox(
-                      width: 20, height: 20,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: AppColors.teal))
                   : IconButton(
@@ -327,7 +339,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                             _Spec('Hrs (new)',
                                 widget.machinery.runHrsNew!.toStringAsFixed(0)),
                           if (widget.machinery.runHrsOverhaul != null)
-                            _Spec('Hrs (O/H)',
+                            _Spec(
+                                'Hrs (O/H)',
                                 widget.machinery.runHrsOverhaul!
                                     .toStringAsFixed(0)),
                         ],
@@ -342,18 +355,28 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                     onTap: _scanMachineryNameplate,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
-                      child: Image.file(
-                        File(nameplatePhoto.thumbnailPath ??
-                            nameplatePhoto.localPath),
-                        width: 64, height: 64,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 64, height: 64,
-                          color: AppColors.surface,
-                          child: const Icon(Icons.broken_image_outlined,
-                              size: 20, color: AppColors.textTertiary),
-                        ),
-                      ),
+                      child: !nameplatePhoto.hasLocalFile
+                          ? Container(
+                              width: 64,
+                              height: 64,
+                              color: AppColors.surface,
+                              child: const Icon(Icons.cloud_download_outlined,
+                                  size: 20, color: AppColors.textTertiary),
+                            )
+                          : Image.file(
+                              File(nameplatePhoto.thumbnailPath ??
+                                  nameplatePhoto.localPath!),
+                              width: 64,
+                              height: 64,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 64,
+                                height: 64,
+                                color: AppColors.surface,
+                                child: const Icon(Icons.broken_image_outlined,
+                                    size: 20, color: AppColors.textTertiary),
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -389,7 +412,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                   if (componentsAsync.isLoading) ...[
                     const SizedBox(width: 8),
                     const SizedBox(
-                      width: 10, height: 10,
+                      width: 10,
+                      height: 10,
                       child: CircularProgressIndicator(
                           strokeWidth: 1.5, color: AppColors.textTertiary),
                     ),
@@ -403,7 +427,6 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
               const SizedBox(height: 6),
               const Divider(height: 1),
               const SizedBox(height: 4),
-
               if (components.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 6),
@@ -428,9 +451,8 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                   final compPhotoMatches = photos.where((p) =>
                       p.linkedToType == 'component_nameplate' &&
                       p.linkedToId == comp.componentId);
-                  final compPhoto = compPhotoMatches.isEmpty
-                      ? null
-                      : compPhotoMatches.first;
+                  final compPhoto =
+                      compPhotoMatches.isEmpty ? null : compPhotoMatches.first;
 
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
@@ -444,13 +466,17 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                         if (compPhoto != null) ...[
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: Image.file(
-                              File(compPhoto.thumbnailPath ?? compPhoto.localPath),
-                              width: 36, height: 36,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const SizedBox(
-                                  width: 36, height: 36),
-                            ),
+                            child: !compPhoto.hasLocalFile
+                                ? const SizedBox(width: 36, height: 36)
+                                : Image.file(
+                                    File(compPhoto.thumbnailPath ??
+                                        compPhoto.localPath!),
+                                    width: 36,
+                                    height: 36,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const SizedBox(width: 36, height: 36),
+                                  ),
                           ),
                           const SizedBox(width: 6),
                         ],
@@ -495,7 +521,6 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                     ),
                   );
                 }),
-
               const SizedBox(height: 8),
               GestureDetector(
                 onTap: () => _openAddComponent(components),
@@ -522,12 +547,12 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
   }
 
   Color _roleColor(String? role) => switch (role) {
-        'main_engine'         => AppColors.navy,
-        'diesel_generator'    => AppColors.teal,
+        'main_engine' => AppColors.navy,
+        'diesel_generator' => AppColors.teal,
         'emergency_generator' => AppColors.amber,
-        'thruster'            => AppColors.midBlue,
-        'gearbox'             => AppColors.purple,
-        _                     => AppColors.textSecondary,
+        'thruster' => AppColors.midBlue,
+        'gearbox' => AppColors.purple,
+        _ => AppColors.textSecondary,
       };
 }
 
@@ -549,12 +574,13 @@ class _NameplatePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = <_PreviewRow>[
-      if (make.isNotEmpty)   _PreviewRow('Manufacturer', make),
-      if (model.isNotEmpty)  _PreviewRow('Model', model),
+      if (make.isNotEmpty) _PreviewRow('Manufacturer', make),
+      if (model.isNotEmpty) _PreviewRow('Model', model),
       if (serial.isNotEmpty) _PreviewRow('Serial No.', serial),
-      if (powerKw != null)   _PreviewRow('Power', '${powerKw!.toStringAsFixed(0)} kW'),
-      if (rpm != null)       _PreviewRow('RPM', rpm!.toStringAsFixed(0)),
-      if (addl.isNotEmpty)   _PreviewRow('Additional', addl),
+      if (powerKw != null)
+        _PreviewRow('Power', '${powerKw!.toStringAsFixed(0)} kW'),
+      if (rpm != null) _PreviewRow('RPM', rpm!.toStringAsFixed(0)),
+      if (addl.isNotEmpty) _PreviewRow('Additional', addl),
     ];
 
     if (rows.isEmpty) {
@@ -611,7 +637,8 @@ class _Spec extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text('$label: ',
-            style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+            style:
+                const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
         Text(value,
             style: const TextStyle(
                 fontSize: 11,

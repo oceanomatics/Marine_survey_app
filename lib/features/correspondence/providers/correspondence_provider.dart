@@ -1,20 +1,35 @@
 // lib/features/correspondence/providers/correspondence_provider.dart
+//
+// Drive-backed unified storage (2026-07-05): Supabase is the authoritative
+// metadata store (same offline-cache/write-queue pattern as
+// surveyor_notes_provider.dart / photo_provider.dart), the file itself
+// (.eml or .pdf) is uploaded to Google Drive (DriveStorageService) as the
+// canonical cross-platform copy, and native platforms additionally keep a
+// local file cache for fast offline access (local_path — per-device, never
+// synced).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../core/database/app_database.dart';
+import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../../core/database/app_database.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../core/services/drive_storage_service.dart';
 import '../../../core/utils/eml_parser.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../models/correspondence_model.dart';
 
 const _uuid = Uuid();
+const _table = 'correspondence';
 
 final correspondenceProvider = AsyncNotifierProviderFamily<
     CorrespondenceNotifier, List<CorrespondenceModel>, String>(
@@ -23,13 +38,121 @@ final correspondenceProvider = AsyncNotifierProviderFamily<
 
 class CorrespondenceNotifier
     extends FamilyAsyncNotifier<List<CorrespondenceModel>, String> {
-  @override
-  Future<List<CorrespondenceModel>> build(String caseId) => _fetch(caseId);
+  String get _caseId => arg;
 
-  Future<List<CorrespondenceModel>> _fetch(String caseId) async {
+  @override
+  Future<List<CorrespondenceModel>> build(String caseId) async {
+    ref.listen<AsyncValue<bool>>(connectivityProvider, (_, next) {
+      if (next.value == true) _refresh();
+    });
+    if (kIsWeb) {
+      return _fetchSupabase(caseId);
+    }
+    _refresh();
+    return _fetchOffline(caseId);
+  }
+
+  // ── Supabase (canonical metadata) ─────────────────────────────────────────
+
+  Future<List<CorrespondenceModel>> _fetchSupabase(String caseId) async {
+    final rows = await SupabaseService.client
+        .from(_table)
+        .select()
+        .eq('case_id', caseId)
+        .order('created_at', ascending: false);
+    return (rows as List)
+        .map((r) =>
+            CorrespondenceModel.fromSupabaseMap(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  bool _refreshing = false;
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      if (kIsWeb) {
+        state = AsyncData(await _fetchSupabase(_caseId));
+        return;
+      }
+      await _syncPending();
+      final remote = await _fetchSupabase(_caseId);
+      await _mergeIntoLocalCache(remote);
+      state = AsyncData(await _fetchOffline(_caseId));
+    } catch (e, st) {
+      debugPrint('CorrespondenceNotifier._refresh error: $e\n$st');
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _mergeIntoLocalCache(
+      List<CorrespondenceModel> remoteRows) async {
+    final db = await AppDatabase.instance.database;
+    for (final remote in remoteRows) {
+      final existingRows =
+          await db.query(_table, where: 'id = ?', whereArgs: [remote.id]);
+      if (existingRows.isEmpty) {
+        await db.insert(_table, {...remote.toMap(), 'sync_status': 'synced'});
+        continue;
+      }
+      final existingRow = existingRows.first;
+      if (existingRow['sync_status'] == 'pending_upsert') continue;
+      final existing = CorrespondenceModel.fromMap(existingRow);
+      final merged = remote.copyWith(localPath: existing.localPath);
+      await db.update(_table, {...merged.toMap(), 'sync_status': 'synced'},
+          where: 'id = ?', whereArgs: [remote.id]);
+    }
+
+    final remoteIds = remoteRows.map((r) => r.id).toSet();
+    final localRows =
+        await db.query(_table, where: 'case_id = ?', whereArgs: [_caseId]);
+    for (final row in localRows) {
+      final id = row['id'] as String;
+      if (!remoteIds.contains(id) && row['sync_status'] == 'synced') {
+        await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+      }
+    }
+  }
+
+  Future<void> _syncPending() async {
+    final db = await AppDatabase.instance.database;
+
+    final toUpsert = await db.query(_table,
+        where: 'case_id = ? AND sync_status = ?',
+        whereArgs: [_caseId, 'pending_upsert']);
+    for (final row in toUpsert) {
+      try {
+        final corr = CorrespondenceModel.fromMap(row);
+        await SupabaseService.client
+            .from(_table)
+            .upsert(corr.toSupabaseMap(), onConflict: 'id');
+        await db.update(_table, {'sync_status': 'synced'},
+            where: 'id = ?', whereArgs: [corr.id]);
+      } catch (_) {
+        return;
+      }
+    }
+
+    final toDelete = await db.query(_table,
+        where: 'case_id = ? AND sync_status = ?',
+        whereArgs: [_caseId, 'pending_delete']);
+    for (final row in toDelete) {
+      final id = row['id'] as String;
+      try {
+        await SupabaseService.client.from(_table).delete().eq('id', id);
+        await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+      } catch (_) {
+        return;
+      }
+    }
+  }
+
+  Future<List<CorrespondenceModel>> _fetchOffline(String caseId) async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query(
-      'correspondence',
+      _table,
       where: 'case_id = ?',
       whereArgs: [caseId],
       orderBy: 'created_at DESC',
@@ -37,77 +160,171 @@ class CorrespondenceNotifier
     return rows.map(CorrespondenceModel.fromMap).toList();
   }
 
-  /// Copy a PDF from [bytes] into local storage and create a record.
+  Future<String> _caseTitle(String caseId) async {
+    final cached = ref.read(caseProvider(caseId)).value?.title;
+    if (cached != null && cached.isNotEmpty) return cached;
+    try {
+      final row = await SupabaseService.client
+          .from('cases')
+          .select('title')
+          .eq('case_id', caseId)
+          .maybeSingle();
+      final title = row?['title'] as String?;
+      return (title != null && title.isNotEmpty) ? title : caseId;
+    } catch (_) {
+      return caseId;
+    }
+  }
+
+  // ── Public mutations ──────────────────────────────────────────────────────
+
+  /// Copy a PDF from [bytes] into local storage (native) + Drive (unified
+  /// storage), and create a Supabase + local cache record.
   Future<CorrespondenceModel> addFromBytes({
     required String caseId,
     required Uint8List bytes,
     required String filename,
   }) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final corrDir =
-        Directory(p.join(dir.path, 'cases', caseId, 'correspondence'));
-    await corrDir.create(recursive: true);
-
     final id = _uuid.v4();
-    final ext = filename.split('.').last.toLowerCase();
-    final localPath = p.join(corrDir.path, '$id.$ext');
-    await File(localPath).writeAsBytes(bytes);
+    final ext =
+        filename.contains('.') ? filename.split('.').last.toLowerCase() : 'pdf';
+
+    String? localPath;
+    if (!kIsWeb) {
+      final dir = await getApplicationDocumentsDirectory();
+      final corrDir =
+          Directory(p.join(dir.path, 'cases', caseId, 'correspondence'));
+      await corrDir.create(recursive: true);
+      localPath = p.join(corrDir.path, '$id.$ext');
+      await File(localPath).writeAsBytes(bytes);
+    }
+
+    String? driveFileId;
+    try {
+      final caseTitle = await _caseTitle(caseId);
+      driveFileId = await DriveStorageService.uploadCaseFile(
+        caseId: caseId,
+        caseTitle: caseTitle,
+        category: CaseFileCategory.correspondence,
+        bytes: bytes,
+        filename: filename,
+        mimeType: ext == 'pdf' ? 'application/pdf' : 'application/octet-stream',
+      );
+    } catch (e) {
+      debugPrint('Drive correspondence upload skipped: $e');
+    }
 
     final corr = CorrespondenceModel(
-      id:         id,
-      caseId:     caseId,
-      title:      filename,
-      localPath:  localPath,
+      id: id,
+      caseId: caseId,
+      title: filename,
+      localPath: localPath,
+      fileType: ext,
       fileSizeKb: bytes.length / 1024,
-      createdAt:  DateTime.now(),
+      driveFileId: driveFileId,
+      createdAt: DateTime.now(),
     );
 
-    final db = await AppDatabase.instance.database;
-    await db.insert('correspondence', corr.toMap());
-
-    final current = state.value ?? [];
-    state = AsyncData([corr, ...current]);
+    await _insert(corr);
     return corr;
   }
 
-  /// Parse an EML file, save it locally and create a correspondence record.
-  /// Returns the record plus the list of attachments found in the email.
+  /// Parse an EML file, save it locally (native) + Drive, and create a
+  /// Supabase + local cache record. Returns the record plus the list of
+  /// attachments found in the email.
   Future<(CorrespondenceModel, List<EmlAttachment>)> importEml({
     required String caseId,
     required Uint8List bytes,
     required String filename,
   }) async {
     final msg = EmlParser.parse(bytes);
-
-    final dir = await getApplicationDocumentsDirectory();
-    final corrDir =
-        Directory(p.join(dir.path, 'cases', caseId, 'correspondence'));
-    await corrDir.create(recursive: true);
-
     final id = _uuid.v4();
-    final localPath = p.join(corrDir.path, '$id.eml');
-    await File(localPath).writeAsBytes(bytes);
+
+    String? localPath;
+    if (!kIsWeb) {
+      final dir = await getApplicationDocumentsDirectory();
+      final corrDir =
+          Directory(p.join(dir.path, 'cases', caseId, 'correspondence'));
+      await corrDir.create(recursive: true);
+      localPath = p.join(corrDir.path, '$id.eml');
+      await File(localPath).writeAsBytes(bytes);
+    }
+
+    String? driveFileId;
+    try {
+      final caseTitle = await _caseTitle(caseId);
+      driveFileId = await DriveStorageService.uploadCaseFile(
+        caseId: caseId,
+        caseTitle: caseTitle,
+        category: CaseFileCategory.correspondence,
+        bytes: bytes,
+        filename: '$id.eml',
+        mimeType: 'message/rfc822',
+      );
+    } catch (e) {
+      debugPrint('Drive correspondence upload skipped: $e');
+    }
 
     final corr = CorrespondenceModel(
-      id:         id,
-      caseId:     caseId,
-      title:      msg.subject,
-      sender:     msg.from.isNotEmpty ? msg.from : null,
-      recipient:  msg.to.isNotEmpty ? msg.to : null,
-      corrDate:   msg.date,
-      localPath:  localPath,
-      bodyText:   msg.plainBody.isNotEmpty ? msg.plainBody : null,
+      id: id,
+      caseId: caseId,
+      title: msg.subject,
+      sender: msg.from.isNotEmpty ? msg.from : null,
+      recipient: msg.to.isNotEmpty ? msg.to : null,
+      corrDate: msg.date,
+      localPath: localPath,
+      fileType: 'eml',
+      bodyText: msg.plainBody.isNotEmpty ? msg.plainBody : null,
       fileSizeKb: bytes.length / 1024,
-      createdAt:  DateTime.now(),
+      driveFileId: driveFileId,
+      createdAt: DateTime.now(),
     );
 
-    final db = await AppDatabase.instance.database;
-    await db.insert('correspondence', corr.toMap());
+    await _insert(corr);
+    return (corr, msg.attachments);
+  }
+
+  Future<void> _insert(CorrespondenceModel corr) async {
+    var syncStatus = 'pending_upsert';
+    try {
+      await SupabaseService.client.from(_table).insert(corr.toSupabaseMap());
+      syncStatus = 'synced';
+    } catch (_) {
+      // Offline — queued for _syncPending to pick up later.
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      await db.insert(_table, {...corr.toMap(), 'sync_status': syncStatus});
+    }
 
     final current = state.value ?? [];
     state = AsyncData([corr, ...current]);
+  }
 
-    return (corr, msg.attachments);
+  /// Downloads the file from Drive and caches it locally — for viewing a
+  /// correspondence synced from another device (or a fresh install) with no
+  /// local file yet. No-op on web or if there's no Drive copy to fetch.
+  Future<CorrespondenceModel?> ensureLocalFile(String corrId) async {
+    if (kIsWeb) return null;
+    final current = state.value ?? [];
+    final corr = current.firstWhere((c) => c.id == corrId);
+    if (corr.hasLocalFile || corr.driveFileId == null) return corr;
+
+    final bytes = await DriveStorageService.downloadFile(corr.driveFileId!);
+    final dir = await getApplicationDocumentsDirectory();
+    final corrDir =
+        Directory(p.join(dir.path, 'cases', corr.caseId, 'correspondence'));
+    await corrDir.create(recursive: true);
+    final localPath = p.join(corrDir.path, '$corrId.${corr.fileType}');
+    await File(localPath).writeAsBytes(bytes);
+
+    final updated = corr.copyWith(localPath: localPath);
+    final db = await AppDatabase.instance.database;
+    await db
+        .update(_table, updated.toMap(), where: 'id = ?', whereArgs: [corrId]);
+    _updateState((c) => c.id == corrId ? updated : c);
+    return updated;
   }
 
   /// Run Claude extraction on an uploaded PDF or imported EML.
@@ -116,23 +333,29 @@ class CorrespondenceNotifier
   Future<ExtractedCaseRefs?> extract(String corrId) async {
     _setStatus(corrId, CorrStatus.processing);
     try {
-      final current = state.value ?? [];
-      final corr = current.firstWhere((c) => c.id == corrId);
+      var current = state.value ?? [];
+      var corr = current.firstWhere((c) => c.id == corrId);
+      if (!corr.hasLocalFile) {
+        corr = await ensureLocalFile(corrId) ?? corr;
+      }
 
       Map<String, dynamic> result;
       if (corr.isEml && corr.bodyText != null) {
         result = await ClaudeApi.extractCorrespondenceFromText(
-          subject:  corr.title,
+          subject: corr.title,
           bodyText: corr.bodyText!,
-          from:     corr.sender,
-          to:       corr.recipient,
+          from: corr.sender,
+          to: corr.recipient,
         );
       } else {
-        final bytes = await File(corr.localPath).readAsBytes();
+        if (!corr.hasLocalFile) {
+          throw Exception('Correspondence file not available');
+        }
+        final bytes = await File(corr.localPath!).readAsBytes();
         final base64Pdf = base64Encode(bytes);
         result = await ClaudeApi.extractCorrespondence(
           base64Pdf: base64Pdf,
-          filename:  corr.title,
+          filename: corr.title,
         );
       }
 
@@ -151,33 +374,33 @@ class CorrespondenceNotifier
           .toList();
 
       final corrDateRaw = result['corr_date'];
-      final corrDate = corrDateRaw is String
-          ? DateTime.tryParse(corrDateRaw)
-          : null;
+      final corrDate =
+          corrDateRaw is String ? DateTime.tryParse(corrDateRaw) : null;
 
+      current = state.value ?? [];
+      corr = current.firstWhere((c) => c.id == corrId);
       final updated = corr.copyWith(
-        summary:   result['summary'] as String?,
-        sender:    result['sender'] as String?,
+        summary: result['summary'] as String?,
+        sender: result['sender'] as String?,
         recipient: result['recipient'] as String?,
-        corrDate:  corrDate,
-        parties:   parties,
-        actions:   actions,
-        keyDates:  keyDates,
-        status:    CorrStatus.completed,
+        corrDate: corrDate,
+        parties: parties,
+        actions: actions,
+        keyDates: keyDates,
+        status: CorrStatus.completed,
       );
 
       await _persist(updated);
 
       // Collect case-level refs to return
       final instrDateRaw = result['instruction_date'];
-      final instrDate = instrDateRaw is String
-          ? DateTime.tryParse(instrDateRaw)
-          : null;
+      final instrDate =
+          instrDateRaw is String ? DateTime.tryParse(instrDateRaw) : null;
 
       final refs = ExtractedCaseRefs(
-        technicalFileNo:       _nonEmpty(result['technical_file_no']),
-        claimReference:  _nonEmpty(result['claim_reference']),
-        vesselName:      _nonEmpty(result['vessel_name']),
+        technicalFileNo: _nonEmpty(result['technical_file_no']),
+        claimReference: _nonEmpty(result['claim_reference']),
+        vesselName: _nonEmpty(result['vessel_name']),
         instructionDate: instrDate,
       );
       return refs.hasAny ? refs : null;
@@ -196,29 +419,78 @@ class CorrespondenceNotifier
   Future<void> delete(String corrId) async {
     final current = state.value ?? [];
     final corr = current.firstWhere((c) => c.id == corrId);
-    try { await File(corr.localPath).delete(); } catch (_) {}
-    final db = await AppDatabase.instance.database;
-    await db.delete('correspondence', where: 'id = ?', whereArgs: [corrId]);
+    if (corr.localPath != null) {
+      try {
+        await File(corr.localPath!).delete();
+      } catch (_) {}
+    }
+
+    var deleted = false;
+    try {
+      await SupabaseService.client.from(_table).delete().eq('id', corrId);
+      deleted = true;
+    } catch (_) {
+      // Offline
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      if (deleted) {
+        await db.delete(_table, where: 'id = ?', whereArgs: [corrId]);
+      } else {
+        await db.update(_table, {'sync_status': 'pending_delete'},
+            where: 'id = ?', whereArgs: [corrId]);
+      }
+    }
+
     state = AsyncData(current.where((c) => c.id != corrId).toList());
   }
 
   void _setStatus(String corrId, CorrStatus status) {
-    final current = state.value ?? [];
-    state = AsyncData(current
-        .map((c) => c.id == corrId ? c.copyWith(status: status) : c)
-        .toList());
+    _updateState((c) => c.id == corrId ? c.copyWith(status: status) : c);
+    unawaited(_persistStatusOnly(corrId, status));
+  }
+
+  Future<void> _persistStatusOnly(String corrId, CorrStatus status) async {
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update({'status': status.value}).eq('id', corrId);
+    } catch (_) {
+      // Offline — the full _persist() call after extraction completes will
+      // still queue a pending_upsert with the final status.
+    }
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      await db.update(_table, {'status': status.value},
+          where: 'id = ?', whereArgs: [corrId]);
+    }
   }
 
   Future<void> _persist(CorrespondenceModel corr) async {
-    final db = await AppDatabase.instance.database;
-    await db.update(
-      'correspondence',
-      corr.toMap(),
-      where: 'id = ?',
-      whereArgs: [corr.id],
-    );
+    var syncStatus = 'pending_upsert';
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update(corr.toSupabaseMap())
+          .eq('id', corr.id);
+      syncStatus = 'synced';
+    } catch (_) {
+      // Offline
+    }
+
+    if (!kIsWeb) {
+      final db = await AppDatabase.instance.database;
+      await db.update(_table, {...corr.toMap(), 'sync_status': syncStatus},
+          where: 'id = ?', whereArgs: [corr.id]);
+    }
+
+    _updateState((c) => c.id == corr.id ? corr : c);
+  }
+
+  void _updateState(
+      CorrespondenceModel Function(CorrespondenceModel) transform) {
     final current = state.value ?? [];
-    state = AsyncData(
-        current.map((c) => c.id == corr.id ? corr : c).toList());
+    state = AsyncData(current.map(transform).toList());
   }
 }

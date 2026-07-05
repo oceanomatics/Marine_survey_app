@@ -312,9 +312,16 @@ The `account_lines` module uses per-document currency (from `RepairDocumentModel
 > **Future architecture (logged for later):**
 > 1. Interview captures audio recordings.
 > 2. Recordings transcribed to text via STT (see Voice/STT memory — platform STT / AssemblyAI).
-> 3. AI analyses transcription → extracts context cues tagged by report section.
+> 3. AI analyses transcription → extracts context cues tagged by case section.
 > 4. Context cues suggested to the surveyor in the relevant section editors.
-> 5. **Context Cue Manager needs architectural review** — cues may be relevant to multiple sections simultaneously; the current single-allocation model needs extending.
+> 5. ~~Context Cue Manager needs architectural review~~ — **superseded, see
+>    `docs/context_cue_system_review.md`.** The cue system was reworked (5–6 July 2026):
+>    renamed `ReportSection`→`CaseSection`, added a two-level allocation model (case
+>    section + optional repair-period sub-target, reintegrating WNCA), gave every
+>    case-screen section a real cue-entry point, and added AI-extraction
+>    auto-classification with mandatory human review before anything reaches report
+>    content. Interview→cue wiring (steps 1–2 above) is still not built — that's the
+>    remaining gap, not the allocation model.
 
 ---
 

@@ -39,7 +39,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -64,14 +64,23 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
         body: Center(child: Text('Error: $e')),
       ),
       data: (notes) {
-        final retained    = notes.where((n) =>
-            n.priority != CuePriority.ignored &&
-            n.caseSection != null).toList();
-        final unallocated = notes.where((n) =>
-            n.priority != CuePriority.ignored &&
-            n.caseSection == null).toList();
-        final ignored     = notes.where((n) =>
-            n.priority == CuePriority.ignored).toList();
+        final suggested = notes
+            .where((n) => n.priority != CuePriority.ignored && n.pendingReview)
+            .toList();
+        final retained = notes
+            .where((n) =>
+                n.priority != CuePriority.ignored &&
+                !n.pendingReview &&
+                n.caseSection != null)
+            .toList();
+        final unallocated = notes
+            .where((n) =>
+                n.priority != CuePriority.ignored &&
+                !n.pendingReview &&
+                n.caseSection == null)
+            .toList();
+        final ignored =
+            notes.where((n) => n.priority == CuePriority.ignored).toList();
 
         return Scaffold(
           backgroundColor: AppColors.surface,
@@ -82,16 +91,28 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               labelColor: _kColor,
               unselectedLabelColor: AppColors.textSecondary,
               indicatorColor: _kColor,
-              labelStyle: const TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600),
+              labelStyle:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
               tabs: [
                 const Tab(text: 'Retained'),
                 Tab(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Unallocated',
-                          style: TextStyle(fontSize: 12)),
+                      const Text('Suggested', style: TextStyle(fontSize: 12)),
+                      if (suggested.isNotEmpty) ...[
+                        const SizedBox(width: 5),
+                        _Badge(
+                            count: suggested.length, color: AppColors.midBlue),
+                      ],
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Unallocated', style: TextStyle(fontSize: 12)),
                       if (unallocated.isNotEmpty) ...[
                         const SizedBox(width: 5),
                         _Badge(count: unallocated.length),
@@ -103,8 +124,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Ignored',
-                          style: TextStyle(fontSize: 12)),
+                      const Text('Ignored', style: TextStyle(fontSize: 12)),
                       if (ignored.isNotEmpty) ...[
                         const SizedBox(width: 5),
                         _Badge(
@@ -141,6 +161,25 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                       onDelete: (id) => ref
                           .read(surveyorNotesProvider(widget.caseId).notifier)
                           .delete(id),
+                    ),
+
+              // ── Suggested (AI-extracted, awaiting review) ────────────────
+              suggested.isEmpty
+                  ? _EmptyState(
+                      message: 'No suggested cues',
+                      sub:
+                          'AI-extracted cues awaiting your confirmation appear here',
+                      onAdd: () => _showNoteEditor(context, ref),
+                    )
+                  : _FlatList(
+                      notes: suggested,
+                      onEdit: (n) => _showNoteEditor(context, ref, note: n),
+                      onDelete: (id) => ref
+                          .read(surveyorNotesProvider(widget.caseId).notifier)
+                          .delete(id),
+                      onConfirm: (id) => ref
+                          .read(surveyorNotesProvider(widget.caseId).notifier)
+                          .confirmAllocation(id),
                     ),
 
               // ── Unallocated ───────────────────────────────────────────
@@ -199,27 +238,27 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                   : null;
           if (note == null) {
             await notifier.add(
-              caseId:            widget.caseId,
-              content:           content,
-              caseSection:       section,
-              priority:          priority,
-              natureOfContent:   nature,
+              caseId: widget.caseId,
+              content: content,
+              caseSection: section,
+              priority: priority,
+              natureOfContent: nature,
               evidentiaryWeight: weight,
-              origin:            origin,
-              linkedToType:      linkedToType,
-              linkedToId:        linkedToType != null ? linkedPeriodId : null,
+              origin: origin,
+              linkedToType: linkedToType,
+              linkedToId: linkedToType != null ? linkedPeriodId : null,
             );
           } else {
             await notifier.editNote(
               note.id,
-              content:           content,
-              caseSection:       section,
-              priority:          priority,
-              natureOfContent:   nature,
+              content: content,
+              caseSection: section,
+              priority: priority,
+              natureOfContent: nature,
               evidentiaryWeight: weight,
-              origin:            origin,
-              linkedToType:      linkedToType,
-              linkedToId:        linkedToType != null ? linkedPeriodId : null,
+              origin: origin,
+              linkedToType: linkedToType,
+              linkedToId: linkedToType != null ? linkedPeriodId : null,
             );
           }
         },
@@ -302,10 +341,14 @@ class _RetainedList extends StatelessWidget {
 
 class _FlatList extends StatelessWidget {
   const _FlatList(
-      {required this.notes, required this.onEdit, required this.onDelete});
+      {required this.notes,
+      required this.onEdit,
+      required this.onDelete,
+      this.onConfirm});
   final List<SurveyorNote> notes;
   final void Function(SurveyorNote) onEdit;
   final void Function(String) onDelete;
+  final void Function(String)? onConfirm;
 
   @override
   Widget build(BuildContext context) {
@@ -329,7 +372,8 @@ class _FlatList extends StatelessWidget {
           child: _NoteCard(
               note: note,
               onEdit: () => onEdit(note),
-              onDelete: () => onDelete(note.id)),
+              onDelete: () => onDelete(note.id),
+              onConfirm: onConfirm != null ? () => onConfirm!(note.id) : null),
         ));
       }
     }
@@ -430,11 +474,13 @@ class _NoteCard extends StatelessWidget {
     required this.note,
     required this.onEdit,
     required this.onDelete,
+    this.onConfirm,
   });
 
   final SurveyorNote note;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onConfirm;
 
   @override
   Widget build(BuildContext context) {
@@ -494,6 +540,11 @@ class _NoteCard extends StatelessWidget {
                                     ),
                                   if (note.priority != CuePriority.normal)
                                     _PriorityBadge(priority: note.priority),
+                                  if (note.pendingReview)
+                                    const _MetaChip(
+                                      label: 'Suggested',
+                                      color: AppColors.midBlue,
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 5),
@@ -541,8 +592,7 @@ class _NoteCard extends StatelessWidget {
                                                     color: AppColors.midBlue,
                                                     fontWeight:
                                                         FontWeight.w600),
-                                                overflow:
-                                                    TextOverflow.ellipsis,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ]),
@@ -572,6 +622,17 @@ class _NoteCard extends StatelessWidget {
                             ],
                           ),
                         ),
+                        if (onConfirm != null) ...[
+                          IconButton(
+                            icon: const Icon(Icons.check_circle_outline,
+                                size: 18, color: AppColors.midBlue),
+                            tooltip: 'Confirm allocation',
+                            onPressed: onConfirm,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         PopupMenuButton<String>(
                           icon: const Icon(Icons.more_vert,
                               size: 16, color: AppColors.textTertiary),
@@ -585,8 +646,7 @@ class _NoteCard extends StatelessWidget {
                                 child: Row(children: [
                                   Icon(Icons.edit_outlined, size: 15),
                                   SizedBox(width: 8),
-                                  Text('Edit',
-                                      style: TextStyle(fontSize: 13)),
+                                  Text('Edit', style: TextStyle(fontSize: 13)),
                                 ])),
                             const PopupMenuItem(
                                 value: 'delete',
@@ -596,8 +656,7 @@ class _NoteCard extends StatelessWidget {
                                   SizedBox(width: 8),
                                   Text('Delete',
                                       style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.red)),
+                                          fontSize: 13, color: Colors.red)),
                                 ])),
                           ],
                         ),
@@ -613,13 +672,22 @@ class _NoteCard extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime dt) =>
-      '${dt.day.toString().padLeft(2, '0')} '
+  String _formatDate(DateTime dt) => '${dt.day.toString().padLeft(2, '0')} '
       '${_months[dt.month - 1]} ${dt.year}';
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 }
 
@@ -640,8 +708,8 @@ class _MetaChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-            fontSize: 9, fontWeight: FontWeight.w700, color: color),
+        style:
+            TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
@@ -815,17 +883,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             onTap: () => setState(() => _priority = p),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               decoration: BoxDecoration(
                                 color: selected
                                     ? color.withValues(alpha: 0.12)
                                     : AppColors.surface,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                    color: selected
-                                        ? color
-                                        : AppColors.border,
+                                    color: selected ? color : AppColors.border,
                                     width: selected ? 1.5 : 1.0),
                               ),
                               child: Text(
@@ -910,16 +975,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       color: AppColors.textTertiary, fontSize: 13),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          const BorderSide(color: AppColors.border)),
+                      borderSide: const BorderSide(color: AppColors.border)),
                   enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          const BorderSide(color: AppColors.border)),
+                      borderSide: const BorderSide(color: AppColors.border)),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide:
-                          const BorderSide(color: _kColor, width: 1.5)),
+                      borderSide: const BorderSide(color: _kColor, width: 1.5)),
                   contentPadding: const EdgeInsets.all(12),
                 ),
                 style: const TextStyle(fontSize: 13, height: 1.5),
@@ -1009,8 +1071,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
 Color _priorityColor(CuePriority p) => switch (p) {
       CuePriority.important => const Color(0xFFDC2626),
-      CuePriority.normal    => AppColors.textSecondary,
-      CuePriority.ignored   => AppColors.textTertiary,
+      CuePriority.normal => AppColors.textSecondary,
+      CuePriority.ignored => AppColors.textTertiary,
     };
 
 // ── Repair-period quick-pick chips (WNCA / General Services & Access) ─────
@@ -1063,9 +1125,8 @@ class _RepairPeriodChips extends ConsumerWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: value == null ? FontWeight.w700 : FontWeight.w400,
-                color: value == null
-                    ? AppColors.warning
-                    : AppColors.textTertiary,
+                color:
+                    value == null ? AppColors.warning : AppColors.textTertiary,
               ),
             ),
           ),
@@ -1083,7 +1144,8 @@ class _RepairPeriodChips extends ConsumerWidget {
                     : AppColors.midBlue.withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: AppColors.midBlue.withValues(alpha: selected ? 1.0 : 0.25),
+                  color: AppColors.midBlue
+                      .withValues(alpha: selected ? 1.0 : 0.25),
                   width: selected ? 1.5 : 1.0,
                 ),
               ),
@@ -1102,7 +1164,10 @@ class _RepairPeriodChips extends ConsumerWidget {
           onTap: () async {
             final nextNo = periods.isEmpty
                 ? 1
-                : periods.map((p) => p.periodNo).reduce((a, b) => a > b ? a : b) + 1;
+                : periods
+                        .map((p) => p.periodNo)
+                        .reduce((a, b) => a > b ? a : b) +
+                    1;
             final createdId = await showQuickCreateRepairPeriodDialog(
               context,
               ref,
@@ -1170,8 +1235,7 @@ class _SectionChips extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontStyle: FontStyle.italic,
-                fontWeight:
-                    value == null ? FontWeight.w700 : FontWeight.w400,
+                fontWeight: value == null ? FontWeight.w700 : FontWeight.w400,
                 color: value == null
                     ? AppColors.textSecondary
                     : AppColors.textTertiary,
@@ -1230,8 +1294,7 @@ class _EmptyState extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-                color: _kColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle),
+                color: _kColor.withValues(alpha: 0.1), shape: BoxShape.circle),
             child: const Icon(Icons.edit_note, color: _kColor, size: 30),
           ),
           const SizedBox(height: 16),

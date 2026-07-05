@@ -15,9 +15,9 @@ class AccountScreen extends ConsumerStatefulWidget {
 }
 
 class _AccountScreenState extends ConsumerState<AccountScreen> {
-  final _nameCtrl    = TextEditingController();
-  final _emailCtrl   = TextEditingController();
-  final _phoneCtrl   = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   bool _profileDirty = false;
   bool _savingProfile = false;
@@ -32,9 +32,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 
   void _loadProfile(AccountState s) {
-    _nameCtrl.text    = s.name;
-    _emailCtrl.text   = s.email;
-    _phoneCtrl.text   = s.phone;
+    _nameCtrl.text = s.name;
+    _emailCtrl.text = s.email;
+    _phoneCtrl.text = s.phone;
     _addressCtrl.text = s.address;
   }
 
@@ -42,11 +42,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     setState(() => _savingProfile = true);
     try {
       await ref.read(accountProvider.notifier).saveProfile(
-        name: _nameCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-      );
+            name: _nameCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            phone: _phoneCtrl.text.trim(),
+            address: _addressCtrl.text.trim(),
+          );
       if (mounted) {
         setState(() => _profileDirty = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -72,12 +72,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       ),
       error: (e, _) => Scaffold(
         appBar: AppBar(
-            title: const Text('Account'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => context.go('/cases'),
-            ),
+          title: const Text('Account'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => context.go('/cases'),
           ),
+        ),
         body: Center(child: Text('Error: $e')),
       ),
       data: (account) {
@@ -162,6 +162,28 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
               const SizedBox(height: 24),
 
+              // ── Cloud Storage ─────────────────────────────────────────
+              const _SectionHeader(
+                icon: Icons.folder_shared_outlined,
+                color: AppColors.amber,
+                title: 'Cloud Storage',
+              ),
+              const SizedBox(height: 10),
+              _ApiKeyEditCard(
+                title: 'Drive Base Folder',
+                subtitle: 'Root folder name in your Google Drive under which '
+                    'Cases/ and Admin/ are created — all case photos, '
+                    'correspondence, documents and reports are stored there. '
+                    'Leave blank to use "My Drive" root directly.',
+                icon: Icons.folder_shared_outlined,
+                iconColor: AppColors.amber,
+                currentKey: account.driveBaseFolder,
+                onSave: (v) =>
+                    ref.read(accountProvider.notifier).saveDriveBaseFolder(v),
+              ),
+
+              const SizedBox(height: 24),
+
               // ── FX Rates ──────────────────────────────────────────────
               const _SectionHeader(
                 icon: Icons.currency_exchange_outlined,
@@ -190,10 +212,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               ),
               const SizedBox(height: 10),
               _NavTile(
-                icon:     Icons.record_voice_over_outlined,
-                label:    'Speech Models & Settings',
+                icon: Icons.record_voice_over_outlined,
+                label: 'Speech Models & Settings',
                 subtitle: 'Choose model, decoding method, endpoint sensitivity',
-                onTap:    () => context.go('/speech-settings'),
+                onTap: () => context.go('/speech-settings'),
               ),
 
               const SizedBox(height: 24),
@@ -206,10 +228,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               ),
               const SizedBox(height: 10),
               _NavTile(
-                icon:     Icons.domain_outlined,
-                label:    'Manage Organisations',
-                subtitle: 'Firm profiles, branding, legal text, surveyor sign-off',
-                onTap:    () => context.push('/organisations'),
+                icon: Icons.domain_outlined,
+                label: 'Manage Organisations',
+                subtitle:
+                    'Firm profiles, branding, legal text, surveyor sign-off',
+                onTap: () => context.push('/organisations'),
               ),
 
               const SizedBox(height: 24),
@@ -281,8 +304,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               Navigator.pop(ctx);
               ref.read(accountProvider.notifier).deleteAccount(account.id);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: AppColors.error)),
+            child:
+                const Text('Delete', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -396,8 +419,8 @@ class _ProfileCard extends StatelessWidget {
           minLines: 2,
           maxLines: 4,
           style: const TextStyle(fontSize: 13),
-          decoration: dec('Office / Postal Address',
-              icon: Icons.location_on_outlined),
+          decoration:
+              dec('Office / Postal Address', icon: Icons.location_on_outlined),
         ),
       ]),
     );
@@ -434,7 +457,7 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
   final _ctrl = TextEditingController();
   bool _editing = false;
   bool _obscure = true;
-  bool _saving  = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -482,7 +505,8 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
         children: [
           Row(children: [
             Container(
-              width: 36, height: 36,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
                 color: widget.iconColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
@@ -513,7 +537,8 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: key.isNotEmpty ? AppColors.lightTeal : AppColors.lightCoral,
+                color:
+                    key.isNotEmpty ? AppColors.lightTeal : AppColors.lightCoral,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
@@ -544,7 +569,8 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
             const SizedBox(height: 12),
             Text(
               widget.subtitle,
-              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              style:
+                  const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -669,8 +695,7 @@ class _AccountCard extends StatelessWidget {
             PopupMenuItem(value: 'edit', child: Text('Edit')),
             PopupMenuItem(
               value: 'delete',
-              child:
-                  Text('Delete', style: TextStyle(color: AppColors.error)),
+              child: Text('Delete', style: TextStyle(color: AppColors.error)),
             ),
           ],
         ),
@@ -751,8 +776,8 @@ class _AccountSheetState extends State<_AccountSheet> {
     setState(() => _saving = true);
     try {
       final account = ExternalAccount(
-        id:       widget.existing?.id,
-        type:     _type,
+        id: widget.existing?.id,
+        type: _type,
         username: _usernameCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
@@ -807,8 +832,7 @@ class _AccountSheetState extends State<_AccountSheet> {
           const SizedBox(height: 16),
           Text(
             widget.existing == null ? 'Add Account' : 'Edit Account',
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w700),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           const Text(
@@ -822,7 +846,8 @@ class _AccountSheetState extends State<_AccountSheet> {
               value: _type,
               isExpanded: true,
               underline: const SizedBox.shrink(),
-              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+              style:
+                  const TextStyle(fontSize: 13, color: AppColors.textPrimary),
               items: ExternalAccountType.values
                   .map((t) => DropdownMenuItem(
                         value: t,
@@ -893,40 +918,41 @@ class _NavTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
   });
-  final IconData     icon;
-  final String       label;
-  final String       subtitle;
+  final IconData icon;
+  final String label;
+  final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => Container(
         decoration: BoxDecoration(
-          color:        Colors.white,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border:       Border.all(color: AppColors.border),
+          border: Border.all(color: AppColors.border),
         ),
         child: Material(
           type: MaterialType.transparency,
           child: ListTile(
             leading: Container(
-              width: 36, height: 36,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                color:        AppColors.purple.withValues(alpha: 0.08),
+                color: AppColors.purple.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(icon, size: 18, color: AppColors.purple),
             ),
             title: Text(label,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w500)),
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
             subtitle: Text(subtitle,
                 style: const TextStyle(
                     fontSize: 11, color: AppColors.textSecondary)),
-            trailing: const Icon(Icons.chevron_right,
-                color: AppColors.textTertiary),
+            trailing:
+                const Icon(Icons.chevron_right, color: AppColors.textTertiary),
             onTap: onTap,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
       );

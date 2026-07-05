@@ -70,7 +70,8 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
             onPressed: _saving ? null : _save,
             child: _saving
                 ? const SizedBox(
-                    width: 16, height: 16,
+                    width: 16,
+                    height: 16,
                     child: CircularProgressIndicator(
                         color: Colors.white, strokeWidth: 2))
                 : const Text('Save',
@@ -90,15 +91,21 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
               borderRadius: BorderRadius.circular(10),
               child: AspectRatio(
                 aspectRatio: 4 / 3,
-                child: Image.file(
-                  File(widget.photo.localPath),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: AppColors.surface,
-                    child: const Icon(Icons.broken_image_outlined,
-                        size: 48, color: AppColors.textTertiary),
-                  ),
-                ),
+                child: !widget.photo.hasLocalFile
+                    ? Container(
+                        color: AppColors.surface,
+                        child: const Icon(Icons.cloud_download_outlined,
+                            size: 48, color: AppColors.textTertiary),
+                      )
+                    : Image.file(
+                        File(widget.photo.localPath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: AppColors.surface,
+                          child: const Icon(Icons.broken_image_outlined,
+                              size: 48, color: AppColors.textTertiary),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 20),
@@ -116,16 +123,14 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
                     color: AppColors.textTertiary, fontSize: 14),
                 filled: true,
                 fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
+                    borderSide: const BorderSide(color: AppColors.border)),
                 enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
+                    borderSide: const BorderSide(color: AppColors.border)),
                 focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide:
@@ -207,7 +212,8 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
                 ),
                 child: _saving
                     ? const SizedBox(
-                        width: 18, height: 18,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
                     : const Text('Save',
@@ -256,15 +262,13 @@ class _AllocationChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
-                size: 14,
-                color: selected ? color : AppColors.textTertiary),
+                size: 14, color: selected ? color : AppColors.textTertiary),
             const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
                 fontSize: 12,
-                fontWeight:
-                    selected ? FontWeight.w600 : FontWeight.normal,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
                 color: selected ? color : AppColors.textSecondary,
               ),
             ),
@@ -291,19 +295,19 @@ class _Label extends StatelessWidget {
 }
 
 IconData _allocIcon(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => Icons.home_outlined,
-      PhotoAllocation.logbook          => Icons.menu_book_outlined,
+      PhotoAllocation.coverPage => Icons.home_outlined,
+      PhotoAllocation.logbook => Icons.menu_book_outlined,
       PhotoAllocation.maintenanceRecord => Icons.build_outlined,
-      PhotoAllocation.certificate      => Icons.verified_outlined,
-      PhotoAllocation.damageEvidence   => Icons.warning_amber_outlined,
-      PhotoAllocation.namePlate        => Icons.label_outlined,
+      PhotoAllocation.certificate => Icons.verified_outlined,
+      PhotoAllocation.damageEvidence => Icons.warning_amber_outlined,
+      PhotoAllocation.namePlate => Icons.label_outlined,
     };
 
 Color _allocColor(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => AppColors.purple,
-      PhotoAllocation.logbook          => AppColors.midBlue,
+      PhotoAllocation.coverPage => AppColors.purple,
+      PhotoAllocation.logbook => AppColors.midBlue,
       PhotoAllocation.maintenanceRecord => AppColors.teal,
-      PhotoAllocation.certificate      => AppColors.amber,
-      PhotoAllocation.damageEvidence   => AppColors.coral,
-      PhotoAllocation.namePlate        => AppColors.textSecondary,
+      PhotoAllocation.certificate => AppColors.amber,
+      PhotoAllocation.damageEvidence => AppColors.coral,
+      PhotoAllocation.namePlate => AppColors.textSecondary,
     };

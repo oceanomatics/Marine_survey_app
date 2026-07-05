@@ -16,13 +16,16 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
+import '../services/google_photos_service.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../../survey/providers/damage_provider.dart';
+import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/photo_picker_sheet.dart';
 
-const _kColor   = AppColors.purple;
+const _kColor = AppColors.purple;
 const _kSpacing = 3.0;
 
 // ── Screen ─────────────────────────────────────────────────────────────────
@@ -37,11 +40,13 @@ class PhotoGalleryScreen extends ConsumerStatefulWidget {
 
 class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     with SingleTickerProviderStateMixin {
-
   late final TabController _tab;
-  bool _importing  = false;
-  int  _importDone = 0;
-  int  _importTotal = 0;
+  bool _importing = false;
+  int _importDone = 0;
+  int _importTotal = 0;
+  bool _syncing = false;
+  int _syncDone = 0;
+  int _syncTotal = 0;
 
   @override
   void initState() {
@@ -53,6 +58,74 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
   void dispose() {
     _tab.dispose();
     super.dispose();
+  }
+
+  // ── Google Photos sync ──────────────────────────────────────────────────
+
+  Future<void> _syncToGooglePhotos() async {
+    final all = ref.read(photosProvider(widget.caseId)).value ?? [];
+    final unsynced =
+        all.where((p) => p.syncStatus != PhotoSyncStatus.synced).toList();
+    if (unsynced.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All photos already synced')),
+      );
+      return;
+    }
+
+    setState(() {
+      _syncing = true;
+      _syncDone = 0;
+      _syncTotal = unsynced.length;
+    });
+
+    try {
+      final caseModel = ref.read(caseProvider(widget.caseId)).value;
+      final albumTitle = '${caseModel?.title ?? widget.caseId} — Survey Photos';
+      final albumId = await GooglePhotosService.findOrCreateAlbum(albumTitle);
+      final shareUrl = await GooglePhotosService.shareAlbum(albumId);
+      final notifier = ref.read(photosProvider(widget.caseId).notifier);
+
+      for (final photo in unsynced) {
+        if (!mounted) return;
+        try {
+          final resolved = photo.hasLocalFile
+              ? photo
+              : await notifier.ensureLocalFile(photo.id);
+          if (resolved == null || !resolved.hasLocalFile) continue;
+          final bytes = await File(resolved.localPath!).readAsBytes();
+          await GooglePhotosService.addPhotoToAlbum(
+            albumId: albumId,
+            bytes: bytes,
+            filename: '${photo.id}.jpg',
+            description: photo.caption,
+          );
+          await notifier.markSynced(photo.id, shareUrl);
+        } catch (_) {
+          // Skip this photo, continue with the rest — rough-edge MVP.
+        }
+        if (mounted) setState(() => _syncDone++);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Synced $_syncDone / $_syncTotal photos to Google Photos')),
+        );
+      }
+    } on GoogleSignInCancelled {
+      // User cancelled sign-in — nothing to do.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Sync failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   // ── Photo import pipeline ──────────────────────────────────────────────
@@ -85,12 +158,13 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       await _addPhotosFromGallery(
         attendanceId: attendanceId,
         linkedToType: linkedToType,
-        linkedToId:   linkedToId,
+        linkedToId: linkedToId,
       );
       return;
     }
 
-    final bytesList = await PhotoPickerSheet.resolveBytes(source, context: context);
+    final bytesList =
+        await PhotoPickerSheet.resolveBytes(source, context: context);
     if (bytesList.isEmpty || !mounted) return;
 
     await _importBytes(
@@ -114,12 +188,13 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     String? linkedToType,
     String? linkedToId,
   }) async {
-    final xFiles = await ImagePicker().pickMultiImage(); // no imageQuality — see note above
+    final xFiles = await ImagePicker()
+        .pickMultiImage(); // no imageQuality — see note above
     if (xFiles.isEmpty || !mounted) return;
 
     setState(() {
-      _importing   = true;
-      _importDone  = 0;
+      _importing = true;
+      _importDone = 0;
       _importTotal = xFiles.length;
     });
 
@@ -137,7 +212,8 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       try {
         bytes = await FlutterImageCompress.compressWithList(
           bytes,
-          minWidth: 2048, minHeight: 2048,
+          minWidth: 2048,
+          minHeight: 2048,
           quality: 85,
           format: CompressFormat.jpeg,
         );
@@ -145,12 +221,12 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
         // If compression fails (e.g. unsupported format) keep original bytes.
       }
       await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
-        caseId:       widget.caseId,
-        bytes:        bytes,
-        attendanceId: attendanceId,
-        linkedToType: linkedToType,
-        linkedToId:   linkedToId,
-      );
+            caseId: widget.caseId,
+            bytes: bytes,
+            attendanceId: attendanceId,
+            linkedToType: linkedToType,
+            linkedToId: linkedToId,
+          );
       if (mounted) setState(() => _importDone++);
     }
 
@@ -168,8 +244,8 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     if (files == null || files.isEmpty || !mounted) return;
 
     setState(() {
-      _importing   = true;
-      _importDone  = 0;
+      _importing = true;
+      _importDone = 0;
       _importTotal = files.length;
     });
 
@@ -179,12 +255,12 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       final batch = files.sublist(i, min(i + batchSize, files.length));
       await Future.wait(batch.map((file) async {
         await ref.read(photosProvider(widget.caseId).notifier).addPhotoFromFile(
-          caseId:       widget.caseId,
-          file:         file,
-          attendanceId: attendanceId,
-          linkedToType: linkedToType,
-          linkedToId:   linkedToId,
-        );
+              caseId: widget.caseId,
+              file: file,
+              attendanceId: attendanceId,
+              linkedToType: linkedToType,
+              linkedToId: linkedToId,
+            );
         if (mounted) setState(() => _importDone++);
       }));
     }
@@ -200,8 +276,8 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     String? linkedToId,
   }) async {
     setState(() {
-      _importing   = true;
-      _importDone  = 0;
+      _importing = true;
+      _importDone = 0;
       _importTotal = bytesList.length;
     });
 
@@ -211,12 +287,12 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       final batch = bytesList.sublist(i, min(i + batchSize, bytesList.length));
       await Future.wait(batch.map((bytes) async {
         await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
-          caseId:       widget.caseId,
-          bytes:        bytes,
-          attendanceId: attendanceId,
-          linkedToType: linkedToType,
-          linkedToId:   linkedToId,
-        );
+              caseId: widget.caseId,
+              bytes: bytes,
+              attendanceId: attendanceId,
+              linkedToType: linkedToType,
+              linkedToId: linkedToId,
+            );
         if (mounted) setState(() => _importDone++);
       }));
     }
@@ -237,6 +313,20 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
           photos.isEmpty ? 'Photos' : 'Photos  (${photos.length})',
           style: const TextStyle(fontSize: 16),
         ),
+        actions: [
+          if (photos.isNotEmpty)
+            IconButton(
+              icon: _syncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.cloud_sync_outlined, color: Colors.white),
+              tooltip: 'Sync to Google Photos',
+              onPressed: _syncing ? null : _syncToGooglePhotos,
+            ),
+        ],
         bottom: TabBar(
           controller: _tab,
           indicatorColor: Colors.white,
@@ -265,18 +355,20 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
         controller: _tab,
         children: [
           _ByVisitTab(
-            caseId:    widget.caseId,
-            photos:    photos,
+            caseId: widget.caseId,
+            photos: photos,
             onAddPhotos: _addPhotos,
-            onDelete: (id) =>
-                ref.read(photosProvider(widget.caseId).notifier).deletePhoto(id),
+            onDelete: (id) => ref
+                .read(photosProvider(widget.caseId).notifier)
+                .deletePhoto(id),
           ),
           _ByInspectionTab(
-            caseId:  widget.caseId,
-            photos:  photos,
+            caseId: widget.caseId,
+            photos: photos,
             onAddPhotos: _addPhotos,
-            onDelete: (id) =>
-                ref.read(photosProvider(widget.caseId).notifier).deletePhoto(id),
+            onDelete: (id) => ref
+                .read(photosProvider(widget.caseId).notifier)
+                .deletePhoto(id),
           ),
         ],
       ),
@@ -297,9 +389,9 @@ class _ImportProgress extends StatelessWidget {
       backgroundColor: _kColor,
       foregroundColor: Colors.white,
       icon: const SizedBox(
-        width: 18, height: 18,
-        child: CircularProgressIndicator(
-            color: Colors.white, strokeWidth: 2),
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
       ),
       label: Text('Importing $done / $total…',
           style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -319,7 +411,10 @@ class _ByVisitTab extends ConsumerWidget {
 
   final String caseId;
   final List<PhotoModel> photos;
-  final Future<void> Function({String? attendanceId, String? linkedToType, String? linkedToId}) onAddPhotos;
+  final Future<void> Function(
+      {String? attendanceId,
+      String? linkedToType,
+      String? linkedToId}) onAddPhotos;
   final void Function(String) onDelete;
 
   @override
@@ -382,7 +477,10 @@ class _ByInspectionTab extends ConsumerWidget {
 
   final String caseId;
   final List<PhotoModel> photos;
-  final Future<void> Function({String? attendanceId, String? linkedToType, String? linkedToId}) onAddPhotos;
+  final Future<void> Function(
+      {String? attendanceId,
+      String? linkedToType,
+      String? linkedToId}) onAddPhotos;
   final void Function(String) onDelete;
 
   @override
@@ -391,9 +489,9 @@ class _ByInspectionTab extends ConsumerWidget {
     final occurrences = damageAsync.value?.occurrences ?? [];
     final damageItems = damageAsync.value?.damageItems ?? [];
 
-    final general = photos.where((p) =>
-        p.linkedToType == null ||
-        p.linkedToType == 'case').toList();
+    final general = photos
+        .where((p) => p.linkedToType == null || p.linkedToType == 'case')
+        .toList();
 
     if (photos.isEmpty) {
       return _EmptyState(onAdd: () => onAddPhotos());
@@ -403,23 +501,30 @@ class _ByInspectionTab extends ConsumerWidget {
       slivers: [
         for (final occ in occurrences) ...[
           _OccurrenceSectionHeader(occurrence: occ),
-
           () {
-            final occPhotos = photos.where((p) =>
-                p.linkedToType == 'occurrence' &&
-                p.linkedToId == occ.occurrenceId).toList();
-            if (occPhotos.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+            final occPhotos = photos
+                .where((p) =>
+                    p.linkedToType == 'occurrence' &&
+                    p.linkedToId == occ.occurrenceId)
+                .toList();
+            if (occPhotos.isEmpty) {
+              return const SliverToBoxAdapter(child: SizedBox.shrink());
+            }
             return _PhotoSliverGrid(
-                caseId: caseId, photos: occPhotos, allPhotos: photos, onDelete: onDelete);
+                caseId: caseId,
+                photos: occPhotos,
+                allPhotos: photos,
+                onDelete: onDelete);
           }(),
-
-          for (final item in damageItems.where(
-              (d) => d.occurrenceId == occ.occurrenceId)) ...[
+          for (final item in damageItems
+              .where((d) => d.occurrenceId == occ.occurrenceId)) ...[
             _DamageItemSubHeader(item: item),
             () {
-              final itemPhotos = photos.where((p) =>
-                  p.linkedToType == 'damage_item' &&
-                  p.linkedToId == item.damageId).toList();
+              final itemPhotos = photos
+                  .where((p) =>
+                      p.linkedToType == 'damage_item' &&
+                      p.linkedToId == item.damageId)
+                  .toList();
               if (itemPhotos.isEmpty) {
                 return const SliverToBoxAdapter(
                   child: Padding(
@@ -433,11 +538,13 @@ class _ByInspectionTab extends ConsumerWidget {
                 );
               }
               return _PhotoSliverGrid(
-                  caseId: caseId, photos: itemPhotos, allPhotos: photos, onDelete: onDelete);
+                  caseId: caseId,
+                  photos: itemPhotos,
+                  allPhotos: photos,
+                  onDelete: onDelete);
             }(),
           ],
         ],
-
         if (general.isNotEmpty) ...[
           const _SectionLabel('GENERAL / UNLINKED PHOTOS'),
           _PhotoSliverGrid(
@@ -447,7 +554,6 @@ class _ByInspectionTab extends ConsumerWidget {
             onDelete: onDelete,
           ),
         ],
-
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
     );
@@ -468,15 +574,15 @@ class _AttendanceSectionHeader extends StatelessWidget {
   final VoidCallback onAddPhoto;
 
   Color _typeColor(AttendanceType t) => switch (t) {
-        AttendanceType.initial       => const Color(0xFFBF7E3A),
-        AttendanceType.followUp      => AppColors.midBlue,
+        AttendanceType.initial => const Color(0xFFBF7E3A),
+        AttendanceType.followUp => AppColors.midBlue,
         AttendanceType.finalInspection => AppColors.teal,
-        AttendanceType.remoteReview  => AppColors.purple,
+        AttendanceType.remoteReview => AppColors.purple,
       };
 
   @override
   Widget build(BuildContext context) {
-    final color  = _typeColor(attendance.attendanceType);
+    final color = _typeColor(attendance.attendanceType);
     final dateStr = attendance.attendanceDate != null
         ? DateFormat('dd MMM yyyy').format(attendance.attendanceDate!)
         : 'Date TBC';
@@ -505,7 +611,8 @@ class _AttendanceSectionHeader extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(dateStr,
                   style: const TextStyle(
                       fontSize: 13,
@@ -673,7 +780,9 @@ class _PhotoSliverGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (photos.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    if (photos.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
 
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -739,21 +848,27 @@ class _PhotoTile extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: Image.file(
-              File(photo.thumbnailPath ?? photo.localPath),
-              fit: BoxFit.cover,
-              cacheWidth: 300,
-              errorBuilder: (_, __, ___) => Image.file(
-                File(photo.localPath),
-                fit: BoxFit.cover,
-                cacheWidth: 300,
-                errorBuilder: (_, __, ___) => Container(
-                  color: AppColors.surface,
-                  child: const Icon(Icons.broken_image_outlined,
-                      color: AppColors.textTertiary),
-                ),
-              ),
-            ),
+            child: !photo.hasLocalFile
+                ? Container(
+                    color: AppColors.surface,
+                    child: const Icon(Icons.cloud_download_outlined,
+                        color: AppColors.textTertiary),
+                  )
+                : Image.file(
+                    File(photo.thumbnailPath ?? photo.localPath!),
+                    fit: BoxFit.cover,
+                    cacheWidth: 300,
+                    errorBuilder: (_, __, ___) => Image.file(
+                      File(photo.localPath!),
+                      fit: BoxFit.cover,
+                      cacheWidth: 300,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: AppColors.surface,
+                        child: const Icon(Icons.broken_image_outlined,
+                            color: AppColors.textTertiary),
+                      ),
+                    ),
+                  ),
           ),
           // Damage/occurrence link badge (top-left)
           if (photo.linkedToType == 'damage_item')
@@ -762,7 +877,8 @@ class _PhotoTile extends StatelessWidget {
             const _Badge('OCC', AppColors.amber),
           // Date badge (top-right) — amber when photo has no caption/allocation
           Positioned(
-            top: 4, right: 4,
+            top: 4,
+            right: 4,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
@@ -783,7 +899,8 @@ class _PhotoTile extends StatelessWidget {
           // Allocation badge (bottom-left)
           if (alloc != null)
             Positioned(
-              bottom: 4, left: 4,
+              bottom: 4,
+              left: 4,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                 decoration: BoxDecoration(
@@ -802,7 +919,8 @@ class _PhotoTile extends StatelessWidget {
           // Sync status (bottom-right)
           if (photo.syncStatus == PhotoSyncStatus.localOnly)
             Positioned(
-              bottom: 4, right: 4,
+              bottom: 4,
+              right: 4,
               child: Container(
                 padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
@@ -843,30 +961,30 @@ class _PhotoTile extends StatelessWidget {
 }
 
 String _allocShortLabel(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => 'COVER',
-      PhotoAllocation.logbook          => 'LOG',
+      PhotoAllocation.coverPage => 'COVER',
+      PhotoAllocation.logbook => 'LOG',
       PhotoAllocation.maintenanceRecord => 'MAINT',
-      PhotoAllocation.certificate      => 'CERT',
-      PhotoAllocation.damageEvidence   => 'DMG',
-      PhotoAllocation.namePlate        => 'PLATE',
+      PhotoAllocation.certificate => 'CERT',
+      PhotoAllocation.damageEvidence => 'DMG',
+      PhotoAllocation.namePlate => 'PLATE',
     };
 
 Color _allocColor(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => AppColors.purple,
-      PhotoAllocation.logbook          => AppColors.midBlue,
+      PhotoAllocation.coverPage => AppColors.purple,
+      PhotoAllocation.logbook => AppColors.midBlue,
       PhotoAllocation.maintenanceRecord => AppColors.teal,
-      PhotoAllocation.certificate      => AppColors.amber,
-      PhotoAllocation.damageEvidence   => AppColors.coral,
-      PhotoAllocation.namePlate        => AppColors.textSecondary,
+      PhotoAllocation.certificate => AppColors.amber,
+      PhotoAllocation.damageEvidence => AppColors.coral,
+      PhotoAllocation.namePlate => AppColors.textSecondary,
     };
 
 IconData _allocIconFor(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => Icons.home_outlined,
-      PhotoAllocation.logbook          => Icons.menu_book_outlined,
+      PhotoAllocation.coverPage => Icons.home_outlined,
+      PhotoAllocation.logbook => Icons.menu_book_outlined,
       PhotoAllocation.maintenanceRecord => Icons.build_outlined,
-      PhotoAllocation.certificate      => Icons.verified_outlined,
-      PhotoAllocation.damageEvidence   => Icons.warning_amber_outlined,
-      PhotoAllocation.namePlate        => Icons.label_outlined,
+      PhotoAllocation.certificate => Icons.verified_outlined,
+      PhotoAllocation.damageEvidence => Icons.warning_amber_outlined,
+      PhotoAllocation.namePlate => Icons.label_outlined,
     };
 
 class _Badge extends StatelessWidget {
@@ -877,7 +995,8 @@ class _Badge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      top: 4, left: 4,
+      top: 4,
+      left: 4,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
         decoration: BoxDecoration(
@@ -942,7 +1061,8 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
 
   PhotoModel _livePhoto([int? index]) {
     final i = index ?? _current;
-    final photos = ref.read(photosProvider(widget.caseId)).value ?? widget.photos;
+    final photos =
+        ref.read(photosProvider(widget.caseId)).value ?? widget.photos;
     final id = widget.photos[i].id;
     return photos.firstWhere((p) => p.id == id, orElse: () => widget.photos[i]);
   }
@@ -957,8 +1077,13 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     });
   }
 
-  void _prevPhoto() { if (_current > 0) _navigateTo(_current - 1); }
-  void _nextPhoto() { if (_current < widget.photos.length - 1) _navigateTo(_current + 1); }
+  void _prevPhoto() {
+    if (_current > 0) _navigateTo(_current - 1);
+  }
+
+  void _nextPhoto() {
+    if (_current < widget.photos.length - 1) _navigateTo(_current + 1);
+  }
 
   Future<void> _save() async {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -980,15 +1105,29 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final ph = _livePhoto();
-      final f = File(ph.localPath);
-      debugPrint('[rotate] start — exists=${f.existsSync()} path=${ph.localPath}');
+      var ph = _livePhoto();
+      if (!ph.hasLocalFile) {
+        ph = await ref
+                .read(photosProvider(widget.caseId).notifier)
+                .ensureLocalFile(ph.id) ??
+            ph;
+      }
+      if (!ph.hasLocalFile) {
+        debugPrint('[rotate] no local or Drive copy available, skipping');
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+      final f = File(ph.localPath!);
+      debugPrint(
+          '[rotate] start — exists=${f.existsSync()} path=${ph.localPath}');
       final bytes = await f.readAsBytes();
       debugPrint('[rotate] read ${bytes.length} bytes, compressing...');
       final rotated = await FlutterImageCompress.compressWithList(
         bytes,
-        minWidth: 4096, minHeight: 4096,
-        quality: 92, rotate: 90,
+        minWidth: 4096,
+        minHeight: 4096,
+        quality: 92,
+        rotate: 90,
         format: CompressFormat.jpeg,
       );
       debugPrint('[rotate] compressed to ${rotated.length} bytes, writing...');
@@ -997,7 +1136,8 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       if (ph.thumbnailPath != null) {
         final thumb = await FlutterImageCompress.compressWithList(
           rotated,
-          minWidth: 240, minHeight: 240,
+          minWidth: 240,
+          minHeight: 240,
           quality: 72,
           format: CompressFormat.jpeg,
         );
@@ -1006,7 +1146,9 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       }
       // Evict old decoded image from Flutter cache so FileImage reloads from disk.
       imageCache.evict(FileImage(f));
-      if (ph.thumbnailPath != null) imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+      if (ph.thumbnailPath != null) {
+        imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+      }
       _imgVersion[ph.id] = (_imgVersion[ph.id] ?? 0) + 1;
       debugPrint('[rotate] done, version=${_imgVersion[ph.id]}');
     } catch (e, st) {
@@ -1017,8 +1159,19 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
 
   Future<void> _crop() async {
     if (_busy) return;
-    final ph = _livePhoto();
-    debugPrint('[crop] start — exists=${File(ph.localPath).existsSync()} path=${ph.localPath}');
+    var ph = _livePhoto();
+    if (!ph.hasLocalFile) {
+      ph = await ref
+              .read(photosProvider(widget.caseId).notifier)
+              .ensureLocalFile(ph.id) ??
+          ph;
+    }
+    if (!ph.hasLocalFile) {
+      debugPrint('[crop] no local or Drive copy available, skipping');
+      return;
+    }
+    debugPrint(
+        '[crop] start — exists=${File(ph.localPath!).existsSync()} path=${ph.localPath}');
     setState(() => _busy = true);
     // Clear any in-flight pan/zoom before handing off to the native crop
     // screen — otherwise a gesture left mid-drag when the native activity
@@ -1026,7 +1179,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     _photoViewController.reset();
     try {
       final cropped = await ImageCropper().cropImage(
-        sourcePath: ph.localPath,
+        sourcePath: ph.localPath!,
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'Crop',
@@ -1044,20 +1197,24 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       debugPrint('[crop] result=${cropped?.path}');
       if (cropped != null) {
         final croppedBytes = await File(cropped.path).readAsBytes();
-        debugPrint('[crop] read ${croppedBytes.length} bytes from cropped file');
-        await File(ph.localPath).writeAsBytes(croppedBytes);
+        debugPrint(
+            '[crop] read ${croppedBytes.length} bytes from cropped file');
+        await File(ph.localPath!).writeAsBytes(croppedBytes);
         debugPrint('[crop] overwrote original');
         if (ph.thumbnailPath != null) {
           final thumb = await FlutterImageCompress.compressWithList(
             croppedBytes,
-            minWidth: 240, minHeight: 240,
+            minWidth: 240,
+            minHeight: 240,
             quality: 72,
             format: CompressFormat.jpeg,
           );
           await File(ph.thumbnailPath!).writeAsBytes(thumb);
         }
-        imageCache.evict(FileImage(File(ph.localPath)));
-        if (ph.thumbnailPath != null) imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+        imageCache.evict(FileImage(File(ph.localPath!)));
+        if (ph.thumbnailPath != null) {
+          imageCache.evict(FileImage(File(ph.thumbnailPath!)));
+        }
         _imgVersion[ph.id] = (_imgVersion[ph.id] ?? 0) + 1;
         debugPrint('[crop] done, version=${_imgVersion[ph.id]}');
       }
@@ -1088,7 +1245,8 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await ref.read(photosProvider(widget.caseId).notifier)
+    await ref
+        .read(photosProvider(widget.caseId).notifier)
         .deletePhoto(_livePhoto().id);
     if (mounted) Navigator.pop(context);
   }
@@ -1129,14 +1287,13 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
             children: [
               Text(
                 '${_current + 1} / ${widget.photos.length}',
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600),
+                style:
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
               Text(
                 DateFormat('dd MMM yyyy')
                     .format(widget.photos[_current].takenAt),
-                style: const TextStyle(
-                    fontSize: 11, color: Colors.white60),
+                style: const TextStyle(fontSize: 11, color: Colors.white60),
               ),
             ],
           ),
@@ -1146,7 +1303,8 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(
-                width: 18, height: 18,
+                width: 18,
+                height: 18,
                 child: CircularProgressIndicator(
                     color: Colors.white, strokeWidth: 2),
               ),
@@ -1165,23 +1323,59 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
           Expanded(
             child: Stack(
               children: [
-                PhotoView(
-                  key: ValueKey(
-                      '${currentPhoto.id}-${_imgVersion[currentPhoto.id] ?? 0}'),
-                  controller: _photoViewController,
-                  imageProvider: FileImage(File(currentPhoto.localPath)),
-                  initialScale: PhotoViewComputedScale.contained,
-                  minScale: PhotoViewComputedScale.contained * 0.8,
-                  maxScale: PhotoViewComputedScale.covered * 4.0,
-                  backgroundDecoration:
-                      const BoxDecoration(color: Colors.black),
-                  errorBuilder: (_, __, ___) => const Center(
-                    child: Icon(Icons.broken_image_outlined,
-                        color: Colors.white38, size: 64),
+                if (!currentPhoto.hasLocalFile)
+                  FutureBuilder<PhotoModel?>(
+                    key: ValueKey('download-${currentPhoto.id}'),
+                    future: ref
+                        .read(photosProvider(widget.caseId).notifier)
+                        .ensureLocalFile(currentPhoto.id),
+                    builder: (_, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(
+                          child: CircularProgressIndicator(color: Colors.white),
+                        );
+                      }
+                      final resolved = snapshot.data;
+                      if (resolved == null || !resolved.hasLocalFile) {
+                        return const Center(
+                          child: Icon(Icons.broken_image_outlined,
+                              color: Colors.white38, size: 64),
+                        );
+                      }
+                      return PhotoView(
+                        key: ValueKey(
+                            '${resolved.id}-${_imgVersion[resolved.id] ?? 0}'),
+                        controller: _photoViewController,
+                        imageProvider: FileImage(File(resolved.localPath!)),
+                        initialScale: PhotoViewComputedScale.contained,
+                        minScale: PhotoViewComputedScale.contained * 0.8,
+                        maxScale: PhotoViewComputedScale.covered * 4.0,
+                        backgroundDecoration:
+                            const BoxDecoration(color: Colors.black),
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(Icons.broken_image_outlined,
+                              color: Colors.white38, size: 64),
+                        ),
+                      );
+                    },
+                  )
+                else
+                  PhotoView(
+                    key: ValueKey(
+                        '${currentPhoto.id}-${_imgVersion[currentPhoto.id] ?? 0}'),
+                    controller: _photoViewController,
+                    imageProvider: FileImage(File(currentPhoto.localPath!)),
+                    initialScale: PhotoViewComputedScale.contained,
+                    minScale: PhotoViewComputedScale.contained * 0.8,
+                    maxScale: PhotoViewComputedScale.covered * 4.0,
+                    backgroundDecoration:
+                        const BoxDecoration(color: Colors.black),
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(Icons.broken_image_outlined,
+                          color: Colors.white38, size: 64),
+                    ),
                   ),
-                ),
-                if (_current > 0)
-                  _NavArrow(isLeft: true, onTap: _prevPhoto),
+                if (_current > 0) _NavArrow(isLeft: true, onTap: _prevPhoto),
                 if (_current < widget.photos.length - 1)
                   _NavArrow(isLeft: false, onTap: _nextPhoto),
               ],
@@ -1194,8 +1388,8 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
             final kbOpen = MediaQuery.of(ctx).viewInsets.bottom > 100;
             final decoration = InputDecoration(
               hintText: 'Caption…',
-              hintStyle: const TextStyle(
-                  color: AppColors.textTertiary, fontSize: 14),
+              hintStyle:
+                  const TextStyle(color: AppColors.textTertiary, fontSize: 14),
               isDense: true,
               filled: true,
               fillColor: AppColors.surface,
@@ -1211,16 +1405,15 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide:
-                    const BorderSide(color: _kColor, width: 1.5),
+                borderSide: const BorderSide(color: _kColor, width: 1.5),
               ),
             );
             final saveBtn = FilledButton(
               onPressed: _saving ? null : _save,
               style: FilledButton.styleFrom(
                 backgroundColor: _kColor,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
                 minimumSize: Size.zero,
@@ -1228,12 +1421,13 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
               ),
               child: _saving
                   ? const SizedBox(
-                      width: 16, height: 16,
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(
                           color: Colors.white, strokeWidth: 2))
                   : const Text('Save',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13)),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
             );
 
             return Container(
@@ -1292,8 +1486,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                         Row(children: [
                           GestureDetector(
                             onTap: _showAllocationPicker,
-                            child:
-                                _AllocationBadge(allocation: _allocation),
+                            child: _AllocationBadge(allocation: _allocation),
                           ),
                           const Spacer(),
                           saveBtn,
@@ -1316,9 +1509,8 @@ class _CapitalizedAspectRatioPreset implements CropAspectRatioPresetData {
   final CropAspectRatioPreset preset;
 
   @override
-  String get name => preset == CropAspectRatioPreset.original
-      ? 'Original'
-      : preset.name;
+  String get name =>
+      preset == CropAspectRatioPreset.original ? 'Original' : preset.name;
 
   @override
   (int ratioX, int ratioY)? get data => preset.data;
@@ -1337,7 +1529,8 @@ class _EmptyState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 64, height: 64,
+            width: 64,
+            height: 64,
             decoration: BoxDecoration(
               color: _kColor.withValues(alpha: 0.1),
               shape: BoxShape.circle,
@@ -1396,7 +1589,8 @@ class _ToolBtn extends StatelessWidget {
       child: GestureDetector(
         onTap: enabled ? onTap : null,
         child: Container(
-          width: 40, height: 40,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(8),
@@ -1419,9 +1613,8 @@ class _AllocationBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = allocation != null
-        ? _allocColor(allocation!)
-        : AppColors.textTertiary;
+    final color =
+        allocation != null ? _allocColor(allocation!) : AppColors.textTertiary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1437,8 +1630,11 @@ class _AllocationBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            allocation != null ? _allocIconFor(allocation!) : Icons.label_outline,
-            size: 13, color: color,
+            allocation != null
+                ? _allocIconFor(allocation!)
+                : Icons.label_outline,
+            size: 13,
+            color: color,
           ),
           const SizedBox(width: 5),
           Text(
@@ -1475,7 +1671,8 @@ class _AllocationPickerSheet extends StatelessWidget {
           children: [
             Center(
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                   color: AppColors.border,
                   borderRadius: BorderRadius.circular(2),
@@ -1552,8 +1749,8 @@ class _AllocChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14,
-                color: selected ? color : AppColors.textTertiary),
+            Icon(icon,
+                size: 14, color: selected ? color : AppColors.textTertiary),
             const SizedBox(width: 5),
             Text(
               label,

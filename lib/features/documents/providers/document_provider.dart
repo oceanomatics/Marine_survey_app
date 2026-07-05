@@ -93,6 +93,7 @@ class DocumentModel {
   final String? source;
   final DateTime? docDate;
   final DateTime? receivedDate;
+
   /// Clause K-2: date the document was requested (availability == requested).
   final DateTime? requestedDate;
   final String? filePath;
@@ -207,6 +208,8 @@ class DocExtractionResult {
     required this.hardFields,
     required this.contextFindings,
     required this.findingCategories,
+    this.findingCaseSections = const [],
+    this.findingOrigins = const [],
     required this.detectedIncidents,
     required this.detectedMachinery,
     this.detectedClassConditions = const [],
@@ -219,22 +222,36 @@ class DocExtractionResult {
   final Map<String, dynamic> hardFields;
   final List<String> contextFindings;
   final List<String> findingCategories;
+
+  /// AI-suggested `CaseSection.value` per finding, parallel to [contextFindings];
+  /// null entries mean the extraction didn't offer a guess for that finding
+  /// (docs/context_cue_system_review.md §3.5).
+  final List<String?> findingCaseSections;
+
+  /// AI-suggested `CueOrigin.value` per finding, parallel to [contextFindings].
+  final List<String?> findingOrigins;
   final List<Map<String, dynamic>> detectedIncidents;
   final List<Map<String, dynamic>> detectedMachinery;
   final List<Map<String, dynamic>> detectedClassConditions;
+
   /// Vessel particulars extracted from intelligence documents (Equasis etc).
   final Map<String, dynamic> vesselFields;
   final String? suggestedCategory;
   final String? documentType;
 
-  bool get hasHardData         => hardFields.isNotEmpty;
-  bool get hasFindings         => contextFindings.isNotEmpty;
-  bool get hasIncidents        => detectedIncidents.isNotEmpty;
-  bool get hasMachinery        => detectedMachinery.isNotEmpty;
-  bool get hasClassConditions  => detectedClassConditions.isNotEmpty;
-  bool get hasVesselData       => vesselFields.isNotEmpty;
-  bool get hasAny => hasHardData || hasFindings || hasIncidents ||
-      hasMachinery || hasVesselData || hasClassConditions;
+  bool get hasHardData => hardFields.isNotEmpty;
+  bool get hasFindings => contextFindings.isNotEmpty;
+  bool get hasIncidents => detectedIncidents.isNotEmpty;
+  bool get hasMachinery => detectedMachinery.isNotEmpty;
+  bool get hasClassConditions => detectedClassConditions.isNotEmpty;
+  bool get hasVesselData => vesselFields.isNotEmpty;
+  bool get hasAny =>
+      hasHardData ||
+      hasFindings ||
+      hasIncidents ||
+      hasMachinery ||
+      hasVesselData ||
+      hasClassConditions;
 }
 
 // ── Document provider ──────────────────────────────────────────────────────
@@ -326,10 +343,10 @@ class DocumentNotifier
 
       final ext = doc.fileType?.toLowerCase() ?? 'pdf';
       final mediaType = switch (ext) {
-        'pdf'            => 'application/pdf',
-        'jpg' || 'jpeg'  => 'image/jpeg',
-        'png'            => 'image/png',
-        _                => 'application/pdf',
+        'pdf' => 'application/pdf',
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        _ => 'application/pdf',
       };
 
       final raw = await ClaudeApi.extractDocument(
@@ -351,18 +368,24 @@ class DocumentNotifier
       // Parse findings — supports both old (string) and new ({text, note_category}) formats
       final findings = <String>[];
       final findingCats = <String>[];
+      final findingSections = <String?>[];
+      final findingOrigins = <String?>[];
       for (final f in raw['context_findings'] as List? ?? []) {
         if (f is Map) {
           final text = f['text']?.toString() ?? '';
           if (text.isNotEmpty) {
             findings.add(text);
             findingCats.add(f['note_category']?.toString() ?? 'observation');
+            findingSections.add(f['case_section']?.toString());
+            findingOrigins.add(f['origin']?.toString());
           }
         } else {
           final text = f.toString();
           if (text.isNotEmpty) {
             findings.add(text);
             findingCats.add('observation');
+            findingSections.add(null);
+            findingOrigins.add(null);
           }
         }
       }
@@ -380,13 +403,16 @@ class DocumentNotifier
       final classConditions = (raw['detected_class_conditions'] as List? ?? [])
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
-          .where((e) => e['description'] != null && e['description'].toString().isNotEmpty)
+          .where((e) =>
+              e['description'] != null &&
+              e['description'].toString().isNotEmpty)
           .toList();
 
       // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
       final vesselFields = <String, dynamic>{};
       final rawVessel = raw['vessel_data'];
-      debugPrint('[EXTRACT] vessel_data raw type: ${rawVessel.runtimeType}, value: $rawVessel');
+      debugPrint(
+          '[EXTRACT] vessel_data raw type: ${rawVessel.runtimeType}, value: $rawVessel');
       if (rawVessel is Map) {
         for (final e in rawVessel.entries) {
           if (e.value != null && e.value != '') {
@@ -394,14 +420,18 @@ class DocumentNotifier
           }
         }
       }
-      debugPrint('[EXTRACT] vesselFields parsed (${vesselFields.length} keys): $vesselFields');
-      debugPrint('[EXTRACT] machinery: ${machinery.length}, classConditions: ${classConditions.length}');
+      debugPrint(
+          '[EXTRACT] vesselFields parsed (${vesselFields.length} keys): $vesselFields');
+      debugPrint(
+          '[EXTRACT] machinery: ${machinery.length}, classConditions: ${classConditions.length}');
 
       return DocExtractionResult(
         docId: docId,
         hardFields: hardFields,
         contextFindings: findings,
         findingCategories: findingCats,
+        findingCaseSections: findingSections,
+        findingOrigins: findingOrigins,
         detectedIncidents: incidents,
         detectedMachinery: machinery,
         detectedClassConditions: classConditions,
@@ -524,8 +554,7 @@ class DocumentNotifier
     try {
       await SupabaseService.client
           .from('certificates')
-          .update({'source_doc_id': null})
-          .eq('source_doc_id', doc.docId);
+          .update({'source_doc_id': null}).eq('source_doc_id', doc.docId);
     } catch (_) {}
     await SupabaseService.client
         .from('documents')
@@ -581,8 +610,7 @@ class DocumentNotifier
     // Set on the chosen doc
     await SupabaseService.client
         .from('documents')
-        .update({'is_cover_photo': true})
-        .eq('doc_id', docId);
+        .update({'is_cover_photo': true}).eq('doc_id', docId);
     final current = state.value ?? [];
     state = AsyncData(current.map((d) {
       return d.copyWith(isCoverPhoto: d.docId == docId);
@@ -593,19 +621,16 @@ class DocumentNotifier
   Future<void> clearCoverPhoto() async {
     await SupabaseService.client
         .from('documents')
-        .update({'is_cover_photo': false})
-        .eq('case_id', arg);
+        .update({'is_cover_photo': false}).eq('case_id', arg);
     final current = state.value ?? [];
-    state = AsyncData(current
-        .map((d) => d.copyWith(isCoverPhoto: false))
-        .toList());
+    state =
+        AsyncData(current.map((d) => d.copyWith(isCoverPhoto: false)).toList());
   }
 
   Future<void> renameDocument(String docId, String newTitle) async {
     await SupabaseService.client
         .from('documents')
-        .update({'title': newTitle})
-        .eq('doc_id', docId);
+        .update({'title': newTitle}).eq('doc_id', docId);
     final current = state.value ?? [];
     state = AsyncData(current
         .map((d) => d.docId == docId ? d.copyWith(title: newTitle) : d)
@@ -631,19 +656,61 @@ class DocumentNotifier
 String _sanitizeFilename(String filename) {
   // Transliterate common accented characters to ASCII equivalents
   const accents = {
-    'à':'a','â':'a','ä':'a','á':'a','ã':'a','å':'a',
-    'è':'e','é':'e','ê':'e','ë':'e',
-    'ì':'i','î':'i','ï':'i','í':'i',
-    'ò':'o','ô':'o','ö':'o','ó':'o','õ':'o','ø':'o',
-    'ù':'u','û':'u','ü':'u','ú':'u',
-    'ý':'y','ÿ':'y',
-    'ç':'c','ñ':'n','ß':'ss',
-    'À':'A','Â':'A','Ä':'A','Á':'A','Ã':'A','Å':'A',
-    'È':'E','É':'E','Ê':'E','Ë':'E',
-    'Ì':'I','Î':'I','Ï':'I','Í':'I',
-    'Ò':'O','Ô':'O','Ö':'O','Ó':'O','Õ':'O','Ø':'O',
-    'Ù':'U','Û':'U','Ü':'U','Ú':'U',
-    'Ç':'C','Ñ':'N',
+    'à': 'a',
+    'â': 'a',
+    'ä': 'a',
+    'á': 'a',
+    'ã': 'a',
+    'å': 'a',
+    'è': 'e',
+    'é': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'ì': 'i',
+    'î': 'i',
+    'ï': 'i',
+    'í': 'i',
+    'ò': 'o',
+    'ô': 'o',
+    'ö': 'o',
+    'ó': 'o',
+    'õ': 'o',
+    'ø': 'o',
+    'ù': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ú': 'u',
+    'ý': 'y',
+    'ÿ': 'y',
+    'ç': 'c',
+    'ñ': 'n',
+    'ß': 'ss',
+    'À': 'A',
+    'Â': 'A',
+    'Ä': 'A',
+    'Á': 'A',
+    'Ã': 'A',
+    'Å': 'A',
+    'È': 'E',
+    'É': 'E',
+    'Ê': 'E',
+    'Ë': 'E',
+    'Ì': 'I',
+    'Î': 'I',
+    'Ï': 'I',
+    'Í': 'I',
+    'Ò': 'O',
+    'Ô': 'O',
+    'Ö': 'O',
+    'Ó': 'O',
+    'Õ': 'O',
+    'Ø': 'O',
+    'Ù': 'U',
+    'Û': 'U',
+    'Ü': 'U',
+    'Ú': 'U',
+    'Ç': 'C',
+    'Ñ': 'N',
   };
   var s = filename;
   for (final e in accents.entries) {

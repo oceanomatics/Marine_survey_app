@@ -14,75 +14,73 @@ import '../../survey/providers/damage_provider.dart'
 
 enum OutputType {
   preliminary('preliminary', 'Preliminary Report'),
-  advice('advice',           'Advice'),
-  final_('final',            'Final Report');
+  advice('advice', 'Advice'),
+  final_('final', 'Final Report');
 
   const OutputType(this.value, this.label);
   final String value;
   final String label;
 
-  static OutputType fromValue(String v) =>
-      values.firstWhere((e) => e.value == v,
-          orElse: () => OutputType.preliminary);
+  static OutputType fromValue(String v) => values
+      .firstWhere((e) => e.value == v, orElse: () => OutputType.preliminary);
 }
 
 enum ReportStatus {
-  draft('draft',           'Draft'),
+  draft('draft', 'Draft'),
   selfReviewed('self_reviewed', 'Self Reviewed'),
-  submittedQc('submitted_qc',  'Submitted for QC'),
-  qcComments('qc_comments',    'QC Comments'),
-  approved('approved',         'Approved'),
-  issued('issued',             'Issued'),
-  locked('locked',             'Locked');
+  submittedQc('submitted_qc', 'Submitted for QC'),
+  qcComments('qc_comments', 'QC Comments'),
+  approved('approved', 'Approved'),
+  issued('issued', 'Issued'),
+  locked('locked', 'Locked');
 
   const ReportStatus(this.value, this.label);
   final String value;
   final String label;
 
   static ReportStatus fromValue(String v) =>
-      values.firstWhere((e) => e.value == v,
-          orElse: () => ReportStatus.draft);
+      values.firstWhere((e) => e.value == v, orElse: () => ReportStatus.draft);
 }
 
 // ── Section types ──────────────────────────────────────────────────────────
 
 enum SectionType {
-  executiveSummary,        // Page 2 — auto-populated summary editable by surveyor
-  opening,              // §1  Introduction / Opening Certification
-  attendees,            // §2  Attending Representatives
-  vesselParticulars,    // §3  Vessel's Particulars
+  executiveSummary, // Page 2 — auto-populated summary editable by surveyor
+  opening, // §1  Introduction / Opening Certification
+  attendees, // §2  Attending Representatives
+  vesselParticulars, // §3  Vessel's Particulars
   machineryParticulars, // §4  Machinery & Equipment (conditional)
-  classStatutory,       // §5  Class & Statutory Certification
-  informationSources,   // §6  Available Information Sources
+  classStatutory, // §5  Class & Statutory Certification
+  informationSources, // §6  Available Information Sources
   // §7  Chronology — auto-table from timeline_events, no text section
-  background,           // §8  Background
-  occurrence,           // §9  Occurrence (brief description)
-  damageDescription,    // §9  Extent of Damage
-  allegation,           // §10 Owner's Allegation
-  causation,            // §10 Cause Consideration / Technical Analysis
-  natureOfRepairs,      // §11.1 Nature of the Repairs (early indicators,
-                        // ahead of any repair period existing)
-  repairs,              // §11.2 Repairs / Repair Periods (narrative)
-  generalServices,      // §12 General Services & Access
-  previousWorks,        // §12.4 Previous Work on the Damaged Item
-  extraExpenses,        // §12.5 Extra Expenses to Reduce Delay
-  contractualHire,      // §12.6 Contractual / Hire
-  otherMatters,         // §12.7 Other Matters of Relevance (cue-drafted
-                        // narrative — distinct from the `surveyorNotes`
-                        // clause ticklist below, split out 5 July 2026)
-  accounts,             // §13 Repair Costs (auto-table; summary commentary)
-  repairTimes,          // §14 Repair Times (auto-table; summary commentary)
-  surveyorNotes,        // §15 Advice to Assured (enum name kept for
-                        // DB/historical continuity — this was originally
-                        // "Other Matters of Relevance" before that
-                        // section split in two on 5 July 2026; see
-                        // docs/migrations/018_other_matters_clauses.sql)
-  documentsOnFile,      // §16 Documents Retained on File
-  documentsRequested,   // §17 Documents Requested / Outstanding
+  background, // §8  Background
+  occurrence, // §9  Occurrence (brief description)
+  damageDescription, // §9  Extent of Damage
+  allegation, // §10 Owner's Allegation
+  causation, // §10 Cause Consideration / Technical Analysis
+  natureOfRepairs, // §11.1 Nature of the Repairs (early indicators,
+  // ahead of any repair period existing)
+  repairs, // §11.2 Repairs / Repair Periods (narrative)
+  generalServices, // §12 General Services & Access
+  previousWorks, // §12.4 Previous Work on the Damaged Item
+  extraExpenses, // §12.5 Extra Expenses to Reduce Delay
+  contractualHire, // §12.6 Contractual / Hire
+  otherMatters, // §12.7 Other Matters of Relevance (cue-drafted
+  // narrative — distinct from the `surveyorNotes`
+  // clause ticklist below, split out 5 July 2026)
+  accounts, // §13 Repair Costs (auto-table; summary commentary)
+  repairTimes, // §14 Repair Times (auto-table; summary commentary)
+  surveyorNotes, // §15 Advice to Assured (enum name kept for
+  // DB/historical continuity — this was originally
+  // "Other Matters of Relevance" before that
+  // section split in two on 5 July 2026; see
+  // docs/migrations/018_other_matters_clauses.sql)
+  documentsOnFile, // §16 Documents Retained on File
+  documentsRequested, // §17 Documents Requested / Outstanding
   // §18 Principal Dates — not implemented; the Chronology auto-table
   // (built from timeline_events, see §7) covers this in practice.
-  waiver,               // §19 Limitation of Liability / Waiver
-  closing,              // Sign-off block / Without Prejudice / Closing
+  waiver, // §19 Limitation of Liability / Waiver
+  closing, // Sign-off block / Without Prejudice / Closing
 }
 
 /// Section display order for the Oceanoservices H&M report format (spec §4.1).
@@ -148,21 +146,21 @@ class ClauseModel {
   final bool isLocked;
 
   factory ClauseModel.fromJson(Map<String, dynamic> j) => ClauseModel(
-        clauseId:    j['clause_id'] as String,
-        formatType:  j['format_type'] as String,
-        clauseType:  j['clause_type'] as String,
+        clauseId: j['clause_id'] as String,
+        formatType: j['format_type'] as String,
+        clauseType: j['clause_type'] as String,
         clauseLabel: j['clause_label'] as String,
-        clauseText:  j['clause_text'] as String,
-        isLocked:    j['is_locked'] as bool? ?? true,
+        clauseText: j['clause_text'] as String,
+        isLocked: j['is_locked'] as bool? ?? true,
       );
 }
 
 // ── Surveyor review status (GPN-AI compliance) ────────────────────────────
 
 enum SurveyorReview {
-  reviewedAccepted,   // AI draft — reviewed and accepted as-is
-  reviewedAmended,    // AI draft — reviewed and amended by surveyor
-  surveyorAuthored,   // No AI — written entirely by the surveyor
+  reviewedAccepted, // AI draft — reviewed and accepted as-is
+  reviewedAmended, // AI draft — reviewed and amended by surveyor
+  surveyorAuthored, // No AI — written entirely by the surveyor
 }
 
 // ── Report section model ───────────────────────────────────────────────────
@@ -183,6 +181,7 @@ class ReportSection {
 
   final SectionType type;
   final String title;
+
   /// This report output's own new/incremental text. On a successive
   /// report (Progress/Interim/Supplementary/Final) that carries forward
   /// prior narrative, this is the delta only — the prior text lives in
@@ -191,11 +190,13 @@ class ReportSection {
   /// section content, same as before this feature existed.
   final String content;
   final String? clauseId;
-  final bool isLocked;   // clause text — cannot be edited by surveyor
+  final bool isLocked; // clause text — cannot be edited by surveyor
   final bool aiDrafted;
+
   /// GPN-AI: surveyor must set this before export is allowed.
   final SurveyorReview? surveyorReview;
   final String? sectionId;
+
   /// Frozen copy of the prior report output's approved text for this
   /// section (spec: "Successive Report Behaviour" — docs/report_builder_
   /// editor_notes.md gap #10). Null when there is no prior report in the
@@ -230,16 +231,16 @@ class ReportSection {
     Object? carriedForwardContent = _sentinel,
   }) =>
       ReportSection(
-        type:           type,
-        title:          title,
-        content:        content        ?? this.content,
-        clauseId:       clauseId,
-        isLocked:       isLocked,
-        aiDrafted:      aiDrafted      ?? this.aiDrafted,
+        type: type,
+        title: title,
+        content: content ?? this.content,
+        clauseId: clauseId,
+        isLocked: isLocked,
+        aiDrafted: aiDrafted ?? this.aiDrafted,
         surveyorReview: surveyorReview == _sentinel
             ? this.surveyorReview
             : surveyorReview as SurveyorReview?,
-        sectionId:      sectionId      ?? this.sectionId,
+        sectionId: sectionId ?? this.sectionId,
         carriedForwardContent: carriedForwardContent == _sentinel
             ? this.carriedForwardContent
             : carriedForwardContent as String?,
@@ -292,8 +293,10 @@ class ReportOutput {
   final String? issuedTo;
   final String? filePath;
   final DateTime? createdAt;
+
   /// Version code this report supersedes, e.g. 'R001'. Auto-set at creation.
   final String? supersedesVersion;
+
   /// Brief summary of changes from the prior version — editable by surveyor.
   final String? changesSummary;
 
@@ -328,42 +331,43 @@ class ReportOutput {
     return 'R${sequenceNo.toString().padLeft(3, '0')}';
   }
 
-  factory ReportOutput.fromJson(Map<String, dynamic> j,
-      List<ReportSection> sections) =>
+  factory ReportOutput.fromJson(
+          Map<String, dynamic> j, List<ReportSection> sections) =>
       ReportOutput(
-        outputId:    j['output_id'] as String,
-        caseId:      j['case_id'] as String,
-        outputType:  OutputType.fromValue(j['output_type'] as String),
-        status:      ReportStatus.fromValue(j['status'] as String? ?? 'draft'),
-        sections:    sections,
+        outputId: j['output_id'] as String,
+        caseId: j['case_id'] as String,
+        outputType: OutputType.fromValue(j['output_type'] as String),
+        status: ReportStatus.fromValue(j['status'] as String? ?? 'draft'),
+        sections: sections,
         reportNumber: j['report_number'] as String?,
-        sequenceNo:  j['sequence_no'] as int? ?? 1,
-        issuedDate:  j['issued_date'] != null
+        sequenceNo: j['sequence_no'] as int? ?? 1,
+        issuedDate: j['issued_date'] != null
             ? DateTime.tryParse(j['issued_date'] as String)
             : null,
-        issuedTo:    j['issued_to'] as String?,
-        filePath:    j['file_path'] as String?,
-        createdAt:   j['created_at'] != null
+        issuedTo: j['issued_to'] as String?,
+        filePath: j['file_path'] as String?,
+        createdAt: j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
-        supersedesVersion: j['supersedes_version']  as String?,
-        changesSummary:    j['changes_summary']     as String?,
-        adviceNatureOfCasualty:     j['advice_nature_of_casualty']     as String?,
-        adviceDescriptionOfDamage:  j['advice_description_of_damage']  as String?,
-        adviceNatureOfRepairs:      j['advice_nature_of_repairs']      as String?,
-        adviceStatusOfRepairs:      j['advice_status_of_repairs']      as String?,
-        adviceStatusOfRepairsDetail: j['advice_status_of_repairs_detail'] as String?,
-        adviceCostAmount:           j['advice_cost_amount']            as num?,
-        adviceCostCurrency:         j['advice_cost_currency']          as String?,
+        supersedesVersion: j['supersedes_version'] as String?,
+        changesSummary: j['changes_summary'] as String?,
+        adviceNatureOfCasualty: j['advice_nature_of_casualty'] as String?,
+        adviceDescriptionOfDamage: j['advice_description_of_damage'] as String?,
+        adviceNatureOfRepairs: j['advice_nature_of_repairs'] as String?,
+        adviceStatusOfRepairs: j['advice_status_of_repairs'] as String?,
+        adviceStatusOfRepairsDetail:
+            j['advice_status_of_repairs_detail'] as String?,
+        adviceCostAmount: j['advice_cost_amount'] as num?,
+        adviceCostCurrency: j['advice_cost_currency'] as String?,
         adviceCostIncludesGeneralExpenses:
             j['advice_cost_includes_general_expenses'] as bool?,
-        adviceCostIncludesTowing:   j['advice_cost_includes_towing']   as String?,
-        adviceFeeReserveHours:      j['advice_fee_reserve_hours']      as num?,
-        adviceFeeReserveExpenses:   j['advice_fee_reserve_expenses']   as num?,
-        adviceFollowUpRequired:     j['advice_follow_up_required']     as bool?,
-        adviceFollowUpDetail:       j['advice_follow_up_detail']       as String?,
-        adviceRemarks:              j['advice_remarks']                as String?,
-        adviceConfirmed:            j['advice_confirmed'] as bool? ?? false,
+        adviceCostIncludesTowing: j['advice_cost_includes_towing'] as String?,
+        adviceFeeReserveHours: j['advice_fee_reserve_hours'] as num?,
+        adviceFeeReserveExpenses: j['advice_fee_reserve_expenses'] as num?,
+        adviceFollowUpRequired: j['advice_follow_up_required'] as bool?,
+        adviceFollowUpDetail: j['advice_follow_up_detail'] as String?,
+        adviceRemarks: j['advice_remarks'] as String?,
+        adviceConfirmed: j['advice_confirmed'] as bool? ?? false,
       );
 }
 
@@ -400,10 +404,12 @@ class AssembledReportData {
   final List<Map<String, dynamic>> occurrences;
   final List<Map<String, dynamic>> damageItems;
   final List<Map<String, dynamic>> attendees;
+
   /// Attendance/visit records (survey_attendances) ordered oldest-first —
   /// for the first-attendance date/location used in the opening clause (D-3).
   final List<Map<String, dynamic>> attendances;
   final List<Map<String, dynamic>> certificates;
+
   /// Repair periods (repair_periods table) — the sole repair grouping
   /// concept; feeds both the docx Repairs/Repair Times tables and the
   /// repairs/repairTimes section narratives (the legacy `repair_records`
@@ -412,26 +418,37 @@ class AssembledReportData {
   final List<Map<String, dynamic>> repairPeriods;
   final List<ClauseModel> clauses;
   final String outputFormat;
+
   /// Repair documents with nested account lines — for cost section assembly.
   final List<Map<String, dynamic>> repairDocuments;
+
   /// Chronological events ordered by event_date — for timeline table.
   final List<Map<String, dynamic>> timelineEvents;
+
   /// Surveyor notes ordered by created_at.
   final List<Map<String, dynamic>> surveyorNotes;
+
   /// Machinery records for the vessel.
   final List<Map<String, dynamic>> machinery;
+
   /// Class conditions for the case.
   final List<Map<String, dynamic>> classConditions;
+
   /// Documents on file for this case (for the documents section, Clause K-1).
   final List<Map<String, dynamic>> caseDocuments;
+
   /// Documents requested but not yet received (Clause K-2).
   final List<Map<String, dynamic>> requestedDocuments;
+
   /// Org config — present when the case has an organisation_id set.
   final Map<String, dynamic>? organisation;
+
   /// All AI generation log entries for the case — for Annexure I + disclosure.
   final List<AiGenerationLogModel> aiGenerationLog;
+
   /// All report outputs for the case ordered newest-first — for version history table.
   final List<Map<String, dynamic>> allReportOutputs;
+
   /// Nature of the Repairs — case_nature_of_repairs row, null if the
   /// surveyor has never opened that section (§11.1 is then omitted).
   final Map<String, dynamic>? natureOfRepairs;
@@ -442,8 +459,8 @@ class AssembledReportData {
 
 // ── Report provider ────────────────────────────────────────────────────────
 
-final reportOutputsProvider = AsyncNotifierProviderFamily<
-    ReportOutputsNotifier, List<ReportOutput>, String>(
+final reportOutputsProvider = AsyncNotifierProviderFamily<ReportOutputsNotifier,
+    List<ReportOutput>, String>(
   ReportOutputsNotifier.new,
 );
 
@@ -480,11 +497,11 @@ class ReportOutputsNotifier
     final data = await SupabaseService.client
         .from('report_outputs')
         .insert({
-          'case_id':            caseId,
-          'output_type':        type.value,
-          'report_number':      reportNumber,
-          'sequence_no':        sequenceNo,
-          'status':             'draft',
+          'case_id': caseId,
+          'output_type': type.value,
+          'report_number': reportNumber,
+          'sequence_no': sequenceNo,
+          'status': 'draft',
           if (supersedesVersion != null)
             'supersedes_version': supersedesVersion,
         })
@@ -500,16 +517,14 @@ class ReportOutputsNotifier
   Future<void> updateStatus(String outputId, ReportStatus status) async {
     await SupabaseService.client
         .from('report_outputs')
-        .update({'status': status.value})
-        .eq('output_id', outputId);
+        .update({'status': status.value}).eq('output_id', outputId);
     await refresh();
   }
 
   Future<void> updateChangesSummary(String outputId, String summary) async {
     await SupabaseService.client
         .from('report_outputs')
-        .update({'changes_summary': summary})
-        .eq('output_id', outputId);
+        .update({'changes_summary': summary}).eq('output_id', outputId);
     await refresh();
   }
 
@@ -559,10 +574,7 @@ final assembledDataProvider =
         .eq('case_id', caseId)
         .order('sort_order', nullsFirst: false)
         .order('created_at'),
-    SupabaseService.client
-        .from('certificates')
-        .select()
-        .eq('case_id', caseId),
+    SupabaseService.client.from('certificates').select().eq('case_id', caseId),
     SupabaseService.client
         .from('repair_periods')
         .select()
@@ -575,10 +587,10 @@ final assembledDataProvider =
         .order('attendance_date', ascending: true),
   ]);
 
-  final caseData    = results[0] as Map<String, dynamic>;
+  final caseData = results[0] as Map<String, dynamic>;
   final occurrences = (results[1] as List).cast<Map<String, dynamic>>();
   final damageItems = (results[2] as List).cast<Map<String, dynamic>>();
-  final attendees   = (results[3] as List).cast<Map<String, dynamic>>();
+  final attendees = (results[3] as List).cast<Map<String, dynamic>>();
   final certificates = (results[4] as List).cast<Map<String, dynamic>>();
   final repairPeriods = (results[5] as List).cast<Map<String, dynamic>>();
   final attendances = (results[6] as List).cast<Map<String, dynamic>>();
@@ -589,8 +601,7 @@ final assembledDataProvider =
       .eq('case_id', caseId)
       .maybeSingle();
 
-  final outputFormat =
-      caseData['output_format'] as String? ?? 'abl';
+  final outputFormat = caseData['output_format'] as String? ?? 'abl';
 
   // Fetch clauses for this format — table may not be seeded yet
   List<ClauseModel> clauses = [];
@@ -656,22 +667,20 @@ final assembledDataProvider =
     SupabaseService.client
         .from('documents')
         .select('doc_id, title, doc_category, doc_date, annexure_assignment, '
-                'availability, requested_date, received_date')
+            'availability, requested_date, received_date')
         .eq('case_id', caseId)
         .order('doc_category'),
   ]);
 
-  final surveyorNotes   = List<Map<String, dynamic>>.from(supplementary[0]);
-  final machinery       = List<Map<String, dynamic>>.from(supplementary[1]);
+  final surveyorNotes = List<Map<String, dynamic>>.from(supplementary[0]);
+  final machinery = List<Map<String, dynamic>>.from(supplementary[1]);
   final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
-  final allDocuments    = List<Map<String, dynamic>>.from(supplementary[3]);
+  final allDocuments = List<Map<String, dynamic>>.from(supplementary[3]);
   // Clause K-1 vs K-2: split by availability rather than fetching twice.
-  final caseDocuments = allDocuments
-      .where((d) => d['availability'] == 'enclosed')
-      .toList();
-  final requestedDocuments = allDocuments
-      .where((d) => d['availability'] == 'requested')
-      .toList();
+  final caseDocuments =
+      allDocuments.where((d) => d['availability'] == 'enclosed').toList();
+  final requestedDocuments =
+      allDocuments.where((d) => d['availability'] == 'requested').toList();
 
   // Fetch org config and AI generation log in parallel
   Map<String, dynamic>? organisation;
@@ -709,34 +718,34 @@ final assembledDataProvider =
   final allOutputsRaw = await SupabaseService.client
       .from('report_outputs')
       .select('output_id, report_number, sequence_no, output_type, status, '
-              'created_at, issued_date, supersedes_version, changes_summary')
+          'created_at, issued_date, supersedes_version, changes_summary')
       .eq('case_id', caseId)
       .order('created_at', ascending: false);
   final allReportOutputs =
       List<Map<String, dynamic>>.from(allOutputsRaw as List);
 
   return AssembledReportData(
-    caseData:        caseData,
-    vessel:          vessel,
-    occurrences:     occurrences,
-    damageItems:     damageItems,
-    attendees:       attendees,
-    attendances:     attendances,
-    certificates:    certificates,
-    repairPeriods:   repairPeriods,
-    clauses:         clauses,
-    outputFormat:    outputFormat,
+    caseData: caseData,
+    vessel: vessel,
+    occurrences: occurrences,
+    damageItems: damageItems,
+    attendees: attendees,
+    attendances: attendances,
+    certificates: certificates,
+    repairPeriods: repairPeriods,
+    clauses: clauses,
+    outputFormat: outputFormat,
     repairDocuments: repairDocuments,
-    timelineEvents:  timelineEvents,
-    surveyorNotes:   surveyorNotes,
-    machinery:       machinery,
+    timelineEvents: timelineEvents,
+    surveyorNotes: surveyorNotes,
+    machinery: machinery,
     classConditions: classConditions,
-    caseDocuments:   caseDocuments,
+    caseDocuments: caseDocuments,
     requestedDocuments: requestedDocuments,
-    aiGenerationLog:   aiGenerationLog,
-    allReportOutputs:  allReportOutputs,
-    organisation:      organisation,
-    natureOfRepairs:   natureOfRepairs,
+    aiGenerationLog: aiGenerationLog,
+    allReportOutputs: allReportOutputs,
+    organisation: organisation,
+    natureOfRepairs: natureOfRepairs,
   );
 });
 
@@ -805,8 +814,8 @@ class SectionDraftNotifier
     if (existing != null) {
       state = {...state, type: existing.copyWith(content: content)};
       _saveTimers[type]?.cancel();
-      _saveTimers[type] = Timer(
-          const Duration(milliseconds: 700), () => _persist(type));
+      _saveTimers[type] =
+          Timer(const Duration(milliseconds: 700), () => _persist(type));
     }
   }
 
@@ -831,10 +840,10 @@ class SectionDraftNotifier
     if (section == null || section.isLocked) return;
     try {
       await SupabaseService.client.from('report_sections').upsert({
-        'output_id':       outputId,
-        'section_type':    type.name,
-        'content':         section.content,
-        'ai_drafted':      section.aiDrafted,
+        'output_id': outputId,
+        'section_type': type.name,
+        'content': section.content,
+        'ai_drafted': section.aiDrafted,
         'surveyor_review': section.surveyorReview?.name,
         'carried_forward_content': section.carriedForwardContent,
       }, onConflict: 'output_id,section_type');
@@ -870,17 +879,17 @@ class SectionDraftNotifier
 
     // ── Page 2: Executive Summary ────────────────────────────────────
     sections[SectionType.executiveSummary] = ReportSection(
-      type:    SectionType.executiveSummary,
-      title:   'Executive Summary',
+      type: SectionType.executiveSummary,
+      title: 'Executive Summary',
       content: _buildExecutiveSummaryTemplate(data),
     );
 
     // ── §1: Introduction / Opening Certification ──────────────────
     final openingClause = data.clauseByType('opening_certification');
     sections[SectionType.opening] = ReportSection(
-      type:     SectionType.opening,
-      title:    'Introduction / Opening Certification',
-      content:  openingClause != null
+      type: SectionType.opening,
+      title: 'Introduction / Opening Certification',
+      content: openingClause != null
           ? _fillOpeningClause(openingClause.clauseText, data)
           : '',
       clauseId: openingClause?.clauseId,
@@ -889,41 +898,39 @@ class SectionDraftNotifier
 
     // ── §2: Attending Representatives ─────────────────────────────
     sections[SectionType.attendees] = ReportSection(
-      type:    SectionType.attendees,
-      title:   'Attending Representatives',
-      content: data.attendees.isNotEmpty
-          ? _buildAttendeesText(data.attendees)
-          : '',
+      type: SectionType.attendees,
+      title: 'Attending Representatives',
+      content:
+          data.attendees.isNotEmpty ? _buildAttendeesText(data.attendees) : '',
     );
 
     // ── §3: Vessel's Particulars ──────────────────────────────────
     sections[SectionType.vesselParticulars] = ReportSection(
-      type:    SectionType.vesselParticulars,
-      title:   "Vessel's Particulars",
+      type: SectionType.vesselParticulars,
+      title: "Vessel's Particulars",
       content: _buildVesselText(data),
     );
 
     // ── §4: Machinery & Equipment (conditional in export) ─────────
     sections[SectionType.machineryParticulars] = ReportSection(
-      type:    SectionType.machineryParticulars,
-      title:   'Machinery & Equipment Particulars',
-      content: data.machinery.isNotEmpty
-          ? _buildMachineryText(data.machinery)
-          : '',
+      type: SectionType.machineryParticulars,
+      title: 'Machinery & Equipment Particulars',
+      content:
+          data.machinery.isNotEmpty ? _buildMachineryText(data.machinery) : '',
     );
 
     // ── §5: Class & Statutory Certification ───────────────────────
     // Clauses C-6a/b/c/e/f — see _buildClassStatutoryText.
     sections[SectionType.classStatutory] = ReportSection(
-      type:    SectionType.classStatutory,
-      title:   'Class & Statutory Certification',
+      type: SectionType.classStatutory,
+      title: 'Class & Statutory Certification',
       content: _buildClassStatutoryText(data),
     );
 
     // ── §6: Available Information Sources ─────────────────────────
     sections[SectionType.informationSources] = ReportSection(
-      type:    SectionType.informationSources,
-      title:   'Available Information Sources',
+      type: SectionType.informationSources,
+      title: 'Available Information Sources',
       content: data.caseDocuments.isNotEmpty
           ? _buildInfoSourcesText(data.caseDocuments)
           : '',
@@ -943,7 +950,8 @@ class SectionDraftNotifier
     String backgroundContent = '';
     String? backgroundCarriedForward;
     final priorBackground = priorPersisted[SectionType.background];
-    final backgroundIsFirstBuild = !persisted.containsKey(SectionType.background);
+    final backgroundIsFirstBuild =
+        !persisted.containsKey(SectionType.background);
     if (backgroundIsFirstBuild &&
         priorBackground != null &&
         priorBackground.fullContent.isNotEmpty) {
@@ -952,10 +960,10 @@ class SectionDraftNotifier
         final occ = data.occurrences.first;
         try {
           backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
-            vesselName:          data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate:      occ['date_time'] as String? ?? '',
-            occurrenceLocation:  occ['location']  as String? ?? '',
-            occurrenceTitle:     occ['title']      as String? ?? '',
+            vesselName: data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate: occ['date_time'] as String? ?? '',
+            occurrenceLocation: occ['location'] as String? ?? '',
+            occurrenceTitle: occ['title'] as String? ?? '',
             damageItems: data.damageItems
                 .map((d) => d['component_name'] as String? ?? '')
                 .toList(),
@@ -978,10 +986,10 @@ class SectionDraftNotifier
         final occ = data.occurrences.first;
         try {
           backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
-            vesselName:          data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate:      occ['date_time'] as String? ?? '',
-            occurrenceLocation:  occ['location']  as String? ?? '',
-            occurrenceTitle:     occ['title']      as String? ?? '',
+            vesselName: data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate: occ['date_time'] as String? ?? '',
+            occurrenceLocation: occ['location'] as String? ?? '',
+            occurrenceTitle: occ['title'] as String? ?? '',
             damageItems: data.damageItems
                 .map((d) => d['component_name'] as String? ?? '')
                 .toList(),
@@ -994,24 +1002,24 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.background] = ReportSection(
-      type:      SectionType.background,
-      title:     'Background',
-      content:   backgroundContent,
+      type: SectionType.background,
+      title: 'Background',
+      content: backgroundContent,
       aiDrafted: aiDraft && backgroundContent.isNotEmpty,
       carriedForwardContent: backgroundCarriedForward,
     );
 
     // ── §9: Occurrence + Damage Description ───────────────────────
     sections[SectionType.occurrence] = ReportSection(
-      type:    SectionType.occurrence,
-      title:   'Occurrence',
+      type: SectionType.occurrence,
+      title: 'Occurrence',
       content: data.occurrences.isNotEmpty
           ? _buildOccurrenceText(data.occurrences.first, data)
           : '',
     );
     sections[SectionType.damageDescription] = ReportSection(
-      type:    SectionType.damageDescription,
-      title:   'Extent of Damage',
+      type: SectionType.damageDescription,
+      title: 'Extent of Damage',
       content: data.damageItems.isNotEmpty
           ? _buildDamageText(data.damageItems, data.machinery)
           : '',
@@ -1048,19 +1056,19 @@ class SectionDraftNotifier
         allegationLocked = true;
       }
     } else if (allegationType == 'informal_allegation') {
-      final sourceClause = ownersStatedCauseSource != null &&
-              ownersStatedCauseSource.isNotEmpty
-          ? ' (as stated in $ownersStatedCauseSource)'
-          : '';
+      final sourceClause =
+          ownersStatedCauseSource != null && ownersStatedCauseSource.isNotEmpty
+              ? ' (as stated in $ownersStatedCauseSource)'
+              : '';
       allegationContent = 'It is understood that the Owners have, without '
           'formal written allegation, indicated the cause of the casualty'
           '$sourceClause:\n\n${ownersStatedCause ?? ''}';
     }
     // 'tbc' / null → empty, unchanged from prior behaviour.
     sections[SectionType.allegation] = ReportSection(
-      type:     SectionType.allegation,
-      title:    "Owner's Allegation",
-      content:  allegationContent,
+      type: SectionType.allegation,
+      title: "Owner's Allegation",
+      content: allegationContent,
       clauseId: allegationClauseId,
       isLocked: allegationLocked,
     );
@@ -1118,7 +1126,7 @@ class SectionDraftNotifier
         !persisted.containsKey(SectionType.causation)) {
       try {
         causeContent = await ClaudeApi.draftCauseConsideration(
-          vesselName:      data.vessel?['name'] ?? 'the vessel',
+          vesselName: data.vessel?['name'] ?? 'the vessel',
           occurrenceTitle: occForCause['title'] as String? ?? '',
           damageItems: data.damageItems
               .map((d) => d['component_name'] as String? ?? '')
@@ -1138,9 +1146,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.causation] = ReportSection(
-      type:      SectionType.causation,
-      title:     'Cause Consideration',
-      content:   causeContent,
+      type: SectionType.causation,
+      title: 'Cause Consideration',
+      content: causeContent,
       aiDrafted: causeAiDrafted,
     );
 
@@ -1150,8 +1158,8 @@ class SectionDraftNotifier
     // 2026). Omitted entirely when nothing has been entered, same
     // convention as Other Matters/WNCA.
     sections[SectionType.natureOfRepairs] = ReportSection(
-      type:    SectionType.natureOfRepairs,
-      title:   'Nature of the Repairs',
+      type: SectionType.natureOfRepairs,
+      title: 'Nature of the Repairs',
       content: _buildNatureOfRepairsText(data.natureOfRepairs),
     );
 
@@ -1163,8 +1171,8 @@ class SectionDraftNotifier
         : '';
     final servicesText = _buildServicesAndHotWorkText(data);
     sections[SectionType.repairs] = ReportSection(
-      type:    SectionType.repairs,
-      title:   'Repairs',
+      type: SectionType.repairs,
+      title: 'Repairs',
       content: [repairsNarrative, servicesText]
           .where((s) => s.isNotEmpty)
           .join('\n\n'),
@@ -1191,7 +1199,9 @@ class SectionDraftNotifier
     final generalServicesIsFirstBuild =
         !persisted.containsKey(SectionType.generalServices);
     final allGeneralServiceCues = data.surveyorNotes
-        .where((n) => n['case_section'] == 'general_expenses')
+        .where((n) =>
+            n['case_section'] == 'general_expenses' &&
+            n['pending_review'] != true)
         .toList();
 
     if (generalServicesIsFirstBuild &&
@@ -1203,11 +1213,13 @@ class SectionDraftNotifier
             .where((o) => o['output_id'] == priorOutputId)
             .firstOrNull;
         final cutoff = priorRaw != null
-            ? DateTime.tryParse((priorRaw['issued_date']
-                    ?? priorRaw['created_at']) as String? ?? '')
+            ? DateTime.tryParse((priorRaw['issued_date'] ??
+                    priorRaw['created_at']) as String? ??
+                '')
             : null;
         final newCues = allGeneralServiceCues
-            .where((n) => cutoff == null ||
+            .where((n) =>
+                cutoff == null ||
                 (DateTime.tryParse(n['created_at'] as String? ?? '')
                         ?.isAfter(cutoff) ??
                     true))
@@ -1217,8 +1229,8 @@ class SectionDraftNotifier
         if (newCues.isNotEmpty) {
           try {
             generalServicesContent = await ClaudeApi.draftGeneralServices(
-              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-              contextCues:  newCues,
+              vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues: newCues,
               reportFormat: data.outputFormat,
               priorApprovedText: generalServicesCarriedForward,
             );
@@ -1238,8 +1250,8 @@ class SectionDraftNotifier
       if (cues.isNotEmpty) {
         try {
           generalServicesContent = await ClaudeApi.draftGeneralServices(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
           );
           generalServicesAiDrafted = generalServicesContent.isNotEmpty;
@@ -1253,9 +1265,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.generalServices] = ReportSection(
-      type:      SectionType.generalServices,
-      title:     'General Services & Access',
-      content:   generalServicesContent,
+      type: SectionType.generalServices,
+      title: 'General Services & Access',
+      content: generalServicesContent,
       aiDrafted: generalServicesAiDrafted,
       carriedForwardContent: generalServicesCarriedForward,
     );
@@ -1271,7 +1283,9 @@ class SectionDraftNotifier
     final previousWorksIsFirstBuild =
         !persisted.containsKey(SectionType.previousWorks);
     final allPreviousWorksCues = data.surveyorNotes
-        .where((n) => n['case_section'] == 'previous_works')
+        .where((n) =>
+            n['case_section'] == 'previous_works' &&
+            n['pending_review'] != true)
         .toList();
 
     if (previousWorksIsFirstBuild &&
@@ -1283,11 +1297,13 @@ class SectionDraftNotifier
             .where((o) => o['output_id'] == priorOutputId)
             .firstOrNull;
         final cutoff = priorRaw != null
-            ? DateTime.tryParse((priorRaw['issued_date']
-                    ?? priorRaw['created_at']) as String? ?? '')
+            ? DateTime.tryParse((priorRaw['issued_date'] ??
+                    priorRaw['created_at']) as String? ??
+                '')
             : null;
         final newCues = allPreviousWorksCues
-            .where((n) => cutoff == null ||
+            .where((n) =>
+                cutoff == null ||
                 (DateTime.tryParse(n['created_at'] as String? ?? '')
                         ?.isAfter(cutoff) ??
                     true))
@@ -1297,8 +1313,8 @@ class SectionDraftNotifier
         if (newCues.isNotEmpty) {
           try {
             previousWorksContent = await ClaudeApi.draftPreviousWorks(
-              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-              contextCues:  newCues,
+              vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues: newCues,
               reportFormat: data.outputFormat,
               priorApprovedText: previousWorksCarriedForward,
             );
@@ -1316,8 +1332,8 @@ class SectionDraftNotifier
       if (cues.isNotEmpty) {
         try {
           previousWorksContent = await ClaudeApi.draftPreviousWorks(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
           );
           previousWorksAiDrafted = previousWorksContent.isNotEmpty;
@@ -1328,9 +1344,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.previousWorks] = ReportSection(
-      type:      SectionType.previousWorks,
-      title:     'Previous Work on the Damaged Item',
-      content:   previousWorksContent,
+      type: SectionType.previousWorks,
+      title: 'Previous Work on the Damaged Item',
+      content: previousWorksContent,
       aiDrafted: previousWorksAiDrafted,
       carriedForwardContent: previousWorksCarriedForward,
     );
@@ -1346,7 +1362,9 @@ class SectionDraftNotifier
     final extraExpensesIsFirstBuild =
         !persisted.containsKey(SectionType.extraExpenses);
     final allExtraExpenseCues = data.surveyorNotes
-        .where((n) => n['case_section'] == 'extra_expenses')
+        .where((n) =>
+            n['case_section'] == 'extra_expenses' &&
+            n['pending_review'] != true)
         .toList();
 
     if (extraExpensesIsFirstBuild &&
@@ -1358,11 +1376,13 @@ class SectionDraftNotifier
             .where((o) => o['output_id'] == priorOutputId)
             .firstOrNull;
         final cutoff = priorRaw != null
-            ? DateTime.tryParse((priorRaw['issued_date']
-                    ?? priorRaw['created_at']) as String? ?? '')
+            ? DateTime.tryParse((priorRaw['issued_date'] ??
+                    priorRaw['created_at']) as String? ??
+                '')
             : null;
         final newCues = allExtraExpenseCues
-            .where((n) => cutoff == null ||
+            .where((n) =>
+                cutoff == null ||
                 (DateTime.tryParse(n['created_at'] as String? ?? '')
                         ?.isAfter(cutoff) ??
                     true))
@@ -1372,8 +1392,8 @@ class SectionDraftNotifier
         if (newCues.isNotEmpty) {
           try {
             extraExpensesContent = await ClaudeApi.draftExtraExpenses(
-              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-              contextCues:  newCues,
+              vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues: newCues,
               reportFormat: data.outputFormat,
               priorApprovedText: extraExpensesCarriedForward,
             );
@@ -1391,8 +1411,8 @@ class SectionDraftNotifier
       if (cues.isNotEmpty) {
         try {
           extraExpensesContent = await ClaudeApi.draftExtraExpenses(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
           );
           extraExpensesAiDrafted = extraExpensesContent.isNotEmpty;
@@ -1403,9 +1423,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.extraExpenses] = ReportSection(
-      type:      SectionType.extraExpenses,
-      title:     'Extra Expenses to Reduce Delay',
-      content:   extraExpensesContent,
+      type: SectionType.extraExpenses,
+      title: 'Extra Expenses to Reduce Delay',
+      content: extraExpensesContent,
       aiDrafted: extraExpensesAiDrafted,
       carriedForwardContent: extraExpensesCarriedForward,
     );
@@ -1421,7 +1441,9 @@ class SectionDraftNotifier
     final contractualHireIsFirstBuild =
         !persisted.containsKey(SectionType.contractualHire);
     final allContractualHireCues = data.surveyorNotes
-        .where((n) => n['case_section'] == 'contractual_hire')
+        .where((n) =>
+            n['case_section'] == 'contractual_hire' &&
+            n['pending_review'] != true)
         .toList();
 
     if (contractualHireIsFirstBuild &&
@@ -1433,11 +1455,13 @@ class SectionDraftNotifier
             .where((o) => o['output_id'] == priorOutputId)
             .firstOrNull;
         final cutoff = priorRaw != null
-            ? DateTime.tryParse((priorRaw['issued_date']
-                    ?? priorRaw['created_at']) as String? ?? '')
+            ? DateTime.tryParse((priorRaw['issued_date'] ??
+                    priorRaw['created_at']) as String? ??
+                '')
             : null;
         final newCues = allContractualHireCues
-            .where((n) => cutoff == null ||
+            .where((n) =>
+                cutoff == null ||
                 (DateTime.tryParse(n['created_at'] as String? ?? '')
                         ?.isAfter(cutoff) ??
                     true))
@@ -1447,8 +1471,8 @@ class SectionDraftNotifier
         if (newCues.isNotEmpty) {
           try {
             contractualHireContent = await ClaudeApi.draftContractualHire(
-              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-              contextCues:  newCues,
+              vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues: newCues,
               reportFormat: data.outputFormat,
               priorApprovedText: contractualHireCarriedForward,
             );
@@ -1466,8 +1490,8 @@ class SectionDraftNotifier
       if (cues.isNotEmpty) {
         try {
           contractualHireContent = await ClaudeApi.draftContractualHire(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
           );
           contractualHireAiDrafted = contractualHireContent.isNotEmpty;
@@ -1478,9 +1502,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.contractualHire] = ReportSection(
-      type:      SectionType.contractualHire,
-      title:     'Contractual / Hire',
-      content:   contractualHireContent,
+      type: SectionType.contractualHire,
+      title: 'Contractual / Hire',
+      content: contractualHireContent,
       aiDrafted: contractualHireAiDrafted,
       carriedForwardContent: contractualHireCarriedForward,
     );
@@ -1498,7 +1522,8 @@ class SectionDraftNotifier
     final otherMattersCuesIsFirstBuild =
         !persisted.containsKey(SectionType.otherMatters);
     final allOtherMattersCues = data.surveyorNotes
-        .where((n) => n['case_section'] == 'other_matters')
+        .where((n) =>
+            n['case_section'] == 'other_matters' && n['pending_review'] != true)
         .toList();
 
     if (otherMattersCuesIsFirstBuild &&
@@ -1510,11 +1535,13 @@ class SectionDraftNotifier
             .where((o) => o['output_id'] == priorOutputId)
             .firstOrNull;
         final cutoff = priorRaw != null
-            ? DateTime.tryParse((priorRaw['issued_date']
-                    ?? priorRaw['created_at']) as String? ?? '')
+            ? DateTime.tryParse((priorRaw['issued_date'] ??
+                    priorRaw['created_at']) as String? ??
+                '')
             : null;
         final newCues = allOtherMattersCues
-            .where((n) => cutoff == null ||
+            .where((n) =>
+                cutoff == null ||
                 (DateTime.tryParse(n['created_at'] as String? ?? '')
                         ?.isAfter(cutoff) ??
                     true))
@@ -1524,8 +1551,8 @@ class SectionDraftNotifier
         if (newCues.isNotEmpty) {
           try {
             otherMattersCuesContent = await ClaudeApi.draftOtherMatters(
-              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-              contextCues:  newCues,
+              vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues: newCues,
               reportFormat: data.outputFormat,
               priorApprovedText: otherMattersCuesCarriedForward,
             );
@@ -1543,8 +1570,8 @@ class SectionDraftNotifier
       if (cues.isNotEmpty) {
         try {
           otherMattersCuesContent = await ClaudeApi.draftOtherMatters(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
           );
           otherMattersCuesAiDrafted = otherMattersCuesContent.isNotEmpty;
@@ -1555,9 +1582,9 @@ class SectionDraftNotifier
       }
     }
     sections[SectionType.otherMatters] = ReportSection(
-      type:      SectionType.otherMatters,
-      title:     'Other Matters of Relevance',
-      content:   otherMattersCuesContent,
+      type: SectionType.otherMatters,
+      title: 'Other Matters of Relevance',
+      content: otherMattersCuesContent,
       aiDrafted: otherMattersCuesAiDrafted,
       carriedForwardContent: otherMattersCuesCarriedForward,
     );
@@ -1570,11 +1597,12 @@ class SectionDraftNotifier
     final costStatusText = _buildCostStatusText(data);
     final accountsIntro = [
       if (costStatusText != null) costStatusText,
-      if (accountApprovalClause?.clauseText != null) accountApprovalClause!.clauseText,
+      if (accountApprovalClause?.clauseText != null)
+        accountApprovalClause!.clauseText,
     ].join('\n\n');
     sections[SectionType.accounts] = ReportSection(
-      type:    SectionType.accounts,
-      title:   'Repair Costs',
+      type: SectionType.accounts,
+      title: 'Repair Costs',
       content: _buildCostSummaryText(data.repairDocuments,
           approvalIntro: accountsIntro.isNotEmpty ? accountsIntro : null),
     );
@@ -1584,8 +1612,8 @@ class SectionDraftNotifier
     // times opinion is actually being given (i.e. there's data to comment on).
     final repairTimesClause = data.clauseByType('repair_times_guidance');
     sections[SectionType.repairTimes] = ReportSection(
-      type:    SectionType.repairTimes,
-      title:   'Repair Times',
+      type: SectionType.repairTimes,
+      title: 'Repair Times',
       content: _buildRepairTimesText(data.repairPeriods,
           guidanceIntro: repairTimesClause?.clauseText),
     );
@@ -1616,16 +1644,16 @@ class SectionDraftNotifier
         .where((s) => s.isNotEmpty)
         .join('\n\n');
     sections[SectionType.surveyorNotes] = ReportSection(
-      type:     SectionType.surveyorNotes,
-      title:    'Advice to Assured',
-      content:  adviceToAssuredText,
+      type: SectionType.surveyorNotes,
+      title: 'Advice to Assured',
+      content: adviceToAssuredText,
       isLocked: adviceToAssuredText.isNotEmpty,
     );
 
     // ── §16: Documents Retained on File (Clause K-1) ──────────────
     sections[SectionType.documentsOnFile] = ReportSection(
-      type:    SectionType.documentsOnFile,
-      title:   'Documents Retained on File',
+      type: SectionType.documentsOnFile,
+      title: 'Documents Retained on File',
       content: data.caseDocuments.isNotEmpty
           ? _buildDocumentsOnFileText(data.caseDocuments,
               header: data.clauseByType('documents_on_file_header')?.clauseText)
@@ -1634,29 +1662,29 @@ class SectionDraftNotifier
 
     // ── §17: Documents Requested / Outstanding (Clause K-2) ────────
     sections[SectionType.documentsRequested] = ReportSection(
-      type:    SectionType.documentsRequested,
-      title:   'Documents Requested / Outstanding',
+      type: SectionType.documentsRequested,
+      title: 'Documents Requested / Outstanding',
       content: data.requestedDocuments.isNotEmpty
           ? _buildDocumentsRequestedText(data.requestedDocuments,
-              header: data.clauseByType('documents_requested_header')?.clauseText)
+              header:
+                  data.clauseByType('documents_requested_header')?.clauseText)
           : '',
     );
-
 
     // ── §19: Waiver ───────────────────────────────────────────────
     final waiverClause = data.clauseByType('waiver');
     final orgWaiver = data.organisation?['waiver_text'] as String?;
     final waiverText = orgWaiver?.isNotEmpty == true
         ? orgWaiver!
-        : waiverClause?.clauseText
-            ?? 'The findings and opinions in this report are submitted '
-               'without prejudice to the rights of any party. The issuing '
-               'firm reserves the right to supplement or amend this report '
-               'if additional information becomes available.';
+        : waiverClause?.clauseText ??
+            'The findings and opinions in this report are submitted '
+                'without prejudice to the rights of any party. The issuing '
+                'firm reserves the right to supplement or amend this report '
+                'if additional information becomes available.';
     sections[SectionType.waiver] = ReportSection(
-      type:     SectionType.waiver,
-      title:    'Limitation of Liability / Waiver',
-      content:  waiverText,
+      type: SectionType.waiver,
+      title: 'Limitation of Liability / Waiver',
+      content: waiverText,
       clauseId: waiverClause?.clauseId,
       isLocked: waiverClause != null,
     );
@@ -1669,29 +1697,29 @@ class SectionDraftNotifier
     final orgDisclaimer = data.organisation?['disclaimer_text'] as String?;
     final closingText = orgDisclaimer?.isNotEmpty == true
         ? orgDisclaimer!
-        : closingClause?.clauseText
-            ?? 'This report (including any enclosures and attachments) has '
-               'been prepared for the exclusive use and benefit of the '
-               'addressee(s) and solely for the purpose for which it is '
-               'provided. Save to the extent provided for in the Company\'s '
-               'Terms and Conditions or such other contract between the '
-               'Company (or its affiliate) and the Client (or its affiliate) '
-               'governing the issuance of this report, the Company assumes '
-               'no liability to the addressee(s) for any claims, loss or '
-               'damage whatsoever suffered by the addressee(s) as a result '
-               'of any act, omission or default on the part of the Company '
-               'or any of its servants, whether due to negligence or '
-               'otherwise. No part of this report shall be reproduced, '
-               'distributed or communicated to any third party without the '
-               'prior written consent of the Company. The Company does not '
-               'assume any liability or owe any duty of care if this report '
-               'is used for a purpose other than that for which it is '
-               'intended or where it is disclosed to or used by a third '
-               'party.';
+        : closingClause?.clauseText ??
+            'This report (including any enclosures and attachments) has '
+                'been prepared for the exclusive use and benefit of the '
+                'addressee(s) and solely for the purpose for which it is '
+                'provided. Save to the extent provided for in the Company\'s '
+                'Terms and Conditions or such other contract between the '
+                'Company (or its affiliate) and the Client (or its affiliate) '
+                'governing the issuance of this report, the Company assumes '
+                'no liability to the addressee(s) for any claims, loss or '
+                'damage whatsoever suffered by the addressee(s) as a result '
+                'of any act, omission or default on the part of the Company '
+                'or any of its servants, whether due to negligence or '
+                'otherwise. No part of this report shall be reproduced, '
+                'distributed or communicated to any third party without the '
+                'prior written consent of the Company. The Company does not '
+                'assume any liability or owe any duty of care if this report '
+                'is used for a purpose other than that for which it is '
+                'intended or where it is disclosed to or used by a third '
+                'party.';
     sections[SectionType.closing] = ReportSection(
-      type:     SectionType.closing,
-      title:    'Disclaimer',
-      content:  closingText,
+      type: SectionType.closing,
+      title: 'Disclaimer',
+      content: closingText,
       clauseId: closingClause?.clauseId,
       isLocked: closingClause != null,
     );
@@ -1706,9 +1734,9 @@ class SectionDraftNotifier
       final base = sections[entry.key];
       if (base == null || base.isLocked) continue;
       sections[entry.key] = base.copyWith(
-        content:        entry.value.content,
+        content: entry.value.content,
         surveyorReview: entry.value.surveyorReview,
-        aiDrafted:      entry.value.aiDrafted,
+        aiDrafted: entry.value.aiDrafted,
         carriedForwardContent: entry.value.carriedForwardContent,
       );
     }
@@ -1844,10 +1872,10 @@ class SectionDraftNotifier
           if (data.occurrences.isEmpty) return;
           final occ = data.occurrences.first;
           content = await ClaudeApi.draftOccurrenceNarrative(
-            vesselName:          data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate:      occ['date_time'] as String? ?? '',
-            occurrenceLocation:  occ['location']  as String? ?? '',
-            occurrenceTitle:     occ['title']      as String? ?? '',
+            vesselName: data.vessel?['name'] ?? 'the vessel',
+            occurrenceDate: occ['date_time'] as String? ?? '',
+            occurrenceLocation: occ['location'] as String? ?? '',
+            occurrenceTitle: occ['title'] as String? ?? '',
             damageItems: data.damageItems
                 .map((d) => d['component_name'] as String? ?? '')
                 .toList(),
@@ -1861,9 +1889,10 @@ class SectionDraftNotifier
             priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.causation:
-          final occ = data.occurrences.isNotEmpty ? data.occurrences.first : null;
+          final occ =
+              data.occurrences.isNotEmpty ? data.occurrences.first : null;
           content = await ClaudeApi.draftCauseConsideration(
-            vesselName:      data.vessel?['name'] ?? 'the vessel',
+            vesselName: data.vessel?['name'] ?? 'the vessel',
             occurrenceTitle: occ?['title'] as String? ?? '',
             damageItems: data.damageItems
                 .map((d) => d['component_name'] as String? ?? '')
@@ -1874,66 +1903,76 @@ class SectionDraftNotifier
           );
         case SectionType.generalServices:
           final cues = data.surveyorNotes
-              .where((n) => n['case_section'] == 'general_expenses')
+              .where((n) =>
+                  n['case_section'] == 'general_expenses' &&
+                  n['pending_review'] != true)
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftGeneralServices(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.previousWorks:
           final cues = data.surveyorNotes
-              .where((n) => n['case_section'] == 'previous_works')
+              .where((n) =>
+                  n['case_section'] == 'previous_works' &&
+                  n['pending_review'] != true)
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftPreviousWorks(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.extraExpenses:
           final cues = data.surveyorNotes
-              .where((n) => n['case_section'] == 'extra_expenses')
+              .where((n) =>
+                  n['case_section'] == 'extra_expenses' &&
+                  n['pending_review'] != true)
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftExtraExpenses(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.contractualHire:
           final cues = data.surveyorNotes
-              .where((n) => n['case_section'] == 'contractual_hire')
+              .where((n) =>
+                  n['case_section'] == 'contractual_hire' &&
+                  n['pending_review'] != true)
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftContractualHire(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
         case SectionType.otherMatters:
           final cues = data.surveyorNotes
-              .where((n) => n['case_section'] == 'other_matters')
+              .where((n) =>
+                  n['case_section'] == 'other_matters' &&
+                  n['pending_review'] != true)
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftOtherMatters(
-            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
-            contextCues:  cues,
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues: cues,
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
@@ -1958,7 +1997,8 @@ class SectionDraftNotifier
     final vesselName = data.vessel?['name'] as String? ?? '[vessel name]';
     final occ = data.occurrences.isNotEmpty ? data.occurrences.first : null;
     final occTitle = occ?['title'] as String? ?? '[nature of casualty]';
-    final occDate  = occ != null ? _formatDate(occ['date_time'] as String? ?? '') : '[date]';
+    final occDate =
+        occ != null ? _formatDate(occ['date_time'] as String? ?? '') : '[date]';
     final claimRef = data.caseData['claim_reference'] as String? ?? '';
     final claimLine = claimRef.isNotEmpty ? 'Claim Reference: $claimRef\n' : '';
     return 'Vessel: $vesselName\n'
@@ -1979,9 +2019,8 @@ class SectionDraftNotifier
     // survey_attendances record (already ordered ascending), not the
     // occurrence's date of loss, which can differ from when the surveyor
     // actually first attended.
-    final firstAttendance = data.attendances
-        .where((a) => a['attendance_date'] != null)
-        .firstOrNull;
+    final firstAttendance =
+        data.attendances.where((a) => a['attendance_date'] != null).firstOrNull;
     final attendanceDate = firstAttendance?['attendance_date'] as String?;
     final occDate = data.occurrences.isNotEmpty
         ? data.occurrences.first['date_time'] as String?
@@ -1992,10 +2031,16 @@ class SectionDraftNotifier
 
     final filled = template
         .replaceAll('[CLIENT]', clientName)
-        .replaceAll('[FIRST_ATTENDANCE_DATE]',
-            firstAttendanceDate != null ? _formatDate(firstAttendanceDate) : '[DATE]')
-        .replaceAll('[LOCATION_DESCRIPTION]',
-            location ?? data.caseData['notes'] as String? ?? 'the survey location');
+        .replaceAll(
+            '[FIRST_ATTENDANCE_DATE]',
+            firstAttendanceDate != null
+                ? _formatDate(firstAttendanceDate)
+                : '[DATE]')
+        .replaceAll(
+            '[LOCATION_DESCRIPTION]',
+            location ??
+                data.caseData['notes'] as String? ??
+                'the survey location');
 
     // Clause B-2: survey type. Derived from the case's existing claim type
     // rather than a new field — per the surveyor, this practice's H&M cases
@@ -2020,17 +2065,17 @@ class SectionDraftNotifier
   // docs/legal_clauses.md implementation notes for the full mapping table
   // and the one judgment call (Passenger Ferry → Ro-Ro/ferry phrase).
   static const _shipTypeClause = {
-    'General Cargo Ship':      'ship_type_general_cargo',
-    'Bulk Carrier':            'ship_type_bulk_carrier',
-    'Container Ship':          'ship_type_container',
-    'Container Carrier':       'ship_type_container',
-    'Oil Tanker':              'ship_type_tanker_oil',
-    'Chemical Tanker':         'ship_type_tanker_chemical',
+    'General Cargo Ship': 'ship_type_general_cargo',
+    'Bulk Carrier': 'ship_type_bulk_carrier',
+    'Container Ship': 'ship_type_container',
+    'Container Carrier': 'ship_type_container',
+    'Oil Tanker': 'ship_type_tanker_oil',
+    'Chemical Tanker': 'ship_type_tanker_chemical',
     'Offshore Support Vessel': 'ship_type_offshore_support',
-    'Offshore Supply Vessel':  'ship_type_offshore_support',
-    'Tug':                     'ship_type_tug',
-    'Ro Ro':                   'ship_type_roro_ferry',
-    'Passenger Ferry':         'ship_type_roro_ferry',
+    'Offshore Supply Vessel': 'ship_type_offshore_support',
+    'Tug': 'ship_type_tug',
+    'Ro Ro': 'ship_type_roro_ferry',
+    'Passenger Ferry': 'ship_type_roro_ferry',
   };
 
   String _buildVesselText(AssembledReportData data) {
@@ -2065,7 +2110,8 @@ class SectionDraftNotifier
           '${isDcv ? ' (National)' : ''}');
     }
     if (v['year_built'] != null) {
-      lines.add('Built: ${v['year_built']} at ${v['build_yard'] ?? ''}, ${v['build_country'] ?? ''}');
+      lines.add(
+          'Built: ${v['year_built']} at ${v['build_yard'] ?? ''}, ${v['build_country'] ?? ''}');
     }
     if (v['owners'] != null) {
       lines.add('Owners: ${v['owners']}');
@@ -2089,13 +2135,15 @@ class SectionDraftNotifier
       lines.add('Class: Class $amsaUseClass${amsaCategory.toUpperCase()}');
     }
     if (v['equipment_survey_due'] != null) {
-      lines.add('Equipment Due: ${_formatDate(v['equipment_survey_due'] as String)}');
+      lines.add(
+          'Equipment Due: ${_formatDate(v['equipment_survey_due'] as String)}');
     }
     if (v['hull_survey_due'] != null) {
       lines.add('Hull Due: ${_formatDate(v['hull_survey_due'] as String)}');
     }
     if (v['tail_shaft_survey_due'] != null) {
-      lines.add('Tail Shaft Due: ${_formatDate(v['tail_shaft_survey_due'] as String)}');
+      lines.add(
+          'Tail Shaft Due: ${_formatDate(v['tail_shaft_survey_due'] as String)}');
     }
     return lines.join('\n');
   }
@@ -2178,9 +2226,12 @@ class SectionDraftNotifier
         final conditionStatusRaw = d['condition_status'] as String?;
         final conditionFound = d['condition_found'] as String? ?? '';
         final line = StringBuffer('  • ');
-        line.write(description.isNotEmpty ? description : (d['component_name'] as String? ?? ''));
+        line.write(description.isNotEmpty
+            ? description
+            : (d['component_name'] as String? ?? ''));
         if (conditionStatusRaw != null) {
-          line.write(' (${ConditionStatus.fromValue(conditionStatusRaw).label})');
+          line.write(
+              ' (${ConditionStatus.fromValue(conditionStatusRaw).label})');
         } else if (conditionFound.isNotEmpty) {
           line.write(' ($conditionFound)');
         }
@@ -2189,7 +2240,8 @@ class SectionDraftNotifier
         // Third-party confirmation sentence (spec §7 "Third-Party
         // Confirmation of Damage") — only when confirmed by someone other
         // than the surveyor themselves.
-        final confirmedByRaw = (d['confirmed_by'] as List?)?.cast<String>() ?? const [];
+        final confirmedByRaw =
+            (d['confirmed_by'] as List?)?.cast<String>() ?? const [];
         final nonSurveyorConfirmers = confirmedByRaw
             .map(ConfirmedByRole.fromValue)
             .where((r) => r != ConfirmedByRole.undersignedSurveyor)
@@ -2233,15 +2285,15 @@ class SectionDraftNotifier
   }
 
   static const _servicesProvidedClause = {
-    'crane_lifting':       'services_crane_lifting',
-    'scaffolding':         'services_scaffolding',
-    'gas_freeing':         'services_gas_freeing',
-    'diving':              'services_diving',
-    'class_attendance':    'services_class_attendance',
-    'ndt_xray':            'services_ndt_xray',
-    'hydraulic_testing':   'services_hydraulic_testing',
-    'air_pressure_testing':'services_air_pressure_testing',
-    'hose_testing':        'services_hose_testing',
+    'crane_lifting': 'services_crane_lifting',
+    'scaffolding': 'services_scaffolding',
+    'gas_freeing': 'services_gas_freeing',
+    'diving': 'services_diving',
+    'class_attendance': 'services_class_attendance',
+    'ndt_xray': 'services_ndt_xray',
+    'hydraulic_testing': 'services_hydraulic_testing',
+    'air_pressure_testing': 'services_air_pressure_testing',
+    'hose_testing': 'services_hose_testing',
   };
 
   /// §11.1 Nature of the Repairs — surveyor-entered flags (each with an
@@ -2293,7 +2345,8 @@ class SectionDraftNotifier
     return periods.map((json) {
       final p = RepairPeriodModel.fromJson(json);
       final loc = p.location ?? '';
-      final prefix = p.portContext == PortContext.diversion ? 'Diversion — ' : '';
+      final prefix =
+          p.portContext == PortContext.diversion ? 'Diversion — ' : '';
       return '$prefix${p.displayTitle}${loc.isNotEmpty ? ', $loc' : ''}';
     }).join('\n');
   }
@@ -2301,50 +2354,56 @@ class SectionDraftNotifier
   /// Clauses F-2/F-5: services provided + hot work compliance, per repair
   /// period — repair_periods is the actively-used table.
   String _buildServicesAndHotWorkText(AssembledReportData data) {
-    return data.repairPeriods.map((p) {
-      final buf = StringBuffer();
-      final title = p['title'] as String? ?? p['location'] as String? ?? 'Repair period';
-      buf.write(title);
+    return data.repairPeriods
+        .map((p) {
+          final buf = StringBuffer();
+          final title = p['title'] as String? ??
+              p['location'] as String? ??
+              'Repair period';
+          buf.write(title);
 
-      final services = (p['services_provided'] as List?)?.cast<String>() ?? [];
-      for (final key in services) {
-        final clauseType = _servicesProvidedClause[key];
-        if (clauseType == null) continue;
-        final text = data.clauseByType(clauseType)?.clauseText;
-        if (text != null && text.isNotEmpty) buf.write('\n  • $text');
-      }
-      final servicesNotes = p['services_provided_notes'] as String?;
-      if (servicesNotes != null && servicesNotes.isNotEmpty) {
-        buf.write('\n  $servicesNotes');
-      }
+          final services =
+              (p['services_provided'] as List?)?.cast<String>() ?? [];
+          for (final key in services) {
+            final clauseType = _servicesProvidedClause[key];
+            if (clauseType == null) continue;
+            final text = data.clauseByType(clauseType)?.clauseText;
+            if (text != null && text.isNotEmpty) buf.write('\n  • $text');
+          }
+          final servicesNotes = p['services_provided_notes'] as String?;
+          if (servicesNotes != null && servicesNotes.isNotEmpty) {
+            buf.write('\n  $servicesNotes');
+          }
 
-      final hotWorkStatus = p['hot_work_status'] as String?;
-      final hotWorkClauseType = switch (hotWorkStatus) {
-        'certs_valid'       => 'hot_work_certs_valid',
-        'certs_not_sighted' => 'hot_work_certs_not_sighted',
-        _                   => null,
-      };
-      if (hotWorkClauseType != null) {
-        final text = data.clauseByType(hotWorkClauseType)?.clauseText;
-        if (text != null && text.isNotEmpty) buf.write('\n  • $text');
-      }
-      final hotWorkNotes = p['hot_work_notes'] as String?;
-      if (hotWorkNotes != null && hotWorkNotes.isNotEmpty) {
-        buf.write('\n  $hotWorkNotes');
-      }
+          final hotWorkStatus = p['hot_work_status'] as String?;
+          final hotWorkClauseType = switch (hotWorkStatus) {
+            'certs_valid' => 'hot_work_certs_valid',
+            'certs_not_sighted' => 'hot_work_certs_not_sighted',
+            _ => null,
+          };
+          if (hotWorkClauseType != null) {
+            final text = data.clauseByType(hotWorkClauseType)?.clauseText;
+            if (text != null && text.isNotEmpty) buf.write('\n  • $text');
+          }
+          final hotWorkNotes = p['hot_work_notes'] as String?;
+          if (hotWorkNotes != null && hotWorkNotes.isNotEmpty) {
+            buf.write('\n  $hotWorkNotes');
+          }
 
-      return buf.toString();
-    }).where((s) => s.trim().isNotEmpty).join('\n\n');
+          return buf.toString();
+        })
+        .where((s) => s.trim().isNotEmpty)
+        .join('\n\n');
   }
 
   String _buildMachineryText(List<Map<String, dynamic>> items) {
     return items.map((m) {
-      final type   = m['machinery_type'] as String? ?? '';
-      final role   = m['role']          as String? ?? '';
-      final make   = m['make']          as String? ?? '';
-      final model  = m['model']         as String? ?? '';
+      final type = m['machinery_type'] as String? ?? '';
+      final role = m['role'] as String? ?? '';
+      final make = m['make'] as String? ?? '';
+      final model = m['model'] as String? ?? '';
       final serial = m['serial_number'] as String? ?? '';
-      final kw     = (m['mcr_kw'] as num?)?.toStringAsFixed(0);
+      final kw = (m['mcr_kw'] as num?)?.toStringAsFixed(0);
       final buf = StringBuffer(type);
       if (role.isNotEmpty) buf.write(' — $role');
       if (make.isNotEmpty || model.isNotEmpty) {
@@ -2357,9 +2416,9 @@ class SectionDraftNotifier
   }
 
   String _buildClassStatutoryText(AssembledReportData data) {
-    final certs       = data.certificates;
-    final conditions   = data.classConditions;
-    final vessel       = data.vessel;
+    final certs = data.certificates;
+    final conditions = data.classConditions;
+    final vessel = data.vessel;
     final buf = StringBuffer();
 
     // Clause C-6a: class status
@@ -2367,7 +2426,8 @@ class SectionDraftNotifier
     if (classSociety != null && classSociety.isNotEmpty) {
       final clause = data.clauseByType('class_status_statement');
       if (clause != null) {
-        buf.writeln(clause.clauseText.replaceAll('{CLASS_SOCIETY}', classSociety));
+        buf.writeln(
+            clause.clauseText.replaceAll('{CLASS_SOCIETY}', classSociety));
       }
     }
 
@@ -2375,23 +2435,29 @@ class SectionDraftNotifier
     Map<String, dynamic>? findCert(String type) =>
         certs.where((c) => c['cert_type'] == type).firstOrNull;
     final docCert = findCert('doc');
-    if (docCert != null && (docCert['issuing_authority'] as String?)?.isNotEmpty == true) {
+    if (docCert != null &&
+        (docCert['issuing_authority'] as String?)?.isNotEmpty == true) {
       final clause = data.clauseByType('doc_certificate_statement');
       if (clause != null) {
         buf.writeln(clause.clauseText
             .replaceAll('{DOC_ISSUER}', docCert['issuing_authority'] as String)
-            .replaceAll('{DOC_ISSUE_DATE}', _formatDate(docCert['issue_date'] as String? ?? ''))
-            .replaceAll('{DOC_EXPIRY}', _formatDate(docCert['expiry_date'] as String? ?? '')));
+            .replaceAll('{DOC_ISSUE_DATE}',
+                _formatDate(docCert['issue_date'] as String? ?? ''))
+            .replaceAll('{DOC_EXPIRY}',
+                _formatDate(docCert['expiry_date'] as String? ?? '')));
       }
     }
     final smcCert = findCert('smc');
-    if (smcCert != null && (smcCert['issuing_authority'] as String?)?.isNotEmpty == true) {
+    if (smcCert != null &&
+        (smcCert['issuing_authority'] as String?)?.isNotEmpty == true) {
       final clause = data.clauseByType('smc_certificate_statement');
       if (clause != null) {
         buf.writeln(clause.clauseText
             .replaceAll('{SMC_ISSUER}', smcCert['issuing_authority'] as String)
-            .replaceAll('{SMC_ISSUE_DATE}', _formatDate(smcCert['issue_date'] as String? ?? ''))
-            .replaceAll('{SMC_EXPIRY}', _formatDate(smcCert['expiry_date'] as String? ?? '')));
+            .replaceAll('{SMC_ISSUE_DATE}',
+                _formatDate(smcCert['issue_date'] as String? ?? ''))
+            .replaceAll('{SMC_EXPIRY}',
+                _formatDate(smcCert['expiry_date'] as String? ?? '')));
       }
     }
 
@@ -2403,20 +2469,23 @@ class SectionDraftNotifier
         final lastDdDate = vessel?['last_drydock_date'] as String?;
         buf.writeln(clause.clauseText
             .replaceAll('{LAST_DD_YARD}', lastDdYard)
-            .replaceAll('{LAST_DD_DATE}', lastDdDate != null ? _formatDate(lastDdDate) : ''));
+            .replaceAll('{LAST_DD_DATE}',
+                lastDdDate != null ? _formatDate(lastDdDate) : ''));
       }
     }
 
     // Clause C-6f: statutory certificate status — mutually exclusive 3-way
     if (certs.isNotEmpty) {
-      final expired    = certs.where((c) => c['status'] == 'expired').toList();
-      final notSighted = certs.where((c) => c['status'] == 'not_sighted').toList();
+      final expired = certs.where((c) => c['status'] == 'expired').toList();
+      final notSighted =
+          certs.where((c) => c['status'] == 'not_sighted').toList();
       String? clauseType;
       String certDetails = '';
       if (expired.isNotEmpty) {
         clauseType = 'statutory_certs_expired';
         certDetails = expired
-            .map((c) => c['cert_name'] as String? ?? c['cert_type'] as String? ?? '')
+            .map((c) =>
+                c['cert_name'] as String? ?? c['cert_type'] as String? ?? '')
             .where((s) => s.isNotEmpty)
             .join(', ');
       } else if (notSighted.isNotEmpty) {
@@ -2427,7 +2496,8 @@ class SectionDraftNotifier
       if (clauseType != null) {
         final clause = data.clauseByType(clauseType);
         if (clause != null) {
-          buf.writeln(clause.clauseText.replaceAll('{CERT_DETAILS}', certDetails));
+          buf.writeln(
+              clause.clauseText.replaceAll('{CERT_DETAILS}', certDetails));
         }
       }
     }
@@ -2437,18 +2507,20 @@ class SectionDraftNotifier
     if (certs.isNotEmpty) {
       buf.writeln('Certificates on Board:');
       for (final c in certs) {
-        final name   = c['cert_name']   as String? ?? c['cert_type'] as String? ?? '';
+        final name =
+            c['cert_name'] as String? ?? c['cert_type'] as String? ?? '';
         final expiry = c['expiry_date'] as String? ?? '';
-        buf.writeln('  • $name${expiry.isNotEmpty ? ' — expires ${_formatDate(expiry)}' : ''}');
+        buf.writeln(
+            '  • $name${expiry.isNotEmpty ? ' — expires ${_formatDate(expiry)}' : ''}');
       }
     }
     if (conditions.isNotEmpty) {
       if (buf.isNotEmpty) buf.writeln();
       buf.writeln('Conditions of Class:');
       for (final cc in conditions) {
-        final ref  = cc['reference']   as String? ?? '';
+        final ref = cc['reference'] as String? ?? '';
         final desc = cc['description'] as String? ?? '';
-        final due  = cc['expiry_date'] as String? ?? '';
+        final due = cc['expiry_date'] as String? ?? '';
         buf.writeln('  • ${ref.isNotEmpty ? '[$ref] ' : ''}$desc'
             '${due.isNotEmpty ? ' — due ${_formatDate(due)}' : ''}');
       }
@@ -2465,19 +2537,18 @@ class SectionDraftNotifier
     }
     return categorised.entries.map((e) {
       final header = e.key.replaceAll('_', ' ').toUpperCase();
-      final items  = e.value.map((t) => '  • $t').join('\n');
+      final items = e.value.map((t) => '  • $t').join('\n');
       return '$header\n$items';
     }).join('\n\n');
   }
 
-
   String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs,
       {String? header}) {
     final body = docs.asMap().entries.map((e) {
-      final idx   = e.key + 1;
-      final title = e.value['title']            as String? ?? 'Untitled';
+      final idx = e.key + 1;
+      final title = e.value['title'] as String? ?? 'Untitled';
       final annex = e.value['annexure_assignment'] as String?;
-      final date  = e.value['doc_date']          as String? ?? '';
+      final date = e.value['doc_date'] as String? ?? '';
       final suffix = [
         if (annex != null && annex.isNotEmpty) 'Annexure $annex',
         if (date.isNotEmpty) _formatDate(date),
@@ -2488,18 +2559,18 @@ class SectionDraftNotifier
   }
 
   static const _vesselStatusClause = {
-    'at_sea':              'vessel_status_at_sea',
-    'in_port_at_anchor':   'vessel_status_in_port',
-    'maintenance':         'vessel_status_maintenance',
-    'manoeuvring':         'vessel_status_manoeuvring',
+    'at_sea': 'vessel_status_at_sea',
+    'in_port_at_anchor': 'vessel_status_in_port',
+    'maintenance': 'vessel_status_maintenance',
+    'manoeuvring': 'vessel_status_manoeuvring',
   };
 
   static const _aftermathClause = {
-    'own_power':                 'aftermath_own_power',
-    'tug_only':                  'aftermath_tug_only',
-    'tug_and_pilot':             'aftermath_tug_pilot',
-    'tug_pilot_lines_gangway':   'aftermath_tug_pilot_lines_gangway',
-    'towed':                     'aftermath_towed',
+    'own_power': 'aftermath_own_power',
+    'tug_only': 'aftermath_tug_only',
+    'tug_and_pilot': 'aftermath_tug_pilot',
+    'tug_pilot_lines_gangway': 'aftermath_tug_pilot_lines_gangway',
+    'towed': 'aftermath_towed',
     'proceeded_with_operations': 'aftermath_proceeded_operations',
   };
 
@@ -2510,7 +2581,8 @@ class SectionDraftNotifier
     if (brief != null && brief.isNotEmpty) lines.add(brief);
 
     // Clause D-2: vessel status at the time of the casualty.
-    final vesselStatusType = _vesselStatusClause[occ['vessel_status_at_casualty']];
+    final vesselStatusType =
+        _vesselStatusClause[occ['vessel_status_at_casualty']];
     if (vesselStatusType != null) {
       final text = data.clauseByType(vesselStatusType)?.clauseText;
       if (text != null && text.isNotEmpty) lines.add(text);
@@ -2555,7 +2627,8 @@ class SectionDraftNotifier
     final status = data.caseData['cost_estimate_status'] as String?;
     if (status == null) return null;
     final currency = data.caseData['base_currency'] as String? ?? '';
-    final estimate = (data.caseData['estimated_repair_cost'] as num?)?.toString();
+    final estimate =
+        (data.caseData['estimated_repair_cost'] as num?)?.toString();
 
     String? fill(String clauseType) => data
         .clauseByType(clauseType)
@@ -2568,7 +2641,7 @@ class SectionDraftNotifier
           ? fill('cost_status_estimate_obtained')
           : fill('cost_status_estimate_not_obtained'),
       'ongoing_partial_invoices' => fill('cost_status_ongoing'),
-      'completed_all_invoices'   => fill('cost_status_completed'),
+      'completed_all_invoices' => fill('cost_status_completed'),
       _ => null,
     };
   }
@@ -2587,10 +2660,12 @@ class SectionDraftNotifier
     var total = 0.0;
     final lines = <String>[];
     for (final doc in repairDocs) {
-      final supplier = doc['supplier'] as String? ?? doc['title'] as String? ?? '';
-      final lines_ = (doc['account_lines'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      final docTotal = lines_.fold(0.0,
-          (s, l) => s + ((l['amount'] as num?)?.toDouble() ?? 0.0));
+      final supplier =
+          doc['supplier'] as String? ?? doc['title'] as String? ?? '';
+      final lines_ =
+          (doc['account_lines'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final docTotal = lines_.fold(
+          0.0, (s, l) => s + ((l['amount'] as num?)?.toDouble() ?? 0.0));
       total += docTotal;
       if (supplier.isNotEmpty) {
         lines.add('$supplier: ${_formatAmount(docTotal)}');
@@ -2609,7 +2684,7 @@ class SectionDraftNotifier
     if (periods.isEmpty) return '';
     final lines = <String>[];
     for (final json in periods) {
-      final p  = RepairPeriodModel.fromJson(json);
+      final p = RepairPeriodModel.fromJson(json);
       final dd = p.drydockDaysTotal;
       final ad = p.alongsideDaysTotal;
       final od = p.ownerDaysTotal;

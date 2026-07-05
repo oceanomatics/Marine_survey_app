@@ -19,7 +19,8 @@ class AppConfig {
 
   static const supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nZnRvb2ZtY254ZnNodGFpbGduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MTI2MjUsImV4cCI6MjA5Njk4ODYyNX0.jEcRP0Zh9xVTlD6eVpfgcrhJLCKcIpZtSOydtyOF6YQ',
+    defaultValue:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nZnRvb2ZtY254ZnNodGFpbGduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0MTI2MjUsImV4cCI6MjA5Njk4ODYyNX0.jEcRP0Zh9xVTlD6eVpfgcrhJLCKcIpZtSOydtyOF6YQ',
   );
 
   // ── Anthropic (Claude API) ─────────────────
@@ -43,6 +44,12 @@ class AppConfig {
   // ── Google (Maps/Places etc.) ──────────────
   static String googleApiKey = const String.fromEnvironment('GOOGLE_API_KEY');
   static bool get isGoogleKeySet => googleApiKey.isNotEmpty;
+
+  // ── Google Drive unified storage ───────────
+  // Root folder name under which Cases/ and Admin/ live in the user's Drive
+  // — null means directly under "My Drive". Set from the Account screen
+  // (AccountNotifier.saveDriveBaseFolder), read by DriveStorageService.
+  static String? driveBaseFolder;
 
   // ── App settings ──────────────────────────
   static const appName = 'Marine Survey';

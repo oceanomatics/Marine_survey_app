@@ -15,13 +15,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api/claude_api.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../../core/services/google_auth_service.dart';
 import '../../../features/cases/providers/cases_provider.dart';
+import '../../../features/photos/services/google_drive_service.dart';
 import '../../../features/photos/models/photo_model.dart';
 import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
-import '../../../shared/widgets/context_cues_panel.dart' show natureOfContentColor;
+import '../../../shared/widgets/context_cues_panel.dart'
+    show natureOfContentColor;
 import '../../../features/vessel/providers/certificates_provider.dart';
 import '../../../features/vessel/providers/class_conditions_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart';
@@ -37,13 +40,40 @@ const _kColor = AppColors.amber;
 /// Any key returned by Claude that is NOT in this set is stored as
 /// "unmapped_fields" and shown in the extraction summary for diagnosis.
 const _kKnownVesselKeys = {
-  'vessel_name', 'previous_name', 'imo_number', 'call_sign', 'mmsi', 'vessel_type', 'flag', 'port_of_registry',
-  'gross_tonnage', 'net_tonnage', 'deadweight', 'holds_count', 'tanks_count',
-  'length_oa', 'length_bp', 'breadth', 'breadth_qualifier', 'depth',
-  'max_draft', 'draft_qualifier', 'year_built', 'build_yard', 'build_country',
-  'owners', 'operators', 'class_society', 'class_notation', 'service_speed',
-  'propulsion_type', 'propeller_type', 'propulsion_drive_type',
-  'mcr_power_value', 'mcr_rpm', 'mcr_power_unit',
+  'vessel_name',
+  'previous_name',
+  'imo_number',
+  'call_sign',
+  'mmsi',
+  'vessel_type',
+  'flag',
+  'port_of_registry',
+  'gross_tonnage',
+  'net_tonnage',
+  'deadweight',
+  'holds_count',
+  'tanks_count',
+  'length_oa',
+  'length_bp',
+  'breadth',
+  'breadth_qualifier',
+  'depth',
+  'max_draft',
+  'draft_qualifier',
+  'year_built',
+  'build_yard',
+  'build_country',
+  'owners',
+  'operators',
+  'class_society',
+  'class_notation',
+  'service_speed',
+  'propulsion_type',
+  'propeller_type',
+  'propulsion_drive_type',
+  'mcr_power_value',
+  'mcr_rpm',
+  'mcr_power_unit',
 };
 
 // ── Connectivity provider ──────────────────────────────────────────────────
@@ -63,16 +93,25 @@ class DocumentVaultScreen extends ConsumerWidget {
     final docsAsync = ref.watch(documentProvider(caseId));
     final isOnline = ref.watch(_isOnlineProvider).value ?? true;
     final allocatedPhotos = ref
-        .watch(photosProvider(caseId))
-        .value
-        ?.where((p) => p.allocation != null)
-        .toList() ?? [];
+            .watch(photosProvider(caseId))
+            .value
+            ?.where((p) => p.allocation != null)
+            .toList() ??
+        [];
 
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(
         title: const Text('Document Vault'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_to_drive_outlined, color: Colors.white),
+            tooltip: 'Export all to Google Drive',
+            onPressed: docsAsync.value == null || docsAsync.value!.isEmpty
+                ? null
+                : () =>
+                    _bulkExportToDrive(context, ref, caseId, docsAsync.value!),
+          ),
           IconButton(
             icon: const Icon(Icons.playlist_add, color: Colors.white),
             tooltip: 'Log requested document',
@@ -85,8 +124,8 @@ class DocumentVaultScreen extends ConsumerWidget {
         backgroundColor: _kColor,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.upload_file_outlined),
-        label: const Text('Import',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        label:
+            const Text('Import', style: TextStyle(fontWeight: FontWeight.w600)),
       ),
       body: docsAsync.when(
         loading: () => const AppLoadingWidget(message: 'Loading documents…'),
@@ -108,12 +147,117 @@ class DocumentVaultScreen extends ConsumerWidget {
                       _runPhotoExtraction(context, ref, photo),
                   onViewExtraction: (doc) =>
                       showExtractionSummary(context, doc),
-                  onReapply: (doc) =>
-                      reapplyExtraction(context, caseId, doc),
+                  onReapply: (doc) => reapplyExtraction(context, caseId, doc),
                 ),
               ),
       ),
     );
+  }
+
+  // ── Bulk export to Google Drive ─────────────────────────────────────────
+  // Rough MVP: downloads each document's bytes from Supabase Storage and
+  // re-uploads to a per-case Drive folder. Skips documents with no file
+  // (requested-but-not-received placeholders) and continues past individual
+  // failures rather than aborting the whole batch.
+
+  Future<void> _bulkExportToDrive(BuildContext context, WidgetRef ref,
+      String caseId, List<DocumentModel> docs) async {
+    final toExport = docs.where((d) => d.hasFile).toList();
+    if (toExport.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No document files to export')),
+      );
+      return;
+    }
+
+    var done = 0;
+    var failed = 0;
+    final total = toExport.length;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (dCtx, setDialogState) {
+          Future<void> run() async {
+            try {
+              final caseModel = ref.read(caseProvider(caseId)).value;
+              final rootId = await GoogleDriveService.findOrCreateFolder(
+                  'Marine Survey Reports');
+              final caseFolderId = await GoogleDriveService.findOrCreateFolder(
+                caseModel?.title ?? caseId,
+                parentId: rootId,
+              );
+
+              for (final doc in toExport) {
+                try {
+                  final bytes = await SupabaseService.client.storage
+                      .from('documents')
+                      .download(doc.filePath!);
+                  final ext = doc.fileType?.toLowerCase() ?? 'pdf';
+                  final mime = switch (ext) {
+                    'pdf' => 'application/pdf',
+                    'jpg' || 'jpeg' => 'image/jpeg',
+                    'png' => 'image/png',
+                    'docx' =>
+                      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    _ => 'application/octet-stream',
+                  };
+                  await GoogleDriveService.uploadFile(
+                    bytes: bytes,
+                    filename: '${doc.title}.$ext',
+                    mimeType: mime,
+                    parentId: caseFolderId,
+                  );
+                  done++;
+                } catch (_) {
+                  failed++;
+                }
+                setDialogState(() {});
+              }
+            } on GoogleSignInCancelled {
+              // fall through — dialog closes below regardless
+            } catch (e) {
+              if (dCtx.mounted) {
+                ScaffoldMessenger.of(dCtx).showSnackBar(
+                  SnackBar(
+                      content: Text('Export failed: $e'),
+                      backgroundColor: Colors.red),
+                );
+              }
+            } finally {
+              if (dCtx.mounted) Navigator.pop(dCtx);
+            }
+          }
+
+          // Kick off the run exactly once per dialog instance.
+          if (done == 0 && failed == 0) run();
+
+          return AlertDialog(
+            title: const Text('Exporting to Google Drive'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(
+                    value: total > 0 ? (done + failed) / total : null),
+                const SizedBox(height: 12),
+                Text('$done / $total uploaded'
+                    '${failed > 0 ? ' ($failed failed)' : ''}'),
+              ],
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Exported $done / $total documents to Drive${failed > 0 ? ' ($failed failed)' : ''}')),
+        );
+      }
+    });
   }
 
   // ── Import ─────────────────────────────────────────────────────────────
@@ -127,9 +271,11 @@ class DocumentVaultScreen extends ConsumerWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const SizedBox(height: 8),
           Container(
-            width: 36, height: 4,
+            width: 36,
+            height: 4,
             decoration: BoxDecoration(
-              color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(height: 12),
           ListTile(
@@ -169,7 +315,8 @@ class DocumentVaultScreen extends ConsumerWidget {
   }
 
   Widget _srcIcon(IconData icon) => Container(
-        width: 40, height: 40,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
           color: _kColor.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(10),
@@ -193,8 +340,8 @@ class DocumentVaultScreen extends ConsumerWidget {
   }
 
   Future<void> _pickCamera(BuildContext context, WidgetRef ref) async {
-    final picked = await ImagePicker()
-        .pickImage(source: ImageSource.camera, imageQuality: 90, maxWidth: 2048);
+    final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera, imageQuality: 90, maxWidth: 2048);
     if (picked == null || !context.mounted) return;
     final bytes = await picked.readAsBytes();
     if (!context.mounted) return;
@@ -236,9 +383,8 @@ class DocumentVaultScreen extends ConsumerWidget {
 
   Future<void> _runExtraction(
       BuildContext context, WidgetRef ref, DocumentModel doc) async {
-    final result = await ref
-        .read(documentProvider(caseId).notifier)
-        .extract(doc.docId);
+    final result =
+        await ref.read(documentProvider(caseId).notifier).extract(doc.docId);
 
     if (result == null || !context.mounted) {
       if (context.mounted) {
@@ -257,7 +403,8 @@ class DocumentVaultScreen extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No data extracted from this document')),
         );
-        await ref.read(documentProvider(caseId).notifier)
+        await ref
+            .read(documentProvider(caseId).notifier)
             .saveExtracted(doc.docId, {});
       }
       return;
@@ -291,7 +438,23 @@ class DocumentVaultScreen extends ConsumerWidget {
     );
 
     try {
-      final bytes = await File(photo.localPath).readAsBytes();
+      var resolved = photo;
+      if (!resolved.hasLocalFile) {
+        resolved = await ref
+                .read(photosProvider(photo.caseId).notifier)
+                .ensureLocalFile(photo.id) ??
+            photo;
+      }
+      if (!resolved.hasLocalFile) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo file not available')),
+          );
+        }
+        return;
+      }
+      final bytes = await File(resolved.localPath!).readAsBytes();
       final raw = await ClaudeApi.extractDocument(
         base64Content: base64Encode(bytes),
         mediaType: 'image/jpeg',
@@ -331,8 +494,7 @@ class DocumentVaultScreen extends ConsumerWidget {
 
   // ── Preview ─────────────────────────────────────────────────────────────
 
-  Future<void> _previewDocument(
-      BuildContext context, DocumentModel doc) async {
+  Future<void> _previewDocument(BuildContext context, DocumentModel doc) async {
     if (!doc.hasFile || doc.filePath == null) return;
 
     String signedUrl;
@@ -355,8 +517,7 @@ class DocumentVaultScreen extends ConsumerWidget {
               _ImagePreviewScreen(title: doc.title, imageUrl: signedUrl)));
     } else if (doc.isPdf) {
       await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) =>
-              _PdfViewerScreen(title: doc.title, url: signedUrl)));
+          builder: (_) => _PdfViewerScreen(title: doc.title, url: signedUrl)));
     } else {
       final uri = Uri.parse(signedUrl);
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
@@ -378,47 +539,50 @@ class DocumentVaultScreen extends ConsumerWidget {
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('Log requested document',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          content: Column(mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text(
-              'Record a document you have requested but not yet received.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                  hintText: 'e.g. Bridge logbook extract — 17/08/2025'),
-            ),
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: ctx,
-                  initialDate: requestedDate,
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                );
-                if (picked != null) {
-                  setDialogState(() => requestedDate = picked);
-                }
-              },
-              child: Row(children: [
-                const Icon(Icons.calendar_today_outlined,
-                    size: 14, color: AppColors.textSecondary),
-                const SizedBox(width: 6),
-                Text(
-                  'Requested: '
-                  '${requestedDate.day.toString().padLeft(2, '0')}/'
-                  '${requestedDate.month.toString().padLeft(2, '0')}/'
-                  '${requestedDate.year}',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary),
+          content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Record a document you have requested but not yet received.',
+                  style:
+                      TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                      hintText: 'e.g. Bridge logbook extract — 17/08/2025'),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: requestedDate,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) {
+                      setDialogState(() => requestedDate = picked);
+                    }
+                  },
+                  child: Row(children: [
+                    const Icon(Icons.calendar_today_outlined,
+                        size: 14, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Requested: '
+                      '${requestedDate.day.toString().padLeft(2, '0')}/'
+                      '${requestedDate.month.toString().padLeft(2, '0')}/'
+                      '${requestedDate.year}',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ]),
                 ),
               ]),
-            ),
-          ]),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx),
@@ -488,7 +652,8 @@ class _DocImportSheetState extends ConsumerState<_DocImportSheet> {
   void initState() {
     super.initState();
     final name = widget.filename
-        .replaceAll(RegExp(r'\.(pdf|docx|jpg|jpeg|png)$', caseSensitive: false), '')
+        .replaceAll(
+            RegExp(r'\.(pdf|docx|jpg|jpeg|png)$', caseSensitive: false), '')
         .replaceAll(RegExp(r'[_\-]'), ' ')
         .trim();
     _titleCtrl = TextEditingController(text: name);
@@ -539,119 +704,115 @@ class _DocImportSheetState extends ConsumerState<_DocImportSheet> {
           padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Handle
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
 
-            // File preview
-            _FilePreview(bytes: widget.bytes, mimeType: widget.mimeType),
-            const SizedBox(height: 14),
+              // File preview
+              _FilePreview(bytes: widget.bytes, mimeType: widget.mimeType),
+              const SizedBox(height: 14),
 
-            // Category
-            const Text('Document type',
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textTertiary,
-                    letterSpacing: 0.5)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _importable.map((c) {
-                final selected = _category == c;
-                return GestureDetector(
-                  onTap: () => setState(() => _category = c),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? _kColor.withValues(alpha: 0.15)
-                          : AppColors.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: selected ? _kColor : AppColors.border,
-                        width: selected ? 1.5 : 1,
-                      ),
-                    ),
-                    child: Text(
-                      c.label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: selected
-                            ? FontWeight.w600
-                            : FontWeight.w400,
+              // Category
+              const Text('Document type',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textTertiary,
+                      letterSpacing: 0.5)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _importable.map((c) {
+                  final selected = _category == c;
+                  return GestureDetector(
+                    onTap: () => setState(() => _category = c),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
                         color: selected
-                            ? _kColor
-                            : AppColors.textSecondary,
+                            ? _kColor.withValues(alpha: 0.15)
+                            : AppColors.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: selected ? _kColor : AppColors.border,
+                          width: selected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Text(
+                        c.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w400,
+                          color: selected ? _kColor : AppColors.textSecondary,
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 14),
-
-            // Title
-            TextField(
-              controller: _titleCtrl,
-              style: const TextStyle(
-                  fontSize: 14, color: AppColors.textPrimary),
-              decoration: InputDecoration(
-                labelText: 'Title',
-                labelStyle: const TextStyle(
-                    fontSize: 13, color: AppColors.textSecondary),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide:
-                        const BorderSide(color: _kColor, width: 1.5)),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
-                isDense: true,
+                  );
+                }).toList(),
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-            ElevatedButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 14, height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('Save to Vault',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _kColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+              // Title
+              TextField(
+                controller: _titleCtrl,
+                style:
+                    const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'Title',
+                  labelStyle: const TextStyle(
+                      fontSize: 13, color: AppColors.textSecondary),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: AppColors.border)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: AppColors.border)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _kColor, width: 1.5)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  isDense: true,
+                ),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(height: 16),
+
+              ElevatedButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: const Text('Save to Vault',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _kColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -679,8 +840,7 @@ class _FilePreview extends StatelessWidget {
 
   Widget _buildInner() {
     if (mimeType.startsWith('image/')) {
-      return Image.memory(bytes,
-          fit: BoxFit.contain, width: double.infinity);
+      return Image.memory(bytes, fit: BoxFit.contain, width: double.infinity);
     }
     if (mimeType == 'application/pdf') {
       return AbsorbPointer(
@@ -694,12 +854,10 @@ class _FilePreview extends StatelessWidget {
     // DOCX / other
     return const Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.description_outlined,
-            size: 56, color: AppColors.midBlue),
+        Icon(Icons.description_outlined, size: 56, color: AppColors.midBlue),
         SizedBox(height: 10),
         Text('Preview not available',
-            style: TextStyle(
-                fontSize: 12, color: AppColors.textSecondary)),
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
       ]),
     );
   }
@@ -747,9 +905,7 @@ class _ExtractionResultSheetState
   @override
   void initState() {
     super.initState();
-    _hardSelected = {
-      for (final k in widget.result.hardFields.keys) k: true
-    };
+    _hardSelected = {for (final k in widget.result.hardFields.keys) k: true};
     _findingSelected = widget.initialFindingSelected ??
         List.filled(widget.result.contextFindings.length, true);
     _incidentSelected = widget.initialIncidentSelected ??
@@ -773,12 +929,15 @@ class _ExtractionResultSheetState
 
       // Compute vessel fields: selected (will be applied) and unmapped (unknown to applyExtraction).
       final selectedVesselForSave = Map<String, dynamic>.fromEntries(
-        widget.result.vesselFields.entries
-            .where((e) => _vesselSelected[e.key] == true && _kKnownVesselKeys.contains(e.key)),
+        widget.result.vesselFields.entries.where((e) =>
+            _vesselSelected[e.key] == true &&
+            _kKnownVesselKeys.contains(e.key)),
       );
       final unmappedVesselFields = Map<String, dynamic>.fromEntries(
-        widget.result.vesselFields.entries
-            .where((e) => !_kKnownVesselKeys.contains(e.key) && e.value != null && e.value != ''),
+        widget.result.vesselFields.entries.where((e) =>
+            !_kKnownVesselKeys.contains(e.key) &&
+            e.value != null &&
+            e.value != ''),
       );
 
       // 1. Save selected hard fields + full extraction data for review.
@@ -791,15 +950,22 @@ class _ExtractionResultSheetState
       // Preserve cumulative applied state: an item stays 'applied: true' if it
       // was applied in a previous round even if unchecked this time.
       final allFindings = <Map<String, dynamic>>[
-        for (var i = 0; i < widget.result.contextFindings.length; i++) {
-          'text': widget.result.contextFindings[i],
-          'category': i < widget.result.findingCategories.length
-              ? widget.result.findingCategories[i]
-              : 'observation',
-          'applied': _findingSelected[i] ||
-              (widget.initialFindingSelected != null &&
-                  !widget.initialFindingSelected![i]),
-        },
+        for (var i = 0; i < widget.result.contextFindings.length; i++)
+          {
+            'text': widget.result.contextFindings[i],
+            'category': i < widget.result.findingCategories.length
+                ? widget.result.findingCategories[i]
+                : 'observation',
+            if (i < widget.result.findingCaseSections.length &&
+                widget.result.findingCaseSections[i] != null)
+              'case_section': widget.result.findingCaseSections[i],
+            if (i < widget.result.findingOrigins.length &&
+                widget.result.findingOrigins[i] != null)
+              'origin': widget.result.findingOrigins[i],
+            'applied': _findingSelected[i] ||
+                (widget.initialFindingSelected != null &&
+                    !widget.initialFindingSelected![i]),
+          },
       ];
 
       // Include all incidents and machinery with applied flag.
@@ -832,9 +998,7 @@ class _ExtractionResultSheetState
           },
       ];
 
-      await ref
-          .read(documentProvider(widget.caseId).notifier)
-          .saveExtracted(
+      await ref.read(documentProvider(widget.caseId).notifier).saveExtracted(
             widget.result.docId,
             selectedFields,
             vesselData: selectedVesselForSave,
@@ -861,38 +1025,47 @@ class _ExtractionResultSheetState
       for (var j = total - 1; j >= 0; j--) {
         final origIdx = selectedIndices[j];
         final cats = widget.result.findingCategories;
-        final catStr =
-            cats.length > origIdx ? cats[origIdx] : 'observation';
+        final catStr = cats.length > origIdx ? cats[origIdx] : 'observation';
+        final sections = widget.result.findingCaseSections;
+        final origins = widget.result.findingOrigins;
+        final caseSection = sections.length > origIdx
+            ? CaseSection.fromValue(sections[origIdx])
+            : null;
+        final origin = origins.length > origIdx
+            ? CueOrigin.fromValue(origins[origIdx])
+            : null;
         await notesNotifier.add(
-          caseId:          widget.caseId,
-          content:         widget.result.contextFindings[origIdx],
+          caseId: widget.caseId,
+          content: widget.result.contextFindings[origIdx],
           natureOfContent: _mapExtractedNature(catStr),
-          priority:        CuePriority.normal,
-          source:          '${widget.docTitle} (${j + 1}/$total)',
+          priority: CuePriority.normal,
+          source: '${widget.docTitle} (${j + 1}/$total)',
+          caseSection: caseSection,
+          origin: origin,
+          pendingReview: true,
         );
       }
 
       // 3. Create occurrences for checked incidents (skip duplicates by title)
-      final damageNotifier =
-          ref.read(damageProvider(widget.caseId).notifier);
+      final damageNotifier = ref.read(damageProvider(widget.caseId).notifier);
       final existingOccs =
           ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
       for (var i = 0; i < widget.result.detectedIncidents.length; i++) {
         if (!_incidentSelected[i]) continue;
         final inc = widget.result.detectedIncidents[i];
-        final incTitle = (inc['title']?.toString() ??
-            'Occurrence from ${widget.docTitle}').trim();
+        final incTitle =
+            (inc['title']?.toString() ?? 'Occurrence from ${widget.docTitle}')
+                .trim();
         final isDuplicate = existingOccs.any((o) =>
-            (o.title ?? '').trim().toLowerCase() ==
-            incTitle.toLowerCase());
+            (o.title ?? '').trim().toLowerCase() == incTitle.toLowerCase());
         if (isDuplicate) continue;
         await damageNotifier.createOccurrence(
-          caseId:           widget.caseId,
-          title:            incTitle,
-          dateTime:         inc['date'] != null
+          caseId: widget.caseId,
+          title: incTitle,
+          dateTime: inc['date'] != null
               ? DateTime.tryParse(inc['date'].toString())
               : null,
-          location:         inc['location']?.toString(),
+          location: inc['location']?.toString(),
           briefDescription: inc['description']?.toString(),
         );
       }
@@ -900,21 +1073,18 @@ class _ExtractionResultSheetState
       // 4. Apply vessel data + add machinery.
       // If the case has no vessel yet but extraction found vessel data,
       // create a vessel record now and link it to the case automatically.
-      String? vesselId = ref
-          .read(caseProvider(widget.caseId))
-          .value
-          ?.vesselId;
+      String? vesselId = ref.read(caseProvider(widget.caseId)).value?.vesselId;
 
-      final hasVesselToApply = selectedVesselForSave.isNotEmpty
-          || widget.result.detectedMachinery.isNotEmpty
-          || widget.result.hasClassConditions;
+      final hasVesselToApply = selectedVesselForSave.isNotEmpty ||
+          widget.result.detectedMachinery.isNotEmpty ||
+          widget.result.hasClassConditions;
 
       if (vesselId == null && hasVesselToApply) {
-        debugPrint('[APPLY] No vessel linked — creating one from extracted data');
-        final vesselName =
-            selectedVesselForSave['vessel_name'] as String?
-            ?? widget.result.vesselFields['vessel_name'] as String?
-            ?? 'TBC';
+        debugPrint(
+            '[APPLY] No vessel linked — creating one from extracted data');
+        final vesselName = selectedVesselForSave['vessel_name'] as String? ??
+            widget.result.vesselFields['vessel_name'] as String? ??
+            'TBC';
         final newVessel = await ref
             .read(vesselForCaseProvider(widget.caseId).notifier)
             .createVessel(caseId: widget.caseId, name: vesselName);
@@ -925,7 +1095,8 @@ class _ExtractionResultSheetState
       if (vesselId != null && vesselId.isNotEmpty) {
         // 4a. Apply selected vessel particulars.
         if (selectedVesselForSave.isNotEmpty) {
-          debugPrint('[APPLY] Applying ${selectedVesselForSave.length} vessel fields');
+          debugPrint(
+              '[APPLY] Applying ${selectedVesselForSave.length} vessel fields');
           await ref
               .read(vesselForCaseProvider(widget.caseId).notifier)
               .applyExtraction(
@@ -943,15 +1114,15 @@ class _ExtractionResultSheetState
             if (!_machinerySelected[i]) continue;
             final m = widget.result.detectedMachinery[i];
             await machineryNotifier.addMachinery(MachineryModel(
-              machineryId:  '',
-              vesselId:     vesselId,
+              machineryId: '',
+              vesselId: vesselId,
               machineryType: m['machinery_type']?.toString() ?? 'Unknown',
-              role:          m['role']?.toString(),
-              make:          m['make']?.toString(),
-              model:         m['model']?.toString(),
-              serialNumber:  m['serial_number']?.toString(),
-              mcrKw:   (m['mcr_kw'] as num?)?.toDouble(),
-              mcrRpm:  (m['mcr_rpm'] as num?)?.toDouble(),
+              role: m['role']?.toString(),
+              make: m['make']?.toString(),
+              model: m['model']?.toString(),
+              serialNumber: m['serial_number']?.toString(),
+              mcrKw: (m['mcr_kw'] as num?)?.toDouble(),
+              mcrRpm: (m['mcr_rpm'] as num?)?.toDouble(),
               fuelType: m['fuel_type']?.toString(),
             ));
           }
@@ -967,10 +1138,10 @@ class _ExtractionResultSheetState
             if (!_conditionSelected[i]) continue;
             final c = widget.result.detectedClassConditions[i];
             await condNotifier.add(
-              vesselId:    vesselId,
-              reference:   c['reference']?.toString(),
+              vesselId: vesselId,
+              reference: c['reference']?.toString(),
               description: c['description']?.toString(),
-              expiryDate:  c['expiry_date'] != null
+              expiryDate: c['expiry_date'] != null
                   ? DateTime.tryParse(c['expiry_date'].toString())
                   : null,
             );
@@ -979,21 +1150,22 @@ class _ExtractionResultSheetState
       }
 
       // 5. Create certificate if the document is a certificate type.
-      final docType  = widget.result.documentType ?? '';
-      final docCat   = widget.result.suggestedCategory ?? '';
+      final docType = widget.result.documentType ?? '';
+      final docCat = widget.result.suggestedCategory ?? '';
       final isCertDoc = docCat == 'certificate' ||
           docType.toLowerCase().contains('certificate');
       if (isCertDoc) {
         final certType = _inferCertType(docType);
-        final certNum  = widget.result.hardFields['document_number']?.toString();
-        final existing = ref.read(certificatesProvider(widget.caseId)).value ?? [];
+        final certNum = widget.result.hardFields['document_number']?.toString();
+        final existing =
+            ref.read(certificatesProvider(widget.caseId)).value ?? [];
         final isDup = existing.any((c) =>
             c.certType == certType &&
             certNum != null &&
             certNum.isNotEmpty &&
             c.certNumber == certNum);
         if (!isDup) {
-          final issueDate  = widget.result.hardFields['document_date'] != null
+          final issueDate = widget.result.hardFields['document_date'] != null
               ? DateTime.tryParse(
                   widget.result.hardFields['document_date'].toString())
               : null;
@@ -1002,22 +1174,21 @@ class _ExtractionResultSheetState
                   widget.result.hardFields['expiry_date'].toString())
               : null;
           final cert = CertificateModel(
-            certId:           '',
-            caseId:           widget.caseId,
-            vesselId:         vesselId,
-            certType:         certType,
-            certName:         docType.isNotEmpty ? docType : null,
-            issuingAuthority: widget.result.hardFields['issuing_authority']
-                ?.toString(),
-            issueDate:        issueDate,
-            expiryDate:       expiryDate,
-            certNumber:       certNum,
-            status:           expiryDate != null &&
-                    expiryDate.isBefore(DateTime.now())
+            certId: '',
+            caseId: widget.caseId,
+            vesselId: vesselId,
+            certType: certType,
+            certName: docType.isNotEmpty ? docType : null,
+            issuingAuthority:
+                widget.result.hardFields['issuing_authority']?.toString(),
+            issueDate: issueDate,
+            expiryDate: expiryDate,
+            certNumber: certNum,
+            status: expiryDate != null && expiryDate.isBefore(DateTime.now())
                 ? CertStatus.expired
                 : CertStatus.tbc,
-            sourceDocId:      widget.result.docId,
-            extractedAuto:    true,
+            sourceDocId: widget.result.docId,
+            extractedAuto: true,
           );
           await ref
               .read(certificatesProvider(widget.caseId).notifier)
@@ -1033,21 +1204,42 @@ class _ExtractionResultSheetState
 
   static CertType _inferCertType(String documentType) {
     final dt = documentType.toLowerCase();
-    if (dt.contains('class')) { return CertType.classCertificate; }
+    if (dt.contains('class')) {
+      return CertType.classCertificate;
+    }
     if (dt.contains('document of compliance') ||
-        dt.contains(' doc ') || dt == 'doc') { return CertType.doc; }
+        dt.contains(' doc ') ||
+        dt == 'doc') {
+      return CertType.doc;
+    }
     if (dt.contains('safety management') ||
-        dt.contains(' smc ') || dt == 'smc') { return CertType.smc; }
-    if (dt.contains('load line')) { return CertType.loadLine; }
-    if (dt.contains('marpol') || dt.contains('iopp') ||
-        dt.contains('oil pollution')) { return CertType.marpol; }
-    if (dt.contains('safety equipment')) { return CertType.safetyEquipment; }
-    if (dt.contains('safety radio')) { return CertType.safetyRadio; }
-    if (dt.contains('safety construction')) { return CertType.safetyConstruction; }
-    if (dt.contains('issc') ||
-        dt.contains('ship security')) { return CertType.issc; }
-    if (dt.contains('dp certificate') ||
-        dt.contains('dynamic positioning')) { return CertType.dpCertificate; }
+        dt.contains(' smc ') ||
+        dt == 'smc') {
+      return CertType.smc;
+    }
+    if (dt.contains('load line')) {
+      return CertType.loadLine;
+    }
+    if (dt.contains('marpol') ||
+        dt.contains('iopp') ||
+        dt.contains('oil pollution')) {
+      return CertType.marpol;
+    }
+    if (dt.contains('safety equipment')) {
+      return CertType.safetyEquipment;
+    }
+    if (dt.contains('safety radio')) {
+      return CertType.safetyRadio;
+    }
+    if (dt.contains('safety construction')) {
+      return CertType.safetyConstruction;
+    }
+    if (dt.contains('issc') || dt.contains('ship security')) {
+      return CertType.issc;
+    }
+    if (dt.contains('dp certificate') || dt.contains('dynamic positioning')) {
+      return CertType.dpCertificate;
+    }
     return CertType.other;
   }
 
@@ -1065,345 +1257,343 @@ class _ExtractionResultSheetState
         type: MaterialType.transparency,
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Handle
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
 
-            // Header
-            Row(children: [
-              Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(
-                  color: _kColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+              // Header
+              Row(children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: _kColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.auto_awesome_outlined,
+                      color: _kColor, size: 17),
                 ),
-                child: const Icon(Icons.auto_awesome_outlined,
-                    color: _kColor, size: 17),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  const Text('Extraction Results',
-                      style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w600)),
-                  if (result.documentType != null)
-                    Text(result.documentType!,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary)),
-                ]),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close,
-                    size: 20, color: AppColors.textSecondary),
-                onPressed: () => Navigator.pop(context),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ]),
-            const SizedBox(height: 14),
-
-            // Hard fields
-            if (result.hasHardData) ...[
-              const _SectionHeader(
-                  'STRUCTURED DATA', Icons.table_rows_outlined,
-                  subtitle: 'saved to document record'),
-              const SizedBox(height: 6),
-              ...result.hardFields.entries.map((e) => CheckboxListTile(
-                    value: _hardSelected[e.key] ?? true,
-                    onChanged: (v) =>
-                        setState(() => _hardSelected[e.key] = v ?? false),
-                    activeColor: _kColor,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                    tileColor: Colors.transparent,
-                    dense: true,
-                    title: Text(
-                      _labelFor(e.key),
-                      style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary),
-                    ),
-                    subtitle: Text(
-                      e.value.toString(),
-                      style: const TextStyle(
-                          fontSize: 13, color: AppColors.textPrimary),
-                    ),
-                  )),
-            ],
-
-            // Context findings
-            if (result.hasFindings) ...[
-              if (result.hasHardData) ...[
-                const Divider(height: 20, color: AppColors.border),
-              ],
-              const _SectionHeader(
-                  'CONTEXT FINDINGS', Icons.label_outline,
-                  subtitle: 'added as context cues'),
-              const SizedBox(height: 6),
-              ...List.generate(
-                result.contextFindings.length,
-                (i) {
-                  final catStr = result.findingCategories.length > i
-                      ? result.findingCategories[i]
-                      : 'observation';
-                  final cat = _mapExtractedNature(catStr);
-                  return CheckboxListTile(
-                    value: _findingSelected[i],
-                    onChanged: (v) =>
-                        setState(() => _findingSelected[i] = v ?? false),
-                    activeColor: AppColors.teal,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                    tileColor: Colors.transparent,
-                    dense: true,
-                    title: Column(
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _CatChip(cat),
-                        const SizedBox(height: 3),
-                        Text(
-                          result.contextFindings[i],
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: _findingSelected[i]
-                                  ? AppColors.textPrimary
-                                  : AppColors.textTertiary,
-                              decoration: _findingSelected[i]
-                                  ? null
-                                  : TextDecoration.lineThrough),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
+                        const Text('Extraction Results',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.w600)),
+                        if (result.documentType != null)
+                          Text(result.documentType!,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary)),
+                      ]),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close,
+                      size: 20, color: AppColors.textSecondary),
+                  onPressed: () => Navigator.pop(context),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ]),
+              const SizedBox(height: 14),
 
-            // Vessel particulars (intelligence documents)
-            if (result.hasVesselData) ...[
-              if (result.hasHardData || result.hasFindings)
+              // Hard fields
+              if (result.hasHardData) ...[
+                const _SectionHeader(
+                    'STRUCTURED DATA', Icons.table_rows_outlined,
+                    subtitle: 'saved to document record'),
+                const SizedBox(height: 6),
+                ...result.hardFields.entries.map((e) => CheckboxListTile(
+                      value: _hardSelected[e.key] ?? true,
+                      onChanged: (v) =>
+                          setState(() => _hardSelected[e.key] = v ?? false),
+                      activeColor: _kColor,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      tileColor: Colors.transparent,
+                      dense: true,
+                      title: Text(
+                        _labelFor(e.key),
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary),
+                      ),
+                      subtitle: Text(
+                        e.value.toString(),
+                        style: const TextStyle(
+                            fontSize: 13, color: AppColors.textPrimary),
+                      ),
+                    )),
+              ],
+
+              // Context findings
+              if (result.hasFindings) ...[
+                if (result.hasHardData) ...[
+                  const Divider(height: 20, color: AppColors.border),
+                ],
+                const _SectionHeader('CONTEXT FINDINGS', Icons.label_outline,
+                    subtitle: 'added as context cues'),
+                const SizedBox(height: 6),
+                ...List.generate(
+                  result.contextFindings.length,
+                  (i) {
+                    final catStr = result.findingCategories.length > i
+                        ? result.findingCategories[i]
+                        : 'observation';
+                    final cat = _mapExtractedNature(catStr);
+                    return CheckboxListTile(
+                      value: _findingSelected[i],
+                      onChanged: (v) =>
+                          setState(() => _findingSelected[i] = v ?? false),
+                      activeColor: AppColors.teal,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      tileColor: Colors.transparent,
+                      dense: true,
+                      title: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _CatChip(cat),
+                          const SizedBox(height: 3),
+                          Text(
+                            result.contextFindings[i],
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: _findingSelected[i]
+                                    ? AppColors.textPrimary
+                                    : AppColors.textTertiary,
+                                decoration: _findingSelected[i]
+                                    ? null
+                                    : TextDecoration.lineThrough),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+
+              // Vessel particulars (intelligence documents)
+              if (result.hasVesselData) ...[
+                if (result.hasHardData || result.hasFindings)
+                  const Divider(height: 20, color: AppColors.border),
+                const _SectionHeader(
+                    'VESSEL PARTICULARS', Icons.directions_boat_outlined,
+                    subtitle: 'apply to vessel record'),
+                const SizedBox(height: 6),
+                ...result.vesselFields.entries.map((e) => CheckboxListTile(
+                      value: _vesselSelected[e.key] ?? true,
+                      onChanged: (v) =>
+                          setState(() => _vesselSelected[e.key] = v ?? false),
+                      activeColor: AppColors.teal,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      tileColor: Colors.transparent,
+                      dense: true,
+                      title: Text(
+                        _vesselFieldLabel(e.key),
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary),
+                      ),
+                      subtitle: Text(
+                        e.value.toString(),
+                        style: const TextStyle(
+                            fontSize: 13, color: AppColors.textPrimary),
+                      ),
+                    )),
+              ],
+
+              // Detected incidents
+              if (result.hasIncidents) ...[
                 const Divider(height: 20, color: AppColors.border),
-              const _SectionHeader(
-                  'VESSEL PARTICULARS', Icons.directions_boat_outlined,
-                  subtitle: 'apply to vessel record'),
-              const SizedBox(height: 6),
-              ...result.vesselFields.entries.map((e) => CheckboxListTile(
-                    value: _vesselSelected[e.key] ?? true,
+                const _SectionHeader(
+                    'DETECTED EVENTS', Icons.warning_amber_outlined,
+                    subtitle: 'create as case occurrences'),
+                const SizedBox(height: 6),
+                ...List.generate(result.detectedIncidents.length, (i) {
+                  final inc = result.detectedIncidents[i];
+                  final date = inc['date']?.toString();
+                  final loc = inc['location']?.toString();
+                  final meta = [if (date != null) date, if (loc != null) loc]
+                      .join(' · ');
+                  return CheckboxListTile(
+                    value: _incidentSelected[i],
                     onChanged: (v) =>
-                        setState(() => _vesselSelected[e.key] = v ?? false),
-                    activeColor: AppColors.teal,
+                        setState(() => _incidentSelected[i] = v ?? false),
+                    activeColor: AppColors.coral,
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                     tileColor: Colors.transparent,
                     dense: true,
                     title: Text(
-                      _vesselFieldLabel(e.key),
-                      style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary),
+                      inc['title']?.toString() ?? 'Unnamed event',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _incidentSelected[i]
+                              ? AppColors.textPrimary
+                              : AppColors.textTertiary,
+                          decoration: _incidentSelected[i]
+                              ? null
+                              : TextDecoration.lineThrough),
                     ),
-                    subtitle: Text(
-                      e.value.toString(),
-                      style: const TextStyle(
-                          fontSize: 13, color: AppColors.textPrimary),
+                    subtitle: meta.isNotEmpty
+                        ? Text(meta,
+                            style: const TextStyle(
+                                fontSize: 10, color: AppColors.textTertiary))
+                        : null,
+                  );
+                }),
+              ],
+
+              // Detected machinery
+              if (result.hasMachinery) ...[
+                const Divider(height: 20, color: AppColors.border),
+                const _SectionHeader(
+                    'DETECTED MACHINERY', Icons.settings_outlined,
+                    subtitle: 'add to vessel machinery list'),
+                const SizedBox(height: 6),
+                ...List.generate(result.detectedMachinery.length, (i) {
+                  final m = result.detectedMachinery[i];
+                  final make = m['make']?.toString();
+                  final model = m['model']?.toString();
+                  final sub = [if (make != null) make, if (model != null) model]
+                      .join(' ');
+                  return CheckboxListTile(
+                    value: _machinerySelected[i],
+                    onChanged: (v) =>
+                        setState(() => _machinerySelected[i] = v ?? false),
+                    activeColor: AppColors.midBlue,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    tileColor: Colors.transparent,
+                    dense: true,
+                    title: Text(
+                      m['machinery_type']?.toString() ?? 'Unknown machinery',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _machinerySelected[i]
+                              ? AppColors.textPrimary
+                              : AppColors.textTertiary,
+                          decoration: _machinerySelected[i]
+                              ? null
+                              : TextDecoration.lineThrough),
                     ),
-                  )),
-            ],
+                    subtitle: sub.isNotEmpty
+                        ? Text(sub,
+                            style: const TextStyle(
+                                fontSize: 10, color: AppColors.textTertiary))
+                        : null,
+                  );
+                }),
+              ],
 
-            // Detected incidents
-            if (result.hasIncidents) ...[
-              const Divider(height: 20, color: AppColors.border),
-              const _SectionHeader(
-                  'DETECTED EVENTS', Icons.warning_amber_outlined,
-                  subtitle: 'create as case occurrences'),
-              const SizedBox(height: 6),
-              ...List.generate(result.detectedIncidents.length, (i) {
-                final inc = result.detectedIncidents[i];
-                final date = inc['date']?.toString();
-                final loc  = inc['location']?.toString();
-                final meta = [if (date != null) date, if (loc != null) loc]
-                    .join(' · ');
-                return CheckboxListTile(
-                  value: _incidentSelected[i],
-                  onChanged: (v) =>
-                      setState(() => _incidentSelected[i] = v ?? false),
-                  activeColor: AppColors.coral,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  tileColor: Colors.transparent,
-                  dense: true,
-                  title: Text(
-                    inc['title']?.toString() ?? 'Unnamed event',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: _incidentSelected[i]
-                            ? AppColors.textPrimary
-                            : AppColors.textTertiary,
-                        decoration: _incidentSelected[i]
-                            ? null
-                            : TextDecoration.lineThrough),
+              // Detected class conditions
+              if (result.hasClassConditions) ...[
+                const Divider(height: 20, color: AppColors.border),
+                const _SectionHeader('CLASS CONDITIONS', Icons.shield_outlined,
+                    subtitle: 'add to vessel class conditions'),
+                const SizedBox(height: 6),
+                ...List.generate(result.detectedClassConditions.length, (i) {
+                  final c = result.detectedClassConditions[i];
+                  final ref_ = c['reference']?.toString();
+                  final expiry = c['expiry_date']?.toString();
+                  String? sub;
+                  if (ref_ != null && expiry != null) {
+                    sub = '$ref_  ·  Expires $expiry';
+                  } else if (ref_ != null) {
+                    sub = ref_;
+                  } else if (expiry != null) {
+                    sub = 'Expires $expiry';
+                  }
+                  return CheckboxListTile(
+                    value: _conditionSelected[i],
+                    onChanged: (v) =>
+                        setState(() => _conditionSelected[i] = v ?? false),
+                    activeColor: const Color(0xFF4A7FA5),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    tileColor: Colors.transparent,
+                    dense: true,
+                    title: Text(
+                      c['description']?.toString() ?? 'Condition',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _conditionSelected[i]
+                              ? AppColors.textPrimary
+                              : AppColors.textTertiary,
+                          decoration: _conditionSelected[i]
+                              ? null
+                              : TextDecoration.lineThrough),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: sub != null
+                        ? Text(sub,
+                            style: const TextStyle(
+                                fontSize: 10, color: AppColors.textTertiary))
+                        : null,
+                  );
+                }),
+              ],
+
+              const SizedBox(height: 16),
+
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(color: AppColors.border),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Discard'),
                   ),
-                  subtitle: meta.isNotEmpty
-                      ? Text(meta,
-                          style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.textTertiary))
-                      : null,
-                );
-              }),
-            ],
-
-            // Detected machinery
-            if (result.hasMachinery) ...[
-              const Divider(height: 20, color: AppColors.border),
-              const _SectionHeader(
-                  'DETECTED MACHINERY', Icons.settings_outlined,
-                  subtitle: 'add to vessel machinery list'),
-              const SizedBox(height: 6),
-              ...List.generate(result.detectedMachinery.length, (i) {
-                final m = result.detectedMachinery[i];
-                final make  = m['make']?.toString();
-                final model = m['model']?.toString();
-                final sub   = [if (make != null) make, if (model != null) model]
-                    .join(' ');
-                return CheckboxListTile(
-                  value: _machinerySelected[i],
-                  onChanged: (v) =>
-                      setState(() => _machinerySelected[i] = v ?? false),
-                  activeColor: AppColors.midBlue,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  tileColor: Colors.transparent,
-                  dense: true,
-                  title: Text(
-                    m['machinery_type']?.toString() ?? 'Unknown machinery',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: _machinerySelected[i]
-                            ? AppColors.textPrimary
-                            : AppColors.textTertiary,
-                        decoration: _machinerySelected[i]
-                            ? null
-                            : TextDecoration.lineThrough),
-                  ),
-                  subtitle: sub.isNotEmpty
-                      ? Text(sub,
-                          style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.textTertiary))
-                      : null,
-                );
-              }),
-            ],
-
-            // Detected class conditions
-            if (result.hasClassConditions) ...[
-              const Divider(height: 20, color: AppColors.border),
-              const _SectionHeader(
-                  'CLASS CONDITIONS', Icons.shield_outlined,
-                  subtitle: 'add to vessel class conditions'),
-              const SizedBox(height: 6),
-              ...List.generate(result.detectedClassConditions.length, (i) {
-                final c = result.detectedClassConditions[i];
-                final ref_ = c['reference']?.toString();
-                final expiry = c['expiry_date']?.toString();
-                String? sub;
-                if (ref_ != null && expiry != null) {
-                  sub = '$ref_  ·  Expires $expiry';
-                } else if (ref_ != null) {
-                  sub = ref_;
-                } else if (expiry != null) {
-                  sub = 'Expires $expiry';
-                }
-                return CheckboxListTile(
-                  value: _conditionSelected[i],
-                  onChanged: (v) =>
-                      setState(() => _conditionSelected[i] = v ?? false),
-                  activeColor: const Color(0xFF4A7FA5),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  tileColor: Colors.transparent,
-                  dense: true,
-                  title: Text(
-                    c['description']?.toString() ?? 'Condition',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: _conditionSelected[i]
-                            ? AppColors.textPrimary
-                            : AppColors.textTertiary,
-                        decoration: _conditionSelected[i]
-                            ? null
-                            : TextDecoration.lineThrough),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: sub != null
-                      ? Text(sub,
-                          style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.textTertiary))
-                      : null,
-                );
-              }),
-            ],
-
-            const SizedBox(height: 16),
-
-            Row(children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    side: const BorderSide(color: AppColors.border),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text('Discard'),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _apply,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _kColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: _saving ? null : _apply,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _kColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Text('Apply',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
-                  child: _saving
-                      ? const SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Text('Apply',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
                 ),
-              ),
-            ]),
-          ],
-        ),
+              ]),
+            ],
+          ),
         ),
       ),
     );
@@ -1416,26 +1606,26 @@ class _ExtractionResultSheetState
       .join(' ');
 
   String _vesselFieldLabel(String key) => switch (key) {
-        'vessel_name'     => 'Vessel Name',
-        'previous_name'   => 'Previous Name',
-        'imo_number'      => 'IMO Number',
-        'call_sign'       => 'Call Sign',
-        'mmsi'            => 'MMSI',
-        'vessel_type'     => 'Vessel Type',
-        'flag'            => 'Flag',
-        'port_of_registry'=> 'Port of Registry',
-        'gross_tonnage'   => 'Gross Tonnage',
-        'net_tonnage'     => 'Net Tonnage',
-        'deadweight'      => 'Deadweight (DWT)',
-        'year_built'      => 'Year Built',
-        'build_yard'      => 'Build Yard',
-        'build_country'   => 'Build Country',
-        'owners'          => 'Registered Owners',
-        'operators'       => 'Technical Managers',
-        'class_society'   => 'Classification Society',
-        'class_notation'  => 'Class Notation',
-        'service_speed'   => 'Service Speed (kts)',
-        _                 => _labelFor(key),
+        'vessel_name' => 'Vessel Name',
+        'previous_name' => 'Previous Name',
+        'imo_number' => 'IMO Number',
+        'call_sign' => 'Call Sign',
+        'mmsi' => 'MMSI',
+        'vessel_type' => 'Vessel Type',
+        'flag' => 'Flag',
+        'port_of_registry' => 'Port of Registry',
+        'gross_tonnage' => 'Gross Tonnage',
+        'net_tonnage' => 'Net Tonnage',
+        'deadweight' => 'Deadweight (DWT)',
+        'year_built' => 'Year Built',
+        'build_yard' => 'Build Yard',
+        'build_country' => 'Build Country',
+        'owners' => 'Registered Owners',
+        'operators' => 'Technical Managers',
+        'class_society' => 'Classification Society',
+        'class_notation' => 'Class Notation',
+        'service_speed' => 'Service Speed (kts)',
+        _ => _labelFor(key),
       };
 }
 
@@ -1446,15 +1636,15 @@ class _ExtractionResultSheetState
 // lossy compatibility mapping onto the new taxonomy so the review UI still
 // shows a meaningful chip and the imported cue isn't left unclassified.
 NatureOfContent _mapExtractedNature(String raw) => switch (raw) {
-      'observation'     => NatureOfContent.observationFinding,
-      'measurement'      => NatureOfContent.observationFinding,
-      'technical'        => NatureOfContent.observationFinding,
-      'previous_works'   => NatureOfContent.observationFinding,
-      'interview'        => NatureOfContent.observationFinding,
-      'follow_up'        => NatureOfContent.followUpOpenQuestion,
-      'operations'       => NatureOfContent.backgroundReference,
-      'policy'           => NatureOfContent.backgroundReference,
-      _                  => NatureOfContent.backgroundReference,
+      'observation' => NatureOfContent.observationFinding,
+      'measurement' => NatureOfContent.observationFinding,
+      'technical' => NatureOfContent.observationFinding,
+      'previous_works' => NatureOfContent.observationFinding,
+      'interview' => NatureOfContent.observationFinding,
+      'follow_up' => NatureOfContent.followUpOpenQuestion,
+      'operations' => NatureOfContent.backgroundReference,
+      'policy' => NatureOfContent.backgroundReference,
+      _ => NatureOfContent.backgroundReference,
     };
 
 class _CatChip extends StatelessWidget {
@@ -1472,8 +1662,8 @@ class _CatChip extends StatelessWidget {
       ),
       child: Text(
         nature.label,
-        style: TextStyle(
-            fontSize: 9, fontWeight: FontWeight.w700, color: color),
+        style:
+            TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
@@ -1499,8 +1689,8 @@ class _SectionHeader extends StatelessWidget {
       if (subtitle != null) ...[
         const SizedBox(width: 6),
         Text('— $subtitle',
-            style: const TextStyle(
-                fontSize: 10, color: AppColors.textTertiary)),
+            style:
+                const TextStyle(fontSize: 10, color: AppColors.textTertiary)),
       ],
     ]);
   }
@@ -1536,7 +1726,8 @@ class _DocList extends StatelessWidget {
   Widget build(BuildContext context) {
     final grouped = <DocCategory, List<DocumentModel>>{};
     for (final doc in docs) {
-      grouped.putIfAbsent(doc.docCategory ?? DocCategory.other, () => [])
+      grouped
+          .putIfAbsent(doc.docCategory ?? DocCategory.other, () => [])
           .add(doc);
     }
 
@@ -1563,12 +1754,10 @@ class _DocList extends StatelessWidget {
               child: DocumentTile(
                 doc: doc,
                 onPreview: doc.hasFile ? () => onPreview(doc) : null,
-                onExtract: (canExtract && !isProcessing)
-                    ? () => onExtract(doc)
-                    : null,
-                onViewExtraction: doc.aiExtracted
-                    ? () => onViewExtraction(doc)
-                    : null,
+                onExtract:
+                    (canExtract && !isProcessing) ? () => onExtract(doc) : null,
+                onViewExtraction:
+                    doc.aiExtracted ? () => onViewExtraction(doc) : null,
                 onReapply: (doc.aiExtracted && doc.extractedData != null)
                     ? () => onReapply(doc)
                     : null,
@@ -1609,9 +1798,10 @@ class _CategoryHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(children: [
       Container(
-        width: 3, height: 14,
+        width: 3,
+        height: 14,
         decoration: BoxDecoration(
-          color: _kColor, borderRadius: BorderRadius.circular(2)),
+            color: _kColor, borderRadius: BorderRadius.circular(2)),
       ),
       const SizedBox(width: 8),
       Text(
@@ -1636,9 +1826,10 @@ class _PhotoSectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(children: [
       Container(
-        width: 3, height: 14,
+        width: 3,
+        height: 14,
         decoration: BoxDecoration(
-          color: AppColors.purple, borderRadius: BorderRadius.circular(2)),
+            color: AppColors.purple, borderRadius: BorderRadius.circular(2)),
       ),
       const SizedBox(width: 8),
       const Text(
@@ -1654,7 +1845,8 @@ class _PhotoSectionHeader extends StatelessWidget {
       const Tooltip(
         message: 'Photos allocated from the Photo Gallery. '
             'Tap the AI button to extract data.',
-        child: Icon(Icons.info_outline, size: 12, color: AppColors.textTertiary),
+        child:
+            Icon(Icons.info_outline, size: 12, color: AppColors.textTertiary),
       ),
     ]);
   }
@@ -1669,9 +1861,10 @@ class _PhotoAllocHeader extends StatelessWidget {
     final color = _allocColor(allocation);
     return Row(children: [
       Container(
-        width: 3, height: 14,
-        decoration: BoxDecoration(
-          color: color, borderRadius: BorderRadius.circular(2)),
+        width: 3,
+        height: 14,
+        decoration:
+            BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
       ),
       const SizedBox(width: 8),
       Text(
@@ -1712,18 +1905,27 @@ class _PhotoDocTile extends StatelessWidget {
       child: Row(children: [
         // Thumbnail
         ClipRRect(
-          borderRadius: const BorderRadius.horizontal(left: Radius.circular(10)),
-          child: Image.file(
-            File(photo.thumbnailPath ?? photo.localPath),
-            width: 72,
-            height: 72,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              width: 72, height: 72,
-              color: color.withValues(alpha: 0.08),
-              child: Icon(_allocIcon(alloc), color: color, size: 28),
-            ),
-          ),
+          borderRadius:
+              const BorderRadius.horizontal(left: Radius.circular(10)),
+          child: !photo.hasLocalFile
+              ? Container(
+                  width: 72,
+                  height: 72,
+                  color: color.withValues(alpha: 0.08),
+                  child: Icon(_allocIcon(alloc), color: color, size: 28),
+                )
+              : Image.file(
+                  File(photo.thumbnailPath ?? photo.localPath!),
+                  width: 72,
+                  height: 72,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: 72,
+                    height: 72,
+                    color: color.withValues(alpha: 0.08),
+                    child: Icon(_allocIcon(alloc), color: color, size: 28),
+                  ),
+                ),
         ),
         const SizedBox(width: 10),
 
@@ -1753,9 +1955,7 @@ class _PhotoDocTile extends StatelessWidget {
                 child: Text(
                   alloc.label,
                   style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: color),
+                      fontSize: 10, fontWeight: FontWeight.w600, color: color),
                 ),
               ),
             ],
@@ -1785,21 +1985,21 @@ class _PhotoDocTile extends StatelessWidget {
 }
 
 Color _allocColor(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => AppColors.purple,
-      PhotoAllocation.logbook          => AppColors.midBlue,
+      PhotoAllocation.coverPage => AppColors.purple,
+      PhotoAllocation.logbook => AppColors.midBlue,
       PhotoAllocation.maintenanceRecord => AppColors.teal,
-      PhotoAllocation.certificate      => AppColors.amber,
-      PhotoAllocation.damageEvidence   => AppColors.coral,
-      PhotoAllocation.namePlate        => AppColors.textSecondary,
+      PhotoAllocation.certificate => AppColors.amber,
+      PhotoAllocation.damageEvidence => AppColors.coral,
+      PhotoAllocation.namePlate => AppColors.textSecondary,
     };
 
 IconData _allocIcon(PhotoAllocation a) => switch (a) {
-      PhotoAllocation.coverPage        => Icons.home_outlined,
-      PhotoAllocation.logbook          => Icons.menu_book_outlined,
+      PhotoAllocation.coverPage => Icons.home_outlined,
+      PhotoAllocation.logbook => Icons.menu_book_outlined,
       PhotoAllocation.maintenanceRecord => Icons.build_outlined,
-      PhotoAllocation.certificate      => Icons.verified_outlined,
-      PhotoAllocation.damageEvidence   => Icons.warning_amber_outlined,
-      PhotoAllocation.namePlate        => Icons.label_outlined,
+      PhotoAllocation.certificate => Icons.verified_outlined,
+      PhotoAllocation.damageEvidence => Icons.warning_amber_outlined,
+      PhotoAllocation.namePlate => Icons.label_outlined,
     };
 
 // ── Empty state ─────────────────────────────────────────────────────────────
@@ -1886,12 +2086,11 @@ class _ImagePreviewScreen extends StatelessWidget {
         minScale: PhotoViewComputedScale.contained,
         maxScale: PhotoViewComputedScale.covered * 3,
         backgroundDecoration: const BoxDecoration(color: Colors.black),
-        loadingBuilder: (_, __) => const Center(
-            child: CircularProgressIndicator(color: _kColor)),
+        loadingBuilder: (_, __) =>
+            const Center(child: CircularProgressIndicator(color: _kColor)),
         errorBuilder: (_, __, ___) => const Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.broken_image_outlined,
-                color: Colors.white54, size: 48),
+            Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
             SizedBox(height: 12),
             Text('Could not load image',
                 style: TextStyle(color: Colors.white54, fontSize: 13)),
@@ -1920,18 +2119,24 @@ DocExtractionResult _parsePhotoExtraction(
 
   final findings = <String>[];
   final findingCats = <String>[];
+  final findingSections = <String?>[];
+  final findingOrigins = <String?>[];
   for (final f in raw['context_findings'] as List? ?? []) {
     if (f is Map) {
       final text = f['text']?.toString() ?? '';
       if (text.isNotEmpty) {
         findings.add(text);
         findingCats.add(f['note_category']?.toString() ?? 'observation');
+        findingSections.add(f['case_section']?.toString());
+        findingOrigins.add(f['origin']?.toString());
       }
     } else {
       final text = f.toString();
       if (text.isNotEmpty) {
         findings.add(text);
         findingCats.add('observation');
+        findingSections.add(null);
+        findingOrigins.add(null);
       }
     }
   }
@@ -1961,6 +2166,8 @@ DocExtractionResult _parsePhotoExtraction(
     hardFields: hardFields,
     contextFindings: findings,
     findingCategories: findingCats,
+    findingCaseSections: findingSections,
+    findingOrigins: findingOrigins,
     detectedIncidents: incidents,
     detectedMachinery: machinery,
     vesselFields: vesselFields,
@@ -1982,57 +2189,57 @@ String _mimeFrom(String ext) => switch (ext) {
 /// Pretty-label map for known field keys shown in the summary.
 const _kFieldLabels = <String, String>{
   // Hard fields
-  'vessel_name':       'Vessel Name',
-  'imo_number':        'IMO Number',
-  'document_date':     'Document Date',
-  'document_number':   'Document No.',
+  'vessel_name': 'Vessel Name',
+  'imo_number': 'IMO Number',
+  'document_date': 'Document Date',
+  'document_number': 'Document No.',
   'issuing_authority': 'Issuing Authority',
-  'expiry_date':       'Expiry Date',
-  'next_due_date':     'Next Due Date',
-  'survey_date':       'Survey Date',
-  'port_of_survey':    'Port of Survey',
-  'class_society':     'Class Society',
-  'class_notation':    'Class Notation',
-  'surveyor_name':     'Surveyor Name',
-  'component':         'Component',
-  'serial_number':     'Serial Number',
-  'manufacturer':      'Manufacturer',
-  'model_ref':         'Model / Ref',
-  'hours_run':         'Hours Run',
+  'expiry_date': 'Expiry Date',
+  'next_due_date': 'Next Due Date',
+  'survey_date': 'Survey Date',
+  'port_of_survey': 'Port of Survey',
+  'class_society': 'Class Society',
+  'class_notation': 'Class Notation',
+  'surveyor_name': 'Surveyor Name',
+  'component': 'Component',
+  'serial_number': 'Serial Number',
+  'manufacturer': 'Manufacturer',
+  'model_ref': 'Model / Ref',
+  'hours_run': 'Hours Run',
   'next_service_hours': 'Next Service Hours',
-  'invoice_number':    'Invoice No.',
-  'supplier':          'Supplier',
-  'amount':            'Amount',
-  'currency':          'Currency',
+  'invoice_number': 'Invoice No.',
+  'supplier': 'Supplier',
+  'amount': 'Amount',
+  'currency': 'Currency',
   // Vessel data
-  'flag':              'Flag',
-  'port_of_registry':  'Port of Registry',
-  'vessel_type':       'Vessel Type',
-  'gross_tonnage':     'Gross Tonnage (GT)',
-  'net_tonnage':       'Net Tonnage (NT)',
-  'deadweight':        'Deadweight (DWT)',
-  'length_oa':         'Length OA (m)',
-  'length_bp':         'Length BP (m)',
-  'breadth':           'Breadth (m)',
+  'flag': 'Flag',
+  'port_of_registry': 'Port of Registry',
+  'vessel_type': 'Vessel Type',
+  'gross_tonnage': 'Gross Tonnage (GT)',
+  'net_tonnage': 'Net Tonnage (NT)',
+  'deadweight': 'Deadweight (DWT)',
+  'length_oa': 'Length OA (m)',
+  'length_bp': 'Length BP (m)',
+  'breadth': 'Breadth (m)',
   'breadth_qualifier': 'Breadth Qualifier',
-  'depth':             'Depth (m)',
-  'max_draft':         'Max Draft (m)',
-  'draft_qualifier':   'Draft Qualifier',
-  'year_built':        'Year Built',
-  'build_yard':        'Build Yard',
-  'build_country':     'Build Country',
-  'owners':            'Owners',
-  'operators':         'Operators',
-  'service_speed':     'Service Speed (kn)',
-  'propulsion_type':   'Propulsion Type',
-  'propeller_type':    'Propeller Type',
+  'depth': 'Depth (m)',
+  'max_draft': 'Max Draft (m)',
+  'draft_qualifier': 'Draft Qualifier',
+  'year_built': 'Year Built',
+  'build_yard': 'Build Yard',
+  'build_country': 'Build Country',
+  'owners': 'Owners',
+  'operators': 'Operators',
+  'service_speed': 'Service Speed (kn)',
+  'propulsion_type': 'Propulsion Type',
+  'propeller_type': 'Propeller Type',
   'propulsion_drive_type': 'Drive Type',
-  'mcr_power_value':   'MCR Power',
-  'mcr_rpm':           'MCR RPM',
-  'mcr_power_unit':    'MCR Unit',
+  'mcr_power_value': 'MCR Power',
+  'mcr_rpm': 'MCR RPM',
+  'mcr_power_unit': 'MCR Unit',
   // Unmapped fields likely from future Claude output
-  'call_sign':         'Call Sign',
-  'mmsi':              'MMSI',
+  'call_sign': 'Call Sign',
+  'mmsi': 'MMSI',
 };
 
 void showExtractionSummary(BuildContext context, DocumentModel doc) {
@@ -2047,18 +2254,19 @@ void showExtractionSummary(BuildContext context, DocumentModel doc) {
 /// Re-opens the extraction result sheet from stored JSON so the user can
 /// apply items that were skipped the first time, without duplicating data
 /// that was already applied (those default to unchecked).
-void reapplyExtraction(
-    BuildContext context, String caseId, DocumentModel doc) {
+void reapplyExtraction(BuildContext context, String caseId, DocumentModel doc) {
   final stored = doc.extractedData;
   if (stored == null) return;
 
   // ── Reconstruct hard fields ──────────────────────────────────────────────
-  final hardFields = Map<String, dynamic>.from(
-      (stored['hard_fields'] as Map? ?? {}));
+  final hardFields =
+      Map<String, dynamic>.from((stored['hard_fields'] as Map? ?? {}));
 
   // ── Reconstruct context findings ─────────────────────────────────────────
-  final findings    = <String>[];
+  final findings = <String>[];
   final findingCats = <String>[];
+  final findingSections = <String?>[];
+  final findingOrigins = <String?>[];
   final findingWasApplied = <bool>[];
   for (final f in stored['context_findings'] as List? ?? []) {
     if (f is Map) {
@@ -2066,51 +2274,52 @@ void reapplyExtraction(
       if (text.isNotEmpty) {
         findings.add(text);
         findingCats.add(f['category']?.toString() ?? 'observation');
+        findingSections.add(f['case_section']?.toString());
+        findingOrigins.add(f['origin']?.toString());
         findingWasApplied.add(f['applied'] as bool? ?? true);
       }
     }
   }
 
   // ── Reconstruct list sections (strip the 'applied' flag for the model) ───
-  List<Map<String, dynamic>> stripApplied(List raw) => raw
-      .whereType<Map>()
-      .map((e) {
+  List<Map<String, dynamic>> stripApplied(List raw) =>
+      raw.whereType<Map>().map((e) {
         final copy = Map<String, dynamic>.from(e);
         copy.remove('applied');
         return copy;
-      })
-      .toList();
+      }).toList();
 
   bool wasApplied(dynamic item) =>
       item is Map && (item['applied'] as bool? ?? true);
 
-  final rawIncidents  = stored['detected_incidents']        as List? ?? [];
-  final rawMachinery  = stored['detected_machinery']        as List? ?? [];
+  final rawIncidents = stored['detected_incidents'] as List? ?? [];
+  final rawMachinery = stored['detected_machinery'] as List? ?? [];
   final rawConditions = stored['detected_class_conditions'] as List? ?? [];
 
-  final incidents  = stripApplied(rawIncidents);
-  final machinery  = stripApplied(rawMachinery);
+  final incidents = stripApplied(rawIncidents);
+  final machinery = stripApplied(rawMachinery);
   final conditions = stripApplied(rawConditions);
 
   // ── Vessel fields ────────────────────────────────────────────────────────
-  final vesselFields = Map<String, dynamic>.from(
-      (stored['vessel_data'] as Map? ?? {}));
+  final vesselFields =
+      Map<String, dynamic>.from((stored['vessel_data'] as Map? ?? {}));
 
   final result = DocExtractionResult(
-    docId:                  doc.docId,
-    hardFields:             hardFields,
-    contextFindings:        findings,
-    findingCategories:      findingCats,
-    detectedIncidents:      incidents,
-    detectedMachinery:      machinery,
+    docId: doc.docId,
+    hardFields: hardFields,
+    contextFindings: findings,
+    findingCategories: findingCats,
+    findingCaseSections: findingSections,
+    findingOrigins: findingOrigins,
+    detectedIncidents: incidents,
+    detectedMachinery: machinery,
     detectedClassConditions: conditions,
-    vesselFields:           vesselFields,
+    vesselFields: vesselFields,
   );
 
   if (!result.hasAny) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('No structured data available to re-apply')),
+      const SnackBar(content: Text('No structured data available to re-apply')),
     );
     return;
   }
@@ -2120,18 +2329,18 @@ void reapplyExtraction(
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _ExtractionResultSheet(
-      caseId:    caseId,
-      docTitle:  doc.title,
-      result:    result,
+      caseId: caseId,
+      docTitle: doc.title,
+      result: result,
       // Pre-select only items that were NOT applied before, to avoid duplicates.
       initialFindingSelected:
           List.generate(findings.length, (i) => !findingWasApplied[i]),
-      initialIncidentSelected:
-          List.generate(rawIncidents.length, (i) => !wasApplied(rawIncidents[i])),
-      initialMachinerySelected:
-          List.generate(rawMachinery.length, (i) => !wasApplied(rawMachinery[i])),
-      initialConditionSelected:
-          List.generate(rawConditions.length, (i) => !wasApplied(rawConditions[i])),
+      initialIncidentSelected: List.generate(
+          rawIncidents.length, (i) => !wasApplied(rawIncidents[i])),
+      initialMachinerySelected: List.generate(
+          rawMachinery.length, (i) => !wasApplied(rawMachinery[i])),
+      initialConditionSelected: List.generate(
+          rawConditions.length, (i) => !wasApplied(rawConditions[i])),
       initialVesselSelected: {
         for (final k in vesselFields.keys) k: true,
       },
@@ -2174,16 +2383,22 @@ class _ExtractionSummarySheet extends StatelessWidget {
         .toList();
 
     final meta = data['meta'] as Map?;
-    final findingsApplied  = meta?['findings_applied']  as int? ??
-        meta?['findings_count'] as int? ?? 0;
+    final findingsApplied = meta?['findings_applied'] as int? ??
+        meta?['findings_count'] as int? ??
+        0;
     final incidentsApplied = meta?['incidents_applied'] as int? ??
-        meta?['incidents_count'] as int? ?? 0;
+        meta?['incidents_count'] as int? ??
+        0;
     final machineryApplied = meta?['machinery_applied'] as int? ??
-        meta?['machinery_count'] as int? ?? 0;
+        meta?['machinery_count'] as int? ??
+        0;
 
-    final hasContent = hardFields.isNotEmpty || vesselData.isNotEmpty ||
-        unmapped.isNotEmpty || rawFindings.isNotEmpty ||
-        rawIncidents.isNotEmpty || rawMachinery.isNotEmpty;
+    final hasContent = hardFields.isNotEmpty ||
+        vesselData.isNotEmpty ||
+        unmapped.isNotEmpty ||
+        rawFindings.isNotEmpty ||
+        rawIncidents.isNotEmpty ||
+        rawMachinery.isNotEmpty;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.65,
@@ -2198,7 +2413,8 @@ class _ExtractionSummarySheet extends StatelessWidget {
         child: Column(children: [
           const SizedBox(height: 8),
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             decoration: BoxDecoration(
                 color: AppColors.border,
                 borderRadius: BorderRadius.circular(2)),
@@ -2564,9 +2780,12 @@ class _SummarySection extends StatelessWidget {
       const SizedBox(height: 6),
       ...fields.entries.map((e) {
         final label = _kFieldLabels[e.key] ??
-            e.key.replaceAll('_', ' ').split(' ').map((w) =>
-                w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}'
-            ).join(' ');
+            e.key
+                .replaceAll('_', ' ')
+                .split(' ')
+                .map((w) =>
+                    w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
+                .join(' ');
         return Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(

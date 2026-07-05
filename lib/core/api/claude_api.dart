@@ -49,26 +49,27 @@ class ClaudeApi {
           if (usage != null) {
             final extra = response.requestOptions.extra;
             final feature = extra['feature'] as String? ?? 'api_call';
-            final model   = data?['model'] as String? ?? AppConfig.claudeModel;
-            final inputTokens  = (usage['input_tokens']  as num?)?.toInt() ?? 0;
+            final model = data?['model'] as String? ?? AppConfig.claudeModel;
+            final inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? 0;
             final outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
 
             // ignore: discarded_futures
             UsageTracker.log(
               feature: feature,
               model: model,
-              inputTokens:  inputTokens,
+              inputTokens: inputTokens,
               outputTokens: outputTokens,
             );
 
             // GPN-AI audit log — only for calls tagged with a case_id
-            final caseId   = extra['case_id']   as String?;
-            final callType = extra['call_type']  as String?;
+            final caseId = extra['case_id'] as String?;
+            final callType = extra['call_type'] as String?;
             if (caseId != null && callType != null) {
               // Extract prompt text from the last user message in the request
-              final reqData  = response.requestOptions.data as Map<String, dynamic>?;
+              final reqData =
+                  response.requestOptions.data as Map<String, dynamic>?;
               final messages = reqData?['messages'] as List<dynamic>?;
-              final lastMsg  = messages?.lastWhere(
+              final lastMsg = messages?.lastWhere(
                 (m) => (m as Map<String, dynamic>)['role'] == 'user',
                 orElse: () => null,
               ) as Map<String, dynamic>?;
@@ -94,14 +95,14 @@ class ClaudeApi {
 
               // ignore: discarded_futures
               AiLogService.log(
-                caseId:       caseId,
-                callType:     callType,
-                model:        model,
-                promptText:   promptText,
+                caseId: caseId,
+                callType: callType,
+                model: model,
+                promptText: promptText,
                 responseText: responseText,
                 sectionLabel: extra['section_label'] as String?,
-                documentId:   extra['document_id']   as String?,
-                inputTokens:  inputTokens,
+                documentId: extra['document_id'] as String?,
+                inputTokens: inputTokens,
                 outputTokens: outputTokens,
               );
             }
@@ -123,35 +124,35 @@ class ClaudeApi {
     String? caseId,
     String? documentId,
   }) async {
-    final hint = documentHint != null
-        ? 'This appears to be a $documentHint. '
-        : '';
+    final hint =
+        documentHint != null ? 'This appears to be a $documentHint. ' : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {
-        'feature':  'certificate_extraction',
-        if (caseId != null) 'case_id':    caseId,
-        if (caseId != null) 'call_type':  'extraction',
-        if (documentId != null) 'document_id': documentId,
-      }),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': AppConfig.claudeMaxTokens,
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
+        options: Options(extra: {
+          'feature': 'certificate_extraction',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'extraction',
+          if (documentId != null) 'document_id': documentId,
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': AppConfig.claudeMaxTokens,
+          'messages': [
             {
-              'type': 'image',
-              'source': {
-                'type': 'base64',
-                'media_type': mediaType,
-                'data': base64Image,
-              },
-            },
-            {
-              'type': 'text',
-              'text': '''${hint}Extract all data from this marine document and return ONLY a JSON object with no preamble or markdown. Include every field you can identify. Use these keys where applicable:
+              'role': 'user',
+              'content': [
+                {
+                  'type': 'image',
+                  'source': {
+                    'type': 'base64',
+                    'media_type': mediaType,
+                    'data': base64Image,
+                  },
+                },
+                {
+                  'type': 'text',
+                  'text':
+                      '''${hint}Extract all data from this marine document and return ONLY a JSON object with no preamble or markdown. Include every field you can identify. Use these keys where applicable:
 
 {
   "document_type": "",
@@ -199,11 +200,11 @@ class ClaudeApi {
 Return null for fields not found. Dates in ISO format YYYY-MM-DD.
 If build_country is not explicitly stated, infer it from the build_yard address.
 For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA)|Breadth|Beam"; draft_qualifier from "Load Line Draft|Max Draft|Draft".''',
+                },
+              ],
             },
           ],
-        },
-      ],
-    });
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -218,11 +219,12 @@ For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA
     String? caseId,
     String? documentId,
   }) async {
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {
         'feature': 'nameplate_extraction',
-        if (caseId != null) 'case_id':    caseId,
-        if (caseId != null) 'call_type':  'extraction',
+        if (caseId != null) 'case_id': caseId,
+        if (caseId != null) 'call_type': 'extraction',
         if (documentId != null) 'document_id': documentId,
       }),
       data: {
@@ -242,7 +244,8 @@ For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA
               },
               {
                 'type': 'text',
-                'text': '''This is a machinery or equipment nameplate from a marine vessel. Extract every readable field and return ONLY a JSON object with no preamble or markdown:
+                'text':
+                    '''This is a machinery or equipment nameplate from a marine vessel. Extract every readable field and return ONLY a JSON object with no preamble or markdown:
 
 {
   "manufacturer": "",
@@ -285,20 +288,20 @@ Rules:
     String? documentId,
   }) async {
     final response = await _dio.post('/messages',
-      options: Options(extra: {
-        'feature': 'vessel_particulars',
-        if (caseId != null) 'case_id':    caseId,
-        if (caseId != null) 'call_type':  'extraction',
-        if (documentId != null) 'document_id': documentId,
-      }),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': AppConfig.claudeMaxTokens,
-      'messages': [
-        {
-          'role': 'user',
-          'content':
-              '''Extract vessel particulars from this class society / DNV report text and return ONLY a JSON object:
+        options: Options(extra: {
+          'feature': 'vessel_particulars',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'extraction',
+          if (documentId != null) 'document_id': documentId,
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': AppConfig.claudeMaxTokens,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''Extract vessel particulars from this class society / DNV report text and return ONLY a JSON object:
 
 $pdfText
 
@@ -357,9 +360,9 @@ Field guidance:
 - propulsion_drive_type: choose from "Direct drive", "Via reduction gearbox", "Via double reduction gearbox", "Electric Motor"
 - mcr_power_value: numeric MCR value; set mcr_power_unit to "kW" or "bhp"
 Dates in ISO format. Return null for missing fields.''',
-        },
-      ],
-    });
+            },
+          ],
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -377,6 +380,7 @@ Dates in ISO format. Return null for missing fields.''',
     required String? interviewTranscript,
     required String reportFormat, // 'nordic' or 'abl'
     String? caseId,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10): the prior report output's already-approved Background
     /// text for this case, when this is not the first report. When
@@ -388,32 +392,33 @@ Dates in ISO format. Return null for missing fields.''',
     final transcriptSection = interviewTranscript != null
         ? '\n\nINTERVIEW TRANSCRIPT EXTRACT:\n$interviewTranscript'
         : '';
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED BACKGROUND (already issued in an earlier report '
-          'on this case — do not repeat or restate any of this; it is '
-          'shown only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation paragraph that reads naturally after it. If '
-          'nothing in the information provided below is genuinely new '
-          'compared to the prior text, return an empty string.'
+            'on this case — do not repeat or restate any of this; it is '
+            'shown only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation paragraph that reads naturally after it. If '
+            'nothing in the information provided below is genuinely new '
+            'compared to the prior text, return an empty string.'
         : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {
-        'feature':  'occurrence_narrative',
-        if (caseId != null) 'case_id':   caseId,
-        if (caseId != null) 'call_type': 'report_section',
-        if (caseId != null) 'section_label': 'occurrence_narrative',
-      }),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 1500,
-      'messages': [
-        {
-          'role': 'user',
-          'content':
-              '''You are a marine surveyor drafting a Hull & Machinery survey report section in the $reportFormat format.
+        options: Options(extra: {
+          'feature': 'occurrence_narrative',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'report_section',
+          if (caseId != null) 'section_label': 'occurrence_narrative',
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 1500,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''You are a marine surveyor drafting a Hull & Machinery survey report section in the $reportFormat format.
 
 Draft the BACKGROUND / OCCURRENCE section (the owners' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. Synthesise the events into a short narrative of what led to the casualty — do not write it as a day-by-day diary of the surveyor's activities. Do not state or imply a cause of the casualty here — causation belongs in a separate section; confine this section to the owners' account of what happened.
 
@@ -426,9 +431,9 @@ DAMAGE ITEMS:
 $_writingStyleGuardrails$amendSection
 
 Draft the background narrative paragraph now:''',
-        },
-      ],
-    });
+            },
+          ],
+        });
 
     return _extractText(response.data);
   }
@@ -451,19 +456,19 @@ Draft the background narrative paragraph now:''',
         : '';
     final allegation = ownersAllegation != null && ownersAllegation.isNotEmpty
         ? '\n\nOWNERS\' STATED CAUSE (their words, provided for context only — '
-          'do not adopt or restate this as your own finding):\n$ownersAllegation'
+            'do not adopt or restate this as your own finding):\n$ownersAllegation'
         : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'cause_consideration'}),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 1000,
-      'messages': [
-        {
-          'role': 'user',
-          'content':
-              '''Draft the surveyor's assessment for the CAUSE CONSIDERATION section of a marine H&M survey report ($reportFormat format). Write in precise, semi-legalistic technical prose. One or two paragraphs. Do not speculate beyond the evidence provided.
+        options: Options(extra: {'feature': 'cause_consideration'}),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 1000,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''Draft the surveyor's assessment for the CAUSE CONSIDERATION section of a marine H&M survey report ($reportFormat format). Write in precise, semi-legalistic technical prose. One or two paragraphs. Do not speculate beyond the evidence provided.
 
 This must be written entirely in the surveyor's own voice — introduce it with a phrase such as "It is the view of the Undersigned Surveyor that…" or "In the opinion of the Undersigned…". If owner's stated cause context is provided below, do not restate it as fact or blend it into your own sentence — your text is the surveyor's independent assessment, not a summary of the owner's account.
 
@@ -474,9 +479,9 @@ DAMAGE:
 $_writingStyleGuardrails
 
 Draft the surveyor's assessment now:''',
-        },
-      ],
-    });
+            },
+          ],
+        });
 
     return _extractText(response.data);
   }
@@ -503,9 +508,9 @@ Draft the surveyor's assessment now:''',
         ? '\n\nBRIEF DESCRIPTION:\n$briefDescription'
         : '';
     final allegLabel = switch (allegationType) {
-      'formal_allegation'    => 'Formal allegation raised',
+      'formal_allegation' => 'Formal allegation raised',
       'no_formal_allegation' => 'No formal allegation raised',
-      _                      => 'Allegation status TBC',
+      _ => 'Allegation status TBC',
     };
 
     final response = await _dio.post(
@@ -517,7 +522,8 @@ Draft the surveyor's assessment now:''',
         'messages': [
           {
             'role': 'user',
-            'content': '''Draft a concise SUB-CAUSATION / CONTRIBUTING FACTORS paragraph (2–4 sentences) for a marine survey report.
+            'content':
+                '''Draft a concise SUB-CAUSATION / CONTRIBUTING FACTORS paragraph (2–4 sentences) for a marine survey report.
 Write in precise technical prose. Explain the sequence of events or contributing factors that led to this casualty. Do not speculate beyond the information provided.
 
 OCCURRENCE: $occurrenceTitle
@@ -544,23 +550,26 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
     String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
-          'this case — do not repeat or restate any of this; it is shown '
-          'only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation that reads naturally after it. If none of the '
-          'context cues above are genuinely new compared to the prior '
-          'text, return an empty string.'
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If none of the '
+            'context cues above are genuinely new compared to the prior '
+            'text, return an empty string.'
         : '';
 
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'general_services_draft'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -599,23 +608,26 @@ Draft the paragraph now:''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
     String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
-          'this case — do not repeat or restate any of this; it is shown '
-          'only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation that reads naturally after it. If none of the '
-          'context cues above are genuinely new compared to the prior '
-          'text, return an empty string.'
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If none of the '
+            'context cues above are genuinely new compared to the prior '
+            'text, return an empty string.'
         : '';
 
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'previous_works_draft'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -654,23 +666,26 @@ Draft the paragraph now:''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
     String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
-          'this case — do not repeat or restate any of this; it is shown '
-          'only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation that reads naturally after it. If none of the '
-          'context cues above are genuinely new compared to the prior '
-          'text, return an empty string.'
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If none of the '
+            'context cues above are genuinely new compared to the prior '
+            'text, return an empty string.'
         : '';
 
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'extra_expenses_draft'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -708,23 +723,26 @@ Draft the paragraph now:''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
     String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
-          'this case — do not repeat or restate any of this; it is shown '
-          'only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation that reads naturally after it. If none of the '
-          'context cues above are genuinely new compared to the prior '
-          'text, return an empty string.'
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If none of the '
+            'context cues above are genuinely new compared to the prior '
+            'text, return an empty string.'
         : '';
 
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'contractual_hire_draft'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -763,23 +781,26 @@ Draft the paragraph now:''',
     required String vesselName,
     required List<String> contextCues,
     String? reportFormat,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
     String? priorApprovedText,
   }) async {
     final cuesText = contextCues.map((c) => '• $c').join('\n');
-    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
         ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
-          'this case — do not repeat or restate any of this; it is shown '
-          'only so you know what has already been said):\n'
-          '"""\n$priorApprovedText\n"""\n\n'
-          'Draft ONLY the new developments since the prior report above, as '
-          'a continuation that reads naturally after it. If none of the '
-          'context cues above are genuinely new compared to the prior '
-          'text, return an empty string.'
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If none of the '
+            'context cues above are genuinely new compared to the prior '
+            'text, return an empty string.'
         : '';
 
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'other_matters_draft'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -820,7 +841,8 @@ Draft the paragraph now:''',
   }) async {
     if (cues.isEmpty) return '';
     final cuesText = cues.map((c) => '• $c').join('\n');
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'cue_quick_summary'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -877,8 +899,8 @@ Summary sentence:''',
       options: Options(
         extra: {
           'feature': 'document_extraction',
-          if (caseId != null) 'case_id':    caseId,
-          if (caseId != null) 'call_type':  'extraction',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'extraction',
           if (documentId != null) 'document_id': documentId,
         },
         headers: isPdf ? {'anthropic-beta': 'pdfs-2024-09-25'} : null,
@@ -893,7 +915,8 @@ Summary sentence:''',
               contentBlock,
               {
                 'type': 'text',
-                'text': '''You are extracting data from a marine survey document (category hint: $categoryHint).
+                'text':
+                    '''You are extracting data from a marine survey document (category hint: $categoryHint).
 
 IMPORTANT: All text in the output MUST be in English. Translate any non-English content.
 
@@ -929,7 +952,9 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
   "context_findings": [
     {
       "text": "Brief factual statement in English about a finding, condition, observation, or recommendation",
-      "note_category": "observation|measurement|technical|operations|previous_works|follow_up|interview|policy|general"
+      "note_category": "observation|measurement|technical|operations|previous_works|follow_up|interview|policy|general",
+      "case_section": "background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire",
+      "origin": "assured_owner|third_party|surveyor"
     }
   ],
   "detected_incidents": [
@@ -1000,6 +1025,8 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
 Rules:
 - hard_fields: include ONLY fields actually present in the document; omit absent fields entirely; dates MUST be YYYY-MM-DD; numeric values must be numbers not strings
 - context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
+- context_findings case_section: your best guess at which case section this finding belongs to, from the fixed list given — this is a suggestion only, a human will confirm or correct it, so make your best guess rather than omitting it; omit the field only if truly nothing fits (e.g. a pure hard-field/vessel-data document with no narrative content)
+- context_findings origin: who the content originates from — "assured_owner" for the vessel owner/operator/master/crew, "third_party" for class societies, surveyors from other parties, contractors, or other outside parties, "surveyor" only for the attending surveyor's own dictation/statement; omit if genuinely unclear
 - detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none
 - detected_machinery: list each distinct machinery item that is a subject of the document (surveyed, serviced, inspected, or described with any technical detail); include make/model/serial when present but do not require them; leave as [] only for items mentioned purely in passing with no context
 - detected_class_conditions: for class survey reports, condition-of-class documents, and class survey certificates, extract EVERY Condition of Class and Recommendation listed — include reference number, description, and expiry/due date; leave as [] for all other document types
@@ -1054,23 +1081,24 @@ Rules:
           };
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {
-        'feature': 'invoice_extraction',
-        if (caseId != null) 'case_id':    caseId,
-        if (caseId != null) 'call_type':  'invoice_extraction',
-        if (documentId != null) 'document_id': documentId,
-      }),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': AppConfig.claudeMaxTokens,
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
-            contentBlock,
+        options: Options(extra: {
+          'feature': 'invoice_extraction',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'invoice_extraction',
+          if (documentId != null) 'document_id': documentId,
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': AppConfig.claudeMaxTokens,
+          'messages': [
             {
-              'type': 'text',
-              'text': '''You are a marine insurance claims assistant. Extract all data from this invoice/document for a marine survey case account and return ONLY a JSON object.
+              'role': 'user',
+              'content': [
+                contentBlock,
+                {
+                  'type': 'text',
+                  'text':
+                      '''You are a marine insurance claims assistant. Extract all data from this invoice/document for a marine survey case account and return ONLY a JSON object.
 
 {
   "document_type": "invoice|estimate|credit_note|proforma|quotation|purchase_order|delivery_note",
@@ -1108,11 +1136,11 @@ Rules:
 - mixed_nature_flag: true when line items span both U/W damage repair and owner maintenance
 - confidence: 0.0-1.0 reflecting extraction certainty
 - Dates in ISO format. Null for missing fields.''',
+                },
+              ],
             },
           ],
-        },
-      ],
-    });
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -1126,7 +1154,8 @@ Rules:
     required String base64Content,
     required String mediaType,
   }) async {
-    final response = await _dio.post('/messages',
+    final response = await _dio.post(
+      '/messages',
       options: Options(extra: {'feature': 'batch_invoice_analysis'}),
       data: {
         'model': AppConfig.claudeModel,
@@ -1145,7 +1174,8 @@ Rules:
               },
               {
                 'type': 'text',
-                'text': '''You are a marine insurance claims assistant. This PDF may contain multiple individual invoices or documents bundled together.
+                'text':
+                    '''You are a marine insurance claims assistant. This PDF may contain multiple individual invoices or documents bundled together.
 
 Identify each distinct invoice or document and return ONLY a JSON array. Each element:
 
@@ -1186,7 +1216,7 @@ Rules:
           .replaceAll(RegExp(r'```\s*'), '')
           .trim();
       final start = clean.indexOf('[');
-      final end   = clean.lastIndexOf(']');
+      final end = clean.lastIndexOf(']');
       if (start != -1 && end != -1 && end > start) {
         clean = clean.substring(start, end + 1);
       }
@@ -1208,26 +1238,26 @@ Rules:
     final ctx = context != null ? ' Context: $context.' : '';
 
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'photo_classification'}),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 500,
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
+        options: Options(extra: {'feature': 'photo_classification'}),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 500,
+          'messages': [
             {
-              'type': 'image',
-              'source': {
-                'type': 'base64',
-                'media_type': mediaType,
-                'data': base64Image,
-              },
-            },
-            {
-              'type': 'text',
-              'text':
-                  '''Classify this marine survey photo and return ONLY a JSON object.$ctx
+              'role': 'user',
+              'content': [
+                {
+                  'type': 'image',
+                  'source': {
+                    'type': 'base64',
+                    'media_type': mediaType,
+                    'data': base64Image,
+                  },
+                },
+                {
+                  'type': 'text',
+                  'text':
+                      '''Classify this marine survey photo and return ONLY a JSON object.$ctx
 
 {
   "tag_category": "general_view|vessel_exterior|nameplate|certificate|damage|repair_in_progress|repair_completed|component_detail|logbook|other",
@@ -1238,11 +1268,11 @@ Rules:
   "suggested_caption": "",
   "report_section": "cover|vessel_particulars|occurrence|damage_description|repairs|appendix|other"
 }''',
+                },
+              ],
             },
           ],
-        },
-      ],
-    });
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -1251,18 +1281,17 @@ Rules:
   // ── Voice Note Routing ────────────────────────────────────────────────────
 
   /// Classify a transcribed voice note and suggest where to route it
-  static Future<Map<String, dynamic>> routeVoiceNote(
-      String transcript) async {
+  static Future<Map<String, dynamic>> routeVoiceNote(String transcript) async {
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'voice_routing'}),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 300,
-      'messages': [
-        {
-          'role': 'user',
-          'content':
-              '''A marine surveyor recorded this voice note during a vessel survey. Classify it and return ONLY a JSON object:
+        options: Options(extra: {'feature': 'voice_routing'}),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 300,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''A marine surveyor recorded this voice note during a vessel survey. Classify it and return ONLY a JSON object:
 
 "$transcript"
 
@@ -1271,9 +1300,9 @@ Rules:
   "summary": "",
   "action": ""
 }''',
-        },
-      ],
-    });
+            },
+          ],
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -1295,8 +1324,8 @@ Rules:
       options: Options(
         extra: {
           'feature': 'correspondence_extraction',
-          if (caseId != null) 'case_id':    caseId,
-          if (caseId != null) 'call_type':  'extraction',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'extraction',
           if (documentId != null) 'document_id': documentId,
         },
         headers: {'anthropic-beta': 'pdfs-2024-09-25'},
@@ -1318,7 +1347,8 @@ Rules:
               },
               {
                 'type': 'text',
-                'text': '''${hint}This is a marine insurance / survey correspondence document (email trail, letter, or report). Extract the following and return ONLY a JSON object with no preamble or markdown:
+                'text':
+                    '''${hint}This is a marine insurance / survey correspondence document (email trail, letter, or report). Extract the following and return ONLY a JSON object with no preamble or markdown:
 
 {
   "summary": "2-3 sentence summary of the overall correspondence",
@@ -1425,15 +1455,15 @@ Return null or empty array for fields not found. Dates in ISO format. For partie
     required String bodyText,
   }) async {
     final response = await _dio.post('/messages',
-      options: Options(extra: {'feature': 'email_classification'}),
-      data: {
-      'model': AppConfig.claudeModel,
-      'max_tokens': 300,
-      'messages': [
-        {
-          'role': 'user',
-          'content':
-              '''Classify this marine survey case email and return ONLY a JSON object:
+        options: Options(extra: {'feature': 'email_classification'}),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 300,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''Classify this marine survey case email and return ONLY a JSON object:
 
 SUBJECT: $subject
 BODY: ${bodyText.length > 500 ? bodyText.substring(0, 500) : bodyText}
@@ -1447,9 +1477,9 @@ BODY: ${bodyText.length > 500 ? bodyText.substring(0, 500) : bodyText}
 }
 
 Return empty string if field not found.''',
-        },
-      ],
-    });
+            },
+          ],
+        });
 
     final text = _extractText(response.data);
     return _parseJson(text);
@@ -1506,10 +1536,10 @@ Return empty string if field not found.''',
     final match = RegExp(r'\d+').firstMatch(text);
     final angle = int.tryParse(match?.group(0) ?? '0') ?? 0;
     return switch (angle) {
-      90  => 1,
+      90 => 1,
       180 => 2,
       270 => 3,
-      _   => 0,
+      _ => 0,
     };
   }
 
@@ -1622,7 +1652,8 @@ Return empty string if field not found.''',
               },
               {
                 'type': 'text',
-                'text': '''You are assisting a marine insurance surveyor reviewing a repair invoice or document.
+                'text':
+                    '''You are assisting a marine insurance surveyor reviewing a repair invoice or document.
 
 Your task: identify any NON-ACCOUNTING information present in this document that would be useful context for the survey. Focus on:
 - Hours worked / timesheets / labour breakdown
@@ -1657,7 +1688,7 @@ Return ONLY valid JSON — no preamble, no explanation. Example:
           .replaceAll(RegExp(r'```\s*'), '')
           .trim();
       final start = clean.indexOf('[');
-      final end   = clean.lastIndexOf(']');
+      final end = clean.lastIndexOf(']');
       if (start < 0 || end < 0) return [];
       clean = clean.substring(start, end + 1);
       final list = jsonDecode(clean) as List;
@@ -1706,7 +1737,7 @@ $rawText''',
           .replaceAll(RegExp(r'```\s*'), '')
           .trim();
       final start = clean.indexOf('{');
-      final end   = clean.lastIndexOf('}');
+      final end = clean.lastIndexOf('}');
       if (start != -1 && end != -1 && end > start) {
         clean = clean.substring(start, end + 1);
       }

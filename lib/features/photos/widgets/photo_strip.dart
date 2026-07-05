@@ -41,8 +41,8 @@ class PhotoStrip extends StatelessWidget {
                 padding: const EdgeInsets.only(right: 6),
                 child: _Thumbnail(
                   photo: ph,
-                  onTap: () => _openViewer(context, photos,
-                      photos.indexWhere((p) => p.id == ph.id)),
+                  onTap: () => _openViewer(
+                      context, photos, photos.indexWhere((p) => p.id == ph.id)),
                   onDelete: onDeletePhoto != null
                       ? () => onDeletePhoto!(ph.id)
                       : null,
@@ -53,8 +53,7 @@ class PhotoStrip extends StatelessWidget {
     );
   }
 
-  void _openViewer(
-      BuildContext context, List<PhotoModel> photos, int initial) {
+  void _openViewer(BuildContext context, List<PhotoModel> photos, int initial) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -81,8 +80,7 @@ class _AddButton extends StatelessWidget {
           color: _kColor.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: _kColor.withValues(alpha: 0.3),
-              style: BorderStyle.solid),
+              color: _kColor.withValues(alpha: 0.3), style: BorderStyle.solid),
         ),
         child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -91,9 +89,7 @@ class _AddButton extends StatelessWidget {
             SizedBox(height: 3),
             Text('Photo',
                 style: TextStyle(
-                    fontSize: 10,
-                    color: _kColor,
-                    fontWeight: FontWeight.w600)),
+                    fontSize: 10, color: _kColor, fontWeight: FontWeight.w600)),
           ],
         ),
       ),
@@ -122,19 +118,27 @@ class _Thumbnail extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.file(
-              File(photo.localPath),
-              width: _kThumbSize,
-              height: _kThumbSize,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: _kThumbSize,
-                height: _kThumbSize,
-                color: AppColors.surface,
-                child: const Icon(Icons.broken_image_outlined,
-                    color: AppColors.textTertiary, size: 24),
-              ),
-            ),
+            child: !photo.hasLocalFile
+                ? Container(
+                    width: _kThumbSize,
+                    height: _kThumbSize,
+                    color: AppColors.surface,
+                    child: const Icon(Icons.cloud_download_outlined,
+                        color: AppColors.textTertiary, size: 24),
+                  )
+                : Image.file(
+                    File(photo.localPath!),
+                    width: _kThumbSize,
+                    height: _kThumbSize,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: _kThumbSize,
+                      height: _kThumbSize,
+                      color: AppColors.surface,
+                      child: const Icon(Icons.broken_image_outlined,
+                          color: AppColors.textTertiary, size: 24),
+                    ),
+                  ),
           ),
           // Sync badge
           if (photo.syncStatus == PhotoSyncStatus.localOnly)
@@ -165,8 +169,7 @@ class _Thumbnail extends StatelessWidget {
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.close,
-                      size: 12, color: Colors.white),
+                  child: const Icon(Icons.close, size: 12, color: Colors.white),
                 ),
               ),
             ),
@@ -179,8 +182,7 @@ class _Thumbnail extends StatelessWidget {
 // ── Full-screen viewer ─────────────────────────────────────────────────────
 
 class _PhotoViewer extends StatefulWidget {
-  const _PhotoViewer(
-      {required this.photos, required this.initialIndex});
+  const _PhotoViewer({required this.photos, required this.initialIndex});
   final List<PhotoModel> photos;
   final int initialIndex;
 
@@ -217,8 +219,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         pageController: PageController(initialPage: widget.initialIndex),
         onPageChanged: (i) => setState(() => _current = i),
         builder: (_, i) => PhotoViewGalleryPageOptions(
-          imageProvider:
-              FileImage(File(widget.photos[i].localPath)),
+          imageProvider: FileImage(File(widget.photos[i].localPath ?? '')),
           minScale: PhotoViewComputedScale.contained,
           maxScale: PhotoViewComputedScale.covered * 3,
         ),

@@ -27,8 +27,7 @@ class ReportBuilderScreen extends ConsumerStatefulWidget {
       _ReportBuilderScreenState();
 }
 
-class _ReportBuilderScreenState
-    extends ConsumerState<ReportBuilderScreen>
+class _ReportBuilderScreenState extends ConsumerState<ReportBuilderScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   // Only the id is kept as local state — the actual ReportOutput is always
@@ -83,8 +82,7 @@ class _ReportBuilderScreenState
                 '${activeOutput.sequenceNo > 1 ? ' No.${activeOutput.sequenceNo}' : ''}'
                 ' — ${activeOutput.status.label}',
                 style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.white.withValues(alpha: 0.7)),
+                    fontSize: 11, color: Colors.white.withValues(alpha: 0.7)),
               ),
           ],
         ),
@@ -93,8 +91,7 @@ class _ReportBuilderScreenState
                 controller: _tabController,
                 indicatorColor: Colors.white,
                 labelColor: Colors.white,
-                unselectedLabelColor:
-                    Colors.white.withValues(alpha: 0.55),
+                unselectedLabelColor: Colors.white.withValues(alpha: 0.55),
                 tabs: [
                   Tab(
                     child: Row(
@@ -165,8 +162,8 @@ class _ReportBuilderScreenState
             );
           }
           return assembledAsync.when(
-            loading: () => const AppLoadingWidget(
-                message: 'Loading case data...'),
+            loading: () =>
+                const AppLoadingWidget(message: 'Loading case data...'),
             error: (e, _) => Center(child: Text('Error: $e')),
             data: (assembled) {
               if (sections.isEmpty && !_buildingDraft) {
@@ -203,10 +200,10 @@ class _ReportBuilderScreenState
                   ),
                   // ── Postprocessing tab ───────────────────────────
                   _PostprocessingTab(
-                    output:      activeOutput,
-                    assembled:   assembled,
-                    sections:    sections,
-                    caseId:      widget.caseId,
+                    output: activeOutput,
+                    assembled: assembled,
+                    sections: sections,
+                    caseId: widget.caseId,
                     allApproved: sections.values.every((s) => s.approved),
                     onStatusChange: (status) => _updateStatus(status),
                   ),
@@ -230,16 +227,15 @@ class _ReportBuilderScreenState
   }
 
   void _showNewOutput(BuildContext context) {
-    final existingCount = ref
-        .read(reportOutputsProvider(widget.caseId))
-        .valueOrNull
-        ?.length ?? 0;
+    final existingCount =
+        ref.read(reportOutputsProvider(widget.caseId)).valueOrNull?.length ?? 0;
     // Prefer assembled data; fall back to caseProvider (always loaded by now).
-    final technicalFileNo =
-        (ref.read(assembledDataProvider(widget.caseId)).valueOrNull
-                ?.caseData['technical_file_no'] as String?)
-            ?? ref.read(caseProvider(widget.caseId)).valueOrNull?.technicalFileNo
-            ?? '';
+    final technicalFileNo = (ref
+            .read(assembledDataProvider(widget.caseId))
+            .valueOrNull
+            ?.caseData['technical_file_no'] as String?) ??
+        ref.read(caseProvider(widget.caseId)).valueOrNull?.technicalFileNo ??
+        '';
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -252,10 +248,10 @@ class _ReportBuilderScreenState
           final output = await ref
               .read(reportOutputsProvider(widget.caseId).notifier)
               .createOutput(
-                caseId:       widget.caseId,
-                type:         type,
+                caseId: widget.caseId,
+                type: type,
                 reportNumber: reportNumber,
-                sequenceNo:   sequenceNo,
+                sequenceNo: sequenceNo,
               );
           setState(() => _activeOutputId = output.outputId);
         },
@@ -268,8 +264,7 @@ class _ReportBuilderScreenState
     setState(() => _buildingDraft = true);
     await ref
         .read(sectionDraftProvider(
-                (caseId: widget.caseId, outputId: output.outputId))
-            .notifier)
+            (caseId: widget.caseId, outputId: output.outputId)).notifier)
         .buildSections(assembled, output: output, aiDraft: aiDraft);
     setState(() => _buildingDraft = false);
   }
@@ -311,7 +306,8 @@ class _NoOutputs extends StatelessWidget {
           ...outputs.map((o) => Card(
                 child: ListTile(
                   leading: Container(
-                    width: 36, height: 36,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: AppColors.lightBlue,
                       borderRadius: BorderRadius.circular(8),
@@ -323,8 +319,7 @@ class _NoOutputs extends StatelessWidget {
                     '${o.outputType.label}'
                     '${o.sequenceNo > 1 ? ' No.${o.sequenceNo}' : ''}',
                     style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600),
+                        fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(o.status.label,
                       style: const TextStyle(fontSize: 11)),
@@ -359,8 +354,7 @@ class _NoOutputs extends StatelessWidget {
           const Text(
             'Create a Preliminary Report,\nAdvice or Final Report',
             textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 13, color: AppColors.textTertiary),
+            style: TextStyle(fontSize: 13, color: AppColors.textTertiary),
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
@@ -413,8 +407,7 @@ class _EditorTab extends ConsumerWidget {
           CircularProgressIndicator(color: AppColors.midBlue),
           SizedBox(height: 16),
           Text('Assembling report sections...',
-              style: TextStyle(
-                  fontSize: 13, color: AppColors.textSecondary)),
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
         ]),
       );
     }
@@ -429,7 +422,8 @@ class _EditorTab extends ConsumerWidget {
           const Expanded(
             child: Center(
               child: Text('Building sections...',
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  style:
+                      TextStyle(fontSize: 13, color: AppColors.textSecondary)),
             ),
           ),
         ],
@@ -449,7 +443,8 @@ class _EditorTab extends ConsumerWidget {
     // (Advice Summary Table)"), so showing its old free-text box here
     // would be a dead field the surveyor could fill in for nothing.
     final orderedKeys = oceanoSectionOrder
-        .where((t) => t != SectionType.executiveSummary && sections.containsKey(t))
+        .where(
+            (t) => t != SectionType.executiveSummary && sections.containsKey(t))
         .toList();
     final notifier = ref.read(
         sectionDraftProvider((caseId: caseId, outputId: outputId)).notifier);
@@ -476,7 +471,7 @@ class _EditorTab extends ConsumerWidget {
           );
         }
 
-        final key     = orderedKeys[i - 2];
+        final key = orderedKeys[i - 2];
         final section = sections[key]!;
         final hasGeneralServiceCues = assembled.surveyorNotes
             .any((n) => n['report_section'] == 'general_expenses');
@@ -492,15 +487,13 @@ class _EditorTab extends ConsumerWidget {
             isLocked: isLocked,
             assembled: assembled,
             sectionNumber: oceanoSectionNumber(key),
-            onContentChanged: (content) =>
-                notifier.updateContent(key, content),
+            onContentChanged: (content) => notifier.updateContent(key, content),
             onSurveyorReviewChanged: (review) =>
                 notifier.setSurveyorReview(key, review),
             onDraftWithAi: canAiDraft
                 ? () {
-                    final assembled = ref
-                        .read(assembledDataProvider(caseId))
-                        .valueOrNull;
+                    final assembled =
+                        ref.read(assembledDataProvider(caseId)).valueOrNull;
                     if (assembled != null) {
                       notifier.draftSectionWithAi(key, assembled);
                     }
@@ -533,19 +526,21 @@ class _CoverPhotoPicker extends ConsumerWidget {
         children: [
           // Thumbnail
           Container(
-            width: 36, height: 36,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppColors.border),
             ),
             clipBehavior: Clip.antiAlias,
-            child: coverPhoto != null && coverPhoto.localPath.isNotEmpty
-                ? Image.file(File(coverPhoto.localPath),
+            child: coverPhoto != null && coverPhoto.hasLocalFile
+                ? Image.file(File(coverPhoto.localPath!),
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.image_outlined,
-                            size: 16, color: AppColors.textTertiary))
+                    errorBuilder: (_, __, ___) => const Icon(
+                        Icons.image_outlined,
+                        size: 16,
+                        color: AppColors.textTertiary))
                 : const Icon(Icons.image_outlined,
                     size: 16, color: AppColors.textTertiary),
           ),
@@ -569,16 +564,14 @@ class _CoverPhotoPicker extends ConsumerWidget {
                 ),
                 const Text(
                   'Shared across Gallery, Vessel Particulars & Report',
-                  style: TextStyle(
-                      fontSize: 11, color: AppColors.textTertiary),
+                  style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
                 ),
               ],
             ),
           ),
           TextButton(
             onPressed: () async {
-              final picked =
-                  await showModalBottomSheet<List<PhotoModel>>(
+              final picked = await showModalBottomSheet<List<PhotoModel>>(
                 context: context,
                 isScrollControlled: true,
                 backgroundColor: Colors.transparent,
@@ -594,11 +587,10 @@ class _CoverPhotoPicker extends ConsumerWidget {
             },
             style: TextButton.styleFrom(
                 foregroundColor: AppColors.navy,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 4)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
             child: const Text('Change',
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600)),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -628,7 +620,7 @@ class _PostprocessingTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isFinal = output.outputType == OutputType.final_;
-    final case_   = ref.watch(caseProvider(caseId)).value;
+    final case_ = ref.watch(caseProvider(caseId)).value;
     final signedAttending = case_?.signedOffAttending ?? false;
     final signedReviewing = case_?.signedOffReviewing ?? false;
     final signed = (signedAttending ? 1 : 0) + (signedReviewing ? 1 : 0);
@@ -658,9 +650,8 @@ class _PostprocessingTab extends ConsumerWidget {
                 Icon(
                   bothSigned ? Icons.verified_outlined : Icons.draw_outlined,
                   size: 16,
-                  color: bothSigned
-                      ? AppColors.success
-                      : AppColors.textSecondary,
+                  color:
+                      bothSigned ? AppColors.success : AppColors.textSecondary,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -691,9 +682,9 @@ class _PostprocessingTab extends ConsumerWidget {
           ],
 
           ExportButton(
-            output:    output,
+            output: output,
             assembled: assembled,
-            sections:  sections,
+            sections: sections,
           ),
         ],
       ),
@@ -714,8 +705,7 @@ class _ChangesSummaryField extends ConsumerStatefulWidget {
       _ChangesSummaryFieldState();
 }
 
-class _ChangesSummaryFieldState
-    extends ConsumerState<_ChangesSummaryField> {
+class _ChangesSummaryFieldState extends ConsumerState<_ChangesSummaryField> {
   late TextEditingController _ctrl;
 
   @override
@@ -744,31 +734,29 @@ class _ChangesSummaryFieldState
             child: TextField(
               controller: _ctrl,
               maxLines: 1,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textPrimary),
+              style:
+                  const TextStyle(fontSize: 12, color: AppColors.textPrimary),
               decoration: InputDecoration(
                 hintText: 'Changes from ${widget.output.supersedesVersion}…',
                 hintStyle: const TextStyle(
                     fontSize: 12, color: AppColors.textTertiary),
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 6),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
-                  borderSide:
-                      const BorderSide(color: AppColors.border),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
-                  borderSide:
-                      const BorderSide(color: AppColors.border),
+                  borderSide: const BorderSide(color: AppColors.border),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(
-                      color: AppColors.midBlue, width: 1.5),
+                  borderSide:
+                      const BorderSide(color: AppColors.midBlue, width: 1.5),
                 ),
               ),
               onSubmitted: (v) => _save(v.trim()),
@@ -801,14 +789,33 @@ class _StatusActions extends StatelessWidget {
   final bool allApproved;
   final ValueChanged<ReportStatus> onStatusChange;
 
-  ({ReportStatus status, String label})? get _nextAction => switch (output.status) {
-        ReportStatus.draft        => (status: ReportStatus.selfReviewed, label: 'Mark Self-Reviewed'),
-        ReportStatus.selfReviewed => (status: ReportStatus.submittedQc,  label: 'Submit for QC'),
-        ReportStatus.submittedQc  => (status: ReportStatus.qcComments,  label: 'Add QC Comments'),
-        ReportStatus.qcComments   => (status: ReportStatus.approved,    label: 'Mark Approved'),
-        ReportStatus.approved     => (status: ReportStatus.issued,      label: 'Mark Issued'),
-        ReportStatus.issued       => (status: ReportStatus.locked,      label: 'Lock Report'),
-        ReportStatus.locked       => null,
+  ({ReportStatus status, String label})? get _nextAction =>
+      switch (output.status) {
+        ReportStatus.draft => (
+            status: ReportStatus.selfReviewed,
+            label: 'Mark Self-Reviewed'
+          ),
+        ReportStatus.selfReviewed => (
+            status: ReportStatus.submittedQc,
+            label: 'Submit for QC'
+          ),
+        ReportStatus.submittedQc => (
+            status: ReportStatus.qcComments,
+            label: 'Add QC Comments'
+          ),
+        ReportStatus.qcComments => (
+            status: ReportStatus.approved,
+            label: 'Mark Approved'
+          ),
+        ReportStatus.approved => (
+            status: ReportStatus.issued,
+            label: 'Mark Issued'
+          ),
+        ReportStatus.issued => (
+            status: ReportStatus.locked,
+            label: 'Lock Report'
+          ),
+        ReportStatus.locked => null,
       };
 
   @override
@@ -827,7 +834,8 @@ class _StatusActions extends StatelessWidget {
             output.status == ReportStatus.locked
                 ? Icons.lock_outline
                 : Icons.rule_outlined,
-            size: 18, color: AppColors.textSecondary,
+            size: 18,
+            color: AppColors.textSecondary,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -854,8 +862,8 @@ class _StatusActions extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.navy,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),

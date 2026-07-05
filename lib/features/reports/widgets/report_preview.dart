@@ -211,10 +211,10 @@ class ReportPreview extends ConsumerWidget {
             n != null ? '$n.  ${bodySections[i].title}' : bodySections[i].title;
         return _TocEntry(title, sectionPages[i]);
       },
-    )
-      ..addAll([
+    )..addAll([
         for (final g in annexureGroups)
-          _TocEntry('Annexure ${g.key}', annexureStartPage + annexureGroups.indexOf(g)),
+          _TocEntry('Annexure ${g.key}',
+              annexureStartPage + annexureGroups.indexOf(g)),
         if (assembled.aiGenerationLog.isNotEmpty)
           _TocEntry('Annexure I — AI Generation Record',
               annexureStartPage + annexureGroups.length),
@@ -558,14 +558,14 @@ class _CoverContent extends StatelessWidget {
           child: Container(
             margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             decoration: BoxDecoration(
-              color: coverPhoto != null && coverPhoto!.localPath.isNotEmpty
+              color: coverPhoto != null && coverPhoto!.hasLocalFile
                   ? Colors.white
                   : const Color(0xFFE5E7EB),
             ),
             clipBehavior: Clip.antiAlias,
-            child: coverPhoto != null && coverPhoto!.localPath.isNotEmpty
+            child: coverPhoto != null && coverPhoto!.hasLocalFile
                 ? Image.file(
-                    File(coverPhoto!.localPath),
+                    File(coverPhoto!.localPath!),
                     // Scale to fit, don't crop — cropping is a deliberate
                     // step done in the photo editor, not something the
                     // report preview/export should do automatically.
@@ -802,8 +802,8 @@ class _SummaryContent extends StatelessWidget {
                 // one bordered table cell (tabular, matching the boxed
                 // outline in the spec's suggested-layout ASCII).
                 Table(
-                  border: TableBorder.all(
-                      color: Colors.grey.shade400, width: 0.75),
+                  border:
+                      TableBorder.all(color: Colors.grey.shade400, width: 0.75),
                   children: [
                     TableRow(children: [
                       Padding(
@@ -871,10 +871,12 @@ class _SummaryContent extends StatelessWidget {
                         height: 1.5)),
                 const SizedBox(height: 6),
                 Text(legal.confidentiality,
-                    style: TextStyle(fontSize: 9, color: brand.bodyText, height: 1.5)),
+                    style: TextStyle(
+                        fontSize: 9, color: brand.bodyText, height: 1.5)),
                 const SizedBox(height: 6),
                 Text(legal.copyright,
-                    style: TextStyle(fontSize: 9, color: brand.bodyText, height: 1.5)),
+                    style: TextStyle(
+                        fontSize: 9, color: brand.bodyText, height: 1.5)),
 
                 // (b) AI Usage Declaration — suppressed entirely when no
                 // AI calls are on record (no surveyor toggle, per spec).
@@ -936,7 +938,8 @@ class _AdviceSummaryTable extends StatelessWidget {
             bottom: BorderSide(color: Colors.grey.shade400, width: 0.75),
             left: BorderSide(color: Colors.grey.shade400, width: 0.75),
             right: BorderSide(color: Colors.grey.shade400, width: 0.75),
-            horizontalInside: BorderSide(color: Colors.grey.shade300, width: 0.6),
+            horizontalInside:
+                BorderSide(color: Colors.grey.shade300, width: 0.6),
           ),
           columnWidths: const {0: FlexColumnWidth(1), 1: FlexColumnWidth(2.2)},
           children: rows
@@ -1064,7 +1067,9 @@ class _AttendanceBlocksView extends StatelessWidget {
           ],
           Text(blocks[i].introLine,
               style: TextStyle(
-                  fontSize: 9, fontStyle: FontStyle.italic, color: brand.subtleText)),
+                  fontSize: 9,
+                  fontStyle: FontStyle.italic,
+                  color: brand.subtleText)),
           const SizedBox(height: 4),
           if ((blocks[i].date ?? '').isNotEmpty)
             _AttendanceDetailLine('Date', blocks[i].date!, brand),
@@ -1094,7 +1099,9 @@ class _AttendanceDetailLine extends StatelessWidget {
         text: TextSpan(
           style: TextStyle(fontSize: 9, color: brand.bodyText),
           children: [
-            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w700)),
+            TextSpan(
+                text: '$label: ',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
             TextSpan(text: value),
           ],
         ),
@@ -1204,8 +1211,21 @@ class _SignOffBlockView extends StatelessWidget {
   Widget build(BuildContext context) {
     final today = () {
       final d = DateTime.now();
-      const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const m = [
+        '',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ];
       return '${d.day} ${m[d.month]} ${d.year}';
     }();
     final style = TextStyle(fontSize: 9.5, color: brand.bodyText, height: 1.5);
@@ -1232,9 +1252,9 @@ class _SignOffBlockView extends StatelessWidget {
         const SizedBox(height: 4),
         Container(width: 160, height: 0.75, color: Colors.grey.shade400),
         const SizedBox(height: 4),
-        Text(signOff.name,
-            style: style.copyWith(fontWeight: FontWeight.w700)),
-        if ((signOff.title ?? '').isNotEmpty) Text(signOff.title!, style: style),
+        Text(signOff.name, style: style.copyWith(fontWeight: FontWeight.w700)),
+        if ((signOff.title ?? '').isNotEmpty)
+          Text(signOff.title!, style: style),
         if ((signOff.company ?? '').isNotEmpty)
           Text(signOff.company!, style: style),
         if ((signOff.mobile ?? '').isNotEmpty)
@@ -1604,10 +1624,17 @@ class _AiGenerationRecordContent extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Table(
-                    border: TableBorder.all(color: Colors.grey.shade300, width: 0.6),
+                    border: TableBorder.all(
+                        color: Colors.grey.shade300, width: 0.6),
                     children: [
                       TableRow(children: [
-                        for (final h in ['#', 'Type', 'Section', 'Model', 'Reviewed'])
+                        for (final h in [
+                          '#',
+                          'Type',
+                          'Section',
+                          'Model',
+                          'Reviewed'
+                        ])
                           Padding(
                             padding: const EdgeInsets.all(5),
                             child: Text(h,
@@ -1619,7 +1646,8 @@ class _AiGenerationRecordContent extends StatelessWidget {
                         TableRow(children: [
                           _aiCell('${e.key + 1}'),
                           _aiCell(e.value.callType.replaceAll('_', ' ')),
-                          _aiCell(e.value.sectionLabel?.replaceAll('_', ' ') ?? '—'),
+                          _aiCell(e.value.sectionLabel?.replaceAll('_', ' ') ??
+                              '—'),
                           _aiCell(e.value.model),
                           _aiCell(e.value.humanReviewed
                               ? (e.value.humanEdited ? 'Amended' : 'Accepted')
@@ -1808,7 +1836,8 @@ class _SectionContent extends StatelessWidget {
               border: Border.all(color: brand.primary.withValues(alpha: 0.25)),
               borderRadius: BorderRadius.circular(3),
             ),
-            child: _SectionBody(section: section, assembled: assembled, brand: brand),
+            child: _SectionBody(
+                section: section, assembled: assembled, brand: brand),
           )
         else
           _SectionBody(section: section, assembled: assembled, brand: brand),
@@ -1918,8 +1947,8 @@ List<Widget> _trailingTables(
       if (wncaItems.isNotEmpty) {
         heading('WORK NOT CONCERNING AVERAGE');
         widgets.add(Text(wncaOpeningClause,
-            style: TextStyle(
-                fontSize: 9.5, color: brand.bodyText, height: 1.5)));
+            style:
+                TextStyle(fontSize: 9.5, color: brand.bodyText, height: 1.5)));
         widgets.add(const SizedBox(height: 6));
         for (final item in wncaItems) {
           widgets.add(Padding(

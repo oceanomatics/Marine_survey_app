@@ -80,7 +80,8 @@ class _CasePhotoPickerSheetState extends ConsumerState<CasePhotoPickerSheet> {
           Padding(
             padding: const EdgeInsets.only(top: 10, bottom: 4),
             child: Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
                 color: AppColors.border,
                 borderRadius: BorderRadius.circular(2),
@@ -135,8 +136,8 @@ class _CasePhotoPickerSheetState extends ConsumerState<CasePhotoPickerSheet> {
                     size: 48, color: AppColors.textTertiary),
                 SizedBox(height: 10),
                 Text('No photos in this case yet',
-                    style: TextStyle(
-                        color: AppColors.textTertiary, fontSize: 13)),
+                    style:
+                        TextStyle(color: AppColors.textTertiary, fontSize: 13)),
               ]),
             )
           else
@@ -146,8 +147,7 @@ class _CasePhotoPickerSheetState extends ConsumerState<CasePhotoPickerSheet> {
               ),
               child: GridView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 4,
                   crossAxisSpacing: 4,
                   mainAxisSpacing: 4,
@@ -163,23 +163,34 @@ class _CasePhotoPickerSheetState extends ConsumerState<CasePhotoPickerSheet> {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(6),
-                          child: Image.file(
-                            File(photo.thumbnailPath ?? photo.localPath),
-                            fit: BoxFit.cover,
-                            cacheWidth: 200,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: AppColors.surface,
-                              child: const Icon(
-                                Icons.broken_image_outlined,
-                                size: 24,
-                                color: AppColors.textTertiary,
-                              ),
-                            ),
-                          ),
+                          child: !photo.hasLocalFile
+                              ? Container(
+                                  color: AppColors.surface,
+                                  child: const Icon(
+                                    Icons.cloud_download_outlined,
+                                    size: 24,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                )
+                              : Image.file(
+                                  File(photo.thumbnailPath ?? photo.localPath!),
+                                  fit: BoxFit.cover,
+                                  cacheWidth: 200,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: AppColors.surface,
+                                    child: const Icon(
+                                      Icons.broken_image_outlined,
+                                      size: 24,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ),
+                                ),
                         ),
                         // Date label at bottom
                         Positioned(
-                          bottom: 0, left: 0, right: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 4, vertical: 2),

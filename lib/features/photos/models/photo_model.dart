@@ -80,7 +80,7 @@ class PhotoModel {
   const PhotoModel({
     required this.id,
     required this.caseId,
-    required this.localPath,
+    this.localPath,
     this.thumbnailPath,
     this.caption,
     this.allocation,
@@ -93,11 +93,17 @@ class PhotoModel {
     this.fileSizeKb,
     this.placementMode,
     this.photoSource,
+    this.driveFileId,
+    this.thumbnailDriveFileId,
   });
 
   final String id;
   final String caseId;
-  final String localPath;
+
+  /// Per-device local cache path — null if this photo hasn't been
+  /// downloaded/cached on this device yet (e.g. synced from another device,
+  /// or viewed on web where there's no local cache at all).
+  final String? localPath;
   final String? thumbnailPath;
   final String? caption;
   final PhotoAllocation? allocation;
@@ -106,10 +112,22 @@ class PhotoModel {
   final String? attendanceId;
   final DateTime takenAt;
   final PhotoSyncStatus syncStatus;
+
+  /// Google Photos shared-album URL, if synced via the "Sync to Google
+  /// Photos" feature — distinct from [driveFileId], which is the canonical
+  /// Drive-backed unified-storage copy.
   final String? remotePath;
   final double? fileSizeKb;
   final PlacementMode? placementMode;
   final PhotoSource? photoSource;
+
+  /// Drive file id of the full-resolution original — the canonical,
+  /// cross-platform copy (unified storage). Null until the background
+  /// upload completes.
+  final String? driveFileId;
+  final String? thumbnailDriveFileId;
+
+  bool get hasLocalFile => localPath != null && localPath!.isNotEmpty;
 
   /// Resolved placement mode — explicit value if set, else the spec's
   /// default: Inline for damage-item photos, Annexure otherwise.
@@ -119,10 +137,13 @@ class PhotoModel {
           ? PlacementMode.inline
           : PlacementMode.annexure);
 
+  /// Parses a row from the local SQLite cache (per-device fields present).
   factory PhotoModel.fromMap(Map<String, dynamic> m) => PhotoModel(
         id: m['id'] as String,
         caseId: m['case_id'] as String,
-        localPath: m['local_path'] as String,
+        localPath: (m['local_path'] as String?)?.isEmpty == true
+            ? null
+            : m['local_path'] as String?,
         thumbnailPath: m['thumbnail_path'] as String?,
         caption: m['caption'] as String?,
         allocation: PhotoAllocation.fromValue(m['photo_allocation'] as String?),
@@ -136,12 +157,34 @@ class PhotoModel {
         fileSizeKb: (m['file_size_kb'] as num?)?.toDouble(),
         placementMode: PlacementMode.fromValue(m['placement_mode'] as String?),
         photoSource: PhotoSource.fromValue(m['photo_source'] as String?),
+        driveFileId: m['drive_file_id'] as String?,
+        thumbnailDriveFileId: m['thumbnail_drive_file_id'] as String?,
       );
 
+  /// Parses a row from Supabase (canonical metadata; no per-device fields —
+  /// [localPath]/[thumbnailPath] are null until this device caches the file).
+  factory PhotoModel.fromSupabaseMap(Map<String, dynamic> m) => PhotoModel(
+        id: m['id'] as String,
+        caseId: m['case_id'] as String,
+        caption: m['caption'] as String?,
+        allocation: PhotoAllocation.fromValue(m['photo_allocation'] as String?),
+        linkedToType: m['linked_to_type'] as String?,
+        linkedToId: m['linked_to_id'] as String?,
+        attendanceId: m['attendance_id'] as String?,
+        takenAt: DateTime.parse(m['taken_at'] as String).toLocal(),
+        syncStatus: PhotoSyncStatus.synced,
+        fileSizeKb: (m['file_size_kb'] as num?)?.toDouble(),
+        placementMode: PlacementMode.fromValue(m['placement_mode'] as String?),
+        photoSource: PhotoSource.fromValue(m['photo_source'] as String?),
+        driveFileId: m['drive_file_id'] as String?,
+        thumbnailDriveFileId: m['thumbnail_drive_file_id'] as String?,
+      );
+
+  /// Serializes for the local SQLite cache — includes per-device fields.
   Map<String, dynamic> toMap() => {
         'id': id,
         'case_id': caseId,
-        'local_path': localPath,
+        'local_path': localPath ?? '',
         if (thumbnailPath != null) 'thumbnail_path': thumbnailPath,
         if (caption != null) 'caption': caption,
         if (allocation != null) 'photo_allocation': allocation!.value,
@@ -154,6 +197,28 @@ class PhotoModel {
         if (fileSizeKb != null) 'file_size_kb': fileSizeKb,
         if (placementMode != null) 'placement_mode': placementMode!.value,
         if (photoSource != null) 'photo_source': photoSource!.value,
+        if (driveFileId != null) 'drive_file_id': driveFileId,
+        if (thumbnailDriveFileId != null)
+          'thumbnail_drive_file_id': thumbnailDriveFileId,
+      };
+
+  /// Serializes for the Supabase `photos` table — canonical metadata only,
+  /// no per-device local paths.
+  Map<String, dynamic> toSupabaseMap() => {
+        'id': id,
+        'case_id': caseId,
+        if (caption != null) 'caption': caption,
+        if (allocation != null) 'photo_allocation': allocation!.value,
+        if (linkedToType != null) 'linked_to_type': linkedToType,
+        if (linkedToId != null) 'linked_to_id': linkedToId,
+        if (attendanceId != null) 'attendance_id': attendanceId,
+        'taken_at': takenAt.toUtc().toIso8601String(),
+        if (fileSizeKb != null) 'file_size_kb': fileSizeKb,
+        if (placementMode != null) 'placement_mode': placementMode!.value,
+        if (photoSource != null) 'photo_source': photoSource!.value,
+        if (driveFileId != null) 'drive_file_id': driveFileId,
+        if (thumbnailDriveFileId != null)
+          'thumbnail_drive_file_id': thumbnailDriveFileId,
       };
 
   // Sentinel for nullable copyWith fields.
@@ -167,14 +232,17 @@ class PhotoModel {
     String? attendanceId,
     PhotoSyncStatus? syncStatus,
     String? remotePath,
+    String? localPath,
     String? thumbnailPath,
     Object? placementMode = _unset,
     Object? photoSource = _unset,
+    String? driveFileId,
+    String? thumbnailDriveFileId,
   }) =>
       PhotoModel(
         id: id,
         caseId: caseId,
-        localPath: localPath,
+        localPath: localPath ?? this.localPath,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
         caption: caption ?? this.caption,
         allocation: allocation == _unset
@@ -193,5 +261,7 @@ class PhotoModel {
         photoSource: photoSource == _unset
             ? this.photoSource
             : photoSource as PhotoSource?,
+        driveFileId: driveFileId ?? this.driveFileId,
+        thumbnailDriveFileId: thumbnailDriveFileId ?? this.thumbnailDriveFileId,
       );
 }
