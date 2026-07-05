@@ -14,7 +14,6 @@
 // underlying data — the two had quietly diverged.
 
 import '../providers/report_provider.dart';
-import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/damage_provider.dart' show CertaintyLevel;
 
 String formatSectionDate(String iso) {
@@ -334,17 +333,23 @@ List<MachineryBlock> buildMachineryBlocks(List<Map<String, dynamic>> machinery) 
 // ── Section 8: Repairs — Work Not Concerning Average (WNCA) ───────────────
 //
 // Fixed, locked opening clause (spec verbatim) — not AI-generated, not
-// editable. Populated from `repair_periods.not_average_items`, which
-// already exists on the model; only the rendering was missing.
+// editable. Populated from context cues tagged CaseSection.notAverage
+// (docs/context_cue_system_review.md §3.1) — reintegrated 5 July 2026 from
+// the earlier `repair_periods.not_average_items` bespoke per-period list,
+// which is retired. Includes cues regardless of whether they're linked to
+// a specific repair period, same as the old flattened-across-all-periods
+// behaviour.
 const wncaOpeningClause =
     'Concurrently with the average repairs, the Owners / Managers of the '
     'vessel instructed repairs to be carried out to their own account. '
     'These included, but were not limited to, the following works:';
 
-List<String> buildWncaItems(List<RepairPeriodModel> repairPeriods) => [
-      for (final p in repairPeriods)
-        for (final item in p.notAverageItems) item.text,
-    ];
+List<String> buildWncaItems(List<Map<String, dynamic>> surveyorNotes) =>
+    surveyorNotes
+        .where((n) => n['case_section'] == 'not_average')
+        .map((n) => n['content'] as String? ?? '')
+        .where((c) => c.isNotEmpty)
+        .toList();
 
 // ── Section 10: Cause Consideration — third-party findings register ──────
 

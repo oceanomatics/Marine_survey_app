@@ -399,6 +399,10 @@ class _EditorTab extends ConsumerWidget {
     SectionType.background,
     SectionType.causation,
     SectionType.generalServices,
+    SectionType.previousWorks,
+    SectionType.extraExpenses,
+    SectionType.contractualHire,
+    SectionType.otherMatters,
   };
 
   @override

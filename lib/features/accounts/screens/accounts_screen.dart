@@ -378,14 +378,24 @@ class _CostEstimateSelector extends ConsumerStatefulWidget {
       _CostEstimateSelectorState();
 }
 
+const _kTowingOptions = {
+  'yes': 'Yes',
+  'no': 'No',
+  'n_a': 'N/A',
+};
+
 class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
   final _estimateCtrl = TextEditingController();
+  final _feeHoursCtrl = TextEditingController();
+  final _feeExpensesCtrl = TextEditingController();
   String? _pendingStatus;
   bool _initialised = false;
 
   @override
   void dispose() {
     _estimateCtrl.dispose();
+    _feeHoursCtrl.dispose();
+    _feeExpensesCtrl.dispose();
     super.dispose();
   }
 
@@ -404,6 +414,34 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
         .updateCaseRefs(estimatedRepairCost: value);
   }
 
+  Future<void> _updateGeneralExpenses(bool value) async {
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(costIncludesGeneralExpenses: value);
+  }
+
+  Future<void> _updateTowing(String value) async {
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(costIncludesTowing: value);
+  }
+
+  Future<void> _updateFeeHours(String text) async {
+    final value = double.tryParse(text.trim());
+    if (value == null) return;
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(surveyFeeReserveHours: value);
+  }
+
+  Future<void> _updateFeeExpenses(String text) async {
+    final value = double.tryParse(text.trim());
+    if (value == null) return;
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(surveyFeeReserveExpenses: value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final caseModel = ref.watch(caseProvider(widget.caseId)).value;
@@ -415,6 +453,14 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
       if (caseModel.estimatedRepairCost != null) {
         _estimateCtrl.text =
             caseModel.estimatedRepairCost!.toStringAsFixed(0);
+      }
+      if (caseModel.surveyFeeReserveHours != null) {
+        _feeHoursCtrl.text =
+            caseModel.surveyFeeReserveHours!.toStringAsFixed(1);
+      }
+      if (caseModel.surveyFeeReserveExpenses != null) {
+        _feeExpensesCtrl.text =
+            caseModel.surveyFeeReserveExpenses!.toStringAsFixed(0);
       }
     }
 
@@ -488,8 +534,156 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
               ),
             ),
           ],
+
+          const SizedBox(height: 14),
+          const Text('Cost Inclusions',
+              style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _YesNoChips(
+                label: 'General expenses',
+                value: caseModel.costIncludesGeneralExpenses == true
+                    ? 'yes'
+                    : caseModel.costIncludesGeneralExpenses == false
+                        ? 'no'
+                        : null,
+                options: const {'yes': 'Yes', 'no': 'No'},
+                accent: _kAccent,
+                onChanged: (v) => _updateGeneralExpenses(v == 'yes'),
+              ),
+              _YesNoChips(
+                label: 'Towing costs',
+                value: caseModel.costIncludesTowing,
+                options: _kTowingOptions,
+                accent: _kAccent,
+                onChanged: _updateTowing,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+          const Text('Survey Fee Reserve',
+              style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              SizedBox(
+                width: 100,
+                child: TextField(
+                  controller: _feeHoursCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    suffixText: 'hrs',
+                    hintText: 'Hours',
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onSubmitted: _updateFeeHours,
+                  onEditingComplete: () => _updateFeeHours(_feeHoursCtrl.text),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 160,
+                child: TextField(
+                  controller: _feeExpensesCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixText: '${caseModel.baseCurrency ?? ''} ',
+                    hintText: 'Expenses',
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onSubmitted: _updateFeeExpenses,
+                  onEditingComplete: () =>
+                      _updateFeeExpenses(_feeExpensesCtrl.text),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Small labelled Yes/No(/N-A) chip row — shared by the cost-inclusion
+/// toggles above.
+class _YesNoChips extends StatelessWidget {
+  const _YesNoChips({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.accent,
+    required this.onChanged,
+  });
+  final String label;
+  final String? value;
+  final Map<String, String> options;
+  final Color accent;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: options.entries.map((e) {
+            final selected = value == e.key;
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: GestureDetector(
+                onTap: () => onChanged(e.key),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? accent.withValues(alpha: 0.12)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: selected ? accent : AppColors.border,
+                        width: selected ? 1.5 : 1),
+                  ),
+                  child: Text(e.value,
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w400,
+                          color: selected ? accent : AppColors.textSecondary)),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 }

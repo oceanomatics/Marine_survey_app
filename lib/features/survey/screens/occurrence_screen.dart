@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/add_occurrence_sheet.dart';
 import '../../cases/providers/cases_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
 
 class OccurrenceScreen extends ConsumerWidget {
   const OccurrenceScreen({super.key, required this.caseId});
@@ -40,24 +42,29 @@ class OccurrenceScreen extends ConsumerWidget {
               return a.dateTime!.compareTo(b.dateTime!);
             });
 
-          if (sorted.isEmpty) {
-            return _EmptyState(onAdd: () => _showAddSheet(context, ref));
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-            itemCount: sorted.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (_, i) => _OccurrenceCard(
-              occurrence: sorted[i],
-              occurrenceCount: sorted.length,
-              onEdit: () => _showEditSheet(context, ref, sorted[i]),
-              onDelete: () => _confirmDelete(context, ref, sorted[i]),
-              onSetPrimary: () => ref
-                  .read(damageProvider(caseId).notifier)
-                  .setPrimaryOccurrence(sorted[i].occurrenceId)
-                  .then((_) => ref.invalidate(caseProvider(caseId))),
-            ),
+          return Column(
+            children: [
+              Expanded(
+                child: sorted.isEmpty
+                    ? _EmptyState(onAdd: () => _showAddSheet(context, ref))
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                        itemCount: sorted.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (_, i) => _OccurrenceCard(
+                          occurrence: sorted[i],
+                          occurrenceCount: sorted.length,
+                          onEdit: () => _showEditSheet(context, ref, sorted[i]),
+                          onDelete: () => _confirmDelete(context, ref, sorted[i]),
+                          onSetPrimary: () => ref
+                              .read(damageProvider(caseId).notifier)
+                              .setPrimaryOccurrence(sorted[i].occurrenceId)
+                              .then((_) => ref.invalidate(caseProvider(caseId))),
+                        ),
+                      ),
+              ),
+              ContextCuesPanel(caseId: caseId, section: CaseSection.occurrence),
+            ],
           );
         },
       ),

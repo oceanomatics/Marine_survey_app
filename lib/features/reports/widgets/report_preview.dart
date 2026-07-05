@@ -16,7 +16,6 @@ import '../utils/section_table_rows.dart';
 import '../utils/page2_legal_text.dart';
 import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
-import '../../survey/models/repair_period_model.dart';
 
 // Cap on the on-screen preview page's rendered width, so the "page" stays a
 // realistic, WYSIWYG size and is centred with grey canvas either side on
@@ -141,11 +140,31 @@ class ReportPreview extends ConsumerWidget {
       reportTypeLabel,
     ].join(' — ');
 
-    // Summary lives on page 2; body = everything else in §4.1 order
+    // Summary lives on page 2; body = everything else in §4.1 order.
+    // SectionType.surveyorNotes ("Advice to Assured" — retitled from
+    // "Other Matters of Relevance" 5 July 2026, see SectionType.otherMatters
+    // for the cue-drafted narrative that now carries the old name) and
+    // natureOfRepairs ("Nature of the Repairs") are omitted entirely when
+    // empty rather than shown with a placeholder — per spec (§8.4/8.5/8.6
+    // "section suppressed if no cues") and, as of 4 July 2026, the Advice
+    // to Assured legal-clause ticklist specifically ("if no inclusion omit
+    // the section entirely" — docx already does this via
+    // renderTextSection's empty-content skip; Preview previously showed
+    // every section including this one, placeholder and all). Nature of
+    // the Repairs is optional/indicative by design (5 July 2026) — it's
+    // meant to be blank until there's something worth flagging, not a
+    // section the surveyor is expected to eventually fill in.
+    const omitWhenEmpty = {
+      SectionType.surveyorNotes,
+      SectionType.natureOfRepairs,
+    };
     final summarySection = sections[SectionType.executiveSummary];
     final bodyTypes = oceanoSectionOrder
-        .where(
-            (t) => t != SectionType.executiveSummary && sections.containsKey(t))
+        .where((t) =>
+            t != SectionType.executiveSummary &&
+            sections.containsKey(t) &&
+            !(omitWhenEmpty.contains(t) &&
+                sections[t]!.fullContent.trim().isEmpty))
         .toList();
     final bodySections = bodyTypes.map((t) => sections[t]!).toList();
 
@@ -1892,10 +1911,10 @@ List<Widget> _trailingTables(
 
     case SectionType.repairs:
       // Spec §8.6 — Work Not Concerning Average: fixed locked opening
-      // clause + bullet list, rendered only when WNCA items exist.
-      final repairPeriodModels =
-          assembled.repairPeriods.map(RepairPeriodModel.fromJson).toList();
-      final wncaItems = buildWncaItems(repairPeriodModels);
+      // clause + bullet list, rendered only when WNCA items exist. Sourced
+      // from context cues tagged CaseSection.notAverage
+      // (docs/context_cue_system_review.md §3.1).
+      final wncaItems = buildWncaItems(assembled.surveyorNotes);
       if (wncaItems.isNotEmpty) {
         heading('WORK NOT CONCERNING AVERAGE');
         widgets.add(Text(wncaOpeningClause,

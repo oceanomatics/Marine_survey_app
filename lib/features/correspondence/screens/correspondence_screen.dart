@@ -284,10 +284,10 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
 
   Future<void> _sendToContext(String action) async {
     await ref.read(surveyorNotesProvider(widget.caseId).notifier).add(
-          caseId:        widget.caseId,
-          content:       action,
-          category:      NoteCategory.followUp,
-          priority:      CuePriority.important,
+          caseId:          widget.caseId,
+          content:         action,
+          natureOfContent: NatureOfContent.followUpOpenQuestion,
+          priority:        CuePriority.important,
         );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

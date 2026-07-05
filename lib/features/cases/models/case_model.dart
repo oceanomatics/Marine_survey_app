@@ -114,6 +114,21 @@ class CaseModel {
     // Clause G-1 (cost estimate status)
     this.costEstimateStatus,
     this.estimatedRepairCost,
+    // Cost inclusions + Survey Fee Reserve (relocated from the report
+    // builder's Advice Summary card — see docs/migrations/017).
+    this.costIncludesGeneralExpenses,
+    this.costIncludesTowing,
+    this.surveyFeeReserveHours,
+    this.surveyFeeReserveExpenses,
+    // Follow-up attendance (relocated from the report builder — see
+    // docs/migrations/017).
+    this.followUpRequired,
+    this.followUpDetail,
+    // Other Matters of Relevance — ticked legal-clause ids (see
+    // docs/migrations/018) and free-text additional notes (see
+    // docs/migrations/019).
+    this.otherMattersClauseIds = const [],
+    this.otherMattersNotes,
     // Sign-off
     this.signedOffAttending = false,
     this.signedOffReviewing = false,
@@ -163,6 +178,21 @@ class CaseModel {
   /// Clause G-1: 'no_invoices_yet' / 'ongoing_partial_invoices' / 'completed_all_invoices'.
   final String? costEstimateStatus;
   final double? estimatedRepairCost;
+  final bool? costIncludesGeneralExpenses;
+  final String? costIncludesTowing; // 'yes' / 'no' / 'n_a'
+  final double? surveyFeeReserveHours;
+  final double? surveyFeeReserveExpenses;
+  /// Is a follow-up survey attendance required before the case can close?
+  final bool? followUpRequired;
+  final String? followUpDetail;
+  /// Ticked `clause_library` ids for the "Other Matters of Relevance"
+  /// section — see docs/migrations/018_other_matters_clauses.sql. The
+  /// report section is omitted entirely when this is empty.
+  final List<String> otherMattersClauseIds;
+  /// Free-text additional notes/clarifications for "Other Matters of
+  /// Relevance" — see docs/migrations/019_other_matters_notes.sql. Rendered
+  /// after the ticked clause text in the same report section.
+  final String? otherMattersNotes;
 
   // Sign-off (dual sign-off gate for Final Report export)
   final bool signedOffAttending;
@@ -227,6 +257,16 @@ class CaseModel {
       surveyLocation:       json['survey_location']        as String?,
       costEstimateStatus:   json['cost_estimate_status']    as String?,
       estimatedRepairCost:  (json['estimated_repair_cost'] as num?)?.toDouble(),
+      costIncludesGeneralExpenses: json['cost_includes_general_expenses'] as bool?,
+      costIncludesTowing:   json['cost_includes_towing'] as String?,
+      surveyFeeReserveHours: (json['survey_fee_reserve_hours'] as num?)?.toDouble(),
+      surveyFeeReserveExpenses:
+          (json['survey_fee_reserve_expenses'] as num?)?.toDouble(),
+      followUpRequired: json['follow_up_required'] as bool?,
+      followUpDetail:   json['follow_up_detail'] as String?,
+      otherMattersClauseIds:
+          (json['other_matters_clause_ids'] as List?)?.cast<String>() ?? const [],
+      otherMattersNotes: json['other_matters_notes'] as String?,
       signedOffAttending: json['signed_off_attending'] as bool? ?? false,
       signedOffReviewing: json['signed_off_reviewing'] as bool? ?? false,
       signedOffAt: json['signed_off_at'] != null
@@ -275,6 +315,15 @@ class CaseModel {
     if (surveyLocation != null)       'survey_location':          surveyLocation,
     if (costEstimateStatus != null)   'cost_estimate_status':     costEstimateStatus,
     if (estimatedRepairCost != null)  'estimated_repair_cost':    estimatedRepairCost,
+    if (costIncludesGeneralExpenses != null)
+      'cost_includes_general_expenses': costIncludesGeneralExpenses,
+    if (costIncludesTowing != null)   'cost_includes_towing':     costIncludesTowing,
+    if (surveyFeeReserveHours != null)
+      'survey_fee_reserve_hours': surveyFeeReserveHours,
+    if (surveyFeeReserveExpenses != null)
+      'survey_fee_reserve_expenses': surveyFeeReserveExpenses,
+    if (followUpRequired != null)     'follow_up_required':       followUpRequired,
+    if (followUpDetail != null)       'follow_up_detail':         followUpDetail,
     'signed_off_attending': signedOffAttending,
     'signed_off_reviewing': signedOffReviewing,
     if (signedOffAt != null)                'signed_off_at':                    signedOffAt!.toIso8601String(),
@@ -311,6 +360,14 @@ class CaseModel {
     String? surveyLocation,
     String? costEstimateStatus,
     double? estimatedRepairCost,
+    bool? costIncludesGeneralExpenses,
+    String? costIncludesTowing,
+    double? surveyFeeReserveHours,
+    double? surveyFeeReserveExpenses,
+    bool? followUpRequired,
+    String? followUpDetail,
+    List<String>? otherMattersClauseIds,
+    String? otherMattersNotes,
     String? vesselName,
     String? clientName,
   }) {
@@ -342,6 +399,16 @@ class CaseModel {
       surveyLocation:        surveyLocation        ?? this.surveyLocation,
       costEstimateStatus:    costEstimateStatus    ?? this.costEstimateStatus,
       estimatedRepairCost:   estimatedRepairCost   ?? this.estimatedRepairCost,
+      costIncludesGeneralExpenses:
+          costIncludesGeneralExpenses ?? this.costIncludesGeneralExpenses,
+      costIncludesTowing:    costIncludesTowing    ?? this.costIncludesTowing,
+      surveyFeeReserveHours: surveyFeeReserveHours ?? this.surveyFeeReserveHours,
+      surveyFeeReserveExpenses:
+          surveyFeeReserveExpenses ?? this.surveyFeeReserveExpenses,
+      followUpRequired:      followUpRequired      ?? this.followUpRequired,
+      followUpDetail:        followUpDetail        ?? this.followUpDetail,
+      otherMattersClauseIds: otherMattersClauseIds ?? this.otherMattersClauseIds,
+      otherMattersNotes:     otherMattersNotes     ?? this.otherMattersNotes,
       vesselName:            vesselName            ?? this.vesselName,
       clientName:            clientName            ?? this.clientName,
       checklistProgress:     checklistProgress,

@@ -6,7 +6,7 @@ import '../../../core/api/supabase_client.dart';
 import '../models/background_model.dart';
 
 // Manages the free-form background narrative for a case (Supabase-backed).
-// Context cues are handled by surveyorNotesProvider with ReportSection tags.
+// Context cues are handled by surveyorNotesProvider with CaseSection tags.
 
 final backgroundProvider = AsyncNotifierProviderFamily<
     BackgroundNotifier, CaseBackground, String>(

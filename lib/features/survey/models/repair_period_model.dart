@@ -36,22 +36,6 @@ class RepairTimeEntry {
       };
 }
 
-// ── Work not concerning average item ──────────────────────────────────────
-
-@immutable
-class NotAverageItem {
-  const NotAverageItem({required this.itemId, required this.text});
-  final String itemId;
-  final String text;
-
-  factory NotAverageItem.fromJson(Map<String, dynamic> j) => NotAverageItem(
-        itemId: j['id'] as String,
-        text: j['text'] as String,
-      );
-
-  Map<String, dynamic> toJson() => {'id': itemId, 'text': text};
-}
-
 // ── Budget estimate ────────────────────────────────────────────────────────
 
 enum BudgetItemStatus {
@@ -163,7 +147,6 @@ class RepairPeriodModel {
     this.assignments = const [],
     this.createdAt,
     this.repairTimes = const {},
-    this.notAverageItems = const [],
     this.budgetItems = const [],
     this.budgetDisplayCurrency = 'USD',
     this.budgetBaseCurrency = 'USD',
@@ -189,7 +172,6 @@ class RepairPeriodModel {
 
   // Key format: "occ_N" for occurrence N, "owners" for owner's work.
   final Map<String, RepairTimeEntry> repairTimes;
-  final List<NotAverageItem> notAverageItems;
 
   final List<BudgetItem> budgetItems;
   final String budgetDisplayCurrency;
@@ -229,7 +211,6 @@ class RepairPeriodModel {
 
   RepairPeriodModel copyWith({
     Map<String, RepairTimeEntry>? repairTimes,
-    List<NotAverageItem>? notAverageItems,
     List<BudgetItem>? budgetItems,
     String? budgetDisplayCurrency,
     String? budgetBaseCurrency,
@@ -249,7 +230,6 @@ class RepairPeriodModel {
         assignments: assignments,
         createdAt: createdAt,
         repairTimes: repairTimes ?? this.repairTimes,
-        notAverageItems: notAverageItems ?? this.notAverageItems,
         budgetItems: budgetItems ?? this.budgetItems,
         budgetDisplayCurrency:
             budgetDisplayCurrency ?? this.budgetDisplayCurrency,
@@ -288,7 +268,6 @@ class RepairPeriodModel {
           ? DateTime.tryParse(j['created_at'] as String)
           : null,
       repairTimes: _parseRepairTimes(j['repair_times']),
-      notAverageItems: _parseNotAverageItems(j['not_average_items']),
       budgetItems: _parseBudgetItems(j['budget_items']),
       budgetDisplayCurrency:
           budgetMeta['display_currency'] as String? ?? 'USD',
@@ -312,13 +291,6 @@ class RepairPeriodModel {
     final m = v as Map<String, dynamic>;
     return m.map((k, e) =>
         MapEntry(k, RepairTimeEntry.fromJson(e as Map<String, dynamic>)));
-  }
-
-  static List<NotAverageItem> _parseNotAverageItems(dynamic v) {
-    if (v == null) return [];
-    return (v as List)
-        .map((e) => NotAverageItem.fromJson(e as Map<String, dynamic>))
-        .toList();
   }
 
   static List<BudgetItem> _parseBudgetItems(dynamic v) {
@@ -347,8 +319,6 @@ class RepairPeriodModel {
         if (notes != null) 'notes': notes,
         if (repairTimes.isNotEmpty)
           'repair_times': repairTimes.map((k, v) => MapEntry(k, v.toJson())),
-        if (notAverageItems.isNotEmpty)
-          'not_average_items': notAverageItems.map((e) => e.toJson()).toList(),
         if (budgetItems.isNotEmpty)
           'budget_items': budgetItems.map((e) => e.toJson()).toList(),
         'budget_meta': _budgetMetaJson,
@@ -364,3 +334,33 @@ class RepairPeriodModel {
 }
 
 const Object _sentinel = Object();
+
+// ── Status of Repairs — derived from repair periods ────────────────────────
+//
+// Relocated from the report builder's Advice Summary card (was a manual
+// dropdown, `report_outputs.advice_status_of_repairs`) per surveyor
+// direction (4 July 2026): "status of repairs can be deducted from the
+// repair periods." Matches the spec's option set (docs/report_builder_
+// editor_notes.md, Executive Summary "Status of Repairs" field) as closely
+// as pure date derivation allows — "Awaiting [text]" and "Deferred to
+// [date]" aren't derivable from dates alone, so they're intentionally not
+// produced here; a period with no end date reads as Ongoing instead, which
+// is the closest honest derived state.
+enum DerivedRepairStatus {
+  notCommenced('Not yet commenced'),
+  ongoing('Ongoing'),
+  complete('Complete');
+
+  const DerivedRepairStatus(this.label);
+  final String label;
+}
+
+DerivedRepairStatus deriveRepairStatus(List<RepairPeriodModel> periods) {
+  if (periods.isEmpty) return DerivedRepairStatus.notCommenced;
+  final hasStarted = periods.any((p) => p.startDate != null);
+  if (!hasStarted) return DerivedRepairStatus.notCommenced;
+  // Ongoing if any period has started but has no end date yet.
+  final anyOpen = periods.any((p) => p.startDate != null && p.endDate == null);
+  if (anyOpen) return DerivedRepairStatus.ongoing;
+  return DerivedRepairStatus.complete;
+}

@@ -142,7 +142,11 @@ class _RepairPeriodsBody extends StatelessWidget {
       return Column(
         children: [
           Expanded(child: _EmptyRepairs(onAdd: onAddPeriod)),
-          ContextCuesPanel(caseId: caseId, section: ReportSection.repairs),
+          ContextCuesPanel(caseId: caseId, section: CaseSection.repairs),
+          ContextCuesPanel(
+              caseId: caseId,
+              section: CaseSection.repairTimes,
+              initiallyExpanded: false),
         ],
       );
     }
@@ -165,7 +169,11 @@ class _RepairPeriodsBody extends StatelessWidget {
             ),
           ),
         ),
-        ContextCuesPanel(caseId: caseId, section: ReportSection.repairs),
+        ContextCuesPanel(caseId: caseId, section: CaseSection.repairs),
+        ContextCuesPanel(
+            caseId: caseId,
+            section: CaseSection.repairTimes,
+            initiallyExpanded: false),
       ],
     );
   }
@@ -463,16 +471,6 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
               onEditRow: (key, current) => _editRepairTimeRow(key, current),
             ),
 
-            // ── Work Not Concerning Average ──────────────────────────
-            const Divider(height: 1, thickness: 0.5),
-            _NotAverageSection(
-              items: period.notAverageItems,
-              onAdd: () => _addNotAverageItem(),
-              onRemove: (itemId) => ref
-                  .read(repairPeriodsProvider(widget.caseId).notifier)
-                  .removeNotAverageItem(period.periodId, itemId),
-            ),
-
             // ── Budget Estimate ──────────────────────────────────────
             const Divider(height: 1, thickness: 0.5),
             _BudgetSection(
@@ -521,49 +519,6 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
         : 'Occurrence $no';
   }
 
-  // ── Not-average item add ────────────────────────────────────────────────
-
-  void _addNotAverageItem() {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Work Item',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLines: 2,
-          decoration: const InputDecoration(
-            hintText: 'Describe the work item…',
-            border: OutlineInputBorder(),
-            contentPadding:
-                EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          ),
-          style: const TextStyle(fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              final text = ctrl.text.trim();
-              if (text.isEmpty) return;
-              Navigator.pop(ctx);
-              ref
-                  .read(repairPeriodsProvider(widget.caseId).notifier)
-                  .addNotAverageItem(widget.period.periodId, text);
-            },
-            style: ElevatedButton.styleFrom(
-                backgroundColor: _kRepairColor,
-                foregroundColor: Colors.white),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ── Repair Times section ──────────────────────────────────────────────────
@@ -946,112 +901,6 @@ class _DaysField extends StatelessWidget {
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         ),
       ],
-    );
-  }
-}
-
-// ── Not Concerning Average section ─────────────────────────────────────────
-
-class _NotAverageSection extends StatelessWidget {
-  const _NotAverageSection({
-    required this.items,
-    required this.onAdd,
-    required this.onRemove,
-  });
-
-  final List<NotAverageItem> items;
-  final VoidCallback onAdd;
-  final ValueChanged<String> onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.remove_circle_outline,
-                  size: 13, color: AppColors.textSecondary),
-              const SizedBox(width: 5),
-              const Expanded(
-                child: Text('WORK NOT CONCERNING AVERAGE',
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                        color: AppColors.textSecondary)),
-              ),
-              GestureDetector(
-                onTap: onAdd,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.textSecondary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(
-                        color:
-                            AppColors.textSecondary.withValues(alpha: 0.2)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add, size: 11, color: AppColors.textSecondary),
-                      SizedBox(width: 3),
-                      Text('Add',
-                          style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (items.isEmpty) ...[
-            const SizedBox(height: 8),
-            const Text(
-              'No items added. Tap Add to record work done at owner\'s account.',
-              style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textTertiary,
-                  fontStyle: FontStyle.italic),
-            ),
-          ] else ...[
-            const SizedBox(height: 8),
-            for (final item in items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 5),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 3, right: 6),
-                      child: Icon(Icons.circle,
-                          size: 5, color: AppColors.textSecondary),
-                    ),
-                    Expanded(
-                      child: Text(item.text,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppColors.textPrimary)),
-                    ),
-                    GestureDetector(
-                      onTap: () => onRemove(item.itemId),
-                      child: const Padding(
-                        padding: EdgeInsets.only(left: 8),
-                        child: Icon(Icons.close,
-                            size: 14, color: AppColors.textTertiary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ],
-      ),
     );
   }
 }

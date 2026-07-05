@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/attendees_provider.dart';
 import '../widgets/add_attendee_sheet.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
 
 class AttendeesScreen extends ConsumerWidget {
   const AttendeesScreen({super.key, required this.caseId});
@@ -32,14 +34,21 @@ class AttendeesScreen extends ConsumerWidget {
         loading: () =>
             const AppLoadingWidget(message: 'Loading attendees...'),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (attendees) => attendees.isEmpty
-            ? _EmptyState(onAdd: () => _showAddEdit(context, ref))
-            : _AttendeeBody(
-                attendees: attendees,
-                caseId: caseId,
-                onEdit: (a) => _showAddEdit(context, ref, existing: a),
-                onDelete: (id) => _confirmDelete(context, ref, id),
-              ),
+        data: (attendees) => Column(
+          children: [
+            Expanded(
+              child: attendees.isEmpty
+                  ? _EmptyState(onAdd: () => _showAddEdit(context, ref))
+                  : _AttendeeBody(
+                      attendees: attendees,
+                      caseId: caseId,
+                      onEdit: (a) => _showAddEdit(context, ref, existing: a),
+                      onDelete: (id) => _confirmDelete(context, ref, id),
+                    ),
+            ),
+            ContextCuesPanel(caseId: caseId, section: CaseSection.attendance),
+          ],
+        ),
       ),
     );
   }

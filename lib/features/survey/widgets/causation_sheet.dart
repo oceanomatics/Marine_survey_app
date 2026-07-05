@@ -214,7 +214,7 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
           .read(surveyorNotesProvider(occ.caseId))
           .value ?? [];
       final causationCues = notes
-          .where((n) => n.reportSection == ReportSection.causation)
+          .where((n) => n.caseSection == CaseSection.causation)
           .map((n) => n.content)
           .toList();
 

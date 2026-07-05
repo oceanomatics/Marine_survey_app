@@ -97,28 +97,35 @@ class SurveyorNotesNotifier
   Future<SurveyorNote> add({
     required String caseId,
     required String content,
-    NoteCategory category = NoteCategory.general,
-    ReportSection? reportSection,
+    NatureOfContent? natureOfContent,
+    EvidentiaryWeight? evidentiaryWeight,
+    CueOrigin? origin,
+    CaseSection? caseSection,
     CuePriority priority = CuePriority.normal,
-    DateTime? resolvedAt,
     String? linkedToType,
     String? linkedToId,
     String? source,
+    bool pendingReview = false,
   }) async {
     final now = DateTime.now();
     final note = SurveyorNote(
-      id:            _uuid.v4(),
-      caseId:        caseId,
-      content:       content,
-      category:      category,
-      reportSection: reportSection,
-      priority:      priority,
-      resolvedAt:    resolvedAt,
-      linkedToType:  linkedToType,
-      linkedToId:    linkedToId,
-      source:        source,
-      createdAt:     now,
-      updatedAt:     now,
+      id:                _uuid.v4(),
+      caseId:            caseId,
+      content:           content,
+      natureOfContent:   natureOfContent,
+      evidentiaryWeight: evidentiaryWeight,
+      origin:            origin,
+      caseSection:       caseSection,
+      priority:          priority,
+      // A cue created already-ignored gets its lost-relevance timestamp set
+      // immediately, same as flipping an existing cue to ignored would.
+      lostRelevanceAt:   priority == CuePriority.ignored ? now : null,
+      linkedToType:      linkedToType,
+      linkedToId:        linkedToId,
+      source:            source,
+      pendingReview:     pendingReview,
+      createdAt:         now,
+      updatedAt:         now,
     );
 
     var syncStatus = 'pending_upsert';
@@ -139,27 +146,43 @@ class SurveyorNotesNotifier
   Future<void> editNote(
     String noteId, {
     required String content,
-    NoteCategory? category,
-    ReportSection? reportSection,
+    NatureOfContent? natureOfContent,
+    EvidentiaryWeight? evidentiaryWeight,
+    CueOrigin? origin,
+    CaseSection? caseSection,
     CuePriority? priority,
-    bool updateResolvedAt = false,
-    DateTime? resolvedAt,
+    String? linkedToType,
+    String? linkedToId,
   }) async {
     final current = state.value ?? [];
     final note = current.firstWhere((n) => n.id == noteId);
+    final newPriority = priority ?? note.priority;
+    // Ignored <-> not-ignored transitions auto-set/clear lostRelevanceAt —
+    // it's not a separately-toggled state (docs/context_cue_system_review.md §3.6).
+    DateTime? lostRelevanceAt = note.lostRelevanceAt;
+    if (newPriority == CuePriority.ignored && note.priority != CuePriority.ignored) {
+      lostRelevanceAt = DateTime.now();
+    } else if (newPriority != CuePriority.ignored && note.priority == CuePriority.ignored) {
+      lostRelevanceAt = null;
+    }
     final updated = SurveyorNote(
-      id:            note.id,
-      caseId:        note.caseId,
-      content:       content,
-      category:      category ?? note.category,
-      reportSection: reportSection,
-      priority:      priority ?? note.priority,
-      resolvedAt:    updateResolvedAt ? resolvedAt : note.resolvedAt,
-      linkedToType:  note.linkedToType,
-      linkedToId:    note.linkedToId,
-      source:        note.source,
-      createdAt:     note.createdAt,
-      updatedAt:     DateTime.now(),
+      id:                note.id,
+      caseId:            note.caseId,
+      content:           content,
+      natureOfContent:   natureOfContent ?? note.natureOfContent,
+      evidentiaryWeight: evidentiaryWeight ?? note.evidentiaryWeight,
+      origin:            origin ?? note.origin,
+      caseSection:       caseSection,
+      priority:          newPriority,
+      lostRelevanceAt:   lostRelevanceAt,
+      linkedToType:      linkedToType ?? note.linkedToType,
+      linkedToId:        linkedToId ?? note.linkedToId,
+      source:            note.source,
+      // Any explicit edit/save counts as the surveyor reviewing the cue,
+      // whatever its previous pendingReview state was.
+      pendingReview:     false,
+      createdAt:         note.createdAt,
+      updatedAt:         DateTime.now(),
     );
 
     var syncStatus = 'pending_upsert';
@@ -167,6 +190,30 @@ class SurveyorNotesNotifier
       await SupabaseService.client
           .from(_table)
           .update(updated.toMap())
+          .eq('id', noteId);
+      syncStatus = 'synced';
+    } catch (_) {
+      // Offline
+    }
+
+    if (!kIsWeb) await _writeSQLite(updated, syncStatus: syncStatus);
+    state = AsyncData(
+        current.map((n) => n.id == noteId ? updated : n).toList());
+  }
+
+  /// One-tap confirmation for an AI-suggested allocation (§3.5) — clears
+  /// `pendingReview` without otherwise touching the cue, for the Context
+  /// Cue Manager's "Suggested" tab.
+  Future<void> confirmAllocation(String noteId) async {
+    final current = state.value ?? [];
+    final note = current.firstWhere((n) => n.id == noteId);
+    final updated = note.copyWith(pendingReview: false);
+
+    var syncStatus = 'pending_upsert';
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update({'pending_review': false})
           .eq('id', noteId);
       syncStatus = 'synced';
     } catch (_) {
@@ -211,13 +258,13 @@ class SurveyorNotesNotifier
 
   // ── Convenience filter helpers (used by section screens) ─────────────────
 
-  List<SurveyorNote> forSection(ReportSection section) =>
+  List<SurveyorNote> forCaseSection(CaseSection section) =>
       (state.value ?? [])
-          .where((n) => n.reportSection == section)
+          .where((n) => n.caseSection == section)
           .toList();
 
   List<SurveyorNote> get untagged =>
-      (state.value ?? []).where((n) => n.reportSection == null).toList();
+      (state.value ?? []).where((n) => n.caseSection == null).toList();
 
   // ── Sync queue ────────────────────────────────────────────────────────────
 
@@ -271,12 +318,21 @@ class SurveyorNotesNotifier
 
   // ── SQLite helpers ─────────────────────────────────────────────────────
 
+  /// sqflite has no boolean storage class — SQLite columns are INTEGER
+  /// 0/1, unlike the real `boolean` column Supabase/Postgres uses. toMap()
+  /// stays Supabase-shaped (a Dart bool serializes fine to JSON); this
+  /// converts just `pending_review` for the local cache write.
+  Map<String, dynamic> _sqliteMap(SurveyorNote note) => {
+        ...note.toMap(),
+        'pending_review': note.pendingReview ? 1 : 0,
+      };
+
   Future<void> _writeSQLite(SurveyorNote note,
       {required String syncStatus}) async {
     final db = await AppDatabase.instance.database;
     await db.insert(
       _table,
-      {...note.toMap(), 'sync_status': syncStatus},
+      {..._sqliteMap(note), 'sync_status': syncStatus},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -295,7 +351,7 @@ class SurveyorNotesNotifier
       for (final note in notes) {
         await txn.insert(
           _table,
-          {...note.toMap(), 'sync_status': 'synced'},
+          {..._sqliteMap(note), 'sync_status': 'synced'},
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }

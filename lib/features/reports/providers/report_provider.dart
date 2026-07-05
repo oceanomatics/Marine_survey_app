@@ -60,11 +60,23 @@ enum SectionType {
   damageDescription,    // §9  Extent of Damage
   allegation,           // §10 Owner's Allegation
   causation,            // §10 Cause Consideration / Technical Analysis
-  repairs,              // §11 Repairs (narrative)
+  natureOfRepairs,      // §11.1 Nature of the Repairs (early indicators,
+                        // ahead of any repair period existing)
+  repairs,              // §11.2 Repairs / Repair Periods (narrative)
   generalServices,      // §12 General Services & Access
+  previousWorks,        // §12.4 Previous Work on the Damaged Item
+  extraExpenses,        // §12.5 Extra Expenses to Reduce Delay
+  contractualHire,      // §12.6 Contractual / Hire
+  otherMatters,         // §12.7 Other Matters of Relevance (cue-drafted
+                        // narrative — distinct from the `surveyorNotes`
+                        // clause ticklist below, split out 5 July 2026)
   accounts,             // §13 Repair Costs (auto-table; summary commentary)
   repairTimes,          // §14 Repair Times (auto-table; summary commentary)
-  surveyorNotes,        // §15 Surveyor's Notes
+  surveyorNotes,        // §15 Advice to Assured (enum name kept for
+                        // DB/historical continuity — this was originally
+                        // "Other Matters of Relevance" before that
+                        // section split in two on 5 July 2026; see
+                        // docs/migrations/018_other_matters_clauses.sql)
   documentsOnFile,      // §16 Documents Retained on File
   documentsRequested,   // §17 Documents Requested / Outstanding
   // §18 Principal Dates — not implemented; the Chronology auto-table
@@ -89,8 +101,13 @@ const oceanoSectionOrder = [
   SectionType.damageDescription,
   SectionType.allegation,
   SectionType.causation,
+  SectionType.natureOfRepairs,
   SectionType.repairs,
   SectionType.generalServices,
+  SectionType.previousWorks,
+  SectionType.extraExpenses,
+  SectionType.contractualHire,
+  SectionType.otherMatters,
   SectionType.accounts,
   SectionType.repairTimes,
   SectionType.surveyorNotes,
@@ -375,6 +392,7 @@ class AssembledReportData {
     required this.aiGenerationLog,
     required this.allReportOutputs,
     this.organisation,
+    this.natureOfRepairs,
   });
 
   final Map<String, dynamic> caseData;
@@ -414,6 +432,9 @@ class AssembledReportData {
   final List<AiGenerationLogModel> aiGenerationLog;
   /// All report outputs for the case ordered newest-first — for version history table.
   final List<Map<String, dynamic>> allReportOutputs;
+  /// Nature of the Repairs — case_nature_of_repairs row, null if the
+  /// surveyor has never opened that section (§11.1 is then omitted).
+  final Map<String, dynamic>? natureOfRepairs;
 
   ClauseModel? clauseByType(String type) =>
       clauses.where((c) => c.clauseType == type).firstOrNull;
@@ -562,6 +583,12 @@ final assembledDataProvider =
   final repairPeriods = (results[5] as List).cast<Map<String, dynamic>>();
   final attendances = (results[6] as List).cast<Map<String, dynamic>>();
 
+  final natureOfRepairs = await SupabaseService.client
+      .from('case_nature_of_repairs')
+      .select()
+      .eq('case_id', caseId)
+      .maybeSingle();
+
   final outputFormat =
       caseData['output_format'] as String? ?? 'abl';
 
@@ -709,6 +736,7 @@ final assembledDataProvider =
     aiGenerationLog:   aiGenerationLog,
     allReportOutputs:  allReportOutputs,
     organisation:      organisation,
+    natureOfRepairs:   natureOfRepairs,
   );
 });
 
@@ -1116,7 +1144,18 @@ class SectionDraftNotifier
       aiDrafted: causeAiDrafted,
     );
 
-    // ── §11: Repairs (narrative) ──────────────────────────────────
+    // ── §11.1: Nature of the Repairs ──────────────────────────────
+    // Surveyor-entered structured indicators (not AI-drafted) — usable
+    // from the first attendance, before any repair period exists (5 July
+    // 2026). Omitted entirely when nothing has been entered, same
+    // convention as Other Matters/WNCA.
+    sections[SectionType.natureOfRepairs] = ReportSection(
+      type:    SectionType.natureOfRepairs,
+      title:   'Nature of the Repairs',
+      content: _buildNatureOfRepairsText(data.natureOfRepairs),
+    );
+
+    // ── §11.2: Repairs (narrative) ──────────────────────────────────
     // Clauses F-2/F-5 (services/hot work, from repair_periods) appended
     // after the repair period narrative, if either has content.
     final repairsNarrative = data.repairPeriods.isNotEmpty
@@ -1152,7 +1191,7 @@ class SectionDraftNotifier
     final generalServicesIsFirstBuild =
         !persisted.containsKey(SectionType.generalServices);
     final allGeneralServiceCues = data.surveyorNotes
-        .where((n) => n['report_section'] == 'general_expenses')
+        .where((n) => n['case_section'] == 'general_expenses')
         .toList();
 
     if (generalServicesIsFirstBuild &&
@@ -1221,6 +1260,308 @@ class SectionDraftNotifier
       carriedForwardContent: generalServicesCarriedForward,
     );
 
+    // ── §12.4: Previous Work on the Damaged Item ──────────────────────
+    // Auto-drafted from `previous_works`-tagged context cues, same
+    // first-build/carry-forward pattern as General Services above (see
+    // draftPreviousWorks() in ClaudeApi).
+    var previousWorksContent = '';
+    var previousWorksAiDrafted = false;
+    String? previousWorksCarriedForward;
+    final priorPreviousWorks = priorPersisted[SectionType.previousWorks];
+    final previousWorksIsFirstBuild =
+        !persisted.containsKey(SectionType.previousWorks);
+    final allPreviousWorksCues = data.surveyorNotes
+        .where((n) => n['case_section'] == 'previous_works')
+        .toList();
+
+    if (previousWorksIsFirstBuild &&
+        priorPreviousWorks != null &&
+        priorPreviousWorks.fullContent.isNotEmpty) {
+      previousWorksCarriedForward = priorPreviousWorks.fullContent;
+      if (aiDraft) {
+        final priorRaw = data.allReportOutputs
+            .where((o) => o['output_id'] == priorOutputId)
+            .firstOrNull;
+        final cutoff = priorRaw != null
+            ? DateTime.tryParse((priorRaw['issued_date']
+                    ?? priorRaw['created_at']) as String? ?? '')
+            : null;
+        final newCues = allPreviousWorksCues
+            .where((n) => cutoff == null ||
+                (DateTime.tryParse(n['created_at'] as String? ?? '')
+                        ?.isAfter(cutoff) ??
+                    true))
+            .map((n) => n['content'] as String? ?? '')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (newCues.isNotEmpty) {
+          try {
+            previousWorksContent = await ClaudeApi.draftPreviousWorks(
+              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues:  newCues,
+              reportFormat: data.outputFormat,
+              priorApprovedText: previousWorksCarriedForward,
+            );
+            previousWorksAiDrafted = previousWorksContent.isNotEmpty;
+          } catch (_) {
+            previousWorksContent = '';
+          }
+        }
+      }
+    } else if (aiDraft && previousWorksIsFirstBuild) {
+      final cues = allPreviousWorksCues
+          .map((n) => n['content'] as String? ?? '')
+          .where((c) => c.isNotEmpty)
+          .toList();
+      if (cues.isNotEmpty) {
+        try {
+          previousWorksContent = await ClaudeApi.draftPreviousWorks(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+          );
+          previousWorksAiDrafted = previousWorksContent.isNotEmpty;
+        } catch (_) {
+          previousWorksContent = '[Draft narrative — edit before issuing]';
+          previousWorksAiDrafted = true;
+        }
+      }
+    }
+    sections[SectionType.previousWorks] = ReportSection(
+      type:      SectionType.previousWorks,
+      title:     'Previous Work on the Damaged Item',
+      content:   previousWorksContent,
+      aiDrafted: previousWorksAiDrafted,
+      carriedForwardContent: previousWorksCarriedForward,
+    );
+
+    // ── §12.5: Extra Expenses to Reduce Delay ────────────────────────
+    // Auto-drafted from `extra_expenses`-tagged context cues, same
+    // first-build/carry-forward pattern as General Services above (see
+    // draftExtraExpenses() in ClaudeApi).
+    var extraExpensesContent = '';
+    var extraExpensesAiDrafted = false;
+    String? extraExpensesCarriedForward;
+    final priorExtraExpenses = priorPersisted[SectionType.extraExpenses];
+    final extraExpensesIsFirstBuild =
+        !persisted.containsKey(SectionType.extraExpenses);
+    final allExtraExpenseCues = data.surveyorNotes
+        .where((n) => n['case_section'] == 'extra_expenses')
+        .toList();
+
+    if (extraExpensesIsFirstBuild &&
+        priorExtraExpenses != null &&
+        priorExtraExpenses.fullContent.isNotEmpty) {
+      extraExpensesCarriedForward = priorExtraExpenses.fullContent;
+      if (aiDraft) {
+        final priorRaw = data.allReportOutputs
+            .where((o) => o['output_id'] == priorOutputId)
+            .firstOrNull;
+        final cutoff = priorRaw != null
+            ? DateTime.tryParse((priorRaw['issued_date']
+                    ?? priorRaw['created_at']) as String? ?? '')
+            : null;
+        final newCues = allExtraExpenseCues
+            .where((n) => cutoff == null ||
+                (DateTime.tryParse(n['created_at'] as String? ?? '')
+                        ?.isAfter(cutoff) ??
+                    true))
+            .map((n) => n['content'] as String? ?? '')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (newCues.isNotEmpty) {
+          try {
+            extraExpensesContent = await ClaudeApi.draftExtraExpenses(
+              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues:  newCues,
+              reportFormat: data.outputFormat,
+              priorApprovedText: extraExpensesCarriedForward,
+            );
+            extraExpensesAiDrafted = extraExpensesContent.isNotEmpty;
+          } catch (_) {
+            extraExpensesContent = '';
+          }
+        }
+      }
+    } else if (aiDraft && extraExpensesIsFirstBuild) {
+      final cues = allExtraExpenseCues
+          .map((n) => n['content'] as String? ?? '')
+          .where((c) => c.isNotEmpty)
+          .toList();
+      if (cues.isNotEmpty) {
+        try {
+          extraExpensesContent = await ClaudeApi.draftExtraExpenses(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+          );
+          extraExpensesAiDrafted = extraExpensesContent.isNotEmpty;
+        } catch (_) {
+          extraExpensesContent = '[Draft narrative — edit before issuing]';
+          extraExpensesAiDrafted = true;
+        }
+      }
+    }
+    sections[SectionType.extraExpenses] = ReportSection(
+      type:      SectionType.extraExpenses,
+      title:     'Extra Expenses to Reduce Delay',
+      content:   extraExpensesContent,
+      aiDrafted: extraExpensesAiDrafted,
+      carriedForwardContent: extraExpensesCarriedForward,
+    );
+
+    // ── §12.6: Contractual / Hire ──────────────────────────────────
+    // Auto-drafted from `contractual_hire`-tagged context cues, same
+    // first-build/carry-forward pattern as Extra Expenses above (see
+    // draftContractualHire() in ClaudeApi).
+    var contractualHireContent = '';
+    var contractualHireAiDrafted = false;
+    String? contractualHireCarriedForward;
+    final priorContractualHire = priorPersisted[SectionType.contractualHire];
+    final contractualHireIsFirstBuild =
+        !persisted.containsKey(SectionType.contractualHire);
+    final allContractualHireCues = data.surveyorNotes
+        .where((n) => n['case_section'] == 'contractual_hire')
+        .toList();
+
+    if (contractualHireIsFirstBuild &&
+        priorContractualHire != null &&
+        priorContractualHire.fullContent.isNotEmpty) {
+      contractualHireCarriedForward = priorContractualHire.fullContent;
+      if (aiDraft) {
+        final priorRaw = data.allReportOutputs
+            .where((o) => o['output_id'] == priorOutputId)
+            .firstOrNull;
+        final cutoff = priorRaw != null
+            ? DateTime.tryParse((priorRaw['issued_date']
+                    ?? priorRaw['created_at']) as String? ?? '')
+            : null;
+        final newCues = allContractualHireCues
+            .where((n) => cutoff == null ||
+                (DateTime.tryParse(n['created_at'] as String? ?? '')
+                        ?.isAfter(cutoff) ??
+                    true))
+            .map((n) => n['content'] as String? ?? '')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (newCues.isNotEmpty) {
+          try {
+            contractualHireContent = await ClaudeApi.draftContractualHire(
+              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues:  newCues,
+              reportFormat: data.outputFormat,
+              priorApprovedText: contractualHireCarriedForward,
+            );
+            contractualHireAiDrafted = contractualHireContent.isNotEmpty;
+          } catch (_) {
+            contractualHireContent = '';
+          }
+        }
+      }
+    } else if (aiDraft && contractualHireIsFirstBuild) {
+      final cues = allContractualHireCues
+          .map((n) => n['content'] as String? ?? '')
+          .where((c) => c.isNotEmpty)
+          .toList();
+      if (cues.isNotEmpty) {
+        try {
+          contractualHireContent = await ClaudeApi.draftContractualHire(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+          );
+          contractualHireAiDrafted = contractualHireContent.isNotEmpty;
+        } catch (_) {
+          contractualHireContent = '[Draft narrative — edit before issuing]';
+          contractualHireAiDrafted = true;
+        }
+      }
+    }
+    sections[SectionType.contractualHire] = ReportSection(
+      type:      SectionType.contractualHire,
+      title:     'Contractual / Hire',
+      content:   contractualHireContent,
+      aiDrafted: contractualHireAiDrafted,
+      carriedForwardContent: contractualHireCarriedForward,
+    );
+
+    // ── §12.7: Other Matters of Relevance (cue-drafted narrative) ─────
+    // Auto-drafted from `other_matters`-tagged context cues, same
+    // first-build/carry-forward pattern as Extra Expenses above (see
+    // draftOtherMatters() in ClaudeApi). Distinct from the `surveyorNotes`
+    // clause ticklist below (retitled "Advice to Assured", 5 July 2026) —
+    // these two used to be one combined section.
+    var otherMattersCuesContent = '';
+    var otherMattersCuesAiDrafted = false;
+    String? otherMattersCuesCarriedForward;
+    final priorOtherMattersCues = priorPersisted[SectionType.otherMatters];
+    final otherMattersCuesIsFirstBuild =
+        !persisted.containsKey(SectionType.otherMatters);
+    final allOtherMattersCues = data.surveyorNotes
+        .where((n) => n['case_section'] == 'other_matters')
+        .toList();
+
+    if (otherMattersCuesIsFirstBuild &&
+        priorOtherMattersCues != null &&
+        priorOtherMattersCues.fullContent.isNotEmpty) {
+      otherMattersCuesCarriedForward = priorOtherMattersCues.fullContent;
+      if (aiDraft) {
+        final priorRaw = data.allReportOutputs
+            .where((o) => o['output_id'] == priorOutputId)
+            .firstOrNull;
+        final cutoff = priorRaw != null
+            ? DateTime.tryParse((priorRaw['issued_date']
+                    ?? priorRaw['created_at']) as String? ?? '')
+            : null;
+        final newCues = allOtherMattersCues
+            .where((n) => cutoff == null ||
+                (DateTime.tryParse(n['created_at'] as String? ?? '')
+                        ?.isAfter(cutoff) ??
+                    true))
+            .map((n) => n['content'] as String? ?? '')
+            .where((c) => c.isNotEmpty)
+            .toList();
+        if (newCues.isNotEmpty) {
+          try {
+            otherMattersCuesContent = await ClaudeApi.draftOtherMatters(
+              vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+              contextCues:  newCues,
+              reportFormat: data.outputFormat,
+              priorApprovedText: otherMattersCuesCarriedForward,
+            );
+            otherMattersCuesAiDrafted = otherMattersCuesContent.isNotEmpty;
+          } catch (_) {
+            otherMattersCuesContent = '';
+          }
+        }
+      }
+    } else if (aiDraft && otherMattersCuesIsFirstBuild) {
+      final cues = allOtherMattersCues
+          .map((n) => n['content'] as String? ?? '')
+          .where((c) => c.isNotEmpty)
+          .toList();
+      if (cues.isNotEmpty) {
+        try {
+          otherMattersCuesContent = await ClaudeApi.draftOtherMatters(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+          );
+          otherMattersCuesAiDrafted = otherMattersCuesContent.isNotEmpty;
+        } catch (_) {
+          otherMattersCuesContent = '[Draft narrative — edit before issuing]';
+          otherMattersCuesAiDrafted = true;
+        }
+      }
+    }
+    sections[SectionType.otherMatters] = ReportSection(
+      type:      SectionType.otherMatters,
+      title:     'Other Matters of Relevance',
+      content:   otherMattersCuesContent,
+      aiDrafted: otherMattersCuesAiDrafted,
+      carriedForwardContent: otherMattersCuesCarriedForward,
+    );
+
     // ── §13: Repair Costs (auto-table in export; narrative commentary here)
     // Clause H-1: fixed approval statement, prepended whenever there are
     // accounts to approve (omitted otherwise, e.g. preliminary reports).
@@ -1249,13 +1590,36 @@ class SectionDraftNotifier
           guidanceIntro: repairTimesClause?.clauseText),
     );
 
-    // ── §15: Surveyor's Notes ─────────────────────────────────────
+    // ── §15: Advice to Assured ──────────────────────────────────────
+    // Built from ticked legal clauses (docs/migrations/018_other_matters_
+    // clauses.sql) followed by the surveyor's free-text additional notes
+    // (docs/migrations/019_other_matters_notes.sql). Originally titled
+    // "Other Matters of Relevance"; split and retitled "Advice to Assured"
+    // per surveyor direction (5 July 2026) — the cue-driven "Other Matters
+    // of Relevance" narrative above (`SectionType.otherMatters`) is now a
+    // separate section; this one stays clause-ticklist-driven. isLocked
+    // mirrors every other clause-composed section (e.g. `opening`) — both
+    // parts are edited at their source (ticklist / notes field on the
+    // case screen), not inline in the section textbox here. Empty content
+    // here means the section is omitted entirely by both docx's
+    // renderTextSection and the Preview tab (report_preview.dart).
+    final tickedOtherMattersClauseIds =
+        (data.caseData['other_matters_clause_ids'] as List?)?.cast<String>() ??
+            const [];
+    final otherMattersClauseText = data.clauses
+        .where((c) => tickedOtherMattersClauseIds.contains(c.clauseId))
+        .map((c) => c.clauseText)
+        .join('\n\n');
+    final otherMattersNotesText =
+        (data.caseData['other_matters_notes'] as String?)?.trim() ?? '';
+    final adviceToAssuredText = [otherMattersClauseText, otherMattersNotesText]
+        .where((s) => s.isNotEmpty)
+        .join('\n\n');
     sections[SectionType.surveyorNotes] = ReportSection(
-      type:    SectionType.surveyorNotes,
-      title:   "Surveyor's Notes",
-      content: data.surveyorNotes.isNotEmpty
-          ? _buildSurveyorNotesText(data.surveyorNotes)
-          : '',
+      type:     SectionType.surveyorNotes,
+      title:    'Advice to Assured',
+      content:  adviceToAssuredText,
+      isLocked: adviceToAssuredText.isNotEmpty,
     );
 
     // ── §16: Documents Retained on File (Clause K-1) ──────────────
@@ -1510,12 +1874,64 @@ class SectionDraftNotifier
           );
         case SectionType.generalServices:
           final cues = data.surveyorNotes
-              .where((n) => n['report_section'] == 'general_expenses')
+              .where((n) => n['case_section'] == 'general_expenses')
               .map((n) => n['content'] as String? ?? '')
               .where((c) => c.isNotEmpty)
               .toList();
           if (cues.isEmpty) return;
           content = await ClaudeApi.draftGeneralServices(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.previousWorks:
+          final cues = data.surveyorNotes
+              .where((n) => n['case_section'] == 'previous_works')
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          if (cues.isEmpty) return;
+          content = await ClaudeApi.draftPreviousWorks(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.extraExpenses:
+          final cues = data.surveyorNotes
+              .where((n) => n['case_section'] == 'extra_expenses')
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          if (cues.isEmpty) return;
+          content = await ClaudeApi.draftExtraExpenses(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.contractualHire:
+          final cues = data.surveyorNotes
+              .where((n) => n['case_section'] == 'contractual_hire')
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          if (cues.isEmpty) return;
+          content = await ClaudeApi.draftContractualHire(
+            vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
+            contextCues:  cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.otherMatters:
+          final cues = data.surveyorNotes
+              .where((n) => n['case_section'] == 'other_matters')
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          if (cues.isEmpty) return;
+          content = await ClaudeApi.draftOtherMatters(
             vesselName:   data.vessel?['name'] as String? ?? 'the vessel',
             contextCues:  cues,
             reportFormat: data.outputFormat,
@@ -1828,6 +2244,51 @@ class SectionDraftNotifier
     'hose_testing':        'services_hose_testing',
   };
 
+  /// §11.1 Nature of the Repairs — surveyor-entered flags (each with an
+  /// optional comment) plus a free "anticipated sequence of repairs"
+  /// bullet list. Each bullet/line is its own paragraph (blank-line
+  /// separated) so [splitSectionParagraphs] renders them individually.
+  String _buildNatureOfRepairsText(Map<String, dynamic>? n) {
+    if (n == null) return '';
+
+    String? bullet(String flagKey, String commentKey, String label) {
+      if (n[flagKey] != true) return null;
+      final comment = (n[commentKey] as String?)?.trim();
+      return comment != null && comment.isNotEmpty
+          ? '•  $label: $comment'
+          : '•  $label.';
+    }
+
+    final bullets = [
+      bullet('drydocking_required', 'drydocking_comment',
+          'Drydocking of the vessel is anticipated'),
+      bullet('assured_plan_formulated', 'assured_plan_comment',
+          'The Assured has formulated a plan for the repairs'),
+      bullet('further_inspections_planned', 'further_inspections_comment',
+          'Further inspections are planned prior to the repairs'),
+      bullet('parts_long_lead_time', 'parts_lead_time_comment',
+          'Parts with a long lead time are required'),
+      bullet('foreseeable_difficulties', 'foreseeable_difficulties_comment',
+          'Foreseeable difficulties have been identified'),
+    ].whereType<String>().toList();
+
+    final sequenceItems = (n['sequence_items'] as List?)
+            ?.cast<Map<String, dynamic>>()
+            .map((e) => e['text'] as String? ?? '')
+            .where((t) => t.isNotEmpty)
+            .toList() ??
+        const [];
+
+    return [
+      if (bullets.isNotEmpty) bullets.join('\n\n'),
+      if (sequenceItems.isNotEmpty)
+        [
+          'Anticipated Sequence of Repairs:',
+          ...sequenceItems.map((t) => '•  $t'),
+        ].join('\n\n'),
+    ].join('\n\n');
+  }
+
   String _buildRepairsText(List<Map<String, dynamic>> periods) {
     return periods.map((json) {
       final p = RepairPeriodModel.fromJson(json);
@@ -2009,15 +2470,6 @@ class SectionDraftNotifier
     }).join('\n\n');
   }
 
-  String _buildSurveyorNotesText(List<Map<String, dynamic>> notes) {
-    return notes.asMap().entries.map((e) {
-      final idx     = e.key + 1;
-      final content = e.value['content'] as String? ?? '';
-      final tag     = e.value['section_tag'] as String? ?? '';
-      final prefix  = tag.isNotEmpty ? '[$tag] ' : '';
-      return '$idx. $prefix$content';
-    }).join('\n\n');
-  }
 
   String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs,
       {String? header}) {

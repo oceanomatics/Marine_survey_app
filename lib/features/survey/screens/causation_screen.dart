@@ -81,7 +81,7 @@ class CausationScreen extends ConsumerWidget {
               ),
               ContextCuesPanel(
                 caseId: caseId,
-                section: ReportSection.causation,
+                section: CaseSection.causation,
               ),
             ],
           );

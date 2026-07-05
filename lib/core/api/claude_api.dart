@@ -536,7 +536,7 @@ Draft the sub-causation paragraph now (plain text, no headers or markdown):''',
   // ── General Services & Access draft (spec §8.4) ───────────────────────────
 
   /// Drafts the "General Services and Access" subsection from tagged
-  /// context cues (surveyor_notes with report_section = 'general_expenses') —
+  /// context cues (surveyor_notes with case_section = 'general_expenses') —
   /// e.g. drydocking, staging, gas freeing, crane hire. Per spec output
   /// rule: states what services were provided, by whom, and when — never
   /// includes costs (those belong in the cost section).
@@ -585,6 +585,261 @@ Draft the paragraph now:''',
       },
     );
     return _extractText(response.data);
+  }
+
+  // ── Previous Work on the Damaged Item draft ───────────────────────────────
+
+  /// Drafts the "Previous Work on the Damaged Item" subsection from tagged
+  /// context cues (surveyor_notes with case_section = 'previous_works')
+  /// — prior repairs, surveys, or interventions carried out on the damaged
+  /// item before this incident, relevant to causation. Factual only — no
+  /// speculation about whether that prior work caused or contributed to
+  /// the current damage; that judgement belongs in Cause Consideration.
+  static Future<String> draftPreviousWorks({
+    required String vesselName,
+    required List<String> contextCues,
+    String? reportFormat,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
+    String? priorApprovedText,
+  }) async {
+    final cuesText = contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+          'this case — do not repeat or restate any of this; it is shown '
+          'only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation that reads naturally after it. If none of the '
+          'context cues above are genuinely new compared to the prior '
+          'text, return an empty string.'
+        : '';
+
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'previous_works_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Previous Work on the Damaged Item" subsection of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This records prior repairs, surveys, or interventions carried out on the damaged item before the current incident — factual history only.
+
+Write one short prose paragraph stating what prior work is known to have been carried out on the item, by whom and when, based only on the surveyor's notes below. Do NOT speculate on whether that prior work caused or contributed to the current damage — that judgement belongs elsewhere in the report. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  // ── Extra Expenses to Reduce Delay draft (spec §8.5) ──────────────────────
+
+  /// Drafts the "Extra Expenses to Reduce Delay" subsection from tagged
+  /// context cues (surveyor_notes with case_section = 'extra_expenses') —
+  /// e.g. yard selection premium, overtime, expedited freight of spare
+  /// parts. Per spec output rule: states what measures were taken and why
+  /// they were necessary to reduce delay — never itemizes actual costs
+  /// (those belong in the cost section).
+  static Future<String> draftExtraExpenses({
+    required String vesselName,
+    required List<String> contextCues,
+    String? reportFormat,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
+    String? priorApprovedText,
+  }) async {
+    final cuesText = contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+          'this case — do not repeat or restate any of this; it is shown '
+          'only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation that reads naturally after it. If none of the '
+          'context cues above are genuinely new compared to the prior '
+          'text, return an empty string.'
+        : '';
+
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'extra_expenses_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Extra Expenses to Reduce Delay" subsection of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This covers additional expense reasonably incurred specifically to reduce delay to the vessel — e.g. yard selection premium over a cheaper but slower yard, authorized overtime, expedited/air freight of spare parts, expedited certification.
+
+Write one short prose paragraph stating what measures were taken and why they were necessary to reduce delay, based only on the surveyor's notes below. Do NOT state or estimate any dollar figures — those are covered elsewhere in the report. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  // ── Contractual / Hire draft ───────────────────────────────────────────────
+
+  /// Drafts the "Contractual / Hire" subsection from tagged context cues
+  /// (surveyor_notes with case_section = 'contractual_hire') — charter
+  /// party terms, off-hire periods, contractual notices to owners/
+  /// charterers, time-bar considerations. Factual only — states what was
+  /// agreed/notified, not a legal opinion on contractual entitlement.
+  static Future<String> draftContractualHire({
+    required String vesselName,
+    required List<String> contextCues,
+    String? reportFormat,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
+    String? priorApprovedText,
+  }) async {
+    final cuesText = contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+          'this case — do not repeat or restate any of this; it is shown '
+          'only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation that reads naturally after it. If none of the '
+          'context cues above are genuinely new compared to the prior '
+          'text, return an empty string.'
+        : '';
+
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'contractual_hire_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Contractual / Hire" subsection of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This covers charter party terms, off-hire periods arising from the incident/repairs, and any contractual notices exchanged between owners/charterers/managers.
+
+Write one short prose paragraph stating what was agreed or notified, by whom and when, based only on the surveyor's notes below. State facts only — do not offer a legal opinion on contractual entitlement or liability. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  // ── Other Matters of Relevance draft ───────────────────────────────────────
+
+  /// Drafts the "Other Matters of Relevance" narrative from tagged context
+  /// cues (surveyor_notes with case_section = 'other_matters') — general
+  /// observations or matters relevant to the case not captured in another
+  /// section. Distinct from the "Advice to Assured" clause ticklist
+  /// (docs/migrations/018_other_matters_clauses.sql), which this section
+  /// was split out from on 5 July 2026.
+  static Future<String> draftOtherMatters({
+    required String vesselName,
+    required List<String> contextCues,
+    String? reportFormat,
+    /// Successive-report carry-forward (docs/report_builder_editor_notes.md
+    /// gap #10) — see [draftOccurrenceNarrative]'s equivalent parameter.
+    String? priorApprovedText,
+  }) async {
+    final cuesText = contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null && priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+          'this case — do not repeat or restate any of this; it is shown '
+          'only so you know what has already been said):\n'
+          '"""\n$priorApprovedText\n"""\n\n'
+          'Draft ONLY the new developments since the prior report above, as '
+          'a continuation that reads naturally after it. If none of the '
+          'context cues above are genuinely new compared to the prior '
+          'text, return an empty string.'
+        : '';
+
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'other_matters_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Other Matters of Relevance" subsection of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This covers general observations or matters relevant to the case that are not covered in any other section of the report.
+
+Write one short prose paragraph based only on the surveyor's notes below. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  // ── Case-screen cue quick summary (NOT report content) ────────────────────
+
+  /// Short synopsis of a case section's cues for the case-screen
+  /// presentation only (docs/context_cue_system_review.md §3.3) — helps the
+  /// surveyor recall context before attending the vessel. Deliberately NOT
+  /// used as report content: the report builder's own dedicated drafting
+  /// pipeline (full writing-style guardrails, structured case data) is what
+  /// generates actual report text, fully decoupled from this.
+  static Future<String> draftCueQuickSummary({
+    required String sectionLabel,
+    required List<String> cues,
+  }) async {
+    if (cues.isEmpty) return '';
+    final cuesText = cues.map((c) => '• $c').join('\n');
+    final response = await _dio.post('/messages',
+      options: Options(extra: {'feature': 'cue_quick_summary'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 120,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Summarise these surveyor context cues for the "$sectionLabel" section of a marine survey case into a single short sentence (max ~20 words) — a quick reminder for the surveyor before attending the vessel, not report text. Plain, direct, no preamble, no quotation marks.
+
+CUES:
+$cuesText
+
+Summary sentence:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data).trim();
   }
 
   // ── Generalized Document Extraction ──────────────────────────────────────

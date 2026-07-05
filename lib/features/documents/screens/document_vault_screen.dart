@@ -21,6 +21,7 @@ import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../../shared/widgets/context_cues_panel.dart' show natureOfContentColor;
 import '../../../features/vessel/providers/certificates_provider.dart';
 import '../../../features/vessel/providers/class_conditions_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart';
@@ -863,11 +864,11 @@ class _ExtractionResultSheetState
         final catStr =
             cats.length > origIdx ? cats[origIdx] : 'observation';
         await notesNotifier.add(
-          caseId:   widget.caseId,
-          content:  widget.result.contextFindings[origIdx],
-          category: NoteCategory.fromValue(catStr),
-          priority: CuePriority.normal,
-          source:   '${widget.docTitle} (${j + 1}/$total)',
+          caseId:          widget.caseId,
+          content:         widget.result.contextFindings[origIdx],
+          natureOfContent: _mapExtractedNature(catStr),
+          priority:        CuePriority.normal,
+          source:          '${widget.docTitle} (${j + 1}/$total)',
         );
       }
 
@@ -1161,7 +1162,7 @@ class _ExtractionResultSheetState
                   final catStr = result.findingCategories.length > i
                       ? result.findingCategories[i]
                       : 'observation';
-                  final cat = NoteCategory.fromValue(catStr);
+                  final cat = _mapExtractedNature(catStr);
                   return CheckboxListTile(
                     value: _findingSelected[i],
                     onChanged: (v) =>
@@ -1438,13 +1439,31 @@ class _ExtractionResultSheetState
       };
 }
 
+// Extraction still returns the AI's free-form category guess as a raw
+// string (the extraction prompt hasn't been redesigned for the new
+// NatureOfContent/EvidentiaryWeight/Origin axes yet — see
+// docs/context_cue_system_review.md §3.5, deliberately deferred). This is a
+// lossy compatibility mapping onto the new taxonomy so the review UI still
+// shows a meaningful chip and the imported cue isn't left unclassified.
+NatureOfContent _mapExtractedNature(String raw) => switch (raw) {
+      'observation'     => NatureOfContent.observationFinding,
+      'measurement'      => NatureOfContent.observationFinding,
+      'technical'        => NatureOfContent.observationFinding,
+      'previous_works'   => NatureOfContent.observationFinding,
+      'interview'        => NatureOfContent.observationFinding,
+      'follow_up'        => NatureOfContent.followUpOpenQuestion,
+      'operations'       => NatureOfContent.backgroundReference,
+      'policy'           => NatureOfContent.backgroundReference,
+      _                  => NatureOfContent.backgroundReference,
+    };
+
 class _CatChip extends StatelessWidget {
-  const _CatChip(this.category);
-  final NoteCategory category;
+  const _CatChip(this.nature);
+  final NatureOfContent nature;
 
   @override
   Widget build(BuildContext context) {
-    final color = _catColor(category);
+    final color = natureOfContentColor(nature);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -1452,25 +1471,12 @@ class _CatChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        category.label,
+        nature.label,
         style: TextStyle(
             fontSize: 9, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
-
-  static Color _catColor(NoteCategory cat) => switch (cat) {
-        NoteCategory.observation   => const Color(0xFF2A6099),
-        NoteCategory.measurement   => const Color(0xFF7B5EA7),
-        NoteCategory.followUp      => const Color(0xFFD97706),
-        NoteCategory.interview     => const Color(0xFF0891B2),
-        NoteCategory.technical     => const Color(0xFFDC2626),
-        NoteCategory.operations    => const Color(0xFF0F766E),
-        NoteCategory.previousWorks => const Color(0xFF6B7280),
-        NoteCategory.policy        => const Color(0xFF4338CA),
-        NoteCategory.invoicing     => const Color(0xFF0284C7),
-        NoteCategory.general       => const Color(0xFF4A7A5A),
-      };
 }
 
 class _SectionHeader extends StatelessWidget {

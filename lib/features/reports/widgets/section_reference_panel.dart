@@ -15,7 +15,6 @@
 import 'package:flutter/material.dart';
 import '../providers/report_provider.dart';
 import '../utils/section_table_rows.dart';
-import '../../survey/models/repair_period_model.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class SectionReferencePanel extends StatelessWidget {
@@ -165,9 +164,7 @@ class SectionReferencePanel extends StatelessWidget {
             ]));
 
       case SectionType.repairs:
-        final repairPeriodModels =
-            assembled.repairPeriods.map(RepairPeriodModel.fromJson).toList();
-        final items = buildWncaItems(repairPeriodModels);
+        final items = buildWncaItems(assembled.surveyorNotes);
         if (items.isEmpty) return null;
         return _panel('Work Not Concerning Average (locked opening clause)',
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

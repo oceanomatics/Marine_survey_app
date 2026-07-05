@@ -17,15 +17,17 @@ import '../../../shared/widgets/error_widget.dart';
 import '../../capture/screens/camera_screen.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../survey/providers/attendees_provider.dart';
-import '../../capture/providers/voice_note_provider.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
 import '../../timeline/providers/timeline_provider.dart';
 import '../../timeline/models/timeline_event_model.dart';
 import '../../survey/providers/repair_period_provider.dart';
 import '../../survey/models/repair_period_model.dart';
+import '../../survey/providers/nature_of_repairs_provider.dart';
+import '../../survey/models/nature_of_repairs_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../../shared/widgets/context_cues_panel.dart' show repairPeriodLinkType;
 import '../../accounts/providers/accounts_provider.dart';
 import '../../accounts/models/accounts_models.dart';
 import '../../vessel/providers/certificates_provider.dart';
@@ -296,7 +298,7 @@ class _SurveyNavRail extends ConsumerWidget {
     final notes = ref.watch(surveyorNotesProvider(caseId)).value ?? [];
     final unallocatedCount = notes
         .where((n) =>
-            n.reportSection == null && n.priority != CuePriority.ignored)
+            n.caseSection == null && n.priority != CuePriority.ignored)
         .length;
 
     return Container(
@@ -641,15 +643,16 @@ class _PseudoReport extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final damage = ref.watch(damageProvider(caseId)).value;
     final attendees = ref.watch(attendeesProvider(caseId)).value ?? [];
-    final voices = ref.watch(voiceNotesProvider(caseId)).value ?? [];
     final visits = ref.watch(attendancesProvider(caseId)).value ?? [];
     final timeline = ref.watch(timelineProvider(caseId)).value ?? [];
     final repairPeriods = ref.watch(repairPeriodsProvider(caseId)).value ?? [];
+    final natureOfRepairs = ref.watch(natureOfRepairsProvider(caseId)).value;
     final repairDocs = ref.watch(repairDocumentsProvider(caseId)).value ?? [];
     final certs = ref.watch(certificatesProvider(caseId)).value ?? [];
     final outputs = ref.watch(reportOutputsProvider(caseId)).value ?? [];
     final vessel = ref.watch(vesselForCaseProvider(caseId)).value;
     final documents = ref.watch(documentProvider(caseId)).value ?? [];
+    final surveyorNotes = ref.watch(surveyorNotesProvider(caseId)).value ?? [];
 
     // Show amber left-border highlight on sections touched by the latest import.
     final review = ref.watch(importReviewProvider);
@@ -658,8 +661,9 @@ class _PseudoReport extends ConsumerWidget {
         : const <String>{};
 
     final List<Widget> sections = _sections(
-        context, damage, attendees, voices, visits, timeline, repairPeriods,
-        repairDocs, certs, outputs, vessel, documents,
+        context, damage, attendees, visits, timeline, repairPeriods,
+        natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
+        surveyorNotes, survey,
         highlighted: highlighted);
 
     return SingleChildScrollView(
@@ -680,15 +684,17 @@ class _PseudoReport extends ConsumerWidget {
     BuildContext ctx,
     DamageState? damage,
     List<AttendeeModel> attendees,
-    List<VoiceNoteModel> voices,
     List<SurveyAttendanceModel> visits,
     List<TimelineEventModel> timeline,
     List<RepairPeriodModel> repairPeriods,
+    NatureOfRepairs? natureOfRepairs,
     List<RepairDocumentModel> repairDocs,
     List<CertificateModel> certs,
     List<ReportOutput> outputs,
     VesselModel? vessel,
-    List<DocumentModel> documents, {
+    List<DocumentModel> documents,
+    List<SurveyorNote> surveyorNotes,
+    CaseModel survey, {
     Set<String> highlighted = const <String>{},
   }) {
     final occ = damage?.primaryOccurrence ?? damage?.occurrences.firstOrNull;
@@ -766,15 +772,52 @@ class _PseudoReport extends ConsumerWidget {
         child: _extentOfDamageContent(damage),
       ),
       _SectionCard(
+        accentColor: AppColors.teal,
+        icon: Icons.fact_check_outlined,
+        title: 'Nature of the Repairs',
+        countLabel: () {
+          final n = _natureOfRepairsCount(natureOfRepairs);
+          return n == 0 ? null : '$n';
+        }(),
+        onOpen: () => ctx.go('/cases/$caseId/nature-of-repairs'),
+        child: _natureOfRepairsContent(natureOfRepairs),
+      ),
+      _SectionCard(
         accentColor: AppColors.midBlue,
         icon: Icons.build_outlined,
-        title: 'Repairs',
+        title: 'Repair Periods',
         countLabel: repairPeriods.isEmpty
             ? null
             : '${repairPeriods.length} period${repairPeriods.length == 1 ? '' : 's'}',
         initiallyExpanded: repairPeriods.isNotEmpty,
         onOpen: () => ctx.go('/cases/$caseId/repairs'),
         child: _repairsContent(repairPeriods),
+      ),
+      _SectionCard(
+        accentColor: AppColors.textSecondary,
+        icon: Icons.remove_circle_outline,
+        title: 'Work Not Concerning Average',
+        countLabel: () {
+          final n = _repairPeriodScopedCueCount(
+              surveyorNotes, CaseSection.notAverage);
+          return n == 0 ? null : '$n';
+        }(),
+        onOpen: () => ctx.go('/cases/$caseId/wnca'),
+        child: _repairPeriodScopedContent(
+            surveyorNotes, repairPeriods, CaseSection.notAverage),
+      ),
+      _SectionCard(
+        accentColor: AppColors.green,
+        icon: Icons.build_circle_outlined,
+        title: 'General Services & Access',
+        countLabel: () {
+          final n = _repairPeriodScopedCueCount(
+              surveyorNotes, CaseSection.generalExpenses);
+          return n == 0 ? null : '$n';
+        }(),
+        onOpen: () => ctx.go('/cases/$caseId/general-expenses'),
+        child: _repairPeriodScopedContent(
+            surveyorNotes, repairPeriods, CaseSection.generalExpenses),
       ),
 
       _SectionCard(
@@ -796,31 +839,13 @@ class _PseudoReport extends ConsumerWidget {
       _SectionCard(
         accentColor: AppColors.midBlue,
         icon: Icons.attach_money_outlined,
-        title: 'Extra Expenses / General Expenses',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: const _SectionEmpty('Extra expenses — Phase 1.1'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.textSecondary,
-        icon: Icons.remove_circle_outline,
-        title: 'Work Not Concerning Average',
-        onOpen: () => ctx.go('/cases/$caseId/damage'),
-        child: _notAverageContent(damage),
-      ),
-      _SectionCard(
-        accentColor: AppColors.purple,
-        icon: Icons.more_horiz_outlined,
-        title: 'Other Matters of Relevance',
-        onOpen: () => ctx.go('/cases/$caseId/reports'),
-        child: const _SectionEmpty('Other matters — draft in Report Builder'),
-      ),
-      _SectionCard(
-        accentColor: AppColors.purple,
-        icon: Icons.mic_outlined,
-        title: "Surveyor's Notes",
-        countLabel: voices.isEmpty ? null : '${voices.length}',
-        onOpen: () => ctx.go('/cases/$caseId/voice'),
-        child: _voiceContent(voices),
+        title: 'Additional Information',
+        countLabel: () {
+          final n = _expenseCueCount(surveyorNotes) + survey.otherMattersClauseIds.length;
+          return n == 0 ? null : '$n';
+        }(),
+        onOpen: () => ctx.go('/cases/$caseId/expenses'),
+        child: _expensesContent(surveyorNotes, survey),
       ),
       _SectionCard(
         accentColor: AppColors.midBlue,
@@ -1230,6 +1255,20 @@ class _PseudoReport extends ConsumerWidget {
                     : AppColors.textSecondary,
           ),
         ],
+        if (occ.certaintyLevel != null) ...[
+          const SizedBox(height: 6),
+          Text('Certainty: ${occ.certaintyLevel!.label}',
+              style: const TextStyle(
+                  fontSize: 11, color: AppColors.textSecondary)),
+        ],
+        if (occ.thirdPartyFindings.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+              '${occ.thirdPartyFindings.length} third-party finding'
+              '${occ.thirdPartyFindings.length == 1 ? '' : 's'} recorded',
+              style: const TextStyle(
+                  fontSize: 11, color: AppColors.textTertiary)),
+        ],
       ],
     );
   }
@@ -1273,13 +1312,165 @@ class _PseudoReport extends ConsumerWidget {
     }
   }
 
+  // Nature of the Repairs — early indicator questions + anticipated repair
+  // sequence, usable before any repair period exists (5 July 2026): "if we
+  // attend a vessel right after the incident... there are at least some
+  // indications of where this claim is going."
+  static final _natureOfRepairsQuestions = [
+    ('Drydocking required', (NatureOfRepairs n) => n.drydockingRequired),
+    ("Assured's plan formulated", (NatureOfRepairs n) => n.assuredPlanFormulated),
+    ('Further inspections planned', (NatureOfRepairs n) => n.furtherInspectionsPlanned),
+    ('Parts with long lead time', (NatureOfRepairs n) => n.partsLongLeadTime),
+    ('Foreseeable difficulties', (NatureOfRepairs n) => n.foreseeableDifficulties),
+  ];
+
+  int _natureOfRepairsCount(NatureOfRepairs? n) {
+    if (n == null) return 0;
+    final ticked = _natureOfRepairsQuestions.where((q) => q.$2(n)).length;
+    return ticked + n.sequenceItems.length;
+  }
+
+  Widget _natureOfRepairsContent(NatureOfRepairs? n) {
+    if (n == null || n.isEmpty) {
+      return const _SectionEmpty('No indications recorded yet — tap Open to add');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final q in _natureOfRepairsQuestions)
+          if (q.$2(n))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.circle, size: 5, color: AppColors.textTertiary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(q.$1,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ),
+                ],
+              ),
+            ),
+        if (n.sequenceItems.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.circle, size: 5, color: AppColors.textTertiary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Anticipated sequence of repairs',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ),
+                Text('${n.sequenceItems.length}',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Work Not Concerning Average / General Services & Access — both
+  // repair-period-scoped case sections (see
+  // repair_period_scoped_cues_screen.dart, docs/context_cue_system_review.md
+  // §3.1/§3.2): cues tagged with the section, each optionally linked to a
+  // specific repair period, or sitting in the "not allocated" bucket.
+  int _repairPeriodScopedCueCount(List<SurveyorNote> notes, CaseSection section) =>
+      notes.where((n) => n.caseSection == section).length;
+
+  Widget _repairPeriodScopedContent(
+    List<SurveyorNote> notes,
+    List<RepairPeriodModel> periods,
+    CaseSection section,
+  ) {
+    final sectionNotes = notes.where((n) => n.caseSection == section).toList();
+    if (sectionNotes.isEmpty) {
+      return const _SectionEmpty('No cues recorded — tap Open to add');
+    }
+    final unassigned = sectionNotes
+        .where((n) =>
+            n.linkedToType != repairPeriodLinkType || n.linkedToId == null)
+        .length;
+    final byPeriod = <String, int>{};
+    for (final n in sectionNotes) {
+      if (n.linkedToType == repairPeriodLinkType && n.linkedToId != null) {
+        byPeriod[n.linkedToId!] = (byPeriod[n.linkedToId!] ?? 0) + 1;
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (unassigned > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.circle, size: 5, color: AppColors.warning),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Not allocated to a period',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ),
+                Text('$unassigned',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary)),
+              ],
+            ),
+          ),
+        for (final p in periods)
+          if (byPeriod[p.periodId] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.circle, size: 5, color: AppColors.textTertiary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(p.displayTitle,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ),
+                  Text('${byPeriod[p.periodId]}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+      ],
+    );
+  }
+
   Widget _repairsContent(List<RepairPeriodModel> periods) {
     if (periods.isEmpty) {
       return const _SectionEmpty('No repair periods — tap Open to add');
     }
+    // Status of Repairs — derived from period dates rather than manually
+    // entered (relocated from the report builder's Advice Summary card,
+    // 4 July 2026: "status of repairs can be deducted from the repair
+    // periods").
+    final derivedStatus = deriveRepairStatus(periods);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: periods.map((period) {
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            const Icon(Icons.info_outline, size: 12, color: AppColors.textTertiary),
+            const SizedBox(width: 5),
+            Text('Status of Repairs: ${derivedStatus.label}',
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary)),
+          ]),
+        ),
+        ...periods.map((period) {
         final contextColor = period.portContext == PortContext.planned
             ? AppColors.success
             : AppColors.warning;
@@ -1336,7 +1527,8 @@ class _PseudoReport extends ConsumerWidget {
             ],
           ),
         );
-      }).toList(),
+        }),
+      ],
     );
   }
 
@@ -1346,58 +1538,6 @@ class _PseudoReport extends ConsumerWidget {
       text.length > 250 ? '${text.substring(0, 250)}…' : text,
       style:
           const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-    );
-  }
-
-  Widget _voiceContent(List<VoiceNoteModel> voices) {
-    if (voices.isEmpty) return const _SectionEmpty('No recordings yet');
-    final transcribed = voices
-        .where((n) => n.status == 'transcribed' || n.status == 'routed')
-        .length;
-    final pending = voices.where((n) => n.status == 'pending').length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            _StatPill(
-                label: 'Transcribed',
-                value: transcribed,
-                color: AppColors.purple),
-            if (pending > 0) ...[
-              const SizedBox(width: 6),
-              _StatPill(
-                  label: 'Pending',
-                  value: pending,
-                  color: AppColors.warning),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-        ...voices.take(3).map((n) => Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.graphic_eq,
-                      size: 13,
-                      color: AppColors.purple.withValues(alpha: 0.5)),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      n.transcript?.isNotEmpty == true
-                          ? n.transcript!.length > 100
-                              ? '${n.transcript!.substring(0, 100)}…'
-                              : n.transcript!
-                          : 'No transcript yet',
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textSecondary),
-                    ),
-                  ),
-                ],
-              ),
-            )),
-      ],
     );
   }
 
@@ -1512,37 +1652,75 @@ class _PseudoReport extends ConsumerWidget {
     );
   }
 
-  Widget _notAverageContent(DamageState? damage) {
-    if (damage == null) return const _SectionEmpty('No damage data');
-    final ownerItems =
-        damage.damageItems.where((d) => !d.isConcerningAverage).toList();
-    if (ownerItems.isEmpty) {
-      return const _SectionEmpty('No items excluded from average');
+  // Additional Information — count/summary for the combined section card
+  // (previousWorks/extraExpenses/contractualHire/otherMatters context cues
+  // + the Advice to Assured legal clause ticklist; see
+  // additional_information_screen.dart for the full editor). Work Not
+  // Concerning Average has its own standalone section/card (see
+  // _wncaContent above) — not part of this tag set. generalExpenses
+  // dropped (5 July 2026) — its front-end entry was retired as redundant
+  // with the repair-period services checklist.
+  static const _expenseTags = {
+    CaseSection.previousWorks,
+    CaseSection.extraExpenses,
+    CaseSection.contractualHire,
+    CaseSection.otherMatters,
+  };
+
+  int _expenseCueCount(List<SurveyorNote> notes) =>
+      notes.where((n) => _expenseTags.contains(n.caseSection)).length;
+
+  Widget _expensesContent(List<SurveyorNote> notes, CaseModel survey) {
+    final cues = notes.where((n) => _expenseTags.contains(n.caseSection)).toList();
+    final tickedClauses = survey.otherMattersClauseIds.length;
+    if (cues.isEmpty && tickedClauses == 0) {
+      return const _SectionEmpty('No cues recorded — tap Open to add');
+    }
+    final byTag = <CaseSection, int>{};
+    for (final n in cues) {
+      byTag[n.caseSection!] = (byTag[n.caseSection!] ?? 0) + 1;
     }
     return Column(
-      children: ownerItems
-          .map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.remove_circle_outline,
-                        size: 12, color: AppColors.textTertiary),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(item.componentName,
-                          style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary)),
-                    ),
-                    if (item.exclusionReason != null)
-                      Text(item.exclusionReason!,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textTertiary)),
-                  ],
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final tag in _expenseTags)
+          if (byTag[tag] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.circle, size: 5, color: AppColors.textTertiary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(tag.label,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ),
+                  Text('${byTag[tag]}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textTertiary)),
+                ],
+              ),
+            ),
+        if (tickedClauses > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.circle, size: 5, color: AppColors.textTertiary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Advice to Assured (legal clauses)',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
                 ),
-              ))
-          .toList(),
+                Text('$tickedClauses',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -2194,31 +2372,6 @@ class _StatusChip extends StatelessWidget {
     );
   }
 }
-
-class _StatPill extends StatelessWidget {
-  const _StatPill(
-      {required this.label, required this.value, required this.color});
-  final String label;
-  final int value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        '$value $label',
-        style: TextStyle(
-            fontSize: 11, color: color, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
 
 class _SectionEmpty extends StatelessWidget {
   const _SectionEmpty(this.message);

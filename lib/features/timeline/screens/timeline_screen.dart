@@ -10,7 +10,9 @@ import '../widgets/add_timeline_event_sheet.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
 
 const _kColor = Color(0xFF2E7CB7);
 
@@ -73,7 +75,16 @@ class TimelineScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: entries.isEmpty ? _emptyState() : _buildList(context, ref, entries),
+      body: Column(
+        children: [
+          Expanded(
+            child: entries.isEmpty
+                ? _emptyState()
+                : _buildList(context, ref, entries),
+          ),
+          ContextCuesPanel(caseId: caseId, section: CaseSection.timeline),
+        ],
+      ),
     );
   }
 

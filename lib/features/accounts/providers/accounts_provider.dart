@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -299,13 +298,13 @@ class RepairDocumentsNotifier
           ? CuePriority.important
           : CuePriority.normal;
       await notesNotifier.add(
-        caseId:      doc.caseId,
-        content:     cue['content'] as String,
-        category:    NoteCategory.invoicing,
-        priority:    priority,
-        linkedToType: 'repair_document',
-        linkedToId:   docId,
-        source:       doc.effectiveName,
+        caseId:          doc.caseId,
+        content:         cue['content'] as String,
+        natureOfContent: NatureOfContent.observationFinding,
+        priority:        priority,
+        linkedToType:    'repair_document',
+        linkedToId:      docId,
+        source:          doc.effectiveName,
       );
     }
     return cues.length;

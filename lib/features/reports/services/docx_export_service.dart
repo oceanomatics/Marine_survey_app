@@ -649,7 +649,10 @@ class DocxExportService {
       doc.addSpacer();
     }
 
-    // ── Section 11: Repairs ───────────────────────────────────────────
+    // ── Section 11.1: Nature of the Repairs ───────────────────────────
+    renderTextSection(SectionType.natureOfRepairs, 'NATURE OF THE REPAIRS');
+
+    // ── Section 11.2: Repairs ───────────────────────────────────────────
     renderTextSection(SectionType.repairs, 'REPAIRS');
     final repairPeriodModels =
         assembled.repairPeriods.map(RepairPeriodModel.fromJson).toList();
@@ -672,9 +675,9 @@ class DocxExportService {
 
     // ── Section 8.6: Work Not Concerning Average ──────────────────────
     // Fixed, locked opening clause (spec verbatim) — not AI-generated,
-    // not editable. Populated from repair_periods.not_average_items,
-    // which already existed on the model; only rendering was missing.
-    final wncaItems = buildWncaItems(repairPeriodModels);
+    // not editable. Populated from context cues tagged
+    // CaseSection.notAverage (docs/context_cue_system_review.md §3.1).
+    final wncaItems = buildWncaItems(assembled.surveyorNotes);
     if (wncaItems.isNotEmpty) {
       doc.addHeading('WORK NOT CONCERNING AVERAGE', 2);
       doc.addParagraph(wncaOpeningClause);
@@ -686,6 +689,18 @@ class DocxExportService {
 
     // ── Section 12: General Services & Access (optional) ─────────────
     renderTextSection(SectionType.generalServices, 'GENERAL SERVICES & ACCESS');
+
+    // ── Section 12.4: Previous Work on the Damaged Item (optional) ────
+    renderTextSection(SectionType.previousWorks, 'PREVIOUS WORK ON THE DAMAGED ITEM');
+
+    // ── Section 12.5: Extra Expenses to Reduce Delay (optional) ───────
+    renderTextSection(SectionType.extraExpenses, 'EXTRA EXPENSES TO REDUCE DELAY');
+
+    // ── Section 12.6: Contractual / Hire (optional) ───────────────────
+    renderTextSection(SectionType.contractualHire, 'CONTRACTUAL / HIRE');
+
+    // ── Section 12.7: Other Matters of Relevance (optional) ───────────
+    renderTextSection(SectionType.otherMatters, 'OTHER MATTERS OF RELEVANCE');
 
     // ── Section 13: Repair Costs ──────────────────────────────────────
     final docs = assembled.repairDocuments;
@@ -940,20 +955,18 @@ class DocxExportService {
       }
     }
 
-    // ── Section 15: Surveyor's Notes (optional) ───────────────────────
-    if (assembled.surveyorNotes.isNotEmpty) {
-      doc.addHeading("SURVEYOR'S NOTES", 2);
-      for (final note in assembled.surveyorNotes) {
-        final tag     = note['section_tag'] as String?;
-        final content = note['content']     as String? ?? '';
-        if (tag != null && tag.isNotEmpty) {
-          doc.addParagraph(tag.toUpperCase(),
-              bold: true, halfPtSize: 18, colorHex: '374151');
-        }
-        doc.addParagraph(content);
-      }
-      doc.addSpacer();
-    }
+    // ── Section 15: Advice to Assured (optional) ───────────────────────
+    // Was previously an independent raw dump of every surveyor_notes row
+    // regardless of tag, completely disconnected from `sections[SectionType.
+    // surveyorNotes]`'s own content (which was built but never actually
+    // rendered anywhere in docx — a real Preview/docx drift bug found
+    // while wiring the 4 July 2026 legal-clause ticklist). Now goes
+    // through the same shared renderTextSection() as every other section,
+    // so it's correctly omitted when no clauses are ticked. Retitled from
+    // "Other Matters of Relevance" to "Advice to Assured" (5 July 2026)
+    // when that section split — see SectionType.otherMatters above for
+    // the cue-drafted narrative that now carries the old name.
+    renderTextSection(SectionType.surveyorNotes, 'ADVICE TO ASSURED');
 
     // ── Section 16: Documents Retained on File ────────────────────────
     if (assembled.caseDocuments.isNotEmpty) {

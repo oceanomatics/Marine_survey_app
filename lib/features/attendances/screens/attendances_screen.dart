@@ -10,10 +10,132 @@ import '../providers/attendances_provider.dart';
 import '../widgets/add_attendance_sheet.dart';
 import '../widgets/edit_attendees_sheet.dart';
 import '../../survey/providers/attendees_provider.dart';
+import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 
 const _kVisitsColor = Color(0xFFBF7E3A);
+
+/// Case-level "is a follow-up attendance required" flag — relocated here
+/// from the report builder's Advice Summary card per surveyor direction
+/// (4 July 2026): this is a fact about the case, not something that
+/// legitimately varies by which report is currently open, and it's
+/// inherently about attendance, so it lives at the top of this screen.
+class _FollowUpAttendanceCard extends ConsumerStatefulWidget {
+  const _FollowUpAttendanceCard({required this.caseId});
+  final String caseId;
+
+  @override
+  ConsumerState<_FollowUpAttendanceCard> createState() =>
+      _FollowUpAttendanceCardState();
+}
+
+class _FollowUpAttendanceCardState
+    extends ConsumerState<_FollowUpAttendanceCard> {
+  final _detailCtrl = TextEditingController();
+  bool _initialised = false;
+
+  @override
+  void dispose() {
+    _detailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _updateRequired(bool value) async {
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(followUpRequired: value);
+  }
+
+  Future<void> _updateDetail(String text) async {
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(followUpDetail: text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final caseModel = ref.watch(caseProvider(widget.caseId)).value;
+    if (caseModel == null) return const SizedBox.shrink();
+
+    if (!_initialised) {
+      _initialised = true;
+      _detailCtrl.text = caseModel.followUpDetail ?? '';
+    }
+
+    return Container(
+      width: double.infinity,
+      color: AppColors.surface,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Follow-Up Attendance Required?',
+              style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final opt in const [(true, 'Yes'), (false, 'No')])
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => _updateRequired(opt.$1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: caseModel.followUpRequired == opt.$1
+                            ? _kVisitsColor.withValues(alpha: 0.12)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: caseModel.followUpRequired == opt.$1
+                                ? _kVisitsColor
+                                : AppColors.border,
+                            width: caseModel.followUpRequired == opt.$1 ? 1.5 : 1),
+                      ),
+                      child: Text(opt.$2,
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: caseModel.followUpRequired == opt.$1
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: caseModel.followUpRequired == opt.$1
+                                  ? _kVisitsColor
+                                  : AppColors.textSecondary)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (caseModel.followUpRequired == true) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _detailCtrl,
+              maxLines: 2,
+              minLines: 1,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Nature and expected timeline of follow-up',
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onSubmitted: _updateDetail,
+              onEditingComplete: () => _updateDetail(_detailCtrl.text),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 class AttendancesScreen extends ConsumerWidget {
   const AttendancesScreen({super.key, required this.caseId});
@@ -41,7 +163,11 @@ class AttendancesScreen extends ConsumerWidget {
         label: const Text('Add Attendance',
             style: TextStyle(fontWeight: FontWeight.w600)),
       ),
-      body: attendancesAsync.when(
+      body: Column(
+        children: [
+          _FollowUpAttendanceCard(caseId: caseId),
+          Expanded(
+            child: attendancesAsync.when(
         loading: () =>
             const AppLoadingWidget(message: 'Loading attendance...'),
         error: (e, _) => Center(child: Text('Error: $e')),
@@ -64,6 +190,9 @@ class AttendancesScreen extends ConsumerWidget {
                     _showEditAttendeesSheet(
                         context, ref, attendance, attendees),
               ),
+            ),
+          ),
+        ],
       ),
     );
   }

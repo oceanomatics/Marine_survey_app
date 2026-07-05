@@ -138,9 +138,12 @@ class CaseContextBuilder {
         for (final note in visible) {
           final priority =
               note.priority == CuePriority.important ? '[IMPORTANT] ' : '';
-          final category = '[${note.category.label}]';
-          final resolved = note.isResolved ? ' (resolved ${_fmtDate(note.resolvedAt!)})' : '';
-          buf.writeln('- $priority$category ${note.content}$resolved');
+          final nature =
+              note.natureOfContent != null ? '[${note.natureOfContent!.label}] ' : '';
+          final lostRelevance = note.hasLostRelevance
+              ? ' (lost relevance ${_fmtDate(note.lostRelevanceAt!)})'
+              : '';
+          buf.writeln('- $priority$nature${note.content}$lostRelevance');
         }
         buf.writeln();
       }

@@ -54,7 +54,7 @@ class RepairPeriodsNotifier
     }).toList();
   }
 
-  Future<void> addPeriod(RepairPeriodModel period) async {
+  Future<RepairPeriodModel> addPeriod(RepairPeriodModel period) async {
     final inserted = await SupabaseService.client
         .from('repair_periods')
         .insert(period.toInsertJson())
@@ -63,6 +63,7 @@ class RepairPeriodsNotifier
     final created = RepairPeriodModel.fromJson(inserted);
     final next = <RepairPeriodModel>[...(state.value ?? []), created];
     state = AsyncData(next);
+    return created;
   }
 
   Future<void> deletePeriod(String periodId) async {
@@ -137,46 +138,6 @@ class RepairPeriodsNotifier
               p.periodId == periodId ? p.copyWith(repairTimes: times) : p)
           .toList(),
     );
-  }
-
-  // ── Not-average items ─────────────────────────────────────────────────────
-
-  Future<void> addNotAverageItem(String periodId, String text) async {
-    final periods = state.value ?? [];
-    final period = periods.firstWhere((p) => p.periodId == periodId);
-    final updated = [
-      ...period.notAverageItems,
-      NotAverageItem(itemId: _uuid.v4(), text: text),
-    ];
-    await _persistNotAverage(periodId, updated);
-    state = AsyncData(
-      periods
-          .map((p) =>
-              p.periodId == periodId ? p.copyWith(notAverageItems: updated) : p)
-          .toList(),
-    );
-  }
-
-  Future<void> removeNotAverageItem(String periodId, String itemId) async {
-    final periods = state.value ?? [];
-    final period = periods.firstWhere((p) => p.periodId == periodId);
-    final updated =
-        period.notAverageItems.where((i) => i.itemId != itemId).toList();
-    await _persistNotAverage(periodId, updated);
-    state = AsyncData(
-      periods
-          .map((p) =>
-              p.periodId == periodId ? p.copyWith(notAverageItems: updated) : p)
-          .toList(),
-    );
-  }
-
-  Future<void> _persistNotAverage(
-      String periodId, List<NotAverageItem> items) async {
-    await SupabaseService.client
-        .from('repair_periods')
-        .update({'not_average_items': items.map((e) => e.toJson()).toList()})
-        .eq('period_id', periodId);
   }
 
   // ── Budget estimate ───────────────────────────────────────────────────────

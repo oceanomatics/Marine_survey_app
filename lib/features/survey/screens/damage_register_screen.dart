@@ -9,9 +9,11 @@ import '../widgets/add_occurrence_sheet.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../photos/models/photo_model.dart';
 import '../../vessel/providers/vessel_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -164,25 +166,32 @@ class DamageRegisterScreen extends ConsumerWidget {
         loading: () =>
             const AppLoadingWidget(message: 'Loading damage register...'),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (ds) => ds.occurrences.isEmpty
-            ? _EmptyState(onAdd: showAddOccurrence)
-            : _DamageBody(
-                caseId: caseId,
-                ds: ds,
-                allPhotos: allPhotos,
-                machinery: machinery,
-                onAddItem: showAddDamageItem,
-                onEditItem: showEditDamageItem,
-                onDeleteItem: (damageId) => ref
-                    .read(damageProvider(caseId).notifier)
-                    .deleteDamageItem(damageId),
-                onDeleteOccurrence: confirmDeleteOccurrence,
-                onAddOccurrence: showAddOccurrence,
-                onAddPhoto: addPhotoForDamageItem,
-                onDeletePhoto: (photoId) => ref
-                    .read(photosProvider(caseId).notifier)
-                    .deletePhoto(photoId),
-              ),
+        data: (ds) => Column(
+          children: [
+            Expanded(
+              child: ds.occurrences.isEmpty
+                  ? _EmptyState(onAdd: showAddOccurrence)
+                  : _DamageBody(
+                      caseId: caseId,
+                      ds: ds,
+                      allPhotos: allPhotos,
+                      machinery: machinery,
+                      onAddItem: showAddDamageItem,
+                      onEditItem: showEditDamageItem,
+                      onDeleteItem: (damageId) => ref
+                          .read(damageProvider(caseId).notifier)
+                          .deleteDamageItem(damageId),
+                      onDeleteOccurrence: confirmDeleteOccurrence,
+                      onAddOccurrence: showAddOccurrence,
+                      onAddPhoto: addPhotoForDamageItem,
+                      onDeletePhoto: (photoId) => ref
+                          .read(photosProvider(caseId).notifier)
+                          .deletePhoto(photoId),
+                    ),
+            ),
+            ContextCuesPanel(caseId: caseId, section: CaseSection.damage),
+          ],
+        ),
       ),
     );
   }

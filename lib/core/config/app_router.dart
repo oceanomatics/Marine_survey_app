@@ -10,7 +10,11 @@ import '../../features/vessel/screens/vessel_particulars_screen.dart';
 import '../../features/survey/screens/damage_register_screen.dart';
 import '../../features/survey/screens/occurrence_screen.dart';
 import '../../features/survey/screens/causation_screen.dart';
+import '../../features/survey/screens/nature_of_repairs_screen.dart';
 import '../../features/survey/screens/repair_periods_screen.dart';
+import '../../features/survey/screens/additional_information_screen.dart';
+import '../../features/survey/screens/repair_period_scoped_cues_screen.dart';
+import '../../features/surveyor_notes/models/surveyor_note_model.dart' show CaseSection;
 import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
 import '../../features/capture/screens/quick_capture_screen.dart';
@@ -86,9 +90,39 @@ final appRouter = GoRouter(
                   DamageRegisterScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
+              path: 'nature-of-repairs',
+              builder: (context, state) => NatureOfRepairsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
               path: 'repairs',
               builder: (context, state) =>
                   RepairPeriodsScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'wnca',
+              builder: (context, state) => RepairPeriodScopedCuesScreen(
+                caseId: state.pathParameters['caseId']!,
+                section: CaseSection.notAverage,
+                title: 'Work Not Concerning Average',
+                noPeriodsHint:
+                    'Add a repair period once one exists — until then, cues here stay unallocated.',
+              ),
+            ),
+            GoRoute(
+              path: 'general-expenses',
+              builder: (context, state) => RepairPeriodScopedCuesScreen(
+                caseId: state.pathParameters['caseId']!,
+                section: CaseSection.generalExpenses,
+                title: 'General Services & Access',
+                noPeriodsHint:
+                    'No repair period yet? Record anticipated services in Nature of the Repairs instead.',
+              ),
+            ),
+            GoRoute(
+              path: 'expenses',
+              builder: (context, state) =>
+                  AdditionalInformationScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'camera',

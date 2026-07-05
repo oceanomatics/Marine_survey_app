@@ -1,12 +1,25 @@
 // lib/features/surveyor_notes/screens/surveyor_notes_screen.dart
+//
+// Cue metadata rework (docs/context_cue_system_review.md §3.4, §3.6, 5 July
+// 2026): `ReportSection` renamed `CaseSection`; `NoteCategory` retired,
+// replaced by `NatureOfContent`/`EvidentiaryWeight` axes plus a new
+// `origin` field; Priority moved to the top of the editor sheet; the manual
+// "Resolved" date picker removed — lostRelevanceAt is now auto-set by the
+// provider when a cue's priority flips to Ignored, not a separately
+// toggled state. Colour helpers and chip-row widgets now reused from
+// context_cues_panel.dart instead of duplicated here.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/surveyor_note_model.dart';
 import '../providers/surveyor_notes_provider.dart';
+import '../../survey/models/repair_period_model.dart';
+import '../../survey/providers/repair_period_provider.dart';
+import '../../survey/widgets/quick_create_repair_period.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/context_cues_panel.dart';
 
 const _kColor = Color(0xFF4A7A5A);
 
@@ -53,10 +66,10 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
       data: (notes) {
         final retained    = notes.where((n) =>
             n.priority != CuePriority.ignored &&
-            n.reportSection != null).toList();
+            n.caseSection != null).toList();
         final unallocated = notes.where((n) =>
             n.priority != CuePriority.ignored &&
-            n.reportSection == null).toList();
+            n.caseSection == null).toList();
         final ignored     = notes.where((n) =>
             n.priority == CuePriority.ignored).toList();
 
@@ -119,7 +132,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               retained.isEmpty
                   ? _EmptyState(
                       message: 'No retained cues yet',
-                      sub: 'Assign a report section to a cue to retain it here',
+                      sub: 'Assign a case section to a cue to retain it here',
                       onAdd: () => _showNoteEditor(context, ref),
                     )
                   : _RetainedList(
@@ -134,7 +147,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               unallocated.isEmpty
                   ? _EmptyState(
                       message: 'No unallocated cues',
-                      sub: 'New cues without a report section appear here',
+                      sub: 'New cues without a case section appear here',
                       onAdd: () => _showNoteEditor(context, ref),
                     )
                   : _FlatList(
@@ -176,28 +189,37 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
       builder: (_) => _NoteEditorSheet(
         caseId: widget.caseId,
         existing: note,
-        onSave: (content, category, section, priority,
-            updateResolvedAt, resolvedAt) async {
+        onSave: (content, section, priority, nature, weight, origin,
+            linkedPeriodId) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
+          final linkedToType =
+              section?.isRepairPeriodScoped == true && linkedPeriodId != null
+                  ? repairPeriodLinkType
+                  : null;
           if (note == null) {
             await notifier.add(
-              caseId:        widget.caseId,
-              content:       content,
-              category:      category,
-              reportSection: section,
-              priority:      priority,
-              resolvedAt:    resolvedAt,
+              caseId:            widget.caseId,
+              content:           content,
+              caseSection:       section,
+              priority:          priority,
+              natureOfContent:   nature,
+              evidentiaryWeight: weight,
+              origin:            origin,
+              linkedToType:      linkedToType,
+              linkedToId:        linkedToType != null ? linkedPeriodId : null,
             );
           } else {
             await notifier.editNote(
               note.id,
-              content:          content,
-              category:         category,
-              reportSection:    section,
-              priority:         priority,
-              updateResolvedAt: updateResolvedAt,
-              resolvedAt:       resolvedAt,
+              content:           content,
+              caseSection:       section,
+              priority:          priority,
+              natureOfContent:   nature,
+              evidentiaryWeight: weight,
+              origin:            origin,
+              linkedToType:      linkedToType,
+              linkedToId:        linkedToType != null ? linkedPeriodId : null,
             );
           }
         },
@@ -230,7 +252,7 @@ class _Badge extends StatelessWidget {
   }
 }
 
-// ── Retained list (grouped by report section) ─────────────────────────────
+// ── Retained list (grouped by case section) ────────────────────────────────
 
 class _RetainedList extends StatelessWidget {
   const _RetainedList(
@@ -241,15 +263,15 @@ class _RetainedList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grouped = <ReportSection, List<SurveyorNote>>{};
+    final grouped = <CaseSection, List<SurveyorNote>>{};
     for (final n in notes) {
-      grouped.putIfAbsent(n.reportSection!, () => []).add(n);
+      grouped.putIfAbsent(n.caseSection!, () => []).add(n);
     }
     for (final list in grouped.values) {
       list.sort((a, b) => a.priority.index.compareTo(b.priority.index));
     }
 
-    final sections = ReportSection.ordered.where(grouped.containsKey).toList();
+    final sections = CaseSection.ordered.where(grouped.containsKey).toList();
 
     final items = <Widget>[];
     for (var i = 0; i < sections.length; i++) {
@@ -276,7 +298,7 @@ class _RetainedList extends StatelessWidget {
   }
 }
 
-// ── Flat list (unallocated + ignored) ────────────────────────────────────
+// ── Flat list (unallocated + ignored) — grouped by nature of content ──────
 
 class _FlatList extends StatelessWidget {
   const _FlatList(
@@ -287,20 +309,19 @@ class _FlatList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Group by category for unallocated; flat for ignored
-    final grouped = <NoteCategory, List<SurveyorNote>>{};
+    final grouped = <NatureOfContent?, List<SurveyorNote>>{};
     for (final n in notes) {
-      grouped.putIfAbsent(n.category, () => []).add(n);
+      grouped.putIfAbsent(n.natureOfContent, () => []).add(n);
     }
 
     final items = <Widget>[];
     var first = true;
-    for (final cat in NoteCategory.values) {
-      final list = grouped[cat];
+    for (final nature in [...NatureOfContent.values, null]) {
+      final list = grouped[nature];
       if (list == null) continue;
       if (!first) items.add(const SizedBox(height: 18));
       first = false;
-      items.add(_CategoryHeader(category: cat, count: list.length));
+      items.add(_NatureHeader(nature: nature, count: list.length));
       items.add(const SizedBox(height: 8));
       for (final note in list) {
         items.add(Padding(
@@ -324,12 +345,12 @@ class _FlatList extends StatelessWidget {
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.section, required this.count});
-  final ReportSection section;
+  final CaseSection section;
   final int count;
 
   @override
   Widget build(BuildContext context) {
-    final color = _sectionColor(section);
+    final color = sectionColor(section);
     return Row(children: [
       Container(
         width: 8,
@@ -360,16 +381,18 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── Category header ───────────────────────────────────────────────────────
+// ── Nature-of-content header ───────────────────────────────────────────────
 
-class _CategoryHeader extends StatelessWidget {
-  const _CategoryHeader({required this.category, required this.count});
-  final NoteCategory category;
+class _NatureHeader extends StatelessWidget {
+  const _NatureHeader({required this.nature, required this.count});
+  final NatureOfContent? nature;
   final int count;
 
   @override
   Widget build(BuildContext context) {
-    final color = _categoryColor(category);
+    final color =
+        nature != null ? natureOfContentColor(nature!) : AppColors.textTertiary;
+    final label = nature?.label ?? 'Unclassified';
     return Row(children: [
       Container(
         width: 8,
@@ -378,7 +401,7 @@ class _CategoryHeader extends StatelessWidget {
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
       Text(
-        category.label.toUpperCase(),
+        label.toUpperCase(),
         style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
@@ -415,10 +438,9 @@ class _NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sectionColor = note.reportSection != null
-        ? _sectionColor(note.reportSection!)
+    final secColor = note.caseSection != null
+        ? sectionColor(note.caseSection!)
         : const Color(0xFFD97706);
-    final catColor = _categoryColor(note.category);
     final isIgnored = note.priority == CuePriority.ignored;
 
     return Opacity(
@@ -436,7 +458,7 @@ class _NoteCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(width: 4, color: sectionColor),
+                Container(width: 4, color: secColor),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
@@ -448,27 +470,32 @@ class _NoteCard extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Row(children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: catColor.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    note.category.label,
-                                    style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w700,
-                                        color: catColor),
-                                  ),
-                                ),
-                                if (note.priority != CuePriority.normal) ...[
-                                  const SizedBox(width: 5),
-                                  _PriorityBadge(priority: note.priority),
+                              Wrap(
+                                spacing: 5,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  if (note.natureOfContent != null)
+                                    _MetaChip(
+                                      label: note.natureOfContent!.label,
+                                      color: natureOfContentColor(
+                                          note.natureOfContent!),
+                                    ),
+                                  if (note.evidentiaryWeight != null)
+                                    _MetaChip(
+                                      label: note.evidentiaryWeight!.label,
+                                      color: evidentiaryWeightColor(
+                                          note.evidentiaryWeight!),
+                                    ),
+                                  if (note.origin != null)
+                                    _MetaChip(
+                                      label: note.origin!.label,
+                                      color: cueOriginColor(note.origin!),
+                                    ),
+                                  if (note.priority != CuePriority.normal)
+                                    _PriorityBadge(priority: note.priority),
                                 ],
-                              ]),
+                              ),
                               const SizedBox(height: 5),
                               Text(
                                 note.content,
@@ -522,21 +549,21 @@ class _NoteCard extends StatelessWidget {
                                     ),
                                   ),
                                 ],
-                                if (note.isResolved) ...[
+                                if (note.hasLostRelevance) ...[
                                   const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 5, vertical: 1),
                                     decoration: BoxDecoration(
-                                      color: AppColors.success
-                                          .withValues(alpha: 0.1),
+                                      color: AppColors.textTertiary
+                                          .withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(
-                                      '✓ Resolved ${_formatDate(note.resolvedAt!)}',
+                                      'Lost relevance ${_formatDate(note.lostRelevanceAt!)}',
                                       style: const TextStyle(
                                           fontSize: 9,
-                                          color: AppColors.success,
+                                          color: AppColors.textSecondary,
                                           fontWeight: FontWeight.w600),
                                     ),
                                   ),
@@ -596,6 +623,30 @@ class _NoteCard extends StatelessWidget {
   ];
 }
 
+// ── Small metadata chip (nature / weight / origin) ─────────────────────────
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            fontSize: 9, fontWeight: FontWeight.w700, color: color),
+      ),
+    );
+  }
+}
+
 // ── Priority badge ────────────────────────────────────────────────────────
 
 class _PriorityBadge extends StatelessWidget {
@@ -640,14 +691,15 @@ class _PriorityBadge extends StatelessWidget {
 
 typedef _OnSave = Future<void> Function(
   String content,
-  NoteCategory category,
-  ReportSection? section,
+  CaseSection? section,
   CuePriority priority,
-  bool updateResolvedAt,
-  DateTime? resolvedAt,
+  NatureOfContent? nature,
+  EvidentiaryWeight? weight,
+  CueOrigin? origin,
+  String? linkedPeriodId,
 );
 
-class _NoteEditorSheet extends StatefulWidget {
+class _NoteEditorSheet extends ConsumerStatefulWidget {
   const _NoteEditorSheet({
     required this.caseId,
     required this.onSave,
@@ -659,26 +711,31 @@ class _NoteEditorSheet extends StatefulWidget {
   final _OnSave onSave;
 
   @override
-  State<_NoteEditorSheet> createState() => _NoteEditorSheetState();
+  ConsumerState<_NoteEditorSheet> createState() => _NoteEditorSheetState();
 }
 
-class _NoteEditorSheetState extends State<_NoteEditorSheet> {
+class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _ctrl;
-  late NoteCategory _category;
   late CuePriority _priority;
-  ReportSection? _section;
-  bool _updateResolvedAt = false;
-  DateTime? _resolvedAt;
+  CaseSection? _section;
+  NatureOfContent? _nature;
+  EvidentiaryWeight? _weight;
+  CueOrigin? _origin;
+  String? _periodId;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.existing?.content ?? '');
-    _category = widget.existing?.category ?? NoteCategory.general;
     _priority = widget.existing?.priority ?? CuePriority.normal;
-    _resolvedAt = widget.existing?.resolvedAt;
-    _section = widget.existing?.reportSection;
+    _section = widget.existing?.caseSection;
+    _nature = widget.existing?.natureOfContent;
+    _weight = widget.existing?.evidentiaryWeight;
+    _origin = widget.existing?.origin;
+    _periodId = widget.existing?.linkedToType == repairPeriodLinkType
+        ? widget.existing?.linkedToId
+        : null;
   }
 
   @override
@@ -734,80 +791,7 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
             ),
             const SizedBox(height: 10),
 
-            // Report section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('REPORT SECTION',
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textTertiary,
-                          letterSpacing: 0.7)),
-                  const SizedBox(height: 6),
-                  _SectionChips(
-                    value: _section,
-                    onChanged: (s) => setState(() => _section = s),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Category
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('NOTE TYPE',
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textTertiary,
-                          letterSpacing: 0.7)),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: NoteCategory.values.map((cat) {
-                      final selected = _category == cat;
-                      final color = _categoryColor(cat);
-                      return GestureDetector(
-                        onTap: () => setState(() => _category = cat),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? color
-                                : color.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color: color.withValues(
-                                    alpha: selected ? 1.0 : 0.25)),
-                          ),
-                          child: Text(
-                            cat.label,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: selected ? Colors.white : color,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Priority
+            // ── Priority — first decision, positioned at the top ────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
@@ -866,6 +850,51 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+
+            // Case section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('CASE SECTION',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textTertiary,
+                          letterSpacing: 0.7)),
+                  const SizedBox(height: 6),
+                  _SectionChips(
+                    value: _section,
+                    onChanged: (s) => setState(() => _section = s),
+                  ),
+                ],
+              ),
+            ),
+            if (_section?.isRepairPeriodScoped == true) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('REPAIR PERIOD',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textTertiary,
+                            letterSpacing: 0.7)),
+                    const SizedBox(height: 6),
+                    _RepairPeriodChips(
+                      caseId: widget.caseId,
+                      value: _periodId,
+                      onChanged: (id) => setState(() => _periodId = id),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
 
             // Text input
@@ -896,76 +925,35 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
                 style: const TextStyle(fontSize: 13, height: 1.5),
               ),
             ),
+            const SizedBox(height: 12),
+
+            LabeledCueChipRow<NatureOfContent>(
+              label: 'Nature of content',
+              values: NatureOfContent.values,
+              selected: _nature,
+              labelOf: (n) => n.label,
+              colorOf: natureOfContentColor,
+              onTap: (n) => setState(() => _nature = _nature == n ? null : n),
+            ),
             const SizedBox(height: 10),
 
-            // Resolved date
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  const Text('RESOLVED',
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textTertiary,
-                          letterSpacing: 0.7)),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _resolvedAt ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) {
-                        setState(() {
-                          _resolvedAt = picked;
-                          _updateResolvedAt = true;
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _resolvedAt != null
-                            ? AppColors.success.withValues(alpha: 0.08)
-                            : AppColors.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _resolvedAt != null
-                              ? AppColors.success.withValues(alpha: 0.4)
-                              : AppColors.border,
-                        ),
-                      ),
-                      child: Text(
-                        _resolvedAt != null
-                            ? '${_resolvedAt!.day.toString().padLeft(2, '0')} '
-                                '${_months[_resolvedAt!.month - 1]} ${_resolvedAt!.year}'
-                            : 'Set date…',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _resolvedAt != null
-                              ? AppColors.success
-                              : AppColors.textTertiary,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_resolvedAt != null) ...[
-                    const SizedBox(width: 6),
-                    GestureDetector(
-                      onTap: () => setState(() {
-                        _resolvedAt = null;
-                        _updateResolvedAt = true;
-                      }),
-                      child: const Icon(Icons.close,
-                          size: 16, color: AppColors.textTertiary),
-                    ),
-                  ],
-                ],
-              ),
+            LabeledCueChipRow<EvidentiaryWeight>(
+              label: 'Evidentiary weight',
+              values: EvidentiaryWeight.values,
+              selected: _weight,
+              labelOf: (w) => w.label,
+              colorOf: evidentiaryWeightColor,
+              onTap: (w) => setState(() => _weight = _weight == w ? null : w),
+            ),
+            const SizedBox(height: 10),
+
+            LabeledCueChipRow<CueOrigin>(
+              label: 'Origin',
+              values: CueOrigin.values,
+              selected: _origin,
+              labelOf: (o) => o.label,
+              colorOf: cueOriginColor,
+              onTap: (o) => setState(() => _origin = _origin == o ? null : o),
             ),
             const SizedBox(height: 14),
 
@@ -1008,26 +996,152 @@ class _NoteEditorSheetState extends State<_NoteEditorSheet> {
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.onSave(
-          content, _category, _section, _priority, _updateResolvedAt, _resolvedAt);
+      final linkedPeriodId =
+          _section?.isRepairPeriodScoped == true ? _periodId : null;
+      await widget.onSave(content, _section, _priority, _nature, _weight,
+          _origin, linkedPeriodId);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+}
 
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
+Color _priorityColor(CuePriority p) => switch (p) {
+      CuePriority.important => const Color(0xFFDC2626),
+      CuePriority.normal    => AppColors.textSecondary,
+      CuePriority.ignored   => AppColors.textTertiary,
+    };
+
+// ── Repair-period quick-pick chips (WNCA / General Services & Access) ─────
+//
+// Cascading second choice for CaseSection.isRepairPeriodScoped sections —
+// docs/context_cue_system_review.md §3.1. "Unassigned" is always available
+// and is the default (a cue in one of these sections doesn't have to be
+// tied to a period). Includes an inline quick-create shortcut so the
+// surveyor never has to leave this sheet to record against a period that
+// doesn't exist yet.
+
+class _RepairPeriodChips extends ConsumerWidget {
+  const _RepairPeriodChips({
+    required this.caseId,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String caseId;
+  final String? value;
+  final void Function(String?) onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final periodsAsync = ref.watch(repairPeriodsProvider(caseId));
+    final periods = periodsAsync.value ?? const <RepairPeriodModel>[];
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        GestureDetector(
+          onTap: () => onChanged(null),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: value == null
+                  ? AppColors.warning.withValues(alpha: 0.18)
+                  : AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: AppColors.warning
+                    .withValues(alpha: value == null ? 0.6 : 0.2),
+                width: value == null ? 1.5 : 1.0,
+              ),
+            ),
+            child: Text(
+              'Unassigned',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: value == null ? FontWeight.w700 : FontWeight.w400,
+                color: value == null
+                    ? AppColors.warning
+                    : AppColors.textTertiary,
+              ),
+            ),
+          ),
+        ),
+        ...periods.map((p) {
+          final selected = value == p.periodId;
+          return GestureDetector(
+            onTap: () => onChanged(p.periodId),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected
+                    ? AppColors.midBlue
+                    : AppColors.midBlue.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.midBlue.withValues(alpha: selected ? 1.0 : 0.25),
+                  width: selected ? 1.5 : 1.0,
+                ),
+              ),
+              child: Text(
+                p.displayTitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                  color: selected ? Colors.white : AppColors.midBlue,
+                ),
+              ),
+            ),
+          );
+        }),
+        GestureDetector(
+          onTap: () async {
+            final nextNo = periods.isEmpty
+                ? 1
+                : periods.map((p) => p.periodNo).reduce((a, b) => a > b ? a : b) + 1;
+            final createdId = await showQuickCreateRepairPeriodDialog(
+              context,
+              ref,
+              caseId: caseId,
+              nextPeriodNo: nextNo,
+            );
+            if (createdId != null) onChanged(createdId);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add, size: 12, color: AppColors.textSecondary),
+                SizedBox(width: 3),
+                Text('New Period',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ── Section quick-pick chips ──────────────────────────────────────────────
 
 class _SectionChips extends StatelessWidget {
   const _SectionChips({required this.value, required this.onChanged});
-  final ReportSection? value;
-  final void Function(ReportSection?) onChanged;
+  final CaseSection? value;
+  final void Function(CaseSection?) onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1065,9 +1179,9 @@ class _SectionChips extends StatelessWidget {
             ),
           ),
         ),
-        ...ReportSection.ordered.map((s) {
+        ...CaseSection.ordered.map((s) {
           final selected = value == s;
-          final color = _sectionColor(s);
+          final color = sectionColor(s);
           return GestureDetector(
             onTap: () => onChanged(selected ? null : s),
             child: AnimatedContainer(
@@ -1148,39 +1262,3 @@ class _EmptyState extends StatelessWidget {
     );
   }
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-Color _sectionColor(ReportSection s) => switch (s) {
-      ReportSection.background      => const Color(0xFF2A6B9E),
-      ReportSection.occurrence      => const Color(0xFFDC2626),
-      ReportSection.attendance      => const Color(0xFFBF7E3A),
-      ReportSection.timeline        => const Color(0xFF2E7CB7),
-      ReportSection.causation       => const Color(0xFFD97706),
-      ReportSection.damage          => const Color(0xFFE05C2A),
-      ReportSection.repairs         => const Color(0xFF1A6B9E),
-      ReportSection.repairTimes     => const Color(0xFF0F766E),
-      ReportSection.extraExpenses   => const Color(0xFF059669),
-      ReportSection.generalExpenses => const Color(0xFF4A7A5A),
-      ReportSection.notAverage      => const Color(0xFF6B7280),
-      ReportSection.otherMatters    => const Color(0xFF7B5EA7),
-    };
-
-Color _categoryColor(NoteCategory cat) => switch (cat) {
-      NoteCategory.observation   => const Color(0xFF2A6099),
-      NoteCategory.measurement   => const Color(0xFF7B5EA7),
-      NoteCategory.followUp      => const Color(0xFFD97706),
-      NoteCategory.interview     => const Color(0xFF0891B2),
-      NoteCategory.technical     => const Color(0xFFDC2626),
-      NoteCategory.operations    => const Color(0xFF0F766E),
-      NoteCategory.previousWorks => const Color(0xFF6B7280),
-      NoteCategory.policy        => const Color(0xFF4338CA),
-      NoteCategory.invoicing     => const Color(0xFF0284C7),
-      NoteCategory.general       => const Color(0xFF4A7A5A),
-    };
-
-Color _priorityColor(CuePriority p) => switch (p) {
-      CuePriority.important => const Color(0xFFDC2626),
-      CuePriority.normal    => AppColors.textSecondary,
-      CuePriority.ignored   => AppColors.textTertiary,
-    };

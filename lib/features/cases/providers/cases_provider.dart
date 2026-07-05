@@ -220,6 +220,12 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     String? assured,
     String? costEstimateStatus,
     double? estimatedRepairCost,
+    bool? costIncludesGeneralExpenses,
+    String? costIncludesTowing,
+    double? surveyFeeReserveHours,
+    double? surveyFeeReserveExpenses,
+    bool? followUpRequired,
+    String? followUpDetail,
   }) async {
     final updates = <String, dynamic>{};
     if (technicalFileNo != null)  updates['technical_file_no'] = technicalFileNo;
@@ -236,6 +242,20 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     if (assured != null)          updates['assured']           = assured;
     if (costEstimateStatus != null)  updates['cost_estimate_status']  = costEstimateStatus;
     if (estimatedRepairCost != null) updates['estimated_repair_cost'] = estimatedRepairCost;
+    if (costIncludesGeneralExpenses != null) {
+      updates['cost_includes_general_expenses'] = costIncludesGeneralExpenses;
+    }
+    if (costIncludesTowing != null) {
+      updates['cost_includes_towing'] = costIncludesTowing;
+    }
+    if (surveyFeeReserveHours != null) {
+      updates['survey_fee_reserve_hours'] = surveyFeeReserveHours;
+    }
+    if (surveyFeeReserveExpenses != null) {
+      updates['survey_fee_reserve_expenses'] = surveyFeeReserveExpenses;
+    }
+    if (followUpRequired != null) updates['follow_up_required'] = followUpRequired;
+    if (followUpDetail != null)   updates['follow_up_detail']   = followUpDetail;
 
     if (updates.isEmpty) return;
     await SupabaseService.client
@@ -246,6 +266,29 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     // Rebuild composite title whenever file no, vessel, or case type may have changed.
     if (technicalFileNo != null || caseType != null) await _rebuildTitle();
     ref.invalidate(casesProvider);
+  }
+
+  /// Full replace of the "Other Matters of Relevance" ticked clause list
+  /// (docs/migrations/018_other_matters_clauses.sql) — a toggle set rather
+  /// than a single nullable field, so it doesn't fit updateCaseRefs's
+  /// "only update if non-null" pattern.
+  Future<void> updateOtherMattersClauses(List<String> clauseIds) async {
+    await SupabaseService.client
+        .from('cases')
+        .update({'other_matters_clause_ids': clauseIds})
+        .eq('case_id', arg);
+    state = await AsyncValue.guard(() => _fetch(arg));
+  }
+
+  /// Free-text additional notes for "Other Matters of Relevance" — see
+  /// docs/migrations/019_other_matters_notes.sql. Rendered after the ticked
+  /// clause text in the same report section.
+  Future<void> updateOtherMattersNotes(String notes) async {
+    await SupabaseService.client
+        .from('cases')
+        .update({'other_matters_notes': notes})
+        .eq('case_id', arg);
+    state = await AsyncValue.guard(() => _fetch(arg));
   }
 
   /// Rebuilds the composite case title: "JobNo – Vessel – SurveyType – Occurrence"

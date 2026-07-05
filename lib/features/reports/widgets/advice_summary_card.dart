@@ -5,9 +5,15 @@
 // narrative. See docs/report_builder_editor_notes.md
 // "Section: Executive Summary (Advice Summary Table)" and TODO.md §2.6.
 //
-// Values are stored per report_output (docs/migrations/014_advice_summary.sql)
-// since several fields legitimately change across successive reports on the
-// same case (status of repairs, cost figures).
+// As of 4 July 2026, most Advice Summary fields have been relocated to the
+// case screen (per surveyor direction: "the report builder is only for
+// drafting the paragraphs") — see AccountsScreen (cost estimate, cost
+// inclusions, survey fee reserve), AttendancesScreen (follow-up attendance),
+// and deriveRepairStatus() in repair_period_model.dart (status of repairs,
+// now computed from repair periods rather than typed). This card now shows
+// those as read-only summaries and keeps editable input only for the
+// genuinely per-report prose (Description of Damage, Nature of Repairs,
+// Remarks) plus the Confirmed sign-off checkbox.
 
 import 'dart:async';
 
@@ -15,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/report_provider.dart';
+import '../../survey/models/repair_period_model.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class AdviceSummaryCard extends ConsumerStatefulWidget {
@@ -33,26 +40,14 @@ class AdviceSummaryCard extends ConsumerStatefulWidget {
   ConsumerState<AdviceSummaryCard> createState() => _AdviceSummaryCardState();
 }
 
-const _statusOptions = [
-  ('complete', 'Complete'),
-  ('ongoing', 'Ongoing'),
-  ('awaiting', 'Awaiting'),
-  ('deferred', 'Deferred to'),
-  ('not_commenced', 'Not yet commenced'),
-];
-
-const _towingOptions = [
-  ('yes', 'Yes'),
-  ('no', 'No'),
-  ('n_a', 'N/A'),
-];
-
 String _allegationLabel(String? type) => switch (type) {
       'formal_allegation' => 'Allegation made (refer Cause Consideration)',
       'informal_allegation' => 'Informal allegation made (refer Cause Consideration)',
       'no_formal_allegation' => 'No formal allegation made',
       _ => 'Not yet determined',
     };
+
+const _towingLabels = {'yes': 'Yes', 'no': 'No', 'n_a': 'N/A'};
 
 class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   bool _expanded = true;
@@ -65,16 +60,8 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     super.initState();
     final o = widget.output;
     _ctrls = {
-      'advice_nature_of_casualty': TextEditingController(text: o.adviceNatureOfCasualty ?? ''),
       'advice_description_of_damage': TextEditingController(text: o.adviceDescriptionOfDamage ?? ''),
       'advice_nature_of_repairs': TextEditingController(text: o.adviceNatureOfRepairs ?? ''),
-      'advice_status_of_repairs_detail': TextEditingController(text: o.adviceStatusOfRepairsDetail ?? ''),
-      'advice_cost_amount': TextEditingController(text: o.adviceCostAmount?.toString() ?? ''),
-      'advice_cost_currency': TextEditingController(
-          text: o.adviceCostCurrency ?? (widget.assembled.caseData['base_currency'] as String? ?? 'AUD')),
-      'advice_fee_reserve_hours': TextEditingController(text: o.adviceFeeReserveHours?.toString() ?? ''),
-      'advice_fee_reserve_expenses': TextEditingController(text: o.adviceFeeReserveExpenses?.toString() ?? ''),
-      'advice_follow_up_detail': TextEditingController(text: o.adviceFollowUpDetail ?? ''),
       'advice_remarks': TextEditingController(text: o.adviceRemarks ?? ''),
     };
   }
@@ -105,7 +92,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   }
 
   void _setNow(String key, dynamic value) {
-    // Discrete controls (dropdown/checkbox) — write immediately, no debounce.
+    // Discrete controls (checkbox) — write immediately, no debounce.
     ref
         .read(reportOutputsProvider(widget.output.caseId).notifier)
         .updateAdviceSummary(widget.output.outputId, {key: value});
@@ -120,6 +107,19 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
         ? widget.assembled.occurrences.first
         : null;
     final locked = widget.isLocked;
+
+    final derivedStatus = deriveRepairStatus(widget.assembled.repairPeriods
+        .map(RepairPeriodModel.fromJson)
+        .toList());
+    final currency = caseData['base_currency'] as String? ?? '';
+    final estimatedCost = caseData['estimated_repair_cost'] as num?;
+    final costIncludesGeneralExpenses =
+        caseData['cost_includes_general_expenses'] as bool?;
+    final costIncludesTowing = caseData['cost_includes_towing'] as String?;
+    final feeHours = caseData['survey_fee_reserve_hours'] as num?;
+    final feeExpenses = caseData['survey_fee_reserve_expenses'] as num?;
+    final followUpRequired = caseData['follow_up_required'] as bool?;
+    final followUpDetail = caseData['follow_up_detail'] as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -178,103 +178,40 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                   _autoRow('Report Type / No.', [o.outputType.label, o.reportNumber ?? o.versionCode].join(' / ')),
                   _autoRow('Technical File No.', caseData['technical_file_no'] as String?),
                   _autoRow('UCR / Reference', caseData['claim_reference'] as String?),
+                  _autoRow('Date and Nature of Casualty', occ?['title'] as String?),
                   const SizedBox(height: 10),
 
-                  _field('Nature of Casualty (owners\' description)', 'advice_nature_of_casualty', locked,
-                      hint: 'e.g. Reported grounding'),
                   _field('Description of Damage', 'advice_description_of_damage', locked, maxLines: 4),
                   _field('Nature of Repairs', 'advice_nature_of_repairs', locked, maxLines: 4),
 
-                  const SizedBox(height: 8),
-                  const Text('Status of Repairs',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
-                  const SizedBox(height: 4),
-                  _statusDropdown(locked),
-                  if (o.adviceStatusOfRepairs == 'awaiting' || o.adviceStatusOfRepairs == 'deferred')
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: _field('', 'advice_status_of_repairs_detail', locked, hint: 'Awaiting / deferred to...'),
-                    ),
-
                   const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(
-                        flex: 2,
-                        child: _field(
-                            o.adviceStatusOfRepairs == 'complete' || o.adviceStatusOfRepairs == 'ongoing'
-                                ? 'Sum Approved Without Prejudice'
-                                : 'Estimated Cost of Repairs',
-                            'advice_cost_amount', locked,
-                            keyboardType: TextInputType.number)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _field('Currency', 'advice_cost_currency', locked)),
-                  ]),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: locked
-                            ? null
-                            : () => _setNow('advice_cost_includes_general_expenses',
-                                !(o.adviceCostIncludesGeneralExpenses ?? false)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Checkbox(
-                              value: o.adviceCostIncludesGeneralExpenses ?? false,
-                              visualDensity: VisualDensity.compact,
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              onChanged: locked
-                                  ? null
-                                  : (val) => _setNow(
-                                      'advice_cost_includes_general_expenses', val ?? false),
-                            ),
-                            const SizedBox(width: 4),
-                            const Flexible(
-                              child: Text('Incl. general expenses',
-                                  style: TextStyle(fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                      ),
+                  _readOnlySection('Data now entered in the case screen', [
+                    ('Status of Repairs', derivedStatus.label),
+                    (
+                      'Estimated Cost of Repairs',
+                      estimatedCost != null ? '$currency ${estimatedCost.toStringAsFixed(0)}' : 'Not yet set',
                     ),
-                    Expanded(
-                      child: _towingDropdown(locked),
+                    (
+                      'Cost Inclusions',
+                      'General expenses: ${costIncludesGeneralExpenses == null ? 'TBD' : (costIncludesGeneralExpenses ? 'Yes' : 'No')}  ·  '
+                          'Towing: ${_towingLabels[costIncludesTowing] ?? 'TBD'}',
                     ),
-                  ]),
-
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(child: _field('Survey Fee Reserve — Hours', 'advice_fee_reserve_hours', locked, keyboardType: TextInputType.number)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _field('Survey Fee Reserve — Expenses', 'advice_fee_reserve_expenses', locked, keyboardType: TextInputType.number)),
-                  ]),
+                    (
+                      'Survey Fee Reserve',
+                      'Hours: ${feeHours ?? '—'}   Expenses: ${feeExpenses != null ? '$currency ${feeExpenses.toStringAsFixed(0)}' : '—'}',
+                    ),
+                    (
+                      'Follow-up Attendance',
+                      followUpRequired == true
+                          ? 'Required${(followUpDetail ?? '').isNotEmpty ? ' — $followUpDetail' : ''}'
+                          : followUpRequired == false
+                              ? 'Not required'
+                              : 'Not yet recorded',
+                    ),
+                  ], editHint: 'Edit in Accounts / Attendance sections of the case screen'),
 
                   const SizedBox(height: 10),
                   _autoRow('Allegation Status', _allegationLabel(occ?['allegation_type'] as String?)),
-
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    const Text('Follow-up attendance required?',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
-                    const SizedBox(width: 10),
-                    ChoiceChip(
-                      label: const Text('Yes', style: TextStyle(fontSize: 11)),
-                      selected: o.adviceFollowUpRequired == true,
-                      onSelected: locked ? null : (_) => _setNow('advice_follow_up_required', true),
-                    ),
-                    const SizedBox(width: 6),
-                    ChoiceChip(
-                      label: const Text('No', style: TextStyle(fontSize: 11)),
-                      selected: o.adviceFollowUpRequired == false,
-                      onSelected: locked ? null : (_) => _setNow('advice_follow_up_required', false),
-                    ),
-                  ]),
-                  if (o.adviceFollowUpRequired == true)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: _field('', 'advice_follow_up_detail', locked, hint: 'Nature and expected timeline...'),
-                    ),
 
                   const SizedBox(height: 10),
                   _field('Remarks', 'advice_remarks', locked, maxLines: 3),
@@ -301,6 +238,41 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
           Expanded(
               child: Text(value,
                   style: const TextStyle(fontSize: 11, color: AppColors.textSecondary))),
+        ],
+      ),
+    );
+  }
+
+  Widget _readOnlySection(String heading, List<(String, String)> rows,
+      {required String editHint}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.lock_clock_outlined, size: 11, color: AppColors.textTertiary),
+            const SizedBox(width: 4),
+            Text(heading,
+                style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textTertiary)),
+          ]),
+          const SizedBox(height: 6),
+          for (final r in rows) _autoRow(r.$1, r.$2),
+          const SizedBox(height: 2),
+          Text(editHint,
+              style: const TextStyle(
+                  fontSize: 9,
+                  fontStyle: FontStyle.italic,
+                  color: AppColors.textTertiary)),
         ],
       ),
     );
@@ -343,49 +315,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _statusDropdown(bool locked) {
-    return DropdownButtonFormField<String>(
-      initialValue: widget.output.adviceStatusOfRepairs,
-      isDense: true,
-      style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-      decoration: InputDecoration(
-        isDense: true,
-        filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: AppColors.border)),
-      ),
-      hint: const Text('Select...', style: TextStyle(fontSize: 12)),
-      items: _statusOptions
-          .map((o) => DropdownMenuItem(value: o.$1, child: Text(o.$2, style: const TextStyle(fontSize: 12))))
-          .toList(),
-      onChanged: locked ? null : (val) => _setNow('advice_status_of_repairs', val),
-    );
-  }
-
-  Widget _towingDropdown(bool locked) {
-    return DropdownButtonFormField<String>(
-      initialValue: widget.output.adviceCostIncludesTowing,
-      isDense: true,
-      style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-      decoration: InputDecoration(
-        isDense: true,
-        labelText: 'Towing costs',
-        labelStyle: const TextStyle(fontSize: 11),
-        filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: AppColors.border)),
-      ),
-      items: _towingOptions
-          .map((o) => DropdownMenuItem(value: o.$1, child: Text(o.$2, style: const TextStyle(fontSize: 12))))
-          .toList(),
-      onChanged: locked ? null : (val) => _setNow('advice_cost_includes_towing', val),
     );
   }
 }

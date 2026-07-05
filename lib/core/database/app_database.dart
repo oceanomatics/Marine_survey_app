@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 11,
+      version: 13,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -78,19 +78,22 @@ class AppDatabase {
 
     await db.execute('''
       CREATE TABLE surveyor_notes (
-        id              TEXT PRIMARY KEY,
-        case_id         TEXT NOT NULL,
-        content         TEXT NOT NULL,
-        category        TEXT NOT NULL DEFAULT 'general',
-        report_section  TEXT,
-        priority        TEXT NOT NULL DEFAULT 'normal',
-        resolved_at     TEXT,
-        linked_to_type  TEXT,
-        linked_to_id    TEXT,
-        source          TEXT,
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL,
-        sync_status     TEXT NOT NULL DEFAULT 'synced'
+        id                  TEXT PRIMARY KEY,
+        case_id             TEXT NOT NULL,
+        content             TEXT NOT NULL,
+        nature_of_content   TEXT,
+        evidentiary_weight  TEXT,
+        origin              TEXT,
+        case_section        TEXT,
+        priority            TEXT NOT NULL DEFAULT 'normal',
+        lost_relevance_at   TEXT,
+        linked_to_type      TEXT,
+        linked_to_id        TEXT,
+        source              TEXT,
+        pending_review      INTEGER NOT NULL DEFAULT 0,
+        created_at          TEXT NOT NULL,
+        updated_at          TEXT NOT NULL,
+        sync_status         TEXT NOT NULL DEFAULT 'synced'
       )
     ''');
   }
@@ -107,6 +110,22 @@ class AppDatabase {
       // placement modes (docs/report_builder_editor_notes.md).
       await db.execute('ALTER TABLE photos ADD COLUMN placement_mode TEXT');
       await db.execute('ALTER TABLE photos ADD COLUMN photo_source TEXT');
+    }
+    if (oldVersion < 12) {
+      // Context-cue system rework (docs/context_cue_system_review.md §3.4,
+      // §3.6) — mirrors migration 022 on the Supabase side. `category` is
+      // left in place as an unused orphan column rather than dropped —
+      // SQLite DROP COLUMN needs a fairly recent SQLite build, and there's
+      // no benefit to the removal on a local cache table.
+      await db.execute(
+          'ALTER TABLE surveyor_notes RENAME COLUMN report_section TO case_section');
+      await db.execute(
+          'ALTER TABLE surveyor_notes RENAME COLUMN resolved_at TO lost_relevance_at');
+      await db.execute(
+          'ALTER TABLE surveyor_notes ADD COLUMN nature_of_content TEXT');
+      await db.execute(
+          'ALTER TABLE surveyor_notes ADD COLUMN evidentiary_weight TEXT');
+      await db.execute('ALTER TABLE surveyor_notes ADD COLUMN origin TEXT');
     }
   }
 }

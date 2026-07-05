@@ -1,45 +1,140 @@
 // lib/shared/widgets/context_cues_panel.dart
 //
-// Reusable collapsible context-cues panel shown at the bottom of any report
-// section screen. Filters cues by the given [section] and provides add/edit/
+// Reusable collapsible context-cues panel shown at the bottom of any case
+// screen section. Filters cues by the given [section] and provides add/edit/
 // delete actions. Mirrors the pattern established in background_screen.dart.
+//
+// Cue metadata rework (docs/context_cue_system_review.md §3.6, 5 July 2026):
+// `NoteCategory` retired — replaced by two independent axes (NatureOfContent,
+// EvidentiaryWeight) plus a new `origin` field (who the cue's content comes
+// from). Priority moved to the top of the add/edit sheet; marking a cue
+// Ignored auto-sets its lostRelevanceAt (handled in the provider) rather than
+// needing a separate resolved toggle.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../core/api/claude_api.dart';
 import '../theme/app_theme.dart';
 
-// ── Category colour helper (matches surveyor_notes_screen.dart) ─────────────
+// ── Colour helpers ──────────────────────────────────────────────────────────
 
-Color _catColor(NoteCategory cat) => switch (cat) {
-      NoteCategory.observation   => const Color(0xFF2A6099),
-      NoteCategory.measurement   => const Color(0xFF7B5EA7),
-      NoteCategory.followUp      => const Color(0xFFD97706),
-      NoteCategory.interview     => const Color(0xFF0891B2),
-      NoteCategory.technical     => const Color(0xFFDC2626),
-      NoteCategory.operations    => const Color(0xFF0F766E),
-      NoteCategory.previousWorks => const Color(0xFF6B7280),
-      NoteCategory.policy        => const Color(0xFF4338CA),
-      NoteCategory.invoicing     => const Color(0xFF0284C7),
-      NoteCategory.general       => const Color(0xFF4A7A5A),
+Color natureOfContentColor(NatureOfContent n) => switch (n) {
+      NatureOfContent.observationFinding  => const Color(0xFF2A6099),
+      NatureOfContent.recommendation      => const Color(0xFF0F766E),
+      NatureOfContent.followUpOpenQuestion=> const Color(0xFFD97706),
+      NatureOfContent.backgroundReference => const Color(0xFF6B7280),
     };
 
-Color _sectionColor(ReportSection s) => switch (s) {
-      ReportSection.background      => const Color(0xFF2A6B9E),
-      ReportSection.occurrence      => const Color(0xFFDC2626),
-      ReportSection.attendance      => const Color(0xFFBF7E3A),
-      ReportSection.timeline        => const Color(0xFF2E7CB7),
-      ReportSection.causation       => const Color(0xFFD97706),
-      ReportSection.damage          => const Color(0xFFE05C2A),
-      ReportSection.repairs         => const Color(0xFF1A6B9E),
-      ReportSection.repairTimes     => const Color(0xFF0F766E),
-      ReportSection.extraExpenses   => const Color(0xFF059669),
-      ReportSection.generalExpenses => const Color(0xFF4A7A5A),
-      ReportSection.notAverage      => const Color(0xFF6B7280),
-      ReportSection.otherMatters    => const Color(0xFF7B5EA7),
+Color evidentiaryWeightColor(EvidentiaryWeight w) => switch (w) {
+      EvidentiaryWeight.fact       => const Color(0xFF166534),
+      EvidentiaryWeight.opinion    => const Color(0xFF7B5EA7),
+      EvidentiaryWeight.allegation => const Color(0xFFDC2626),
+      EvidentiaryWeight.hearsay    => const Color(0xFF9E9C96),
     };
+
+Color cueOriginColor(CueOrigin o) => switch (o) {
+      CueOrigin.assuredOwner => const Color(0xFF0369A1),
+      CueOrigin.thirdParty   => const Color(0xFFB45309),
+      CueOrigin.surveyor     => const Color(0xFF4A7A5A),
+    };
+
+Color sectionColor(CaseSection s) => switch (s) {
+      CaseSection.background      => const Color(0xFF2A6B9E),
+      CaseSection.occurrence      => const Color(0xFFDC2626),
+      CaseSection.attendance      => const Color(0xFFBF7E3A),
+      CaseSection.timeline        => const Color(0xFF2E7CB7),
+      CaseSection.causation       => const Color(0xFFD97706),
+      CaseSection.damage          => const Color(0xFFE05C2A),
+      CaseSection.repairs         => const Color(0xFF1A6B9E),
+      CaseSection.repairTimes     => const Color(0xFF0F766E),
+      CaseSection.extraExpenses   => const Color(0xFF059669),
+      CaseSection.generalExpenses => const Color(0xFF4A7A5A),
+      CaseSection.notAverage      => const Color(0xFF6B7280),
+      CaseSection.otherMatters    => const Color(0xFF7B5EA7),
+      CaseSection.previousWorks   => const Color(0xFF92400E),
+      CaseSection.contractualHire => const Color(0xFF0369A1),
+    };
+
+// ── Repair-period scoping ───────────────────────────────────────────────────
+//
+// For CaseSection.isRepairPeriodScoped sections (Work Not Concerning
+// Average, General Services & Access — docs/context_cue_system_review.md
+// §3.1/§3.2), a ContextCuesPanel shows either the cues linked to one
+// specific repair period, or the "not allocated to a period" bucket.
+// Irrelevant for every other section.
+const String repairPeriodLinkType = 'repair_period';
+
+class RepairPeriodScope {
+  const RepairPeriodScope.forPeriod(this.periodId) : isUnassignedBucket = false;
+  const RepairPeriodScope.unassigned()
+      : periodId = null,
+        isUnassignedBucket = true;
+
+  final String? periodId;
+  final bool isUnassignedBucket;
+}
+
+// ── Card wrapper (title + hint header, panel clipped into rounded card) ────
+//
+// Shared shape for embedding a ContextCuesPanel inside a titled card on a
+// ListView-based screen — used by Additional Information's cue sections and
+// by RepairPeriodScopedCuesScreen (WNCA / General Services & Access).
+
+class CueSectionCard extends StatelessWidget {
+  const CueSectionCard({
+    super.key,
+    required this.title,
+    this.hint,
+    required this.child,
+  });
+
+  final String title;
+  final String? hint;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary)),
+                  if (hint != null) ...[
+                    const SizedBox(height: 2),
+                    Text(hint!,
+                        style: const TextStyle(
+                            fontSize: 10.5, color: AppColors.textTertiary)),
+                  ],
+                ],
+              ),
+            ),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // ── Public panel widget ───────────────────────────────────────────────────────
 
@@ -48,27 +143,77 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     super.key,
     required this.caseId,
     required this.section,
+    this.periodScope,
+    this.initiallyExpanded = true,
   });
 
   final String caseId;
-  final ReportSection section;
+  final CaseSection section;
+  /// Only meaningful when `section.isRepairPeriodScoped` — see
+  /// [RepairPeriodScope]. Ignored otherwise.
+  final RepairPeriodScope? periodScope;
+  /// Set false when stacking multiple panels on one screen (e.g. Repairs +
+  /// Repair Times) so they don't all default open at once.
+  final bool initiallyExpanded;
 
   @override
   ConsumerState<ContextCuesPanel> createState() => _ContextCuesPanelState();
 }
 
 class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
-  bool _expanded = true;
+  late bool _expanded = widget.initiallyExpanded;
   int _tab = 0; // 0 = active, 1 = ignored
+
+  // ── Collapsed-state quick summary (docs/context_cue_system_review.md §3.3)
+  // — case-screen presentation only, never fed into report content. Only
+  // (re)generated while collapsed, and only when the active-cue set has
+  // changed since the last summary, to avoid firing an AI call on every
+  // rebuild.
+  String? _summary;
+  bool _summaryLoading = false;
+  String? _summarizedSignature;
+
+  bool _matchesScope(SurveyorNote n) {
+    if (n.caseSection != widget.section) return false;
+    final scope = widget.periodScope;
+    if (scope == null) return true;
+    if (scope.isUnassignedBucket) {
+      return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
+    }
+    return n.linkedToType == repairPeriodLinkType &&
+        n.linkedToId == scope.periodId;
+  }
+
+  String _signatureFor(List<SurveyorNote> notes) =>
+      notes.map((n) => '${n.id}:${n.updatedAt.millisecondsSinceEpoch}').join('|');
+
+  void _maybeFetchSummary(List<SurveyorNote> activeNotes) {
+    if (_expanded || activeNotes.isEmpty || _summaryLoading) return;
+    final sig = _signatureFor(activeNotes);
+    if (sig == _summarizedSignature) return;
+    _summaryLoading = true;
+    ClaudeApi.draftCueQuickSummary(
+      sectionLabel: widget.section.label,
+      cues: activeNotes.map((n) => n.content).toList(),
+    ).then((text) {
+      if (!mounted) return;
+      setState(() {
+        _summary = text;
+        _summarizedSignature = sig;
+        _summaryLoading = false;
+      });
+    }).catchError((_) {
+      if (!mounted) return;
+      setState(() => _summaryLoading = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final accent = _sectionColor(widget.section);
+    final accent = sectionColor(widget.section);
     final notesAsync = ref.watch(surveyorNotesProvider(widget.caseId));
-    final sectionNotes = notesAsync.value
-            ?.where((n) => n.reportSection == widget.section)
-            .toList() ??
-        [];
+    final sectionNotes =
+        notesAsync.value?.where(_matchesScope).toList() ?? [];
 
     final activeNotes =
         sectionNotes.where((n) => n.priority != CuePriority.ignored).toList();
@@ -76,10 +221,15 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
         sectionNotes.where((n) => n.priority == CuePriority.ignored).toList();
     final visibleNotes = _tab == 0 ? activeNotes : ignoredNotes;
 
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _maybeFetchSummary(activeNotes));
+    final showSummary =
+        !_expanded && activeNotes.isNotEmpty && (_summary?.isNotEmpty ?? false);
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
-      height: _expanded ? 268 : 44,
+      height: _expanded ? 268 : (showSummary ? 62 : 44),
       decoration: const BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border, width: 1)),
@@ -113,6 +263,24 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary),
                   ),
+                  if (widget.periodScope?.isUnassignedBucket == true) ...[
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Not allocated to a period',
+                        style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.warning),
+                      ),
+                    ),
+                  ],
                   if (activeNotes.isNotEmpty) ...[
                     const SizedBox(width: 7),
                     Container(
@@ -163,6 +331,22 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               ),
             ),
           ),
+
+          // ── Collapsed-state quick summary (§3.3) ──────────────────────
+          if (showSummary)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              child: Text(
+                _summary!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textTertiary,
+                    fontStyle: FontStyle.italic,
+                    height: 1.3),
+              ),
+            ),
 
           // ── Tab bar + list ───────────────────────────────────────────
           if (_expanded) ...[
@@ -237,22 +421,38 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
       builder: (_) => _CuePanelSheet(
         section: widget.section,
         existing: existing,
-        onSave: (content, category) async {
+        onSave: (content, priority, nature, weight, origin) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
+          final scope = widget.periodScope;
+          final linkedToType = scope != null && !scope.isUnassignedBucket
+              ? repairPeriodLinkType
+              : null;
+          final linkedToId =
+              scope != null && !scope.isUnassignedBucket ? scope.periodId : null;
           if (existing == null) {
             await notifier.add(
-              caseId:        widget.caseId,
-              content:       content,
-              category:      category,
-              reportSection: widget.section,
+              caseId:            widget.caseId,
+              content:           content,
+              priority:          priority,
+              natureOfContent:   nature,
+              evidentiaryWeight: weight,
+              origin:            origin,
+              caseSection:       widget.section,
+              linkedToType:      linkedToType,
+              linkedToId:        linkedToId,
             );
           } else {
             await notifier.editNote(
               existing.id,
-              content:       content,
-              category:      category,
-              reportSection: widget.section,
+              content:           content,
+              priority:          priority,
+              natureOfContent:   nature,
+              evidentiaryWeight: weight,
+              origin:            origin,
+              caseSection:       widget.section,
+              linkedToType:      linkedToType,
+              linkedToId:        linkedToId,
             );
           }
         },
@@ -345,7 +545,8 @@ class _CuePanelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final catColor = _catColor(note.category);
+    final nature = note.natureOfContent;
+    final natureColor = nature != null ? natureOfContentColor(nature) : accent;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
@@ -363,7 +564,7 @@ class _CuePanelTile extends StatelessWidget {
                 width: 4,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: catColor,
+                  color: accent,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(8),
                     bottomLeft: Radius.circular(8),
@@ -376,22 +577,24 @@ class _CuePanelTile extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 7),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: catColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(4),
+                      if (nature != null) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: natureColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            nature.label,
+                            style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: natureColor),
+                          ),
                         ),
-                        child: Text(
-                          note.category.label,
-                          style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: catColor),
-                        ),
-                      ),
-                      const SizedBox(width: 7),
+                        const SizedBox(width: 7),
+                      ],
                       Flexible(
                         child: Text(
                           note.content,
@@ -424,6 +627,14 @@ class _CuePanelTile extends StatelessWidget {
 
 // ── Quick add/edit sheet ──────────────────────────────────────────────────────
 
+typedef _CueSaveCallback = Future<void> Function(
+  String content,
+  CuePriority priority,
+  NatureOfContent? nature,
+  EvidentiaryWeight? weight,
+  CueOrigin? origin,
+);
+
 class _CuePanelSheet extends StatefulWidget {
   const _CuePanelSheet({
     required this.section,
@@ -431,9 +642,9 @@ class _CuePanelSheet extends StatefulWidget {
     this.existing,
   });
 
-  final ReportSection section;
+  final CaseSection section;
   final SurveyorNote? existing;
-  final Future<void> Function(String content, NoteCategory category) onSave;
+  final _CueSaveCallback onSave;
 
   @override
   State<_CuePanelSheet> createState() => _CuePanelSheetState();
@@ -441,14 +652,20 @@ class _CuePanelSheet extends StatefulWidget {
 
 class _CuePanelSheetState extends State<_CuePanelSheet> {
   late final TextEditingController _ctrl;
-  late NoteCategory _category;
+  late CuePriority _priority;
+  NatureOfContent? _nature;
+  EvidentiaryWeight? _weight;
+  CueOrigin? _origin;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.existing?.content ?? '');
-    _category = widget.existing?.category ?? NoteCategory.general;
+    _priority = widget.existing?.priority ?? CuePriority.normal;
+    _nature = widget.existing?.natureOfContent;
+    _weight = widget.existing?.evidentiaryWeight;
+    _origin = widget.existing?.origin;
   }
 
   @override
@@ -459,7 +676,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = _sectionColor(widget.section);
+    final accent = sectionColor(widget.section);
 
     return Container(
       decoration: const BoxDecoration(
@@ -468,158 +685,175 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
       ),
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 10),
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2)),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 10),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 14),
 
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.existing == null
-                          ? 'Add Context Cue'
-                          : 'Edit Context Cue',
-                      style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary),
-                    ),
-                    Text(
-                      'Tagged: ${widget.section.label}',
-                      style: TextStyle(fontSize: 11, color: accent),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel',
-                      style:
-                          TextStyle(color: AppColors.textSecondary)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // ── Category chips (Wrap — all visible) ──────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: NoteCategory.values.map((cat) {
-                final selected = _category == cat;
-                final color = _catColor(cat);
-                return GestureDetector(
-                  onTap: () => setState(() => _category = cat),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 11, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? color
-                          : color.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: color.withValues(
-                              alpha: selected ? 1.0 : 0.25)),
-                    ),
-                    child: Text(
-                      cat.label,
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: selected ? Colors.white : color),
-                    ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.existing == null
+                            ? 'Add Context Cue'
+                            : 'Edit Context Cue',
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary),
+                      ),
+                      Text(
+                        'Tagged: ${widget.section.label}',
+                        style: TextStyle(fontSize: 11, color: accent),
+                      ),
+                    ],
                   ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _ctrl,
-              autofocus: true,
-              maxLines: 5,
-              minLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Enter context cue…',
-                hintStyle: const TextStyle(
-                    color: AppColors.textTertiary, fontSize: 13),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        BorderSide(color: accent, width: 1.5)),
-                contentPadding: const EdgeInsets.all(12),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel',
+                        style:
+                            TextStyle(color: AppColors.textSecondary)),
+                  ),
+                ],
               ),
-              style: const TextStyle(fontSize: 13, height: 1.5),
             ),
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 12),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-            child: ElevatedButton(
-              onPressed: _saving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accent,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+            // ── Priority — first decision, positioned at the top ────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: CueChipRow<CuePriority>(
+                values: CuePriority.values,
+                selected: _priority,
+                labelOf: (p) => p.label,
+                colorOf: _priorityColor,
+                onTap: (p) => setState(() => _priority = p),
+                allowDeselect: false,
               ),
-              child: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : Text(
-                      widget.existing == null ? 'Save Cue' : 'Update Cue',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 14)),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: _ctrl,
+                autofocus: true,
+                maxLines: 5,
+                minLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Enter context cue…',
+                  hintStyle: const TextStyle(
+                      color: AppColors.textTertiary, fontSize: 13),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          const BorderSide(color: AppColors.border)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          const BorderSide(color: AppColors.border)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          BorderSide(color: accent, width: 1.5)),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+                style: const TextStyle(fontSize: 13, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // ── Nature of content (optional, tap again to clear) ────────
+            LabeledCueChipRow<NatureOfContent>(
+              label: 'Nature of content',
+              values: NatureOfContent.values,
+              selected: _nature,
+              labelOf: (n) => n.label,
+              colorOf: natureOfContentColor,
+              onTap: (n) => setState(() => _nature = _nature == n ? null : n),
+            ),
+            const SizedBox(height: 10),
+
+            // ── Evidentiary weight (optional, tap again to clear) ───────
+            LabeledCueChipRow<EvidentiaryWeight>(
+              label: 'Evidentiary weight',
+              values: EvidentiaryWeight.values,
+              selected: _weight,
+              labelOf: (w) => w.label,
+              colorOf: evidentiaryWeightColor,
+              onTap: (w) => setState(() => _weight = _weight == w ? null : w),
+            ),
+            const SizedBox(height: 10),
+
+            // ── Origin (optional, tap again to clear) ───────────────────
+            LabeledCueChipRow<CueOrigin>(
+              label: 'Origin',
+              values: CueOrigin.values,
+              selected: _origin,
+              labelOf: (o) => o.label,
+              colorOf: cueOriginColor,
+              onTap: (o) => setState(() => _origin = _origin == o ? null : o),
+            ),
+            const SizedBox(height: 14),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+              child: ElevatedButton(
+                onPressed: _saving ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : Text(
+                        widget.existing == null ? 'Save Cue' : 'Update Cue',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  static Color _priorityColor(CuePriority p) => switch (p) {
+        CuePriority.important => const Color(0xFFDC2626),
+        CuePriority.normal    => const Color(0xFF4A7A5A),
+        CuePriority.ignored   => const Color(0xFF9E9C96),
+      };
 
   Future<void> _save() async {
     final content = _ctrl.text.trim();
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.onSave(content, _category);
+      await widget.onSave(content, _priority, _nature, _weight, _origin);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -627,11 +861,109 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
   }
 }
 
+// ── Shared chip-row helpers ─────────────────────────────────────────────────
+
+class LabeledCueChipRow<T> extends StatelessWidget {
+  const LabeledCueChipRow({
+    super.key,
+    required this.label,
+    required this.values,
+    required this.selected,
+    required this.labelOf,
+    required this.colorOf,
+    required this.onTap,
+  });
+
+  final String label;
+  final List<T> values;
+  final T? selected;
+  final String Function(T) labelOf;
+  final Color Function(T) colorOf;
+  final ValueChanged<T> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textTertiary)),
+          const SizedBox(height: 5),
+          CueChipRow<T>(
+            values: values,
+            selected: selected,
+            labelOf: labelOf,
+            colorOf: colorOf,
+            onTap: onTap,
+            allowDeselect: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CueChipRow<T> extends StatelessWidget {
+  const CueChipRow({
+    super.key,
+    required this.values,
+    required this.selected,
+    required this.labelOf,
+    required this.colorOf,
+    required this.onTap,
+    required this.allowDeselect,
+  });
+
+  final List<T> values;
+  final T? selected;
+  final String Function(T) labelOf;
+  final Color Function(T) colorOf;
+  final ValueChanged<T> onTap;
+  final bool allowDeselect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: values.map((v) {
+        final isSelected = selected == v;
+        final color = colorOf(v);
+        return GestureDetector(
+          onTap: () => onTap(v),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            decoration: BoxDecoration(
+              color: isSelected ? color : color.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                  color: color.withValues(alpha: isSelected ? 1.0 : 0.25)),
+            ),
+            child: Text(
+              labelOf(v),
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected ? Colors.white : color),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 class _CuesPanelEmpty extends StatelessWidget {
   const _CuesPanelEmpty({required this.section, this.isIgnoredTab = false});
-  final ReportSection section;
+  final CaseSection section;
   final bool isIgnoredTab;
 
   @override
