@@ -1,258 +1,400 @@
 # Marine Survey App — Test Sheet
 
-Status legend: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken
+Status: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken · `[⛔]` Not built yet (gap — nothing to test)
+
+Auto: `Unit` pure-logic unit test (no UI/network, could write today) · `Widget` widget test w/ mocked providers (moderate setup, no external service) · `Integ` integration_test w/ faked backend (bigger investment) · `Manual` needs a real external service (Google OAuth/Gmail/Drive/Photos, camera/mic hardware, a second real device/email) or subjective/visual judgement — not practically automatable in this stack.
+
+**Automation status (2026-07-06):** all 9 `Unit`-tagged rows are automated (`test/features/...`, `test/core/...` — pure-logic tests, no mocking needed). Of the 142 `Widget`-tagged rows, two areas are automated so far: Checklist (rows 144-147, the harness pilot) and Reports (rows 158-175, 12 of 14 fully covered + 2 partial — see below), both using the same pattern: override the Riverpod provider directly with a fake `Notifier` subclass in `test/support/fakes/` (no mocktail, no fake Supabase client needed — confirmed this scales even to Reports' 5-provider dependency graph). 124 Widget rows and the 1 `Integ` row are still unautomated. `Manual` rows are tracked separately in `MANUAL_QA_CHECKLIST.md` (39 rows) since they need real external services or human judgement and can't be automated in this stack. Test count: 116 automated tests total (`flutter test`), all passing except the pre-existing unrelated `test/widget_test.dart` placeholder (default counter-app smoke test, predates this work).
+
+Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, not test failures — they exist so the sheet doubles as a punch list toward a finished product.
 
 ---
 
-## Authentication
+## 1. Authentication
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 1 | Login screen loads and accepts credentials | `[ ]` | |
-| 2 | Logout redirects to login screen | `[ ]` | |
-
----
-
-## Cases
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 3 | Cases list loads and shows existing cases | `[ ]` | |
-| 4 | Create new case (job no, type, title) | `[ ]` | |
-| 5 | Open case → case home screen loads | `[ ]` | |
-| 6 | All module tiles on case home navigate correctly | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 1 | Login screen loads and accepts credentials | Manual | `[ ]` | |
+| 2 | Logout redirects to login screen | Widget | `[ ]` | |
+| 3 | Session persists across app restart (SharedPreferences/localStorage) | Manual | `[ ]` | |
 
 ---
 
-## Vessel Particulars
+## 2. Cases
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 7 | Identity tab shows existing vessel data | `[ ]` | |
-| 8 | Edit identity fields → Save → persists | `[ ]` | |
-| 9 | Dimensions tab saves correctly | `[ ]` | |
-| 10 | New case: create vessel from scratch | `[ ]` | |
-| 11 | Machinery tab: add item | `[ ]` | |
-| 12 | Machinery: delete with confirm dialog | `[ ]` | |
-| 13 | Globe icon appears when IMO is filled | `[ ]` | |
-| 14 | Globe → no credentials → snackbar + Account link | `[ ]` | |
-| 15 | Globe → valid credentials → Equasis PDF fetched | `[ ]` | |
-| 16 | Equasis PDF appears in Document Vault | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 4 | Cases list loads and shows existing cases | Widget | `[ ]` | |
+| 5 | Create new case (job no, type, title) | Widget | `[ ]` | |
+| 6 | Case title auto-builds as "JobNo – Vessel – SurveyType – Occurrence brief" | Unit | `[ ]` | rebuilds on file no/vessel/type/occurrence change |
+| 7 | Open case → Case Home screen loads | Widget | `[ ]` | |
+| 8 | All module tiles on Case Home navigate correctly | Widget | `[ ]` | |
+| 9 | New case → Drive folders created (Admin, Collected Documents + 5 buckets, Claim Invoices, Reports, HSE, Photos, Correspondence) and `storage_folder_path` populated | Manual | `[ ]` | not yet live-smoke-tested per last session |
+| 10 | Editing vessel name or technical file no. renames the Drive case folder in place (not a duplicate) | Manual | `[ ]` | not yet live-smoke-tested |
 
 ---
 
-## Occurrences
+## 3. Vessel Particulars
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 17 | Occurrence list loads | `[ ]` | |
-| 18 | Add occurrence (title, date, location, description) | `[ ]` | |
-| 19 | Edit occurrence → changes saved | `[ ]` | |
-| 20 | Delete occurrence: confirm dialog → cascade removes damage & repairs | `[ ]` | |
-
----
-
-## Damage Register
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 21 | Damage register grouped by occurrence | `[ ]` | |
-| 22 | Add damage item under an occurrence | `[ ]` | |
-| 23 | Edit damage item | `[ ]` | |
-| 24 | Delete damage item (with confirm) | `[ ]` | |
-| 25 | Delete occurrence from damage register (header popup) | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 11 | Identity tab shows existing vessel data | Widget | `[ ]` | |
+| 12 | Edit identity fields → Save → persists | Widget | `[ ]` | |
+| 13 | Dimensions tab saves correctly | Widget | `[ ]` | |
+| 14 | New case: create vessel from scratch | Widget | `[ ]` | |
+| 15 | Machinery tab: add item | Widget | `[ ]` | |
+| 16 | Machinery: delete with confirm dialog | Widget | `[ ]` | |
+| 17 | Globe icon appears when IMO is filled | Widget | `[ ]` | |
+| 18 | Globe → no credentials → snackbar + Account link | Widget | `[ ]` | |
+| 19 | Globe → valid credentials → Equasis PDF fetched | Manual | `[ ]` | |
+| 20 | Equasis PDF appears in Document Vault | Manual | `[ ]` | |
+| 21 | Class/Statutory tab: certificate list, add certificate, delete (confirm dialog) | Widget | `[ ]` | |
+| 22 | Class/Statutory tab: conditions of class — empty-state hint, add condition, delete (confirm dialog) | Widget | `[ ]` | new since last sheet |
+| 23 | "Add vessel general view" photo picker sets the shared case cover photo (same photo used in Gallery/Report cover) | Manual | `[ ]` | |
+| 24 | Vessel statutory fields (psc_last_inspection, last_drydock_date, pi_club, isps_status) present and saved | Widget | `[ ]` | flagged open in last audit — verify actually implemented, not just planned |
 
 ---
 
-## Causation
+## 4. Occurrences
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 26 | Causation screen loads with existing data | `[ ]` | |
-| 27 | Edit cause type, allegation, narrative → save | `[ ]` | |
-
----
-
-## Repairs
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 28 | Repair periods screen loads | `[ ]` | |
-| 29 | Add repair record | `[ ]` | |
-| 30 | Edit repair record | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 25 | Occurrence list loads | Widget | `[ ]` | |
+| 26 | Add occurrence (title, date, location, description) | Widget | `[ ]` | |
+| 27 | Edit occurrence → changes saved | Widget | `[ ]` | |
+| 28 | Delete occurrence: confirm dialog → cascade removes damage & repairs | Widget | `[ ]` | |
 
 ---
 
-## Attendees & Attendances
+## 5. Damage Register
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 31 | Attendees list loads | `[ ]` | |
-| 32 | Add attendee | `[ ]` | |
-| 33 | Edit attendee | `[ ]` | |
-| 34 | Delete attendee (with confirm) | `[ ]` | |
-| 35 | Create attendance record | `[ ]` | |
-
----
-
-## Document Vault
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 36 | Document vault loads and shows documents | `[ ]` | |
-| 37 | Upload PDF → appears in list | `[ ]` | |
-| 38 | Upload DOCX → appears in list | `[ ]` | |
-| 39 | Upload image → appears in list | `[ ]` | |
-| 40 | Tap PDF → opens preview | `[ ]` | |
-| 41 | Tap image → opens full-screen | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 29 | Damage register grouped by occurrence | Widget | `[ ]` | |
+| 30 | Add damage item under an occurrence | Widget | `[ ]` | |
+| 31 | Edit damage item | Widget | `[ ]` | |
+| 32 | Delete damage item (with confirm) | Widget | `[ ]` | |
+| 33 | Delete occurrence from damage register (header popup) | Widget | `[ ]` | |
 
 ---
 
-## AI Extraction
+## 6. Causation
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 42 | AI extraction runs on PDF without error | `[ ]` | |
-| 43 | AI extraction runs on DOCX without error | `[ ]` | |
-| 44 | Full extraction review screen shows parsed fields | `[ ]` | |
-| 45 | Apply to Case: data written to DB | `[ ]` | |
-| 46 | Revert import undoes all inserted rows | `[ ]` | |
-| 47 | Narratives copied verbatim (not truncated) | `[ ]` | |
-| 48 | cause_type / allegation_type / cause_narrative mapped | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 34 | Causation screen loads with existing data | Widget | `[ ]` | |
+| 35 | Edit cause type, allegation, narrative → save | Widget | `[ ]` | |
 
 ---
 
-## Import Smart Merge
+## 7. Repairs
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 49 | Identical field → skipped (no overwrite) | `[ ]` | |
-| 50 | New value extends existing → auto-upgraded | `[ ]` | |
-| 51 | New value shorter than existing → kept as-is | `[ ]` | |
-| 52 | Contradictory value → conflict dialog appears | `[ ]` | |
-| 53 | Per-field Keep / Report toggle works in dialog | `[ ]` | |
-| 54 | Different IMO shown as conflict, not auto-changed | `[ ]` | |
-| 55 | Re-importing same vessel → no 23505 crash | `[ ]` | |
-| 56 | Machinery: duplicate role+make skipped on re-import | `[ ]` | |
-| 57 | Certificate: duplicate type+number skipped on re-import | `[ ]` | |
-| 58 | Occurrence renumber two-pass: no 23505 on re-import | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 36 | Repair periods screen loads | Widget | `[ ]` | |
+| 37 | Add repair record | Widget | `[ ]` | |
+| 38 | Edit repair record | Widget | `[ ]` | |
+| 39 | Nature of Repairs screen loads and saves | Widget | `[ ]` | not in prior sheet |
+| 40 | Additional Information screen loads and saves | Widget | `[ ]` | not in prior sheet |
+| 41 | Repair-period-scoped Context Cues: add/edit a cue tied to a specific repair period | Widget | `[ ]` | not in prior sheet |
 
 ---
 
-## Photos
+## 8. Attendees & Attendances
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 59 | Photo gallery loads for case | `[ ]` | |
-| 60 | Take photo with camera → appears in gallery | `[ ]` | |
-| 61 | Upload photo from device → appears in gallery | `[ ]` | |
-| 62 | Tap photo → full-screen viewer | `[ ]` | |
-
----
-
-## Parties & Stakeholders
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 63 | Parties screen loads and shows grouped sections | `[ ]` | |
-| 64 | Empty state shows "No stakeholders" message | `[ ]` | |
-| 65 | Add stakeholder manually: name, company, role, group, phone, email, notes | `[ ]` | |
-| 66 | Group dropdown shows all 6 groups (Insured, Underwriter, Broker, Surveyors, Technical Contractors, Other) | `[ ]` | |
-| 67 | Stakeholder card shows initials avatar, name, company, role chip, contact rows | `[ ]` | |
-| 68 | Delete stakeholder: confirm dialog → removed from list | `[ ]` | |
-| 69 | Group header "Add" button pre-selects that group in the sheet | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 42 | Attendees list loads | Widget | `[ ]` | |
+| 43 | Add attendee | Widget | `[ ]` | |
+| 44 | Edit attendee | Widget | `[ ]` | |
+| 45 | Delete attendee (with confirm) | Widget | `[ ]` | |
+| 46 | Create attendance record | Widget | `[ ]` | |
 
 ---
 
-## Correspondence & Inbox
+## 9. Document Vault
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 70 | Inbox screen loads | `[ ]` | |
-| 71 | Correspondence screen loads for case | `[ ]` | |
-| 72 | FAB "Add" opens bottom sheet with PDF and EML options | `[ ]` | |
-| 73 | Upload PDF → card appears collapsed in list | `[ ]` | |
-| 74 | Tap card header → expands to show full card | `[ ]` | |
-| 75 | Collapsed card shows: icon, title (1 line), status chip, date, party/action counts | `[ ]` | |
-| 76 | Three-dot menu: Preview / Extract with AI / Delete | `[ ]` | |
-| 77 | Delete: confirm dialog → card removed | `[ ]` | |
-| 78 | Extract with AI → status changes to completed, summary + parties + actions populated | `[ ]` | |
-| 79 | corrDate field populated after extraction (shows date in header) | `[ ]` | |
-| 80 | Import .eml → card appears; From/To/Date pre-filled | `[ ]` | |
-| 81 | EML import: attachment dialog appears with file list | `[ ]` | |
-| 82 | Attachment dialog: image thumbnails shown; tap → full-screen zoom | `[ ]` | |
-| 83 | Attachment dialog: size filter slider hides small images (default 20 KB) | `[ ]` | |
-| 84 | Attachment dialog: "N small image(s) hidden" label appears when filter active | `[ ]` | |
-| 85 | Attachment dialog: per-item checkboxes; "Save Selected (N)" button | `[ ]` | |
-| 86 | Attachment dialog: "Skip All" closes without saving | `[ ]` | |
-| 87 | Selected attachments appear in Document Vault after import | `[ ]` | |
-| 88 | EML card: "View Email" opens preview with From/To/Date headers + selectable body | `[ ]` | |
-| 89 | EML card: Extract with AI uses body text (not PDF path) | `[ ]` | |
-| 90 | After extraction: extracted parties shown as chips in expanded card | `[ ]` | |
-| 91 | "Add to Parties" button appears when parties extracted | `[ ]` | |
-| 92 | "Add to Parties" dialog: pre-checked list of parties; deselect → excluded | `[ ]` | |
-| 93 | Confirmed parties appear in Parties screen under correct group | `[ ]` | |
-| 94 | Re-adding same party → snackbar "Already in stakeholders list" | `[ ]` | |
-| 95 | Action items listed in expanded card with → Context icon button | `[ ]` | |
-| 96 | Tap Context icon → action appears in Surveyor Notes as Follow-up / Important | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 47 | Document vault loads and shows documents | Widget | `[ ]` | screen had a large rewrite — re-check against current UI |
+| 48 | Upload PDF → appears in list | Widget | `[ ]` | |
+| 49 | Upload DOCX → appears in list | Widget | `[ ]` | |
+| 50 | Upload image → appears in list | Widget | `[ ]` | |
+| 51 | Tap PDF → opens preview | Widget | `[ ]` | |
+| 52 | Tap image → opens full-screen | Widget | `[ ]` | |
 
 ---
 
-## Timeline
+## 10. AI Extraction
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 97 | Timeline screen loads and shows events | `[ ]` | |
-
----
-
-## Surveyor Notes
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 98 | Notes screen loads | `[ ]` | |
-| 99 | Create/edit a note | `[ ]` | |
-| 100 | Action item sent from correspondence appears as Follow-up / Important | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 53 | AI extraction runs on PDF without error | Manual | `[ ]` | |
+| 54 | AI extraction runs on DOCX without error | Manual | `[ ]` | |
+| 55 | Full extraction review screen shows parsed fields | Widget | `[ ]` | |
+| 56 | Apply to Case: data written to DB | Widget | `[ ]` | |
+| 57 | Revert import undoes all inserted rows | Widget | `[ ]` | |
+| 58 | Narratives copied verbatim (not truncated) | Manual | `[ ]` | |
+| 59 | cause_type / allegation_type / cause_narrative mapped | Widget | `[ ]` | |
 
 ---
 
-## Timesheet
+## 11. Import Smart Merge
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 101 | Timesheet screen loads | `[ ]` | |
-
----
-
-## Reports
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 102 | Report builder screen loads | `[ ]` | |
-
----
-
-## Account Settings
-
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 103 | Account screen accessible from cases list icon | `[ ]` | |
-| 104 | Save name / email / phone / address → persists after restart | `[ ]` | |
-| 105 | Active Anthropic key shown (last 6 chars) | `[ ]` | |
-| 106 | Add external account (label / url / user / pass) | `[ ]` | |
-| 107 | Edit external account → changes saved | `[ ]` | |
-| 108 | Delete external account (confirm dialog) | `[ ]` | |
-| 109 | Equasis credentials survive app restart | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 60 | Identical field → skipped (no overwrite) | Unit | `[ ]` | `VesselModel.applyExtraction()` — pure merge logic |
+| 61 | New value extends existing → auto-upgraded | Unit | `[ ]` | |
+| 62 | New value shorter than existing → kept as-is | Unit | `[ ]` | |
+| 63 | Contradictory value → conflict dialog appears | Widget | `[ ]` | |
+| 64 | Per-field Keep / Report toggle works in dialog | Widget | `[ ]` | |
+| 65 | Different IMO shown as conflict, not auto-changed | Unit | `[ ]` | |
+| 66 | Re-importing same vessel → no 23505 crash | Widget | `[ ]` | |
+| 67 | Machinery: duplicate role+make skipped on re-import | Unit | `[ ]` | |
+| 68 | Certificate: duplicate type+number skipped on re-import | Unit | `[ ]` | |
+| 69 | Occurrence renumber two-pass: no 23505 on re-import | Widget | `[ ]` | |
 
 ---
 
-## API Usage
+## 12. Photos & Cloud Photo Sync
 
-| # | Feature | Status | Notes |
-|---|---------|--------|-------|
-| 110 | Usage screen loads | `[ ]` | |
-| 111 | Token counts increment after an extraction | `[ ]` | |
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 70 | Photo gallery loads for case; By Visit / By Inspection tabs both populate | Widget | `[ ]` | |
+| 71 | Take photo with camera → appears in gallery | Manual | `[ ]` | |
+| 72 | Upload photo from device → appears in gallery | Widget | `[ ]` | |
+| 73 | Tap photo → full-screen viewer | Widget | `[ ]` | |
+| 74 | Delete photo (with confirm) | Widget | `[ ]` | |
+| 75 | Set / override cover photo and allocation | Widget | `[ ]` | |
+| 76 | Photo added under an attendance lands in Drive `Photos/{attendance label}/` | Manual | `[ ]` | not yet live-smoke-tested |
+| 77 | Drive Folder Picker screen: browse & pick a Drive folder | Manual | `[ ]` | |
+| 78 | Local Folder Picker screen: browse & pick a local folder (desktop) | Manual | `[ ]` | |
+| 79 | Google Photos sync: create/find album, share URL, upload + add to album | Manual | `[ ]` | |
+| 80 | "All photos already synced" state shown correctly after a sync pass | Manual | `[ ]` | |
 
 ---
 
-*Last updated: 2026-06-23*
+## 13. Parties & Stakeholders
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 81 | Parties screen loads and shows grouped sections | Widget | `[ ]` | |
+| 82 | Empty state shows "No stakeholders" message | Widget | `[ ]` | |
+| 83 | Add stakeholder manually: name, company, role, group, phone, email, notes | Widget | `[ ]` | |
+| 84 | Group dropdown shows all 6 groups (Insured, Underwriter, Broker, Surveyors, Technical Contractors, Other) | Widget | `[ ]` | |
+| 85 | Stakeholder card shows initials avatar, name, company, role chip, contact rows | Widget | `[ ]` | |
+| 86 | Delete stakeholder: confirm dialog → removed from list | Widget | `[ ]` | |
+| 87 | Group header "Add" button pre-selects that group in the sheet | Widget | `[ ]` | |
+
+---
+
+## 14. Correspondence, Inbox & Gmail
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 88 | Inbox screen loads | Widget | `[ ]` | screen is a stub ("coming next session") — confirm placeholder only |
+| 89 | Correspondence screen loads for case | Widget | `[ ]` | |
+| 90 | FAB "Add" opens bottom sheet with PDF and EML options | Widget | `[ ]` | |
+| 91 | Upload PDF → card appears collapsed in list | Widget | `[ ]` | |
+| 92 | Tap card header → expands to show full card | Widget | `[ ]` | |
+| 93 | Collapsed card shows: icon, title (1 line), status chip, date, party/action counts | Widget | `[ ]` | |
+| 94 | Three-dot menu: Preview / Extract with AI / Delete | Widget | `[ ]` | |
+| 95 | Delete: confirm dialog → card removed | Widget | `[ ]` | |
+| 96 | Extract with AI → status changes to completed, summary + parties + actions populated | Manual | `[ ]` | |
+| 97 | corrDate field populated after extraction (shows date in header) | Widget | `[ ]` | |
+| 98 | Import .eml → card appears; From/To/Date pre-filled | Widget | `[ ]` | |
+| 99 | EML import: attachment dialog appears with file list | Widget | `[ ]` | |
+| 100 | Attachment dialog: image thumbnails shown; tap → full-screen zoom | Widget | `[ ]` | |
+| 101 | Attachment dialog: size filter slider hides small images (default 20 KB) | Widget | `[ ]` | |
+| 102 | Attachment dialog: "N small image(s) hidden" label appears when filter active | Widget | `[ ]` | |
+| 103 | Attachment dialog: per-item checkboxes; "Save Selected (N)" button | Widget | `[ ]` | |
+| 104 | Attachment dialog: "Skip All" closes without saving | Widget | `[ ]` | |
+| 105 | Selected attachments appear in Document Vault after import | Widget | `[ ]` | |
+| 106 | EML card: "View Email" opens preview with From/To/Date headers + selectable body | Widget | `[ ]` | |
+| 107 | EML card: Extract with AI uses body text (not PDF path) | Manual | `[ ]` | |
+| 108 | After extraction: extracted parties shown as chips in expanded card | Widget | `[ ]` | |
+| 109 | "Add to Parties" button appears when parties extracted | Widget | `[ ]` | |
+| 110 | "Add to Parties" dialog: pre-checked list of parties; deselect → excluded | Widget | `[ ]` | |
+| 111 | Confirmed parties appear in Parties screen under correct group | Widget | `[ ]` | |
+| 112 | Re-adding same party → snackbar "Already in stakeholders list" | Widget | `[ ]` | |
+| 113 | Action items listed in expanded card with → Context icon button | Widget | `[ ]` | |
+| 114 | Tap Context icon → action appears in Surveyor Notes as Follow-up / Important | Widget | `[ ]` | |
+| 115 | Gmail Message Picker: lists threads matching a case-derived keyword query | Manual | `[ ]` | new — needs real Google account |
+| 116 | Gmail thread detail screen shows full message list in the thread | Manual | `[ ]` | new |
+| 117 | "Import N Conversation(s)" downloads raw messages and feeds the same EML importer | Manual | `[ ]` | new |
+| 118 | "Reply via Gmail" from a correspondence card sends a threaded reply (In-Reply-To set correctly) | Manual | `[ ]` | new — verify actual thread on recipient side |
+
+---
+
+## 15. Cloud Storage Sync (Google Drive)
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 119 | Document Vault bulk "Send to Drive" export uses the new per-case folder taxonomy | Manual | `[ ]` | per notes this button still makes its own ad hoc structure — verify or fix |
+| 120 | Report export "Send to Drive" action after docx export lands file in `Reports/` | Manual | `[ ]` | |
+| 121 | Document Vault documents upload into Drive `Collected Documents/{bucket}` / `Claim Invoices` automatically | — | `[⛔]` | not built — Documents feature is still 100% Supabase Storage, no Drive path yet |
+| 122 | Background prefetch of a whole case's Drive files on open (no per-file lag) | — | `[⛔]` | explicitly deferred; current design is upload-immediately + download-on-first-access |
+
+---
+
+## 16. Timeline
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 123 | Timeline screen loads and shows events | Widget | `[ ]` | |
+| 124 | Add timeline event via sheet | Widget | `[ ]` | not in prior sheet |
+
+---
+
+## 17. Surveyor Notes
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 125 | Notes screen loads | Widget | `[ ]` | |
+| 126 | Create/edit a note | Widget | `[ ]` | |
+| 127 | Action item sent from correspondence appears as Follow-up / Important | Widget | `[ ]` | |
+
+---
+
+## 18. Background & Context Cues
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 128 | Background screen loads existing text | Widget | `[ ]` | not in prior sheet |
+| 129 | Edit background text → autosaves | Widget | `[ ]` | |
+| 130 | Context Cues panel: add a cue | Widget | `[ ]` | |
+| 131 | Context Cues panel: edit / delete a cue | Widget | `[ ]` | |
+| 132 | Cues stay consistent between Background panel and repair-period-scoped cues (row 41) | Widget | `[ ]` | shared component — check for divergence |
+
+---
+
+## 19. Quick Capture & Voice Notes
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 133 | Quick Capture FAB opens sheet from Case Home | Widget | `[ ]` | not in prior sheet |
+| 134 | Quick Capture screen: Capture Items tab — add a free item | Widget | `[ ]` | |
+| 135 | Quick Capture screen: routing tab — route a captured item/photo to the correct case section | Widget | `[ ]` | |
+| 136 | Voice Note screen: dictate a note via on-device STT | Manual | `[ ]` | mic hardware + transcription quality judgement |
+| 137 | Camera screen (Quick Capture) | — | `[⛔]` | stub only, "coming next session" in code |
+
+---
+
+## 20. Interviews
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 138 | Interview list screen loads | Widget | `[ ]` | not in prior sheet |
+| 139 | Add new interview | Widget | `[ ]` | |
+| 140 | Record Interview: live speech-to-text captures transcript | Manual | `[ ]` | |
+| 141 | Tag participants during/after recording | Widget | `[ ]` | |
+| 142 | Edit transcript text | Widget | `[ ]` | |
+| 143 | Save interview | Widget | `[ ]` | |
+
+---
+
+## 21. Checklist
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 144 | Checklist screen loads with 4 stage tabs (Pre-Survey / On Vessel / Before Leaving / Post-Survey) | Widget | `[✓]` | automated: `test/features/checklist/screens/checklist_screen_test.dart` |
+| 145 | Progress header reflects ticked items | Widget | `[✓]` | automated, same file |
+| 146 | Tick / untick item persists | Widget | `[✓]` | automated (screen+state wiring only — Supabase write itself is faked, see row 9/10 for real Drive/DB persistence gaps) |
+| 147 | Add custom item via sheet | Widget | `[✓]` | automated, same file |
+
+---
+
+## 22. HSE
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 148 | HSE screen shows "Coming Soon" placeholder (JSEA / Permit to Work / toolbox talks) | Widget | `[ ]` | genuinely not built yet — this row just confirms the stub renders, not real functionality |
+
+---
+
+## 23. Case Analyst (AI Assistant)
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 149 | Analyst screen loads with chat UI | Widget | `[ ]` | not in prior sheet |
+| 150 | Chat context correctly reflects case facts (vessel/damage/notes/accounts) in responses | Manual | `[ ]` | needs judgement on LLM output correctness |
+| 151 | Ask a question → relevant, grounded answer returned | Manual | `[ ]` | |
+| 152 | Voice input into chat | Manual | `[ ]` | |
+
+---
+
+## 24. Accounts / Invoices
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 153 | Accounts screen loads, lists invoices | Widget | `[ ]` | not in prior sheet |
+| 154 | Import Invoice sheet: import a new invoice | Widget | `[ ]` | |
+| 155 | Invoice Detail screen loads | Widget | `[ ]` | |
+| 156 | Edit Account Line sheet: edit a line item | Widget | `[ ]` | |
+| 157 | AI Polish (sparkle) button on surveyor-notes field rewrites text | Manual | `[ ]` | `ClaudeApi.polishSurveyorNote` |
+
+---
+
+## 25. Reports
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 158 | New Report Output sheet: create output (advice number, report number/type) | Widget | `[✓]` | automated: `test/features/reports/screens/report_builder_screen_test.dart` (NewOutputSheet tested standalone) |
+| 159 | Version dropdown lists all outputs for the case | Widget | `[✓]` | wording correction: it's a card list ("Select a report to edit"), not a dropdown — automated, same file |
+| 160 | Editor tab loads with all sections | Widget | `[✓]` | automated, same file |
+| 161 | Cover-photo picker (shared with Gallery/Vessel) | Widget | `[✓]` | automated (empty-state only; picking a photo not exercised, needs CasePhotoPickerSheet mocking) |
+| 162 | Advice Summary Card renders and is editable | Widget | `[~]` | confirmed built and renders (was open item in last audit); automated test only checks it renders, not the edit interactions — still a gap |
+| 163 | Section Editor: edit a section's text and save | Widget | `[✓]` | automated, same file |
+| 164 | "Draft with AI" on eligible sections (background, causation, general services, previous works, extra expenses, contractual hire, other matters) | Manual | `[ ]` | |
+| 165 | Surveyor-review toggle per section | Widget | `[✓]` | automated, same file |
+| 166 | Section Reference Panel links source data into a section correctly | Widget | `[ ]` | not covered by this pass — renders as part of every SectionEditor but no test asserts its content against assembled data yet |
+| 167 | Preview tab renders full document, matching Editor content | Widget | `[✓]` | automated (renders without error, TOC present); full content-match against Editor not asserted line-by-line |
+| 168 | Postprocessing tab: status/QC stepper | Widget | `[✓]` | automated, same file |
+| 169 | "Changes summary" field appears only when output supersedes a prior version | Widget | `[✓]` | automated, both branches |
+| 170 | Sign-off: attending surveyor — name entry + draw signature pad | Manual | `[ ]` | |
+| 171 | Sign-off: attending surveyor — upload PNG signature (desktop) | Manual | `[ ]` | |
+| 172 | Sign-off: reviewing surveyor — same flow | Manual | `[ ]` | |
+| 173 | Per-role signed status displays correctly after sign-off | Widget | `[✓]` | automated, both partial and full sign-off states |
+| 174 | Export: pre-export validation sheet lists warnings | Widget | `[✓]` | export gate confirmed built and working (was open item in last audit) — automated |
+| 175 | Export: "Export anyway" bypasses warnings; "Cancel" aborts | Widget | `[~]` | "Cancel" path automated; "Export anyway" not covered — it would exercise real docx/file-system code (path_provider) with no test double, deliberately left as Manual/Integ |
+| 176 | Export: generates .docx via docx_export_service without error | Integ | `[ ]` | |
+| 177 | Export: docx output matches Preview tab content/layout | Manual | `[ ]` | visual check |
+| 178 | Post-export success dialog → "Send to Drive" | Manual | `[ ]` | |
+| 179 | Docx section tables render correctly: vessel particulars, certificates, class conditions, attendance blocks, occurrence/chronology, machinery, account summaries + totals | Unit + Manual | `[ ]` | `section_table_rows.dart` pure builders (Unit) + visual docx check (Manual) |
+| 180 | Annexures A–H grouped and sorted by annexure_assignment | Unit | `[ ]` | `annexure_groups.dart` |
+| 181 | AI disclosure paragraph + Annexure I snapshot present in export | — | `[ ]` | verify if implemented — open in last audit, not confirmed built |
+| 182 | Version Control Block (supersedes/supplements + changelog) present in export | — | `[ ]` | verify if implemented — open in last audit |
+| 183 | Documents Requested section present in export | — | `[ ]` | verify if implemented — open in last audit |
+| 184 | Firm logo appears in running header of exported docx | Manual | `[ ]` | Organisation branding screen exists — confirm logo actually flows through to docx header |
+| 185 | Writing-style lint catches disallowed phrasing before export | Unit | `[ ]` | `writing_style_lint.dart` |
+
+---
+
+## 26. Account & Organisation Settings
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 186 | Account screen accessible from cases list icon | Widget | `[ ]` | |
+| 187 | Save name / email / phone / address → persists after restart | Widget | `[ ]` | |
+| 188 | Active Anthropic key shown (last 6 chars) | Widget | `[ ]` | |
+| 189 | Add external account (label / url / user / pass) | Widget | `[ ]` | |
+| 190 | Edit external account → changes saved | Widget | `[ ]` | |
+| 191 | Delete external account (confirm dialog) | Widget | `[ ]` | |
+| 192 | Equasis credentials survive app restart | Manual | `[ ]` | |
+| 193 | Organisation List screen loads | Widget | `[ ]` | not in prior sheet |
+| 194 | Organisation Detail: edit branding (name, logo, letterhead fields) → saves | Widget | `[ ]` | not in prior sheet |
+| 195 | Speech Settings screen: switch STT provider | Widget | `[ ]` | not in prior sheet |
+| 196 | Debug Log screen loads and shows recent log entries | Widget | `[ ]` | not in prior sheet |
+
+---
+
+## 27. API Usage
+
+| # | Feature | Auto | Status | Comments |
+|---|---------|------|--------|----------|
+| 197 | Usage screen loads | Widget | `[ ]` | |
+| 198 | Token counts increment after an extraction | Manual | `[ ]` | |
+
+---
+
+*Last updated: 2026-07-06 — expanded from 111 to 198 rows to cover Accounts, Case Analyst, Background/Context Cues, Quick Capture, Interviews, Checklist, HSE, Gmail integration, Google Drive/Photos sync, Organisation/Speech/Debug settings, and a full breakdown of the Report Builder module. `[⛔]` rows are known gaps, not test failures.*
