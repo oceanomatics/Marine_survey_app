@@ -298,6 +298,39 @@ class OccurrenceModel {
             j['certainty_level'] as String?),
       );
 
+  OccurrenceModel copyWith({
+    DateTime? dateTime,
+    String? location,
+    String? title,
+    String? briefDescription,
+  }) =>
+      OccurrenceModel(
+        occurrenceId: occurrenceId,
+        caseId: caseId,
+        occurrenceNo: occurrenceNo,
+        isPrimary: isPrimary,
+        dateTime: dateTime ?? this.dateTime,
+        location: location ?? this.location,
+        title: title ?? this.title,
+        briefDescription: briefDescription ?? this.briefDescription,
+        backgroundNarrative: backgroundNarrative,
+        chronology: chronology,
+        causeType: causeType,
+        allegationType: allegationType,
+        causeAgreement: causeAgreement,
+        causeNarrative: causeNarrative,
+        ismReported: ismReported,
+        createdAt: createdAt,
+        vesselStatusAtCasualty: vesselStatusAtCasualty,
+        aftermathStatus: aftermathStatus,
+        aftermathPort: aftermathPort,
+        ownersStatedCause: ownersStatedCause,
+        ownersStatedCauseSource: ownersStatedCauseSource,
+        thirdPartyFindings: thirdPartyFindings,
+        surveyorsAssessment: surveyorsAssessment,
+        certaintyLevel: certaintyLevel,
+      );
+
   Map<String, dynamic> toInsertJson() => {
         'case_id':       caseId,
         'occurrence_no': occurrenceNo,

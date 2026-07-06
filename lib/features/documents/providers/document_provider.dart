@@ -210,6 +210,7 @@ class DocExtractionResult {
     required this.findingCategories,
     this.findingCaseSections = const [],
     this.findingOrigins = const [],
+    this.findingPages = const [],
     required this.detectedIncidents,
     required this.detectedMachinery,
     this.detectedClassConditions = const [],
@@ -230,6 +231,10 @@ class DocExtractionResult {
 
   /// AI-suggested `CueOrigin.value` per finding, parallel to [contextFindings].
   final List<String?> findingOrigins;
+
+  /// Source document page number per finding, parallel to [contextFindings];
+  /// null entries mean the page couldn't be determined.
+  final List<int?> findingPages;
   final List<Map<String, dynamic>> detectedIncidents;
   final List<Map<String, dynamic>> detectedMachinery;
   final List<Map<String, dynamic>> detectedClassConditions;
@@ -370,6 +375,7 @@ class DocumentNotifier
       final findingCats = <String>[];
       final findingSections = <String?>[];
       final findingOrigins = <String?>[];
+      final findingPages = <int?>[];
       for (final f in raw['context_findings'] as List? ?? []) {
         if (f is Map) {
           final text = f['text']?.toString() ?? '';
@@ -378,6 +384,7 @@ class DocumentNotifier
             findingCats.add(f['note_category']?.toString() ?? 'observation');
             findingSections.add(f['case_section']?.toString());
             findingOrigins.add(f['origin']?.toString());
+            findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
           }
         } else {
           final text = f.toString();
@@ -386,9 +393,27 @@ class DocumentNotifier
             findingCats.add('observation');
             findingSections.add(null);
             findingOrigins.add(null);
+            findingPages.add(null);
           }
         }
       }
+
+      // Safety net: enforce document order by page even if the model didn't
+      // fully comply with the "list in document order" instruction — a
+      // stable sort keyed on (page, original index) so same-page/unknown-page
+      // findings keep their original relative order.
+      final order = List<int>.generate(findings.length, (i) => i)
+        ..sort((a, b) {
+          final pa = findingPages[a] ?? (1 << 30);
+          final pb = findingPages[b] ?? (1 << 30);
+          if (pa != pb) return pa.compareTo(pb);
+          return a.compareTo(b);
+        });
+      final orderedFindings = [for (final i in order) findings[i]];
+      final orderedCats = [for (final i in order) findingCats[i]];
+      final orderedSections = [for (final i in order) findingSections[i]];
+      final orderedOrigins = [for (final i in order) findingOrigins[i]];
+      final orderedPages = [for (final i in order) findingPages[i]];
 
       final incidents = (raw['detected_incidents'] as List? ?? [])
           .whereType<Map>()
@@ -428,10 +453,11 @@ class DocumentNotifier
       return DocExtractionResult(
         docId: docId,
         hardFields: hardFields,
-        contextFindings: findings,
-        findingCategories: findingCats,
-        findingCaseSections: findingSections,
-        findingOrigins: findingOrigins,
+        contextFindings: orderedFindings,
+        findingCategories: orderedCats,
+        findingCaseSections: orderedSections,
+        findingOrigins: orderedOrigins,
+        findingPages: orderedPages,
         detectedIncidents: incidents,
         detectedMachinery: machinery,
         detectedClassConditions: classConditions,
@@ -444,7 +470,8 @@ class DocumentNotifier
       await SupabaseService.client
           .from('documents')
           .update({'extraction_status': 'failed'}).eq('doc_id', docId);
-      return null;
+      debugPrint('[DocumentProvider] extraction failed for $docId: $e');
+      rethrow;
     }
   }
 

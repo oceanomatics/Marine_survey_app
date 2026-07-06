@@ -24,7 +24,9 @@ import '../../../core/api/claude_api.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/drive_storage_service.dart';
+import '../../../core/utils/drive_filename.dart';
 import '../../../core/utils/eml_parser.dart';
+import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../models/correspondence_model.dart';
 
@@ -39,6 +41,19 @@ final correspondenceProvider = AsyncNotifierProviderFamily<
 class CorrespondenceNotifier
     extends FamilyAsyncNotifier<List<CorrespondenceModel>, String> {
   String get _caseId => arg;
+
+  // Bumped on every direct _insert()/delete() (single/bulk import, PDF add,
+  // deleting an item). _refresh() captures this at the start of its
+  // (slow — network fetch + local merge) run and skips applying its result
+  // if it changed in the meantime, i.e. a manual mutation landed while the
+  // refresh was in flight. Without this, a _refresh() that was already
+  // running (kicked off in build(), or by a connectivity event) can finish
+  // *after* a bulk Gmail import, using a Supabase snapshot taken *before*
+  // the import — its merge step then deletes the freshly-inserted (already
+  // 'synced') local rows because they're absent from that stale snapshot,
+  // wiping them from the list until the next screen open triggers a fresh,
+  // up-to-date refresh. The same race can resurrect a just-deleted item.
+  int _mutationGeneration = 0;
 
   @override
   Future<List<CorrespondenceModel>> build(String caseId) async {
@@ -71,15 +86,21 @@ class CorrespondenceNotifier
   Future<void> _refresh() async {
     if (_refreshing) return;
     _refreshing = true;
+    final startGeneration = _mutationGeneration;
     try {
       if (kIsWeb) {
-        state = AsyncData(await _fetchSupabase(_caseId));
+        final fetched = await _fetchSupabase(_caseId);
+        if (_mutationGeneration != startGeneration) return;
+        state = AsyncData(fetched);
         return;
       }
       await _syncPending();
       final remote = await _fetchSupabase(_caseId);
+      if (_mutationGeneration != startGeneration) return;
       await _mergeIntoLocalCache(remote);
-      state = AsyncData(await _fetchOffline(_caseId));
+      final offline = await _fetchOffline(_caseId);
+      if (_mutationGeneration != startGeneration) return;
+      state = AsyncData(offline);
     } catch (e, st) {
       debugPrint('CorrespondenceNotifier._refresh error: $e\n$st');
     } finally {
@@ -160,20 +181,16 @@ class CorrespondenceNotifier
     return rows.map(CorrespondenceModel.fromMap).toList();
   }
 
-  Future<String> _caseTitle(String caseId) async {
-    final cached = ref.read(caseProvider(caseId)).value?.title;
-    if (cached != null && cached.isNotEmpty) return cached;
-    try {
-      final row = await SupabaseService.client
-          .from('cases')
-          .select('title')
-          .eq('case_id', caseId)
-          .maybeSingle();
-      final title = row?['title'] as String?;
-      return (title != null && title.isNotEmpty) ? title : caseId;
-    } catch (_) {
-      return caseId;
-    }
+  Future<CaseModel> _fetchCaseModel(String caseId) async {
+    final cached = ref.read(caseProvider(caseId)).value;
+    if (cached != null) return cached;
+    final row = await SupabaseService.client
+        .from('cases')
+        .select('*, vessels(name)')
+        .eq('case_id', caseId)
+        .single();
+    final vessel = row['vessels'] as Map<String, dynamic>?;
+    return CaseModel.fromJson({...row, 'vessel_name': vessel?['name']});
   }
 
   // ── Public mutations ──────────────────────────────────────────────────────
@@ -201,10 +218,9 @@ class CorrespondenceNotifier
 
     String? driveFileId;
     try {
-      final caseTitle = await _caseTitle(caseId);
+      final caseModel = await _fetchCaseModel(caseId);
       driveFileId = await DriveStorageService.uploadCaseFile(
-        caseId: caseId,
-        caseTitle: caseTitle,
+        caseModel: caseModel,
         category: CaseFileCategory.correspondence,
         bytes: bytes,
         filename: filename,
@@ -252,13 +268,15 @@ class CorrespondenceNotifier
 
     String? driveFileId;
     try {
-      final caseTitle = await _caseTitle(caseId);
+      final caseModel = await _fetchCaseModel(caseId);
+      final dateStr = msg.date != null
+          ? '${msg.date!.year}-${msg.date!.month.toString().padLeft(2, '0')}-${msg.date!.day.toString().padLeft(2, '0')}'
+          : null;
       driveFileId = await DriveStorageService.uploadCaseFile(
-        caseId: caseId,
-        caseTitle: caseTitle,
+        caseModel: caseModel,
         category: CaseFileCategory.correspondence,
         bytes: bytes,
-        filename: '$id.eml',
+        filename: buildDriveFilename([dateStr, msg.from, msg.subject], 'eml'),
         mimeType: 'message/rfc822',
       );
     } catch (e) {
@@ -285,6 +303,7 @@ class CorrespondenceNotifier
   }
 
   Future<void> _insert(CorrespondenceModel corr) async {
+    _mutationGeneration++;
     var syncStatus = 'pending_upsert';
     try {
       await SupabaseService.client.from(_table).insert(corr.toSupabaseMap());
@@ -406,7 +425,8 @@ class CorrespondenceNotifier
       return refs.hasAny ? refs : null;
     } catch (e) {
       _setStatus(corrId, CorrStatus.failed);
-      return null;
+      debugPrint('[CorrespondenceProvider] extraction failed for $corrId: $e');
+      rethrow;
     }
   }
 
@@ -417,6 +437,7 @@ class CorrespondenceNotifier
   }
 
   Future<void> delete(String corrId) async {
+    _mutationGeneration++;
     final current = state.value ?? [];
     final corr = current.firstWhere((c) => c.id == corrId);
     if (corr.localPath != null) {

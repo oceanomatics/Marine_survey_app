@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -23,6 +24,7 @@ import '../../cases/providers/cases_provider.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../shared/widgets/photo_picker_sheet.dart';
 
 const _kColor = AppColors.purple;
@@ -848,27 +850,16 @@ class _PhotoTile extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: !photo.hasLocalFile
-                ? Container(
-                    color: AppColors.surface,
-                    child: const Icon(Icons.cloud_download_outlined,
-                        color: AppColors.textTertiary),
-                  )
-                : Image.file(
-                    File(photo.thumbnailPath ?? photo.localPath!),
-                    fit: BoxFit.cover,
-                    cacheWidth: 300,
-                    errorBuilder: (_, __, ___) => Image.file(
-                      File(photo.localPath!),
-                      fit: BoxFit.cover,
-                      cacheWidth: 300,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: AppColors.surface,
-                        child: const Icon(Icons.broken_image_outlined,
-                            color: AppColors.textTertiary),
-                      ),
-                    ),
-                  ),
+            child: DrivePhotoImage(
+              photo: photo,
+              fit: BoxFit.cover,
+              cacheWidth: 300,
+              noSourceBuilder: (_) => Container(
+                color: AppColors.surface,
+                child: const Icon(Icons.cloud_download_outlined,
+                    color: AppColors.textTertiary),
+              ),
+            ),
           ),
           // Damage/occurrence link badge (top-left)
           if (photo.linkedToType == 'damage_item')
@@ -1323,7 +1314,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
           Expanded(
             child: Stack(
               children: [
-                if (!currentPhoto.hasLocalFile)
+                if (!currentPhoto.hasLocalFile && !kIsWeb)
                   FutureBuilder<PhotoModel?>(
                     key: ValueKey('download-${currentPhoto.id}'),
                     future: ref
@@ -1358,6 +1349,44 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                         ),
                       );
                     },
+                  )
+                else if (!currentPhoto.hasLocalFile && currentPhoto.driveFileId != null)
+                  FutureBuilder<Uint8List>(
+                    key: ValueKey('web-download-${currentPhoto.id}'),
+                    future: DrivePhotoBytesCache.fetch(currentPhoto.driveFileId!),
+                    builder: (_, snap) {
+                      if (!snap.hasData) {
+                        if (snap.hasError) {
+                          return const Center(
+                            child: Icon(Icons.broken_image_outlined,
+                                color: Colors.white38, size: 64),
+                          );
+                        }
+                        return const Center(
+                          child: CircularProgressIndicator(color: Colors.white),
+                        );
+                      }
+                      return PhotoView(
+                        key: ValueKey(
+                            '${currentPhoto.id}-${_imgVersion[currentPhoto.id] ?? 0}'),
+                        controller: _photoViewController,
+                        imageProvider: MemoryImage(snap.data!),
+                        initialScale: PhotoViewComputedScale.contained,
+                        minScale: PhotoViewComputedScale.contained * 0.8,
+                        maxScale: PhotoViewComputedScale.covered * 4.0,
+                        backgroundDecoration:
+                            const BoxDecoration(color: Colors.black),
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(Icons.broken_image_outlined,
+                              color: Colors.white38, size: 64),
+                        ),
+                      );
+                    },
+                  )
+                else if (!currentPhoto.hasLocalFile)
+                  const Center(
+                    child: Icon(Icons.broken_image_outlined,
+                        color: Colors.white38, size: 64),
                   )
                 else
                   PhotoView(

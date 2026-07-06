@@ -2,6 +2,7 @@
 
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -16,8 +17,10 @@ import '../../../core/utils/eml_parser.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
 import '../../../features/parties/providers/parties_provider.dart';
+import '../../../features/photos/services/google_drive_service.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
+import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import 'gmail_message_picker_screen.dart';
@@ -58,7 +61,7 @@ class CorrespondenceScreen extends ConsumerWidget {
                   caseId: caseId,
                   onPreview: () => items[i].isEml
                       ? _openEmailPreview(context, items[i])
-                      : _openPdfPreview(context, items[i]),
+                      : _openPdfPreview(context, ref, items[i]),
                   onDelete: () => ref
                       .read(correspondenceProvider(caseId).notifier)
                       .delete(items[i].id),
@@ -305,9 +308,51 @@ class CorrespondenceScreen extends ConsumerWidget {
 
   // ── Preview ────────────────────────────────────────────────────────────────
 
-  void _openPdfPreview(BuildContext context, CorrespondenceModel item) {
+  Future<void> _openPdfPreview(
+      BuildContext context, WidgetRef ref, CorrespondenceModel item) async {
+    // Web has no local file cache (dart:io isn't available there) — always
+    // stream bytes straight from Drive into an in-memory viewer instead.
+    if (kIsWeb) {
+      if (item.driveFileId == null) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('This file has not been uploaded to Drive yet')));
+        }
+        return;
+      }
+      Uint8List bytes;
+      try {
+        bytes = await GoogleDriveService.downloadFile(item.driveFileId!);
+      } catch (e) {
+        if (context.mounted) {
+          showError(context, 'Could not download this file from Drive: $e',
+              error: e, tag: 'Correspondence');
+        }
+        return;
+      }
+      if (!context.mounted) return;
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => _PdfBytesPreviewScreen(item: item, bytes: bytes)));
+      return;
+    }
+
+    final resolved = item.hasLocalFile
+        ? item
+        : await ref
+            .read(correspondenceProvider(caseId).notifier)
+            .ensureLocalFile(item.id);
+    if (resolved == null || !resolved.hasLocalFile) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not download this file from Drive')));
+      }
+      return;
+    }
+    if (!context.mounted) return;
     Navigator.push(context,
-        MaterialPageRoute(builder: (_) => _PdfPreviewScreen(item: item)));
+        MaterialPageRoute(builder: (_) => _PdfPreviewScreen(item: resolved)));
   }
 
   void _openEmailPreview(BuildContext context, CorrespondenceModel item) {
@@ -370,10 +415,19 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
   // ── AI extraction (with case refs confirmation) ───────────────────────────
 
   Future<void> _extract() async {
-    final refs = await ref
-        .read(correspondenceProvider(widget.caseId).notifier)
-        .extract(item.id);
+    ExtractedCaseRefs? refs;
+    try {
+      refs = await ref
+          .read(correspondenceProvider(widget.caseId).notifier)
+          .extract(item.id);
+    } catch (e) {
+      if (mounted) {
+        showError(context, 'Extraction failed: $e', error: e, tag: 'Correspondence');
+      }
+      return;
+    }
     if (refs == null || !mounted) return;
+    final extractedRefs = refs;
 
     final currentCase = ref.read(caseProvider(widget.caseId)).value;
     if (!mounted) return;
@@ -382,7 +436,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       context: context,
       builder: (_) => _CaseRefsDialog(
         caseId: widget.caseId,
-        refs: refs,
+        refs: extractedRefs,
         currentCase: currentCase,
       ),
     );
@@ -1448,7 +1502,24 @@ class _PdfPreviewScreen extends StatelessWidget {
         appBar: AppBar(
             title:
                 Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
-        body: PdfViewer.file(item.localPath),
+        body: PdfViewer.file(item.localPath!),
+      );
+}
+
+/// Web variant — no local file cache is available there (dart:io doesn't
+/// work on web), so the PDF bytes are downloaded straight from Drive and
+/// handed to pdfrx's in-memory viewer instead of a file path.
+class _PdfBytesPreviewScreen extends StatelessWidget {
+  const _PdfBytesPreviewScreen({required this.item, required this.bytes});
+  final CorrespondenceModel item;
+  final Uint8List bytes;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+            title:
+                Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+        body: PdfViewer.data(bytes, sourceName: item.id),
       );
 }
 

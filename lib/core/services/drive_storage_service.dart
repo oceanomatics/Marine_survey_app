@@ -2,45 +2,61 @@
 //
 // Resolves the unified Google Drive folder structure used across every
 // feature that stores files there (photos, correspondence, reports,
-// documents), and admin-level folders unrelated to a specific case:
+// documents), per case:
 //
 //   {AppConfig.driveBaseFolder ?? "My Drive root"}/
 //     Cases/
-//       {case title}/
-//         Documents/
-//         Photos/
+//       {case.driveFolderName}/
+//         Admin/
+//         Collected Documents/
+//           Certificates/
+//           Class Report/
+//           Service Reports/
+//           Logs/
+//           Other/
+//         Claim Invoices/
 //         Reports/
+//         HSE/
+//         Photos/
+//           {attendance label}/        (created lazily, only when known)
 //         Correspondence/
-//     Admin/
-//       Freelancer Contracts/
-//       Invoices/
-//       HSE/
 //
-// Folder IDs are cached in-memory for the session — findOrCreateFolder
-// itself is idempotent (searches by name before creating), so the cache is
-// purely a latency optimisation, not a correctness requirement.
+// The case-level folder id is persisted to cases.storage_folder_path the
+// first time it's resolved, so later calls reuse + rename that same folder
+// (via GoogleDriveService.renameFile) instead of creating a duplicate when
+// case.driveFolderName changes (e.g. placeholder file no. becomes real,
+// vessel name gets set). Folder ids below that are cached in-memory only —
+// findOrCreateFolder is idempotent (searches by name before creating), so
+// that cache is purely a latency optimisation.
 
 import 'dart:typed_data';
 
+import '../api/supabase_client.dart';
 import '../config/app_config.dart';
+import '../../features/cases/models/case_model.dart';
 import '../../features/photos/services/google_drive_service.dart';
 
 enum CaseFileCategory {
-  documents('Documents'),
-  photos('Photos'),
+  admin('Admin'),
+  collectedDocuments('Collected Documents'),
+  claimInvoices('Claim Invoices'),
   reports('Reports'),
+  hse('HSE'),
+  photos('Photos'),
   correspondence('Correspondence');
 
   const CaseFileCategory(this.folderName);
   final String folderName;
 }
 
-enum AdminFileCategory {
-  freelancerContracts('Freelancer Contracts'),
-  invoices('Invoices'),
-  hse('HSE');
+enum CollectedDocBucket {
+  certificates('Certificates'),
+  classReport('Class Report'),
+  serviceReports('Service Reports'),
+  logs('Logs'),
+  other('Other');
 
-  const AdminFileCategory(this.folderName);
+  const CollectedDocBucket(this.folderName);
   final String folderName;
 }
 
@@ -71,75 +87,87 @@ class DriveStorageService {
         () => GoogleDriveService.findOrCreateFolder('Cases', parentId: baseId));
   }
 
-  static Future<String> _adminRootId() async {
-    final baseId = await _baseFolderId();
-    return _cached('admin-root:$baseId',
-        () => GoogleDriveService.findOrCreateFolder('Admin', parentId: baseId));
+  /// Resolves (creating if needed) the case-level Drive folder, persisting
+  /// its id to cases.storage_folder_path so later resolutions reuse + rename
+  /// the same folder instead of duplicating it under a new name.
+  static Future<String> _caseFolderId(CaseModel caseModel) {
+    return _cached('case:${caseModel.caseId}', () async {
+      final desiredName = caseModel.driveFolderName;
+      final existingId = caseModel.storageFolderPath;
+      if (existingId != null && existingId.isNotEmpty) {
+        try {
+          await GoogleDriveService.renameFile(existingId, desiredName);
+        } catch (e) {
+          // Best-effort — stale name in Drive is cosmetic, not fatal.
+        }
+        return existingId;
+      }
+      final casesRoot = await _casesRootId();
+      final newId = await GoogleDriveService.findOrCreateFolder(desiredName,
+          parentId: casesRoot);
+      await SupabaseService.client
+          .from('cases')
+          .update({'storage_folder_path': newId})
+          .eq('case_id', caseModel.caseId);
+      return newId;
+    });
+  }
+
+  /// Walks/creates a chain of subfolders under [parentId], caching each
+  /// level under [baseKey] + the path walked so far.
+  static Future<String> _nested(
+      String baseKey, String parentId, List<String> names) async {
+    var currentId = parentId;
+    var key = baseKey;
+    for (final name in names) {
+      key = '$key/$name';
+      currentId = await _cached(
+          key, () => GoogleDriveService.findOrCreateFolder(name, parentId: currentId));
+    }
+    return currentId;
   }
 
   /// Resolves (creating if needed) the Drive folder for [category] within
-  /// the given case, named [caseTitle] — e.g. ".../Cases/SI-M53-055873 –
-  /// MINRES ODIN – .../Photos".
+  /// the given case.
   static Future<String> caseFolderId({
-    required String caseId,
-    required String caseTitle,
+    required CaseModel caseModel,
     required CaseFileCategory category,
   }) async {
-    final casesRoot = await _casesRootId();
-    final caseFolderId = await _cached(
-        'case:$caseId',
-        () => GoogleDriveService.findOrCreateFolder(caseTitle,
-            parentId: casesRoot));
+    final caseFolder = await _caseFolderId(caseModel);
     return _cached(
-        'case:$caseId:${category.name}',
+        'case:${caseModel.caseId}:${category.name}',
         () => GoogleDriveService.findOrCreateFolder(category.folderName,
-            parentId: caseFolderId));
+            parentId: caseFolder));
   }
 
-  /// Resolves (creating if needed) an admin-level folder unrelated to any
-  /// specific case (e.g. freelancer contracts, invoices, HSE records).
-  static Future<String> adminFolderId(AdminFileCategory category) async {
-    final adminRoot = await _adminRootId();
-    return _cached(
-        'admin:${category.name}',
-        () => GoogleDriveService.findOrCreateFolder(category.folderName,
-            parentId: adminRoot));
-  }
+  /// Proactively re-resolves (and, if the id already exists, renames) the
+  /// case's Drive folder — call this after case details that feed
+  /// [CaseModel.driveFolderName] change (technical file no., vessel name).
+  static Future<void> syncCaseFolderName(CaseModel caseModel) =>
+      _caseFolderId(caseModel);
 
   /// Uploads [bytes] as [filename] into the given case's [category] folder,
-  /// returning the created Drive file id.
+  /// optionally nested under [subFolders] (e.g. a Collected Documents bucket
+  /// or a Photos attendance folder), returning the created Drive file id.
   static Future<String> uploadCaseFile({
-    required String caseId,
-    required String caseTitle,
+    required CaseModel caseModel,
     required CaseFileCategory category,
+    List<String> subFolders = const [],
     required Uint8List bytes,
     required String filename,
     required String mimeType,
   }) async {
-    final folderId = await caseFolderId(
-        caseId: caseId, caseTitle: caseTitle, category: category);
+    final categoryFolderId =
+        await caseFolderId(caseModel: caseModel, category: category);
+    final targetFolderId = subFolders.isEmpty
+        ? categoryFolderId
+        : await _nested('case:${caseModel.caseId}:${category.name}',
+            categoryFolderId, subFolders);
     return GoogleDriveService.uploadFile(
       bytes: bytes,
       filename: filename,
       mimeType: mimeType,
-      parentId: folderId,
-    );
-  }
-
-  /// Uploads [bytes] as [filename] into the given admin-level folder,
-  /// returning the created Drive file id.
-  static Future<String> uploadAdminFile({
-    required AdminFileCategory category,
-    required Uint8List bytes,
-    required String filename,
-    required String mimeType,
-  }) async {
-    final folderId = await adminFolderId(category);
-    return GoogleDriveService.uploadFile(
-      bytes: bytes,
-      filename: filename,
-      mimeType: mimeType,
-      parentId: folderId,
+      parentId: targetFolderId,
     );
   }
 
@@ -147,12 +175,19 @@ class DriveStorageService {
   static Future<Uint8List> downloadFile(String fileId) =>
       GoogleDriveService.downloadFile(fileId);
 
-  /// Ensures every Admin sub-folder exists — called once from Drive setup
-  /// so they're visible in the user's Drive immediately, not only after the
-  /// first upload to each.
-  static Future<void> ensureAdminFoldersExist() async {
-    for (final category in AdminFileCategory.values) {
-      await adminFolderId(category);
+  /// Ensures every top-level case folder (and the Collected Documents
+  /// sub-buckets) exists — called once when a case is created so the
+  /// structure is visible in the user's Drive immediately, not only after
+  /// the first upload to each.
+  static Future<void> ensureCaseFoldersExist(CaseModel caseModel) async {
+    for (final category in CaseFileCategory.values) {
+      final folderId = await caseFolderId(caseModel: caseModel, category: category);
+      if (category == CaseFileCategory.collectedDocuments) {
+        for (final bucket in CollectedDocBucket.values) {
+          await _nested('case:${caseModel.caseId}:${category.name}', folderId,
+              [bucket.folderName]);
+        }
+      }
     }
   }
 }

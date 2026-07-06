@@ -13,8 +13,6 @@
 //   );
 //   if (picked == null || picked.isEmpty) return;
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -22,6 +20,7 @@ import 'package:intl/intl.dart';
 import '../../features/photos/models/photo_model.dart';
 import '../../features/photos/providers/photo_provider.dart';
 import '../theme/app_theme.dart';
+import 'drive_photo_image.dart';
 
 class CasePhotoPickerSheet extends ConsumerStatefulWidget {
   const CasePhotoPickerSheet({
@@ -163,28 +162,27 @@ class _CasePhotoPickerSheetState extends ConsumerState<CasePhotoPickerSheet> {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(6),
-                          child: !photo.hasLocalFile
-                              ? Container(
-                                  color: AppColors.surface,
-                                  child: const Icon(
-                                    Icons.cloud_download_outlined,
-                                    size: 24,
-                                    color: AppColors.textTertiary,
-                                  ),
-                                )
-                              : Image.file(
-                                  File(photo.thumbnailPath ?? photo.localPath!),
-                                  fit: BoxFit.cover,
-                                  cacheWidth: 200,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    color: AppColors.surface,
-                                    child: const Icon(
-                                      Icons.broken_image_outlined,
-                                      size: 24,
-                                      color: AppColors.textTertiary,
-                                    ),
-                                  ),
-                                ),
+                          child: DrivePhotoImage(
+                            photo: photo,
+                            fit: BoxFit.cover,
+                            cacheWidth: 200,
+                            noSourceBuilder: (_) => Container(
+                              color: AppColors.surface,
+                              child: const Icon(
+                                Icons.cloud_download_outlined,
+                                size: 24,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                            errorBuilder: (_) => Container(
+                              color: AppColors.surface,
+                              child: const Icon(
+                                Icons.broken_image_outlined,
+                                size: 24,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                          ),
                         ),
                         // Date label at bottom
                         Positioned(

@@ -136,6 +136,16 @@ class GoogleDriveService {
     return created.data!['id'] as String;
   }
 
+  /// Renames an existing file or folder in place (does not move it between
+  /// parents).
+  static Future<void> renameFile(String fileId, String newName) async {
+    await _dio.patch<Map<String, dynamic>>(
+      'files/$fileId',
+      data: {'name': newName},
+      options: await _authHeaders(),
+    );
+  }
+
   /// Uploads [bytes] as a new file named [filename] inside [parentId].
   /// Uses multipart upload (metadata + content in one request) — fine for
   /// the report/photo/invoice file sizes this app deals with.

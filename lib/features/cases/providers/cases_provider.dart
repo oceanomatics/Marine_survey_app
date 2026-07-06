@@ -1,9 +1,12 @@
 // lib/features/cases/providers/cases_provider.dart
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/case_model.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../../core/services/drive_storage_service.dart';
 
 // ── All cases list ─────────────────────────────────────────────────────────
 
@@ -75,6 +78,11 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
 
     // Clone checklist template for this case type
     await _cloneChecklistTemplate(newCase.caseId, caseType);
+
+    // Provision the Drive folder structure — best-effort, must not block or
+    // fail case creation if Drive is offline/unconfigured.
+    unawaited(DriveStorageService.ensureCaseFoldersExist(newCase).catchError(
+        (e) => debugPrint('[CasesNotifier] Drive folder provisioning skipped: $e')));
 
     // Refresh list
     await refresh();
@@ -329,7 +337,12 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
           .update({'title': newTitle})
           .eq('case_id', arg);
       // Patch local state so the header updates instantly without a full refetch.
-      state = AsyncData(c.copyWith(title: newTitle));
+      final updated = c.copyWith(title: newTitle);
+      state = AsyncData(updated);
+      // Drive folder name depends on technical file no. / vessel name, both
+      // of which can trigger this rebuild — resync (rename in place) best-effort.
+      unawaited(DriveStorageService.syncCaseFolderName(updated).catchError(
+          (e) => debugPrint('[CaseNotifier] Drive folder rename skipped: $e')));
     } catch (e) {
       debugPrint('[CaseNotifier] _rebuildTitle: $e');
     }

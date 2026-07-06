@@ -26,10 +26,10 @@ import '../widgets/section_header.dart';
 import '../widgets/survey_field.dart';
 import '../../../shared/widgets/save_bar.dart';
 import '../../survey/providers/damage_provider.dart';
-import 'dart:io';
 import '../../photos/providers/photo_provider.dart';
 import '../../photos/models/photo_model.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../core/api/supabase_client.dart';
 
 // ── ABL London H&M Report template option lists ───────────────────────────────
@@ -1105,31 +1105,30 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
         if (vesselPhoto != null)
           GestureDetector(
             onTap: _pickVesselPhoto,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: !vesselPhoto.hasLocalFile
-                  ? Container(
-                      height: 160,
-                      color: AppColors.surface,
-                      child: const Center(
-                        child: Icon(Icons.cloud_download_outlined,
-                            color: AppColors.textTertiary),
-                      ),
-                    )
-                  : Image.file(
-                      File(vesselPhoto.thumbnailPath ?? vesselPhoto.localPath!),
-                      width: double.infinity,
-                      height: 160,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        height: 160,
-                        color: AppColors.surface,
-                        child: const Center(
-                          child: Icon(Icons.broken_image_outlined,
-                              color: AppColors.textTertiary),
-                        ),
-                      ),
+            child: SizedBox(
+              width: double.infinity,
+              height: 160,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: DrivePhotoImage(
+                  photo: vesselPhoto,
+                  fit: BoxFit.cover,
+                  noSourceBuilder: (_) => Container(
+                    color: AppColors.surface,
+                    child: const Center(
+                      child: Icon(Icons.cloud_download_outlined,
+                          color: AppColors.textTertiary),
                     ),
+                  ),
+                  errorBuilder: (_) => Container(
+                    color: AppColors.surface,
+                    child: const Center(
+                      child: Icon(Icons.broken_image_outlined,
+                          color: AppColors.textTertiary),
+                    ),
+                  ),
+                ),
+              ),
             ),
           )
         else

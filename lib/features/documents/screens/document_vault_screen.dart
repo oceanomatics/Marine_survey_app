@@ -30,6 +30,7 @@ import '../../../features/vessel/providers/class_conditions_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../providers/document_provider.dart';
 import '../widgets/document_tile.dart';
@@ -383,14 +384,15 @@ class DocumentVaultScreen extends ConsumerWidget {
 
   Future<void> _runExtraction(
       BuildContext context, WidgetRef ref, DocumentModel doc) async {
-    final result =
-        await ref.read(documentProvider(caseId).notifier).extract(doc.docId);
-
-    if (result == null || !context.mounted) {
+    DocExtractionResult? result;
+    try {
+      result =
+          await ref.read(documentProvider(caseId).notifier).extract(doc.docId);
+    } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Extraction failed — check connectivity and retry'),
+          SnackBar(
+            content: Text('Extraction failed: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -398,7 +400,10 @@ class DocumentVaultScreen extends ConsumerWidget {
       return;
     }
 
-    if (!result.hasAny) {
+    if (result == null || !context.mounted) return;
+    final extractionResult = result;
+
+    if (!extractionResult.hasAny) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No data extracted from this document')),
@@ -418,7 +423,7 @@ class DocumentVaultScreen extends ConsumerWidget {
       builder: (_) => _ExtractionResultSheet(
         caseId: caseId,
         docTitle: doc.title,
-        result: result,
+        result: extractionResult,
       ),
     );
   }
@@ -902,6 +907,15 @@ class _ExtractionResultSheetState
   late final Map<String, bool> _vesselSelected;
   bool _saving = false;
 
+  // Similar-existing-item suggestions (surfaced so the surveyor can merge
+  // rather than create a duplicate occurrence/machinery record). Null = no
+  // close match found. The bool tracks whether the surveyor wants to merge
+  // into that match (default true when a match exists) vs. add as new.
+  late final List<OccurrenceModel?> _incidentMergeMatch;
+  late final List<bool> _incidentMergeChosen;
+  late final List<MachineryModel?> _machineryMergeMatch;
+  late final List<bool> _machineryMergeChosen;
+
   @override
   void initState() {
     super.initState();
@@ -916,6 +930,77 @@ class _ExtractionResultSheetState
         List.filled(widget.result.detectedMachinery.length, true);
     _conditionSelected = widget.initialConditionSelected ??
         List.filled(widget.result.detectedClassConditions.length, true);
+
+    final existingOccs =
+        ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
+    final claimedOccs = <String>{};
+    _incidentMergeMatch = [
+      for (final inc in widget.result.detectedIncidents)
+        _bestOccurrenceMatch(
+            inc['title']?.toString() ?? '', existingOccs, claimedOccs),
+    ];
+    _incidentMergeChosen = [for (final m in _incidentMergeMatch) m != null];
+
+    final vesselId = ref.read(caseProvider(widget.caseId)).value?.vesselId;
+    final existingMachinery = vesselId != null
+        ? (ref.read(machineryProvider(vesselId)).value ?? const [])
+        : const <MachineryModel>[];
+    final claimedMachinery = <String>{};
+    _machineryMergeMatch = [
+      for (final m in widget.result.detectedMachinery)
+        _bestMachineryMatch(m['machinery_type']?.toString() ?? '',
+            existingMachinery, claimedMachinery),
+    ];
+    _machineryMergeChosen = [for (final m in _machineryMergeMatch) m != null];
+  }
+
+  // ── Similar-item matching ────────────────────────────────────────────────
+  // Deliberately loose (substring / word-overlap) — this only drives a
+  // suggestion the surveyor can override, never a silent auto-merge.
+
+  static String _normalizeForMatch(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9 ]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  static bool _looksSimilar(String a, String b) {
+    final na = _normalizeForMatch(a);
+    final nb = _normalizeForMatch(b);
+    if (na.isEmpty || nb.isEmpty) return false;
+    if (na == nb || na.contains(nb) || nb.contains(na)) return true;
+    final wordsA = na.split(' ').where((w) => w.length > 2).toSet();
+    final wordsB = nb.split(' ').where((w) => w.length > 2).toSet();
+    if (wordsA.isEmpty || wordsB.isEmpty) return false;
+    final overlap = wordsA.intersection(wordsB).length;
+    final union = wordsA.union(wordsB).length;
+    return union > 0 && overlap / union >= 0.5;
+  }
+
+  static OccurrenceModel? _bestOccurrenceMatch(String title,
+      List<OccurrenceModel> existing, Set<String> claimed) {
+    if (title.trim().isEmpty) return null;
+    for (final o in existing) {
+      if (claimed.contains(o.occurrenceId)) continue;
+      if (_looksSimilar(title, o.title ?? '')) {
+        claimed.add(o.occurrenceId);
+        return o;
+      }
+    }
+    return null;
+  }
+
+  static MachineryModel? _bestMachineryMatch(String machineryType,
+      List<MachineryModel> existing, Set<String> claimed) {
+    if (machineryType.trim().isEmpty) return null;
+    for (final m in existing) {
+      if (claimed.contains(m.machineryId)) continue;
+      if (_looksSimilar(machineryType, m.machineryType)) {
+        claimed.add(m.machineryId);
+        return m;
+      }
+    }
+    return null;
   }
 
   Future<void> _apply() async {
@@ -962,6 +1047,9 @@ class _ExtractionResultSheetState
             if (i < widget.result.findingOrigins.length &&
                 widget.result.findingOrigins[i] != null)
               'origin': widget.result.findingOrigins[i],
+            if (i < widget.result.findingPages.length &&
+                widget.result.findingPages[i] != null)
+              'page': widget.result.findingPages[i],
             'applied': _findingSelected[i] ||
                 (widget.initialFindingSelected != null &&
                     !widget.initialFindingSelected![i]),
@@ -1028,25 +1116,30 @@ class _ExtractionResultSheetState
         final catStr = cats.length > origIdx ? cats[origIdx] : 'observation';
         final sections = widget.result.findingCaseSections;
         final origins = widget.result.findingOrigins;
+        final pages = widget.result.findingPages;
         final caseSection = sections.length > origIdx
             ? CaseSection.fromValue(sections[origIdx])
             : null;
         final origin = origins.length > origIdx
             ? CueOrigin.fromValue(origins[origIdx])
             : null;
+        final page = pages.length > origIdx ? pages[origIdx] : null;
+        final pageSuffix = page != null ? ', p.$page' : '';
         await notesNotifier.add(
           caseId: widget.caseId,
           content: widget.result.contextFindings[origIdx],
           natureOfContent: _mapExtractedNature(catStr),
           priority: CuePriority.normal,
-          source: '${widget.docTitle} (${j + 1}/$total)',
+          source: '${widget.docTitle} (${j + 1}/$total$pageSuffix)',
           caseSection: caseSection,
           origin: origin,
           pendingReview: true,
         );
       }
 
-      // 3. Create occurrences for checked incidents (skip duplicates by title)
+      // 3. Create occurrences for checked incidents — merge into a similar
+      // existing occurrence when the surveyor accepted that suggestion,
+      // otherwise skip exact-title duplicates, otherwise create new.
       final damageNotifier = ref.read(damageProvider(widget.caseId).notifier);
       final existingOccs =
           ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
@@ -1056,6 +1149,24 @@ class _ExtractionResultSheetState
         final incTitle =
             (inc['title']?.toString() ?? 'Occurrence from ${widget.docTitle}')
                 .trim();
+        final mergeTarget = _incidentMergeMatch[i];
+        if (mergeTarget != null && _incidentMergeChosen[i]) {
+          final incDate = inc['date'] != null
+              ? DateTime.tryParse(inc['date'].toString())
+              : null;
+          final merged = mergeTarget.copyWith(
+            dateTime: mergeTarget.dateTime ?? incDate,
+            location: mergeTarget.location ?? inc['location']?.toString(),
+            briefDescription: mergeTarget.briefDescription ??
+                inc['description']?.toString(),
+          );
+          if (merged.dateTime != mergeTarget.dateTime ||
+              merged.location != mergeTarget.location ||
+              merged.briefDescription != mergeTarget.briefDescription) {
+            await damageNotifier.updateOccurrence(merged);
+          }
+          continue;
+        }
         final isDuplicate = existingOccs.any((o) =>
             (o.title ?? '').trim().toLowerCase() == incTitle.toLowerCase());
         if (isDuplicate) continue;
@@ -1106,13 +1217,37 @@ class _ExtractionResultSheetState
               );
         }
 
-        // 4b. Add machinery items.
+        // 4b. Add machinery items — merge into similar existing machinery
+        // when the surveyor accepted that suggestion (filling only the
+        // fields the existing record was missing), otherwise add new.
         if (widget.result.detectedMachinery.isNotEmpty) {
           final machineryNotifier =
               ref.read(machineryProvider(vesselId).notifier);
           for (var i = 0; i < widget.result.detectedMachinery.length; i++) {
             if (!_machinerySelected[i]) continue;
             final m = widget.result.detectedMachinery[i];
+            final mergeTarget = _machineryMergeMatch[i];
+            if (mergeTarget != null && _machineryMergeChosen[i]) {
+              final merged = mergeTarget.copyWith(
+                make: mergeTarget.make ?? m['make']?.toString(),
+                model: mergeTarget.model ?? m['model']?.toString(),
+                serialNumber:
+                    mergeTarget.serialNumber ?? m['serial_number']?.toString(),
+                mcrKw: mergeTarget.mcrKw ?? (m['mcr_kw'] as num?)?.toDouble(),
+                mcrRpm:
+                    mergeTarget.mcrRpm ?? (m['mcr_rpm'] as num?)?.toDouble(),
+                fuelType: mergeTarget.fuelType ?? m['fuel_type']?.toString(),
+              );
+              if (merged.make != mergeTarget.make ||
+                  merged.model != mergeTarget.model ||
+                  merged.serialNumber != mergeTarget.serialNumber ||
+                  merged.mcrKw != mergeTarget.mcrKw ||
+                  merged.mcrRpm != mergeTarget.mcrRpm ||
+                  merged.fuelType != mergeTarget.fuelType) {
+                await machineryNotifier.updateMachinery(merged);
+              }
+              continue;
+            }
             await machineryNotifier.addMachinery(MachineryModel(
               machineryId: '',
               vesselId: vesselId,
@@ -1311,43 +1446,12 @@ class _ExtractionResultSheetState
               ]),
               const SizedBox(height: 14),
 
-              // Hard fields
-              if (result.hasHardData) ...[
-                const _SectionHeader(
-                    'STRUCTURED DATA', Icons.table_rows_outlined,
-                    subtitle: 'saved to document record'),
-                const SizedBox(height: 6),
-                ...result.hardFields.entries.map((e) => CheckboxListTile(
-                      value: _hardSelected[e.key] ?? true,
-                      onChanged: (v) =>
-                          setState(() => _hardSelected[e.key] = v ?? false),
-                      activeColor: _kColor,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                      tileColor: Colors.transparent,
-                      dense: true,
-                      title: Text(
-                        _labelFor(e.key),
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary),
-                      ),
-                      subtitle: Text(
-                        e.value.toString(),
-                        style: const TextStyle(
-                            fontSize: 13, color: AppColors.textPrimary),
-                      ),
-                    )),
-              ],
-
-              // Context findings
+              // Context findings — kept in document order (see extraction
+              // prompt + document_provider.dart page-sort), each tagged with
+              // its source page when known.
               if (result.hasFindings) ...[
-                if (result.hasHardData) ...[
-                  const Divider(height: 20, color: AppColors.border),
-                ],
                 const _SectionHeader('CONTEXT FINDINGS', Icons.label_outline,
-                    subtitle: 'added as context cues'),
+                    subtitle: 'added as context cues, in document order'),
                 const SizedBox(height: 6),
                 ...List.generate(
                   result.contextFindings.length,
@@ -1356,6 +1460,9 @@ class _ExtractionResultSheetState
                         ? result.findingCategories[i]
                         : 'observation';
                     final cat = _mapExtractedNature(catStr);
+                    final page = result.findingPages.length > i
+                        ? result.findingPages[i]
+                        : null;
                     return CheckboxListTile(
                       value: _findingSelected[i],
                       onChanged: (v) =>
@@ -1368,7 +1475,17 @@ class _ExtractionResultSheetState
                       title: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _CatChip(cat),
+                          Row(children: [
+                            _CatChip(cat),
+                            if (page != null) ...[
+                              const SizedBox(width: 6),
+                              Text('p.$page',
+                                  style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textTertiary)),
+                            ],
+                          ]),
                           const SizedBox(height: 3),
                           Text(
                             result.contextFindings[i],
@@ -1390,7 +1507,7 @@ class _ExtractionResultSheetState
 
               // Vessel particulars (intelligence documents)
               if (result.hasVesselData) ...[
-                if (result.hasHardData || result.hasFindings)
+                if (result.hasFindings)
                   const Divider(height: 20, color: AppColors.border),
                 const _SectionHeader(
                     'VESSEL PARTICULARS', Icons.directions_boat_outlined,
@@ -1453,10 +1570,26 @@ class _ExtractionResultSheetState
                               ? null
                               : TextDecoration.lineThrough),
                     ),
-                    subtitle: meta.isNotEmpty
-                        ? Text(meta,
-                            style: const TextStyle(
-                                fontSize: 10, color: AppColors.textTertiary))
+                    subtitle: (meta.isNotEmpty || _incidentMergeMatch[i] != null)
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (meta.isNotEmpty)
+                                Text(meta,
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.textTertiary)),
+                              if (_incidentMergeMatch[i] != null)
+                                _MergeBanner(
+                                  existingLabel: _incidentMergeMatch[i]!
+                                          .title ??
+                                      'existing occurrence',
+                                  checked: _incidentMergeChosen[i],
+                                  onChanged: (v) =>
+                                      setState(() => _incidentMergeChosen[i] = v),
+                                ),
+                            ],
+                          )
                         : null,
                   );
                 }),
@@ -1495,10 +1628,25 @@ class _ExtractionResultSheetState
                               ? null
                               : TextDecoration.lineThrough),
                     ),
-                    subtitle: sub.isNotEmpty
-                        ? Text(sub,
-                            style: const TextStyle(
-                                fontSize: 10, color: AppColors.textTertiary))
+                    subtitle: (sub.isNotEmpty || _machineryMergeMatch[i] != null)
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (sub.isNotEmpty)
+                                Text(sub,
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.textTertiary)),
+                              if (_machineryMergeMatch[i] != null)
+                                _MergeBanner(
+                                  existingLabel: _machineryMergeMatch[i]!
+                                      .machineryType,
+                                  checked: _machineryMergeChosen[i],
+                                  onChanged: (v) => setState(
+                                      () => _machineryMergeChosen[i] = v),
+                                ),
+                            ],
+                          )
                         : null,
                   );
                 }),
@@ -1551,6 +1699,50 @@ class _ExtractionResultSheetState
                         : null,
                   );
                 }),
+              ],
+
+              // Structured (hard) fields — traceability only, collapsed by
+              // default since it duplicates data already shown above/applied
+              // to the document record; kept at the end, out of the way.
+              if (result.hasHardData) ...[
+                const Divider(height: 20, color: AppColors.border),
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    iconColor: AppColors.textSecondary,
+                    collapsedIconColor: AppColors.textSecondary,
+                    title: const _SectionHeader(
+                        'STRUCTURED DATA', Icons.table_rows_outlined,
+                        subtitle: 'saved to document record · traceability only'),
+                    children: [
+                      const SizedBox(height: 6),
+                      ...result.hardFields.entries.map((e) => CheckboxListTile(
+                            value: _hardSelected[e.key] ?? true,
+                            onChanged: (v) => setState(
+                                () => _hardSelected[e.key] = v ?? false),
+                            activeColor: _kColor,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: EdgeInsets.zero,
+                            tileColor: Colors.transparent,
+                            dense: true,
+                            title: Text(
+                              _labelFor(e.key),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondary),
+                            ),
+                            subtitle: Text(
+                              e.value.toString(),
+                              style: const TextStyle(
+                                  fontSize: 13, color: AppColors.textPrimary),
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
               ],
 
               const SizedBox(height: 16),
@@ -1669,6 +1861,53 @@ class _CatChip extends StatelessWidget {
   }
 }
 
+/// Suggestion banner shown under a detected incident/machinery tile when a
+/// similar item already exists in the case — lets the surveyor merge into
+/// it instead of creating a duplicate. Tapping toggles the choice.
+class _MergeBanner extends StatelessWidget {
+  const _MergeBanner({
+    required this.existingLabel,
+    required this.checked,
+    required this.onChanged,
+  });
+  final String existingLabel;
+  final bool checked;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!checked),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              checked ? Icons.merge_type : Icons.add_circle_outline,
+              size: 13,
+              color: checked ? AppColors.teal : AppColors.textTertiary,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                checked
+                    ? 'Merge into existing "$existingLabel" instead of creating new'
+                    : 'Similar to existing "$existingLabel" — tap to merge instead',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: checked ? AppColors.teal : AppColors.textTertiary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.label, this.icon, {this.subtitle});
   final String label;
@@ -1747,7 +1986,8 @@ class _DocList extends StatelessWidget {
           _CategoryHeader(entry.key),
           const SizedBox(height: 6),
           ...entry.value.map((doc) {
-            final canExtract = doc.extractionPending && isOnline;
+            final canExtract =
+                (doc.extractionPending || doc.extractionFailed) && isOnline;
             final isProcessing = doc.extractionProcessing;
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -1904,28 +2144,25 @@ class _PhotoDocTile extends StatelessWidget {
       ),
       child: Row(children: [
         // Thumbnail
-        ClipRRect(
-          borderRadius:
-              const BorderRadius.horizontal(left: Radius.circular(10)),
-          child: !photo.hasLocalFile
-              ? Container(
-                  width: 72,
-                  height: 72,
-                  color: color.withValues(alpha: 0.08),
-                  child: Icon(_allocIcon(alloc), color: color, size: 28),
-                )
-              : Image.file(
-                  File(photo.thumbnailPath ?? photo.localPath!),
-                  width: 72,
-                  height: 72,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 72,
-                    height: 72,
-                    color: color.withValues(alpha: 0.08),
-                    child: Icon(_allocIcon(alloc), color: color, size: 28),
-                  ),
-                ),
+        SizedBox(
+          width: 72,
+          height: 72,
+          child: ClipRRect(
+            borderRadius:
+                const BorderRadius.horizontal(left: Radius.circular(10)),
+            child: DrivePhotoImage(
+              photo: photo,
+              fit: BoxFit.cover,
+              noSourceBuilder: (_) => Container(
+                color: color.withValues(alpha: 0.08),
+                child: Icon(_allocIcon(alloc), color: color, size: 28),
+              ),
+              errorBuilder: (_) => Container(
+                color: color.withValues(alpha: 0.08),
+                child: Icon(_allocIcon(alloc), color: color, size: 28),
+              ),
+            ),
+          ),
         ),
         const SizedBox(width: 10),
 
@@ -2121,6 +2358,7 @@ DocExtractionResult _parsePhotoExtraction(
   final findingCats = <String>[];
   final findingSections = <String?>[];
   final findingOrigins = <String?>[];
+  final findingPages = <int?>[];
   for (final f in raw['context_findings'] as List? ?? []) {
     if (f is Map) {
       final text = f['text']?.toString() ?? '';
@@ -2129,6 +2367,7 @@ DocExtractionResult _parsePhotoExtraction(
         findingCats.add(f['note_category']?.toString() ?? 'observation');
         findingSections.add(f['case_section']?.toString());
         findingOrigins.add(f['origin']?.toString());
+        findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
       }
     } else {
       final text = f.toString();
@@ -2137,6 +2376,7 @@ DocExtractionResult _parsePhotoExtraction(
         findingCats.add('observation');
         findingSections.add(null);
         findingOrigins.add(null);
+        findingPages.add(null);
       }
     }
   }
@@ -2168,6 +2408,7 @@ DocExtractionResult _parsePhotoExtraction(
     findingCategories: findingCats,
     findingCaseSections: findingSections,
     findingOrigins: findingOrigins,
+    findingPages: findingPages,
     detectedIncidents: incidents,
     detectedMachinery: machinery,
     vesselFields: vesselFields,
@@ -2267,6 +2508,7 @@ void reapplyExtraction(BuildContext context, String caseId, DocumentModel doc) {
   final findingCats = <String>[];
   final findingSections = <String?>[];
   final findingOrigins = <String?>[];
+  final findingPages = <int?>[];
   final findingWasApplied = <bool>[];
   for (final f in stored['context_findings'] as List? ?? []) {
     if (f is Map) {
@@ -2276,6 +2518,7 @@ void reapplyExtraction(BuildContext context, String caseId, DocumentModel doc) {
         findingCats.add(f['category']?.toString() ?? 'observation');
         findingSections.add(f['case_section']?.toString());
         findingOrigins.add(f['origin']?.toString());
+        findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
         findingWasApplied.add(f['applied'] as bool? ?? true);
       }
     }
@@ -2311,6 +2554,7 @@ void reapplyExtraction(BuildContext context, String caseId, DocumentModel doc) {
     findingCategories: findingCats,
     findingCaseSections: findingSections,
     findingOrigins: findingOrigins,
+    findingPages: findingPages,
     detectedIncidents: incidents,
     detectedMachinery: machinery,
     detectedClassConditions: conditions,
@@ -2494,6 +2738,8 @@ class _ExtractionSummarySheet extends StatelessWidget {
                     final applied = f['applied'] as bool? ?? false;
                     final cat = (f['category'] as String? ?? 'observation')
                         .replaceAll('_', ' ');
+                    final page = f['page'];
+                    final catLabel = page != null ? '$cat · p.$page' : cat;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
@@ -2522,7 +2768,7 @@ class _ExtractionSummarySheet extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  cat,
+                                  catLabel,
                                   style: const TextStyle(
                                       fontSize: 10,
                                       color: AppColors.textTertiary,

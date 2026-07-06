@@ -129,6 +129,12 @@ class PhotoModel {
 
   bool get hasLocalFile => localPath != null && localPath!.isNotEmpty;
 
+  /// True if there's any usable image source at all — a local file cache
+  /// (native) or a Drive copy (any platform). False only for photos that
+  /// predate the Drive-backed upload migration and were never synced.
+  bool get hasUsablePhoto =>
+      hasLocalFile || driveFileId != null || thumbnailDriveFileId != null;
+
   /// Resolved placement mode — explicit value if set, else the spec's
   /// default: Inline for damage-item photos, Annexure otherwise.
   PlacementMode get effectivePlacementMode =>

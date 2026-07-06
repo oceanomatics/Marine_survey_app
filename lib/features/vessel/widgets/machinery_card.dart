@@ -11,6 +11,7 @@ import '../../photos/providers/photo_provider.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 
 class MachineryCard extends ConsumerStatefulWidget {
   const MachineryCard({
@@ -353,30 +354,26 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                   const SizedBox(width: 10),
                   GestureDetector(
                     onTap: _scanMachineryNameplate,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: !nameplatePhoto.hasLocalFile
-                          ? Container(
-                              width: 64,
-                              height: 64,
-                              color: AppColors.surface,
-                              child: const Icon(Icons.cloud_download_outlined,
-                                  size: 20, color: AppColors.textTertiary),
-                            )
-                          : Image.file(
-                              File(nameplatePhoto.thumbnailPath ??
-                                  nameplatePhoto.localPath!),
-                              width: 64,
-                              height: 64,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                width: 64,
-                                height: 64,
-                                color: AppColors.surface,
-                                child: const Icon(Icons.broken_image_outlined,
-                                    size: 20, color: AppColors.textTertiary),
-                              ),
-                            ),
+                    child: SizedBox(
+                      width: 64,
+                      height: 64,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: DrivePhotoImage(
+                          photo: nameplatePhoto,
+                          fit: BoxFit.cover,
+                          noSourceBuilder: (_) => Container(
+                            color: AppColors.surface,
+                            child: const Icon(Icons.cloud_download_outlined,
+                                size: 20, color: AppColors.textTertiary),
+                          ),
+                          errorBuilder: (_) => Container(
+                            color: AppColors.surface,
+                            child: const Icon(Icons.broken_image_outlined,
+                                size: 20, color: AppColors.textTertiary),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -464,19 +461,18 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                         const SizedBox(width: 6),
                         // Component nameplate thumbnail
                         if (compPhoto != null) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: !compPhoto.hasLocalFile
-                                ? const SizedBox(width: 36, height: 36)
-                                : Image.file(
-                                    File(compPhoto.thumbnailPath ??
-                                        compPhoto.localPath!),
-                                    width: 36,
-                                    height: 36,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        const SizedBox(width: 36, height: 36),
-                                  ),
+                          SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: DrivePhotoImage(
+                                photo: compPhoto,
+                                fit: BoxFit.cover,
+                                noSourceBuilder: (_) => const SizedBox(),
+                                errorBuilder: (_) => const SizedBox(),
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 6),
                         ],

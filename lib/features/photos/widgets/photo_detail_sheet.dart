@@ -3,13 +3,12 @@
 // Bottom sheet for editing a photo's caption and document allocation.
 // Push as a fullscreenDialog route so the keyboard doesn't cover the sheet.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/chip_row.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
 
@@ -91,21 +90,21 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
               borderRadius: BorderRadius.circular(10),
               child: AspectRatio(
                 aspectRatio: 4 / 3,
-                child: !widget.photo.hasLocalFile
-                    ? Container(
-                        color: AppColors.surface,
-                        child: const Icon(Icons.cloud_download_outlined,
-                            size: 48, color: AppColors.textTertiary),
-                      )
-                    : Image.file(
-                        File(widget.photo.localPath!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: AppColors.surface,
-                          child: const Icon(Icons.broken_image_outlined,
-                              size: 48, color: AppColors.textTertiary),
-                        ),
-                      ),
+                child: DrivePhotoImage(
+                  photo: widget.photo,
+                  preferThumbnail: false,
+                  fit: BoxFit.cover,
+                  noSourceBuilder: (_) => Container(
+                    color: AppColors.surface,
+                    child: const Icon(Icons.cloud_download_outlined,
+                        size: 48, color: AppColors.textTertiary),
+                  ),
+                  errorBuilder: (_) => Container(
+                    color: AppColors.surface,
+                    child: const Icon(Icons.broken_image_outlined,
+                        size: 48, color: AppColors.textTertiary),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 20),

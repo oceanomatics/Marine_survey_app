@@ -954,7 +954,8 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
       "text": "Brief factual statement in English about a finding, condition, observation, or recommendation",
       "note_category": "observation|measurement|technical|operations|previous_works|follow_up|interview|policy|general",
       "case_section": "background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire",
-      "origin": "assured_owner|third_party|surveyor"
+      "origin": "assured_owner|third_party|surveyor",
+      "page": "the page number this finding appears on (integer, first page = 1), or null if the document has no page structure or it can't be determined"
     }
   ],
   "detected_incidents": [
@@ -1025,6 +1026,8 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
 Rules:
 - hard_fields: include ONLY fields actually present in the document; omit absent fields entirely; dates MUST be YYYY-MM-DD; numeric values must be numbers not strings
 - context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
+- context_findings order: list findings in the exact order they appear in the document, reading top to bottom and first page to last — do NOT group or reorder by category or topic
+- context_findings page: give your best reading of the page number the finding was found on; if the document is a single continuous scan/photo with no distinguishable pages, use null
 - context_findings case_section: your best guess at which case section this finding belongs to, from the fixed list given — this is a suggestion only, a human will confirm or correct it, so make your best guess rather than omitting it; omit the field only if truly nothing fits (e.g. a pure hard-field/vessel-data document with no narrative content)
 - context_findings origin: who the content originates from — "assured_owner" for the vessel owner/operator/master/crew, "third_party" for class societies, surveyors from other parties, contractors, or other outside parties, "surveyor" only for the attending surveyor's own dictation/statement; omit if genuinely unclear
 - detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none

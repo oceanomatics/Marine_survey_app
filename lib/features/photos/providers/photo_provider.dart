@@ -23,6 +23,9 @@ import '../../../core/api/supabase_client.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/drive_storage_service.dart';
+import '../../../core/utils/drive_filename.dart';
+import '../../attendances/models/attendance_model.dart';
+import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../models/photo_model.dart';
 
@@ -36,6 +39,15 @@ final photosProvider =
 
 class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   String get _caseId => arg;
+
+  // See CorrespondenceNotifier._mutationGeneration (same offline-cache
+  // pattern, same race): a _refresh() already in flight when a photo is
+  // added/deleted can finish afterwards using a stale pre-mutation Supabase
+  // snapshot, and its merge step then deletes/resurrects rows based on that
+  // stale snapshot — wiping a just-added photo from the list until the case
+  // is reopened. Bumped on addPhoto()/deletePhoto(); _refresh() bails out if
+  // it changes mid-run instead of applying a stale result.
+  int _mutationGeneration = 0;
 
   @override
   Future<List<PhotoModel>> build(String caseId) async {
@@ -70,15 +82,21 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   Future<void> _refresh() async {
     if (_refreshing) return;
     _refreshing = true;
+    final startGeneration = _mutationGeneration;
     try {
       if (kIsWeb) {
-        state = AsyncData(await _fetchSupabase(_caseId));
+        final fetched = await _fetchSupabase(_caseId);
+        if (_mutationGeneration != startGeneration) return;
+        state = AsyncData(fetched);
         return;
       }
       await _syncPending();
       final remote = await _fetchSupabase(_caseId);
+      if (_mutationGeneration != startGeneration) return;
       await _mergeIntoLocalCache(remote);
-      state = AsyncData(await _fetchOffline(_caseId));
+      final offline = await _fetchOffline(_caseId);
+      if (_mutationGeneration != startGeneration) return;
+      state = AsyncData(offline);
     } catch (e, st) {
       debugPrint('PhotoNotifier._refresh error: $e\n$st');
       // Keep whatever state is already shown.
@@ -247,19 +265,36 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     return null;
   }
 
-  Future<String> _caseTitle(String caseId) async {
-    final cached = ref.read(caseProvider(caseId)).value?.title;
-    if (cached != null && cached.isNotEmpty) return cached;
+  Future<CaseModel> _fetchCaseModel(String caseId) async {
+    final cached = ref.read(caseProvider(caseId)).value;
+    if (cached != null) return cached;
+    final row = await SupabaseService.client
+        .from('cases')
+        .select('*, vessels(name)')
+        .eq('case_id', caseId)
+        .single();
+    final vessel = row['vessels'] as Map<String, dynamic>?;
+    return CaseModel.fromJson({...row, 'vessel_name': vessel?['name']});
+  }
+
+  /// Resolves a human-readable "{date} – {attendance type}" label for the
+  /// Photos/{label}/ Drive subfolder, or null if [attendanceId] is null or
+  /// the lookup fails (photo still uploads, just directly into Photos/).
+  Future<String?> _attendanceFolderLabel(String? attendanceId) async {
+    if (attendanceId == null) return null;
     try {
       final row = await SupabaseService.client
-          .from('cases')
-          .select('title')
-          .eq('case_id', caseId)
+          .from('survey_attendances')
+          .select('attendance_type, attendance_date')
+          .eq('attendance_id', attendanceId)
           .maybeSingle();
-      final title = row?['title'] as String?;
-      return (title != null && title.isNotEmpty) ? title : caseId;
+      if (row == null) return null;
+      final type =
+          AttendanceType.fromValue(row['attendance_type'] as String? ?? 'initial');
+      final date = row['attendance_date'] as String?;
+      return [if (date != null) date, type.label].join(' – ');
     } catch (_) {
-      return caseId;
+      return null;
     }
   }
 
@@ -278,6 +313,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     String? attendanceId,
     PhotoAllocation? allocation,
   }) async {
+    _mutationGeneration++;
     final id = _uuid.v4();
 
     // Read EXIF date from original bytes before compression strips metadata.
@@ -317,21 +353,33 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     String? driveFileId;
     String? thumbDriveFileId;
     try {
-      final caseTitle = await _caseTitle(caseId);
+      final caseModel = await _fetchCaseModel(caseId);
+      final attendanceLabel = await _attendanceFolderLabel(attendanceId);
+      final subFolders = attendanceLabel != null ? [attendanceLabel] : const <String>[];
+      final dateStr = '${takenAt.year}-${takenAt.month.toString().padLeft(2, '0')}-'
+          '${takenAt.day.toString().padLeft(2, '0')} '
+          '${takenAt.hour.toString().padLeft(2, '0')}${takenAt.minute.toString().padLeft(2, '0')}';
+      final namePart = (caption?.trim().isNotEmpty ?? false)
+          ? caption!.trim()
+          : allocation?.label ?? 'Photo';
+      // Short id suffix guarantees uniqueness (same caption/minute is common
+      // when several photos are taken in quick succession).
+      final shortId = id.substring(0, 8);
+      final baseName = buildDriveFilename([dateStr, namePart, shortId], 'jpg');
       driveFileId = await DriveStorageService.uploadCaseFile(
-        caseId: caseId,
-        caseTitle: caseTitle,
+        caseModel: caseModel,
         category: CaseFileCategory.photos,
+        subFolders: subFolders,
         bytes: compressed,
-        filename: '$id.jpg',
+        filename: baseName,
         mimeType: 'image/jpeg',
       );
       thumbDriveFileId = await DriveStorageService.uploadCaseFile(
-        caseId: caseId,
-        caseTitle: caseTitle,
+        caseModel: caseModel,
         category: CaseFileCategory.photos,
+        subFolders: subFolders,
         bytes: thumbBytes,
-        filename: '${id}_thumb.jpg',
+        filename: buildDriveFilename([dateStr, namePart, shortId, 'thumb'], 'jpg'),
         mimeType: 'image/jpeg',
       );
     } catch (e) {
@@ -522,6 +570,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   }
 
   Future<void> deletePhoto(String photoId) async {
+    _mutationGeneration++;
     final current = state.value ?? [];
     final photo = current.firstWhere((ph) => ph.id == photoId);
     if (photo.localPath != null) {

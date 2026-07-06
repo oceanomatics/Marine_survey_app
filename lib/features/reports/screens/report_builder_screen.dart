@@ -7,12 +7,12 @@ import '../widgets/report_preview.dart';
 import '../widgets/section_editor.dart';
 import '../widgets/new_output_sheet.dart';
 import '../widgets/advice_summary_card.dart';
-import 'dart:io';
 
 import '../widgets/export_button.dart';
 import '../widgets/sign_off_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../photos/models/photo_model.dart';
@@ -534,13 +534,15 @@ class _CoverPhotoPicker extends ConsumerWidget {
               border: Border.all(color: AppColors.border),
             ),
             clipBehavior: Clip.antiAlias,
-            child: coverPhoto != null && coverPhoto.hasLocalFile
-                ? Image.file(File(coverPhoto.localPath!),
+            child: coverPhoto != null
+                ? DrivePhotoImage(
+                    photo: coverPhoto,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
-                        Icons.image_outlined,
-                        size: 16,
-                        color: AppColors.textTertiary))
+                    noSourceBuilder: (_) => const Icon(Icons.image_outlined,
+                        size: 16, color: AppColors.textTertiary),
+                    errorBuilder: (_) => const Icon(Icons.image_outlined,
+                        size: 16, color: AppColors.textTertiary),
+                  )
                 : const Icon(Icons.image_outlined,
                     size: 16, color: AppColors.textTertiary),
           ),

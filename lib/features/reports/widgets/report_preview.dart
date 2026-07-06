@@ -3,8 +3,7 @@
 // WYSIWYG A4 report preview — mirrors the docx output visually.
 // Page 1: Cover · Page 2: Executive Summary · Page 3: TOC · Pages 4+: flowing body
 
-import 'dart:io';
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/report_provider.dart';
@@ -16,6 +15,7 @@ import '../utils/section_table_rows.dart';
 import '../utils/page2_legal_text.dart';
 import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 
 // Cap on the on-screen preview page's rendered width, so the "page" stays a
 // realistic, WYSIWYG size and is centred with grey canvas either side on
@@ -173,17 +173,16 @@ class ReportPreview extends ConsumerWidget {
     final tocPageNum = summarySection != null ? 3 : 2;
     final bodyStartPage = tocPageNum + 1;
 
-    // Pagination — needs to know A4 dimensions at the actual rendered page
-    // width, which is capped (see _kA4PreviewMaxWidth) so the page doesn't
-    // balloon to the full window width on wide/desktop screens. Using the
-    // raw screen width here would desync pagination from what's rendered.
-    final screenW = MediaQuery.of(context).size.width;
-    final containerW =
-        screenW > _kA4PreviewMaxWidth ? _kA4PreviewMaxWidth : screenW;
-    final pageW =
-        containerW - 32; // ListView has 16px horizontal padding each side
-    final pageH = pageW * 297 / 210;
-    final contentW = pageW - 56; // 28px margins each side within the page
+    // Pagination — the page is always rendered at the same fixed true size
+    // on every platform (see _kA4PreviewMaxWidth), never reflowed to the
+    // screen width. That's what makes font sizes and pagination WYSIWYG-
+    // identical across Android/web/desktop; the _ZoomableReportCanvas below
+    // handles fitting it to whatever viewport is actually available via
+    // pinch-zoom/pan instead of relayout.
+    const pageW =
+        _kA4PreviewMaxWidth - 32; // matches the content's 16px side padding
+    const pageH = pageW * 297 / 210;
+    const contentW = pageW - 56; // 28px margins each side within the page
 
     final bodyPages = _paginateSections(bodySections, pageH, contentW);
     final annexureGroups = buildAnnexureGroups(assembled.caseDocuments);
@@ -222,11 +221,11 @@ class ReportPreview extends ConsumerWidget {
 
     return ColoredBox(
       color: const Color(0xFFD0D0D0),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _kA4PreviewMaxWidth),
-          child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      child: _ZoomableReportCanvas(
+        contentWidth: _kA4PreviewMaxWidth,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          child: Column(
             children: [
               // Page 1: Cover (no running header/footer — uses its own firm strip)
               _A4Page(
@@ -333,6 +332,88 @@ class ReportPreview extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+// ── Zoomable canvas ─────────────────────────────────────────────────────────
+//
+// The report page(s) are always laid out at one fixed true size (see
+// _kA4PreviewMaxWidth) so fonts/graphics are pixel-identical on every
+// platform — no more auto-reflow-to-screen-width, which was the actual
+// cause of "looks smaller on web": the layout width changed per platform
+// while font sizes stayed fixed absolute pixels. Instead this wraps the
+// fixed-size content in an InteractiveViewer (pinch-zoom/pan, like a PDF
+// viewer) and picks a sensible initial zoom to fit the viewport once.
+class _ZoomableReportCanvas extends StatefulWidget {
+  const _ZoomableReportCanvas({required this.child, required this.contentWidth});
+  final Widget child;
+  final double contentWidth;
+
+  @override
+  State<_ZoomableReportCanvas> createState() => _ZoomableReportCanvasState();
+}
+
+class _ZoomableReportCanvasState extends State<_ZoomableReportCanvas> {
+  final _controller = TransformationController();
+  bool _didInitialFit = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Native only — web uses the plain-scroll path in build() below, which
+    // doesn't need an initial-fit transform at all.
+    if (!kIsWeb && !_didInitialFit) {
+      final viewportW = MediaQuery.of(context).size.width;
+      final scale = (viewportW / widget.contentWidth).clamp(0.1, 1.0);
+      final dx =
+          ((viewportW - widget.contentWidth * scale) / 2).clamp(0.0, double.infinity);
+      _controller.value = Matrix4.identity()
+        ..translateByDouble(dx, 16.0, 0.0, 1.0)
+        ..scaleByDouble(scale, scale, scale, 1.0);
+      _didInitialFit = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Native (Android/iOS): pinch-zoom/pan, like a PDF viewer — unchanged.
+    if (!kIsWeb) {
+      return InteractiveViewer(
+        transformationController: _controller,
+        constrained: false,
+        boundaryMargin: const EdgeInsets.all(600),
+        minScale: 0.15,
+        maxScale: 3.0,
+        child: SizedBox(width: widget.contentWidth, child: widget.child),
+      );
+    }
+
+    // Web: plain vertical mouse-wheel/trackpad scrolling reads much better
+    // than InteractiveViewer's drag-to-pan/ctrl-scroll-to-zoom on desktop.
+    // The fixed-size content (see the comment on this class) is scaled down
+    // only when the browser window is narrower than the true page width —
+    // on a normal-width desktop window scale is exactly 1 and this behaves
+    // like plain unscaled scrolling, same as before the WYSIWYG-size fix.
+    return LayoutBuilder(builder: (context, constraints) {
+      final scale = constraints.maxWidth.isFinite
+          ? (constraints.maxWidth / widget.contentWidth).clamp(0.1, 1.0)
+          : 1.0;
+      return SingleChildScrollView(
+        child: Center(
+          child: Transform.scale(
+            scale: scale,
+            alignment: Alignment.topCenter,
+            child: SizedBox(width: widget.contentWidth, child: widget.child),
+          ),
+        ),
+      );
+    });
   }
 }
 
@@ -558,21 +639,24 @@ class _CoverContent extends StatelessWidget {
           child: Container(
             margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             decoration: BoxDecoration(
-              color: coverPhoto != null && coverPhoto!.hasLocalFile
+              color: coverPhoto != null && coverPhoto!.hasUsablePhoto
                   ? Colors.white
                   : const Color(0xFFE5E7EB),
             ),
             clipBehavior: Clip.antiAlias,
-            child: coverPhoto != null && coverPhoto!.hasLocalFile
-                ? Image.file(
-                    File(coverPhoto!.localPath!),
+            child: coverPhoto != null && coverPhoto!.hasUsablePhoto
+                ? DrivePhotoImage(
+                    photo: coverPhoto!,
+                    preferThumbnail: false,
                     // Scale to fit, don't crop — cropping is a deliberate
                     // step done in the photo editor, not something the
                     // report preview/export should do automatically.
                     fit: BoxFit.contain,
-                    width: double.infinity,
-                    height: double.infinity,
-                    errorBuilder: (_, __, ___) => const Center(
+                    noSourceBuilder: (_) => const Center(
+                      child: Icon(Icons.directions_boat_outlined,
+                          size: 48, color: Color(0xFF9CA3AF)),
+                    ),
+                    errorBuilder: (_) => const Center(
                       child: Icon(Icons.directions_boat_outlined,
                           size: 48, color: Color(0xFF9CA3AF)),
                     ),

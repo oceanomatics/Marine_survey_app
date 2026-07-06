@@ -79,7 +79,15 @@ class DocumentTile extends ConsumerWidget {
                         ),
                       )
                     else if (doc.extractionFailed)
-                      const _Badge('Extraction failed', AppColors.error),
+                      GestureDetector(
+                        onTap: onExtract,
+                        child: _Badge(
+                          onExtract != null
+                              ? 'Extraction failed · tap to retry'
+                              : 'Extraction failed',
+                          AppColors.error,
+                        ),
+                      ),
                     if (doc.isDocx)
                       const _Badge('DOCX', AppColors.midBlue),
                     if (doc.isCoverPhoto)

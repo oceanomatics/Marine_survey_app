@@ -3,14 +3,13 @@
 // Horizontal thumbnail strip shown inside a damage item card.
 // Tapping a thumb opens the full-screen viewer; the "+" button triggers capture.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 
 import '../models/photo_model.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/drive_photo_image.dart';
 
 const _kThumbSize = 72.0;
 const _kColor = AppColors.purple;
@@ -116,29 +115,26 @@ class _Thumbnail extends StatelessWidget {
       onTap: onTap,
       child: Stack(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: !photo.hasLocalFile
-                ? Container(
-                    width: _kThumbSize,
-                    height: _kThumbSize,
-                    color: AppColors.surface,
-                    child: const Icon(Icons.cloud_download_outlined,
-                        color: AppColors.textTertiary, size: 24),
-                  )
-                : Image.file(
-                    File(photo.localPath!),
-                    width: _kThumbSize,
-                    height: _kThumbSize,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: _kThumbSize,
-                      height: _kThumbSize,
-                      color: AppColors.surface,
-                      child: const Icon(Icons.broken_image_outlined,
-                          color: AppColors.textTertiary, size: 24),
-                    ),
-                  ),
+          SizedBox(
+            width: _kThumbSize,
+            height: _kThumbSize,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: DrivePhotoImage(
+                photo: photo,
+                fit: BoxFit.cover,
+                noSourceBuilder: (_) => Container(
+                  color: AppColors.surface,
+                  child: const Icon(Icons.cloud_download_outlined,
+                      color: AppColors.textTertiary, size: 24),
+                ),
+                errorBuilder: (_) => Container(
+                  color: AppColors.surface,
+                  child: const Icon(Icons.broken_image_outlined,
+                      color: AppColors.textTertiary, size: 24),
+                ),
+              ),
+            ),
           ),
           // Sync badge
           if (photo.syncStatus == PhotoSyncStatus.localOnly)
@@ -218,8 +214,20 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         itemCount: widget.photos.length,
         pageController: PageController(initialPage: widget.initialIndex),
         onPageChanged: (i) => setState(() => _current = i),
-        builder: (_, i) => PhotoViewGalleryPageOptions(
-          imageProvider: FileImage(File(widget.photos[i].localPath ?? '')),
+        builder: (_, i) => PhotoViewGalleryPageOptions.customChild(
+          child: DrivePhotoImage(
+            photo: widget.photos[i],
+            preferThumbnail: false,
+            fit: BoxFit.contain,
+            noSourceBuilder: (_) => const Center(
+              child: Icon(Icons.broken_image_outlined,
+                  color: Colors.white38, size: 64),
+            ),
+            errorBuilder: (_) => const Center(
+              child: Icon(Icons.broken_image_outlined,
+                  color: Colors.white38, size: 64),
+            ),
+          ),
           minScale: PhotoViewComputedScale.contained,
           maxScale: PhotoViewComputedScale.covered * 3,
         ),

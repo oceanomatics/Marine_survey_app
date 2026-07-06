@@ -339,6 +339,22 @@ class CaseModel {
   bool get hasPlaceholderFileNo =>
       technicalFileNo.startsWith('TMP-') || technicalFileNo == 'TBC' || technicalFileNo.isEmpty;
 
+  /// Google Drive case-folder name — "Year - TechNo - Vessel", omitting the
+  /// technical file number while still a placeholder and the vessel name
+  /// until one is set. Distinct from [title]: no survey type or occurrence
+  /// detail, kept short for Drive.
+  String get driveFolderName {
+    final year =
+        (dateOfFirstAttendance ?? instructionDate ?? createdAt ?? DateTime.now())
+            .year;
+    final parts = [
+      '$year',
+      if (!hasPlaceholderFileNo) technicalFileNo,
+      if ((vesselName ?? '').trim().isNotEmpty) vesselName!.trim(),
+    ];
+    return parts.join(' - ');
+  }
+
   CaseModel copyWith({
     String? technicalFileNo,
     CaseType? caseType,
