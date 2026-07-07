@@ -171,6 +171,7 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 | 78 | Local Folder Picker screen: browse & pick a local folder (desktop) | Manual | `[ ]` | |
 | 79 | Google Photos sync: create/find album, share URL, upload + add to album | Manual | `[ ]` | |
 | 80 | "All photos already synced" state shown correctly after a sync pass | Manual | `[ ]` | |
+| 80a | Import photos *from* the user's existing Google Photos library | — | `[⛔]` | not built — only `photoslibrary.appendonly`/`sharing` scopes requested (export-only, `google_photos_service.dart`); the "Google Drive" tile in the Add Photos sheet is a plain Drive file browser, not a Photos-library picker. Surfaced 2026-07-07 live smoke test — user expected a Photos import option. |
 
 ---
 
