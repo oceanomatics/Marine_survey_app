@@ -4,6 +4,18 @@ Started 5 July 2026. This is the working reference for an in-progress redesign o
 context-cue allocation system — from AI extraction / manual entry, through the cue
 manager, to each case-screen section, to the report builder.
 
+## Standing design principle (added 8 July 2026)
+
+A context cue is not just informative reference material — it should actively **prompt an
+action**. Every place a cue is surfaced (case-section panel, "Suggested" review tab, etc.),
+the surveyor should be able to either **create a new item from it** (a damage item, a
+machinery item, a repair period, etc.) or **merge it into an existing item** as supporting
+evidence/provenance. This applies uniformly across the app, not just where it's been built
+so far — as each case-screen section's cue integration is worked on, check whether
+create-from-cue and merge-into-existing are both available, and add whichever is missing.
+Known instances tracked in `docs/TODO.md`: Damage Register (§3.8), Vessel Particulars
+Machinery (§2.17), Repair Periods (§3.9).
+
 ## Implementation status
 
 **Step 1 (rename + metadata rework) — done, 5 July 2026.** Migration

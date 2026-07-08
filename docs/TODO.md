@@ -16,6 +16,97 @@ Status legend: `[ ]` Not started · `[~]` In progress · `[✓]` Done · `[!]` B
 |---|-----|----------|-------|
 | B1 | Vessel particulars data not displaying | `vessel_particulars_screen.dart` | Error now shown (fix deployed); likely DB-side — check Supabase vessel_id link or type cast failure |
 | B2 | `_buildScaffold` silently swallowed fetch errors | `vessel_particulars_screen.dart` | **Fixed** — now shows error card with Retry button |
+| B3 | No back/navigation affordance on most screens — hard to navigate | App-wide, `AppBar` usage across `lib/features/*/screens/` | Confirmed by surveyor 8 July 2026: most screens lack a back arrow. Needs a consistent app-wide pattern (e.g. shared AppBar wrapper with `leading` back button honouring `go_router`'s `canPop()`), not a per-screen patch |
+| B4 | Save button/feedback inconsistent across the app | App-wide, save actions across `lib/features/*/screens/` | Confirmed 8 July 2026 on the Parties screen — its save button doesn't match the app's standard pattern. Wants a **unified, visible green toast/snackbar confirming save**, shown consistently everywhere a save action happens, not a per-screen bespoke treatment |
+
+---
+
+## PHASE 0.1 — 8 July Pre-Flight Review (H&M, live walkthrough session)
+
+Screen-by-screen review with the surveyor to clear out remaining issues before tomorrow's H&M work. Critical path only (case front end → report builder → sign-off/export). Logged live as we go — each row gets folded into the right permanent TODO.md section afterward if not fixed same-session.
+
+| # | Screen | Finding | Type | Priority | Status |
+|---|--------|---------|------|----------|--------|
+| 1 | Inbox | Stub, no data. Scope clarified: not a full email client — a lightweight triage view to flag Gmail messages that may relate to a new or existing case | Functional / scope | High | Logged §3.5 |
+| 2 | Timesheet | Stub. Placement decision: relocate to case level, not a standalone sidebar entry (sidebar icon space is tight) | Functional / IA | Medium | Folded into §4.5 |
+| 3 | App-wide navigation | Most screens have no Back arrow | Functional | High | Logged as B3 above |
+| 4 | Settings — AI usage dashboard | Needs per-case cost split, not just global totals; model/feature names still shown raw in `snake_case` | Functional + Cosmetic | Medium | Folded into Phase 2 AI Cost Attribution |
+| 5 | AI cost — pricing model | Decision: charge a flat fee per case to cover token usage, not metered pass-through | Decision | — | Folded into Phase 2 AI Cost Attribution |
+| 6 | Surveyor Profile / Settings | Needs restructuring into tabs (surveyor details / API keys & accounts / firm-organisation incl. format editor + multi-logo upload) | Functional | High | Logged §2.16 |
+| 7 | Case Home — header | Repeats full composite case title, not always visible on scroll, duplicated info. Proposed: vessel name (bold, one line) + subline "{survey type} – {tech file no.} – {instructing party}" | Cosmetic + UX | Medium | Logged §3.6 |
+| 8 | Case Home — checklist quick-link | Present at top of Case Home, not wired/functional yet | Functional | Medium | Logged §3.6, cross-ref §4.3/§4.4 |
+| 9 | Case Home — bottom bar | Not all bottom-bar functions implemented; surveyor to review each section in turn (this session) | Functional | — | Tracked via this walkthrough |
+| 10 | Vessel Particulars — tabs | "Identity" tab too long/dense; needs split into Identity/Ownership, Dimensions, Registration, Classification, Machinery | Cosmetic + UX | High | Logged §2.17 |
+| 11 | Vessel Particulars — Class/Stat tab | Duplicates data already reachable via the main case-level section, not warranted here; static class data should move to a new Classification tab, dynamic certs/conditions belong at case level, not vessel level | Functional + IA | High | Logged §2.17 |
+| 12 | Vessel Particulars — Dimensions | Breadth/draft qualifier dropdowns too restrictive (forces one value); should expose all fields, populate as collected | Functional | Medium | Logged §2.17 |
+| 13 | Vessel Particulars — Machinery | Nameplate photo attached to a machinery item doesn't show as a readable thumbnail | Functional + Cosmetic | Medium | Logged §2.17 |
+| 14 | Occurrence — context cues | Cues are case-wide, not scoped per-occurrence; wanted attached to each occurrence, shown under the narrative | Functional | High | Logged §3.7 |
+| 15 | Occurrence — editor layout | Popup/sheet editor is too long/awkward; wants full-screen, two tabs (Details / Narrative with cues + add-cue + AI draft button) | Functional + UX | High | Logged §3.7 |
+| 16 | Occurrence — title wrapping | Occurrence title text doesn't wrap, gets cut off on tablet width | Cosmetic | Medium | Logged §3.7 |
+| 17 | Damage Register — cue promotion | No way to turn a context cue directly into a damage item | Functional | High | Logged §3.8 |
+| 18 | Damage Register — field order | Damage Type should be the first field in the editor — it's the field the register list sorts/groups by | Cosmetic + UX | Medium | Logged §3.8 |
+| 19 | Damage Register — Location on Vessel | Redundant once a machinery item is selected; mainly meaningful for hull damage | Functional + UX | Medium | Logged §3.8 |
+| 20 | Damage Register — Confirmed By / Confirmation Date | Awkward as manual fields; should auto-populate from the attached context cue(s) | Functional | High | Logged §3.8 |
+| 21 | Damage Register — Condition Found | Awkward as a standalone field; should feed into the auto-composed damage description narrative instead | Functional + UX | Medium | Logged §3.8 |
+| 22 | Damage Register — editor layout | Popup editor should be a full screen; clicking a damage item should open it directly, not require finding Edit in a menu | Functional + UX | High | Logged §3.8 |
+| 23 | Damage Register — list row description | Wants an auto-composed, semi-redacted two-line summary per row, built from structured fields + cue provenance (worked example given) | Functional | High | Logged §3.8 |
+| 24 | Repair Periods — layout overflow | Bottom overflow when opening a repair period | Functional (bug) | High | Logged §3.9 |
+| 25 | Repair Periods — repair-phase field | No way to record preliminary/temporary/permanent — a previously-flagged gap, now confirmed needed | Functional | High | Logged §3.9 |
+| 26 | Repair Periods — editability | Fields become read-only after the period is created | Functional | High | Logged §3.9 |
+| 27 | Repair Periods — cue scoping | Cues should be scoped to the specific repair period, not just the flat section tag; period-scoped cue mechanism already exists for WNCA/General Expenses, needs extending here | Functional | Medium | Logged §3.9 |
+| 28 | Context cues — general principle | Cues should always be able to either create a new item or merge into an existing one, everywhere they're surfaced — standing design principle, not a single-screen fix | Design principle | — | Documented in `docs/context_cue_system_review.md`, cross-referenced from §2.17/§3.8/§3.9 |
+| 29 | WNCA — rounded edges | Rounded corners not rendering correctly, likely the known borderRadius + non-uniform Border conflict | Cosmetic | Medium | Logged §3.10 |
+| 30 | WNCA — unallocated bucket | "Not allocated to a period" section is awkward, rarely useful; should collapse or be optional | Functional + UX | Medium | Logged §3.10 |
+| 31 | WNCA — basket sizing | Subsections should scale to the number of cues they hold, not reserve fixed space regardless of content | Cosmetic + UX | Medium | Logged §3.10 |
+| 32 | Nature of Repairs — corner bug | Same rounded-corner bug as §3.10, but isolated to the last section only here — useful root-cause data point | Cosmetic | Medium | Logged §3.11 |
+| 33 | Nature of Repairs — reorder | No way to reorder the sequence of repairs | Functional | Medium | Logged §3.11 |
+| 34 | Nature of Repairs — element size | UI elements are too small | Cosmetic | Medium | Logged §3.11 |
+| 35 | General Services & Access | Same corner/bucket/scaling issues as WNCA (shared component); also the inline "Add Repair Period" shortcut isn't warranted here | Cosmetic + Functional | Medium | Folded into §3.10 |
+| 36 | Documentation | Wants a dedicated screen (not just a case-home card linking to Doc Vault) managing collected/on-file/attached vs. requested (with date), plus a "Send Documentation Request" auto-email button | Functional | High | Folded into §3.4 |
+| 37 | Additional Information | Same corner/bucket/scaling complaints as WNCA — confirms the underlying styling issue lives in the shared `ContextCuesPanel`/`CueSectionCard` widgets, not just `RepairPeriodScopedCuesScreen` | Cosmetic + UX | Medium | Folded into §3.10 |
+| 38 | Accounts — title bar | Light-coloured, barely readable text | Cosmetic | Medium | Logged §3.12 |
+| 39 | Accounts — keyboard overflow | Bottom overflow when the keyboard opens | Functional (bug) | High | Logged §3.12 |
+| 40 | Accounts — estimated cost won't save | Entering an estimated cost doesn't persist | Functional (bug) | High | Logged §3.12 |
+| 41 | Accounts — summary empty state | Account Summary shows unpopulated white rectangles when there are no invoices yet | Functional (bug) | High | Logged §3.12 |
+| 42 | Accounts — cost estimate redesign | Wants editable line items (category + free line) with suggested categories, plus a caveat comment box; removes the "cost inclusions" concept | Functional | High | Logged §3.12 |
+| 43 | Accounts — cost estimate status automation | Status should auto-derive (no invoices = purely estimated; invoices present = yes/no prompt for further invoices expected) rather than manual selection | Functional | High | Logged §3.12 |
+| 44 | Accounts — section order | Cost Estimate should always render above Account Summary, including in the Case Home mini-summary card | Cosmetic + UX | Medium | Logged §3.12 |
+| 45 | Attendances | Works well overall, no major issues | — | — | Confirmed working |
+| 46 | Attendances — title bar | Move "Followup Attendance Required" into the title bar | Cosmetic | Low | Logged §3.13 |
+| 47 | Attendances — attendee title | Can't add a title (Capt., Chief Engineer, etc.) to an attendee; needs to reflect everywhere the name is shown | Functional | Medium | Logged §3.13 |
+| 48 | Attendances — Parties cross-link | No connection between attendees and the Parties/Stakeholder register; wants pick-from-existing or add-new-on-the-fly | Functional | Medium | Logged §3.13 |
+| 49 | Documents Vault | Otherwise good; biggest complaint is AI extraction blocks the UI while running — wants it moved to a background event queue | Functional | High | Cross-ref §4.1 |
+| 50 | Correspondence — trail summary | Wants an AI-generated summary of the email/email trail after extraction, like Doc Vault | Functional | High | Logged §3.14 |
+| 51 | Correspondence — attachments | Wants a list of meaningful attachment documents, the raw `.eml` saved onto the trail, and cross-linked status back from Doc Vault | Functional | High | Logged §3.14 |
+| 52 | Correspondence — mailbox re-login | Some module keeps re-prompting for mailbox login mid-session; tokens should persist, only re-ask at app launch if genuinely required | Functional (bug) | High | Logged §3.14 |
+| 53 | Correspondence — action items | Emails contain untracked action items (contact X, book flights, send invoice, etc.), including admin-level ones — nothing app-wide handles this today | Functional | High | New §4.7 |
+| 54 | Correspondence — import automation | Emails currently imported manually; wants periodic background check + a new-email badge on Correspondence | Functional | High | Logged §3.14, cross-ref §3.5/§4.1 |
+| 55 | Checklist | No items populated yet — surveyor will get content input from a colleague (Andy) separately; auto-fill already tracked | Deferred | — | Cross-ref §4.3/§4.4 |
+| 56 | Report Builder editor — architecture | Leftover manual fields from an earlier design; wants an auto-populated view mirroring the Preview, edit-at-source instead of editing report text | Functional + UX | High | Logged §2.18 |
+| 57 | Report Builder S1 — instructing party | "At the request of [CLIENT]" not populating from the actual instructing party | Functional (bug) | High | Logged §1.8 |
+| 58 | Report Builder S1 — survey-type sentence | "The survey undertaken was a hull and machinery survey" reads awkwardly | Cosmetic | Medium | Logged §1.8 |
+| 59 | Report Builder S1 — class status in opening | Opening paragraph should state classed/conditionally classed/out of class from the hard field | Functional | Medium | Logged §1.8 |
+| 60 | Report Builder S2 — attendee titles | Rendered text needs attendee titles, defaulting to "Mr." when unset | Functional | Medium | Logged §1.8, cross-ref §3.13 |
+| 61 | Report Builder S3 | Confirmed fine, no changes | — | — | Confirmed working |
+| 62 | Report Builder S4 — nameplate photo | Insert machinery nameplate photo into the report section when available | Functional | Medium | Logged §1.8, cross-ref §2.17 |
+| 63 | Report Builder S5 — condition of class narrative | Needs 3-way phrasing (none issued / related to casualty / not related), reference wording given | Functional | High | Logged §1.8 |
+| 64 | Report Builder — review status | Section-by-section review not finished; more sections to come in a follow-up pass | Note | — | Session continuing |
+| 65 | Report Builder S5 (cont'd) — table columns | Condition of class table has equal column widths but unbalanced content | Cosmetic | Medium | Logged §1.8 |
+| 66 | Report Builder S6 | Duplicates data as both free text and a table — keep table, replace text with an intro sentence | Functional + Cosmetic | Medium | Logged §1.8 |
+| 67 | Report Builder — narrative sections pattern | Background/Occurrence/Damage/Causation/Nature of Repairs/Repairs/General Services/Previous Works all need a data summary + cue list + AI Draft button in the header | Functional | High | New §1.9 |
+| 68 | Report Builder — omit-when-empty | Conditionally-populated sections should be omitted entirely when there's no data, not shown empty | Functional | Medium | Logged §1.9 |
+| 69 | Report Builder — Repair Cost | Should reflect the accounts cost-estimate status | Functional | Medium | Logged §1.8, cross-ref §3.12 |
+| 70 | Report Builder — Repair Times | Should auto-populate from the case-section table; re-verify §2.14's fix still holds | Functional | Medium | Logged §1.8, cross-ref §2.14 |
+| 71 | Report Builder — Advice to Assured | Should be optional, omitted if no advice issued | Functional | Medium | Logged §1.8 |
+| 72 | Report Builder — Documentation Retained on File | Needs a 3-state table (annexure / on file / requested + date) | Functional | High | Logged §1.8, cross-ref §2.15/§3.4 |
+| 73 | Report Builder — back matter structure | Sign-off unnumbered, follows Waiver; Waiver styled like the Disclaimer (blue block); Disclaimer unnumbered, bottom of last page alongside sign-off | Cosmetic + Functional | High | Logged §1.8 |
+| 74 | Report Builder — dynamic section numbering | Section numbers must recompute sequentially once optional sections can be omitted, not leave gaps | Functional | High | Logged §1.9 |
+| 75 | Photos — viewer allocation | Can't allocate a photo to an attendance or a new lightweight "event" from the photo viewer itself | Functional | High | Logged §3.15 |
+| 76 | Photos — AI classification on import | Wants every imported photo auto-classified and auto-described; documents/nameplates routed to full extraction automatically | Functional | High | Logged §3.15, cross-ref §4.1 |
+| 77 | Photos — title convention | Wants photo titles to follow the same hyphen-joined naming convention already used elsewhere in the app | Cosmetic | Medium | Logged §3.15 |
+| 78 | Parties | Generally good; save button doesn't match the app's standard pattern — wants a unified green save-confirmation toast everywhere | Cosmetic + UX | Medium | Logged as B4 above |
+| 79 | Interviews | On-device STT quality poor enough to be a major open to-do; Otter.ai integration raised as an alternative to deeper in-house STT work | Functional | High | Folded into Phase 3 Voice Transcription Pipeline |
+| 80 | Timeline | Wants a second "full event log" tab (all dates/times from logs, correspondence, documents, report generation, etc.), AI-rated relevance (Important/Normal/Ignore), an Ignored review tab, and the ability to select events into the report Chronology | Functional | High | Logged §3.16 |
 
 ---
 
@@ -87,7 +178,62 @@ Nothing here is optional. A report that misses these items is not professionally
 
 **Spec:** §5.4
 
+### 1.8 Report Builder — Section Content Fixes, S1–S5 (scope added 8 July 2026)
+Section-by-section review with the surveyor, in progress — **not finished, more sections to come in a follow-up pass.** These are mostly content/wording fixes to already-implemented clauses (`docs/legal_clauses.md`), plus two small logic fixes (attendee title default, nameplate image) — should land regardless of whether the bigger §2.18 editor redesign happens first.
+
+**S1 — Introduction / Opening Certification:**
+- [ ] Fix instructing-party substitution — "at the request of [CLIENT]" isn't populating from the actual instructing party; check the opening-clause fill logic in `report_provider.dart`
+- [ ] Rewrite the B-2 survey-type sentence ("The survey undertaken was a hull and machinery survey," `docs/legal_clauses.md` Part B) — reads awkwardly, needs better English flow
+- [ ] Opening paragraph should also state the vessel's class status (classed / conditionally classed / out of class) up front, using the hard field already captured on the Class & Certification screen — AI should read all available case data and produce a short, accurate opening summary rather than a rigid fixed template
+
+**S2 — Attendance:**
+- [ ] Every attendee needs a title in the rendered text — use the new attendee title field (§3.13); default to "Mr." when no title is set
+
+**S3:** confirmed fine as-is, no changes needed.
+
+**S4 — Machinery/nameplate section:**
+- [ ] Insert the nameplate photo for a machinery item into this report section when one is available — extends §2.17's nameplate-thumbnail work into the actual report output, not just the in-app machinery screen
+
+**S5 — Class & Statutory Certification:**
+- [ ] Improve condition-of-class narrative to correctly phrase three distinct cases: no conditions issued yet; a condition noted **and related to the casualty**; a condition noted **but not related to the casualty**. Surveyor gave near-verbatim reference wording for all three — use it directly
+- [ ] Refinement of the existing C-6f statutory-certificate-dropdown clause logic (`docs/legal_clauses.md` Part C) — extend the existing aggregation rule rather than rebuild it
+- [ ] **(continued, 8 July 2026)** Condition-of-class table has equal column widths but visibly unbalanced content — size columns to fit their content rather than a fixed equal split
+
+**S6:**
+- [ ] Currently duplicates the same data as both a free-text entry and a table — remove the free-text entry, keep the table, and write a short intro sentence ahead of it instead
+
+**Repair Cost:**
+- [ ] Should render based on the general status of the accounts — ties directly into §3.12's cost-estimate-status automation (purely estimated / ongoing / final-accounting modes should each render differently here)
+
+**Repair Times:**
+- [ ] Should auto-populate directly from the repair-period table already established in the case section — §2.14 already wired this fix; re-verify it's actually reading correctly, since it came up again in this review
+
+**Advice to Assured:**
+- [ ] Should be an optional section — omit entirely if no advice has actually been issued yet
+
+**Documentation Retained on File:**
+- [ ] Should render as a table summarising what's available across three states: in annexure, retained on file, or requested (with request date) — resolves the same 3-state gap as §2.15/§3.4, now specifically for this report-output table (K-1/K-2 clauses, `docs/legal_clauses.md` Part K), not just the in-app Documentation screen
+
+**Back matter — Sign-off, Waiver, Disclaimer:**
+- [ ] Sign-off block should not be a numbered section in the section list — it belongs immediately after Limitation of Liability
+- [ ] Limitation of Liability (Waiver) should get the same visual treatment as the Disclaimer — a blueish, boxed/blocked text insert, not plain body text
+- [ ] Disclaimer is likewise not a numbered block — it always sits at the very bottom of the document, on the same page as the sign-off block
+
+**Note:** this review is still not finished as of 8 July 2026 — expect more sections in a follow-up pass.
+
 ---
+
+### 1.9 Report Builder — Narrative Section Standard Pattern (scope added 8 July 2026)
+Applies uniformly to all genuinely-narrative report sections: **Background, Occurrence, Extent of Damage, Allegation/Cause Consideration, Nature of the Repairs, Repairs, General Services, Previous Works** (and any other narrative section not covered by §2.18's auto-populate pattern — these keep free-text editing, unlike the fully-structured sections in §2.18, since they're genuinely narrative rather than structured data wrongly given a text box).
+
+For each of these sections:
+- [ ] Show a summary of the available structured information relevant to that topic (e.g. Nature of the Repairs: summarise the ticks/hard fields already entered on the case screen)
+- [ ] List the available context cues for that section
+- [ ] Add an **AI Draft** button in the section's own header, not buried in a menu
+- [ ] The narrative text itself remains free-text/editable — this pattern surfaces context to support drafting, it doesn't remove editing
+
+**Omit-when-empty rule (general, not limited to these sections):** if a section has no data at all, don't render it in the report — omit entirely rather than showing an empty or near-empty section.
+- [ ] **Section numbering must renumber dynamically.** Once optional sections can be omitted, the rendered section numbers (§1, §2, §3…) need to recompute sequentially based on what's actually included for that specific report — not fixed numbers with gaps where an omitted section would have been. Applies wherever section numbers are shown: docx export, in-app Preview, and the TOC/section list in the editor.
 
 ## PHASE 1 — Report Builder: Tier 2 (Full Feature Parity with Spec)
 
@@ -102,6 +248,15 @@ Nothing here is optional. A report that misses these items is not professionally
 - [✓] Logo embedded in running header of body pages — **DONE** (see §1.6/§2.8 — logo fetched from `organisation.logo_path` in `docx_export_service.dart:44-51` and rendered via `DocxBuilder.setBodyHeader()`)
 
 **Spec:** §1.1, §1.2, §9.4
+
+### 2.16 Surveyor Profile / Settings — Tabbed Restructure (scope added 8 July 2026)
+- [ ] Restructure the surveyor's own profile/settings screen into tabs:
+  - **Tab 1 — Surveyor details:** existing profile fields
+  - **Tab 2 — API keys & connected accounts:** Anthropic key, Google OAuth accounts, Equasis credentials, FX rate API key, and eventually Xero (§4.5) — currently these are scattered/env-based rather than a single user-facing screen
+  - **Tab 3 — Firm / organisation:** branding, a format editor (per-firm report wording — see the "future format editor" note in `docs/legal_clauses.md` implementation notes), and logo upload supporting **one or more logos**, not a single logo
+- [ ] Multi-logo is a data model change: `organisation.logo_path` (single) needs to become a list (e.g. primary letterhead logo + secondary/co-brand logo)
+- [ ] **Reconcile with §2.1:** the existing Organisation Detail screen already has a 3-tab structure (Identity / Legal Text / Surveyor Profiles) — Tab 3 here may simply *be* that existing screen embedded, rather than a new build. Scope this out before starting to avoid two competing org-settings UIs.
+- [ ] Also resolves the still-open §2.1 logo-upload gap (currently instructional text only, no real upload widget) — do both in the same pass
 
 ### 2.2 Document Vault Enhancement
 - [✓] `is_cover_photo` on `DocumentModel` — **DONE**
@@ -193,6 +348,25 @@ Current state: all major sections coded. Re-audit against spec:
 
 **Spec:** §2.2
 
+### 2.17 Vessel Particulars — Screen Restructure (scope added 8 July 2026)
+- [ ] Split the current dense "Identity" tab into five tabs: **Identity/Ownership**, **Dimensions**, **Registration**, **Classification**, **Machinery**
+- [ ] Remove the duplicate Class/Statutory tab from Vessel Particulars (currently `vessel_compliance_screen.dart`) — it repeats data already reachable via the main case-level Class & Statutory Certification section and isn't warranted at the vessel-particulars level
+- [ ] Add a new **Classification** tab holding only truly static class/statutory data (class society, etc.) — regulatory standard moves under **Registration** instead, per surveyor's framing ("the regulatory standard is part of the registration")
+- [ ] Certificates & Condition of Class (survey-specific, changes over time — e.g. per-attendance findings) move conceptually out of the Vessel feature into the main case-level screens. Guiding principle: Vessel Particulars holds only data that "will not, or barely, change through the lifetime of the vessel"
+- [ ] **Dimensions — remove restrictive qualifier dropdowns.** Current model forces one breadth value + a Moulded/Extreme qualifier, and one draft value + a Summer/Loaded/Maximum qualifier. Replace with individual fields for each variant (`breadth_moulded`, `breadth_extreme`, `draft_summer`, `draft_loaded`, `draft_maximum`, etc.), populated as collected — report clause logic (C-2/C-3, `docs/legal_clauses.md`) should pick whichever is actually populated instead of requiring a pre-selected qualifier
+- [ ] **Machinery — nameplate thumbnail.** When a nameplate photo is attached to a machinery item/subsystem, render it as a readable thumbnail in the machinery list/detail view, not just a stored attachment
+- [ ] **Machinery — cue create/merge.** Apply the same standing cue-action principle here: a context cue should be able to create a new machinery item, or merge into an existing one (see `docs/context_cue_system_review.md`)
+- [ ] Reconcile with §2.11 (Vessel Model — Statutory Fields) on field placement (Registration vs. Classification tab) when implementing
+
+**Spec:** §2.2 (extends §2.11)
+
+### 2.18 Section Editor — Auto-Populated, Edit-at-Source Redesign (scope added 8 July 2026)
+- [ ] Remove leftover free-text input fields from an earlier design iteration — most report sections should not be manually typed at all
+- [ ] Editor view should visually match the read-only Preview table, not a separate free-form editing layout
+- [ ] Sections auto-populate from the underlying case-screen data (vessel, occurrence, damage, accounts, etc.) — the only genuinely free-text field per section should be **Remarks**
+- [ ] Add an "Edit" affordance beside each auto-populated section that deep-links to the corresponding case-screen section — correcting data there updates the report automatically, rather than editing report text directly (single source of truth, no drift between case data and report text)
+- [ ] Large architectural change — touches `report_provider.dart`'s `buildSections()` and `section_editor.dart` broadly. Scope and sequence section-by-section rather than as one rewrite; §1.8's S1–S5 content fixes can land independently of this
+
 ### 2.12 Section Sub-Paragraphs (Oceanoservices format only)
 **Re-verified 3 July 2026: confirmed still fully missing** — no sub-paragraph/child-section model, numbering scheme, editor UI, or TOC-indent logic found anywhere in `lib/features/reports/`. The "1 July 2026" header note claiming this was added is inaccurate (see top-of-file note).
 - [ ] Data model: allow narrative sections to have child paragraphs, each with its own title and content
@@ -215,6 +389,7 @@ Current state: all major sections coded. Re-audit against spec:
 ### 2.15 Documentation section: only 2 meaningful availability states, not 3
 - [ ] The new case-home "Documentation" card (K-2, added 2026-07-03) wants three categories — enclosed in report / retained on file / requested — but `DocAvailability` only has `enclosed`/`requested`/`not_available`/`tbc`, i.e. no distinction between "enclosed in the exported report" and "retained on file but not enclosed". Currently both concepts collapse into `enclosed`, labelled "On File" in the summary card.
 - [ ] If the distinction matters in practice, needs either a new `DocAvailability` value or a separate boolean (e.g. `included_in_report`) — not added now since it wasn't clear this distinction is actually needed day-to-day.
+- [ ] **Confirmed needed, 8 July 2026** — being resolved together with the new dedicated Documentation screen, see §3.4.
 
 ---
 
@@ -247,7 +422,114 @@ Current state: all major sections coded. Re-audit against spec:
 - [✓] Support free-form ad-hoc "requested" line items with no file attached yet — **DONE** (`lib/features/documents/providers/document_provider.dart` — `DocumentModel.filePath` is nullable (`hasFile` getter guards on it); a dedicated request-creation path around line 482 sets `availability: DocAvailability.requested` with an auto-set `requestedDate` and no file)
 - [✓] Works both pre-survey and post-survey, not tied to a specific attendance — **DONE** (`documents` records are case-scoped, not attendance-scoped — no `attendance_id` FK on the documents model)
 - [ ] Auto-generate an email listing all outstanding requested documents (to Owners/Repairers), from the same data — **MISSING, confirmed** (grepped for "document request"/"requestEmail"/"generateEmail"/"mailto" — no hits)
+- [ ] **Elevate to a dedicated Documentation screen (8 July 2026)** — currently just a case-home summary card linking out to the Document Vault; surveyor wants a proper standalone screen managing what's collected/kept on file/attached vs. requested (with request date), not just counts. Directly resolves §2.15's 2-state-vs-3-state gap at the same time — build the real 3-way split (enclosed in report / retained on file / requested) as part of this screen, not as a separate follow-up
+- [ ] **"Send Documentation Request" button** — the auto-generated email above should be a one-tap action from this new screen, not just a background capability: compose a formatted email listing all outstanding requested documents (to Owners/Repairers) and hand off to the device's mail client or Gmail send (reuse `gmail_service.dart`, already wired for sending)
 - [ ] See `docs/legal_clauses.md` Part K (K-2) for the report-side rendering, already implemented
+
+### 3.6 Case Home — Header Redesign (8 July 2026)
+- [ ] Replace current header (repeats the full composite case title, not always visible, duplicated info) with: vessel name (bold, single line) + subline "{survey type} – {technical file no.} – {instructing party}" — e.g. "H&M – AU-M53-056789 – Gard"
+- [ ] Investigate "not always visible" report — check for overflow/clipping/scroll behaviour in `case_home_screen.dart`
+- [ ] Checklist quick-link at top of Case Home exists visually but is not wired to navigate/function yet — wire it up (relates to §4.3/§4.4 checklist auto-tick work)
+
+### 3.7 Occurrence Editor — Restructure + Per-Occurrence Context Cues (scope added 8 July 2026)
+- [ ] Convert the Occurrence editor from a popup/sheet to a full single screen with two tabs: **Details** (all structured fields/hard data) and **Narrative** (background/occurrence narrative text, attached context cues, ability to add a new surveyor cue inline, and an AI draft button)
+- [ ] Attach context cues per-occurrence rather than case-wide only — shown under the narrative on the Narrative tab
+- [ ] Fix Occurrence title truncation — title doesn't wrap and gets cut off at tablet width; needs proper text wrapping wherever the title is displayed (list view, header)
+- [ ] Worth checking once built whether Causation/Damage Register want the same per-item cue-attachment pattern, since this is really "context cues need to be scoped, not only global" applied to Occurrence first
+
+### 3.8 Damage Register — Editor Restructure + Smart Fields (scope added 8 July 2026)
+Cue presentation in the Damage Register is good as-is, no change needed there. Everything below is new:
+- [ ] **Cue → Damage Item promotion.** Add a way to turn a context cue directly into a new damage item, *or* merge it into an existing damage item as supporting evidence — currently neither action exists (see the standing cue-action principle in `docs/context_cue_system_review.md`)
+- [ ] **Reorder fields — Damage Type first.** Move Damage Type to the top of the editor — it's the field the Damage Register list is sorted/grouped by, so it should lead the data-entry flow too
+- [ ] **Location on Vessel — conditional relevance.** Redundant once a machinery item is already selected (machinery selection already implies location); mainly meaningful for hull damage. De-emphasise or hide when a machinery item is selected, keep prominent for hull-type damage
+- [ ] **Auto-populate "Confirmed By" and "Confirmation Date"** from the context cue(s) attached to the damage item instead of manual entry — derive from whichever cue/source substantiates the item (e.g. a specialist engineer's report, with page reference)
+- [ ] **"Condition Found" — repurpose into narrative input.** Still capture it, but feed it into the auto-composed damage description narrative rather than leaving it as an isolated field
+- [ ] **Editor: popup → full screen**, same pattern as Occurrence (§3.7) — clicking a damage item should open a dedicated edit screen directly, not require finding "Edit" in a menu
+- [ ] **Auto-composed register-row description.** The Damage Register list view should show a semi-automatic two-line summary assembled from structured fields + cue provenance. Worked example given by the surveyor: *"[affected part, e.g. conrods 15 and 16] was inspected by the attending surveyor [confirmed by]. Further confirmation was indicated in [cue source — report/date/page] by [specialist, confirmed by], as it was [condition found, e.g. removed for inspection] and showed [damage description, e.g. signs of fretting]."* Likely an AI-drafting task (short templated narrative from structured data), similar to the existing narrative-drafting helpers in `claude_api.dart`
+
+**Relates to:** §3.7 — same popup→full-screen pattern, same "cues need to attach to a specific item" pattern. Worth building both on a shared editor-screen component rather than two bespoke implementations.
+
+### 3.9 Repair Periods — Editability, Repair-Phase Field, Period-Scoped Cues (scope added 8 July 2026)
+- [ ] Fix bottom overflow (Flutter layout overflow) when opening a repair period
+- [ ] **Add a repair-phase field: preliminary / temporary / permanent.** This is a previously-flagged, previously-deferred gap — `docs/context_cue_system_review.md` §4/§6 already noted "Formal repair-phase concept (preliminary/temporary/permanent) — not modeled today, no immediate need identified." **Immediate need now confirmed (8 July 2026).** This is supplemental to (distinct from) the repair outcome recorded per damage item — it describes the repair period itself, not any individual item within it
+- [ ] **Fields become read-only after the repair period is created** — make all fields editable post-creation, not just at creation time
+- [ ] **Scope context cues to the specific repair period**, not just the flat `repairs`/`repairTimes` case-section tag. The two-level, period-scoped allocation mechanism already exists for WNCA/General Expenses (`linked_to_type = 'repair_period'`, `RepairPeriodScopedCuesScreen`, `ContextCuesPanel`'s `periodScope` param — see `docs/context_cue_system_review.md` Step 2) — extend the same mechanism to the main Repair Periods editor rather than building a new one
+- [ ] Applies the standing cue-action principle here too — create/merge, see `docs/context_cue_system_review.md`
+
+### 3.10 WNCA + General Services & Access + Additional Information — Cosmetic + Layout (scope added 8 July 2026)
+WNCA and General Services & Access share the same underlying `RepairPeriodScopedCuesScreen` component (`docs/context_cue_system_review.md` Step 2 — same widget serves `/wnca` and `/general-expenses`). Additional Information is a different screen (its four live cue tags — previous works, extra expenses, contractual hire, other matters — are "flat siblings" per the case-section coverage matrix, not period-scoped) but the surveyor confirmed the same corner-rendering, bucket, and basket-scaling complaints apply there too — so the underlying `ContextCuesPanel`/`CueSectionCard` styling issue is shared more broadly than just the WNCA-family screens, not confined to `RepairPeriodScopedCuesScreen`. Fix once at the shared widget level, verify across all three screens:
+- [ ] Rounded corners not rendering correctly — likely the same class of bug as the known Flutter `borderRadius` + non-uniform `Border` conflict (mixing the two silently fails); fix per the established pattern — `Border.all` + an inner `Container` accent strip instead of mixed border/radius
+- [ ] "Unassigned"/"not allocated to a period" bucket is awkward and rarely useful — make it collapsible or optional (hidden by default, shown only when it actually has content or on demand) rather than always prominently displayed
+- [ ] **General layout principle:** this screen (and other cue-basket screens like it) is fundamentally a basket for context cues — each subsection (per-period register, unallocated bucket) should size itself to the number of cues it actually holds, not reserve fixed space regardless of content
+- [ ] **General Services & Access specifically:** the inline "+ New Repair Period" quick-create (`quick_create_repair_period.dart`) is not warranted on this screen — remove it here; repair periods should be created from the Repair Periods screen itself, not from within a cue-basket screen
+
+**Relates to:** `docs/context_cue_system_review.md` — a UI/rendering concern layered on top of the already-built two-level allocation model (Step 2), not a data-model change.
+
+### 3.11 Nature of the Repairs — Reorder + Sizing + Corner Bug (scope added 8 July 2026)
+- [ ] Same rounded-corner rendering bug as §3.10, but isolated to the **last section only** here — useful data point for root-causing (may be a missing bottom-border/last-item styling edge case rather than a universal `borderRadius`+`Border` conflict); check both screens together when fixing
+- [ ] Add drag-to-reorder for the sequence of repairs
+- [ ] Increase element size — current UI (checkboxes/chips/fields) is too small, needs bigger touch targets and text
+
+### 3.12 Accounts Screen — Cost Estimate Redesign + Bugs (scope added 8 July 2026)
+
+**Bugs (fix first — blocking):**
+- [ ] Title bar is light-coloured with barely readable text — contrast/theming bug
+- [ ] Bottom overflow when the keyboard opens (same class of layout-overflow bug as §3.9 Repair Periods)
+- [ ] **Estimated cost cannot be saved** — entering a value in the estimate field doesn't persist; check `_CostEstimateSelector` (`accounts_screen.dart`) write path to `cases.estimated_repair_cost`
+- [ ] Account Summary shows unpopulated white rectangles when there are no invoices yet — only renders correctly once invoices are present; needs a proper empty state
+
+**Cost Estimate — structural redesign:**
+- [ ] Replace the single estimated-cost figure with **editable line items**, each with a suggested category (general expenses, towing, dry-docking, parts, labour, pilotage, wharfage, etc.) or a free-text line — so the estimate is explainable/itemised, not just one number
+- [ ] Add a **comment box** under the line items for caveats (e.g. "estimate still dependent on X")
+- [ ] This makes the existing "cost inclusions" concept redundant — remove it once the line-item estimate ships
+- [ ] **Automate `cost_estimate_status`** (currently manual via the existing 3-state `_CostEstimateSelector`, see `docs/legal_clauses.md` G-1, 2026-07-03 entry):
+  - No invoices at all → automatically "purely estimated," no prompt needed
+  - Once invoices exist → prompt "do you still expect further invoices?" (yes/no)
+    - Yes → stays in estimate mode (blended estimate + actuals)
+    - No → switches to pure accounting mode (final, no estimate shown)
+- [ ] **Section order:** Cost Estimate should always render above Account Summary on this screen, and the same ordering should carry through to the Accounts mini-summary card on Case Home
+
+**Relates to:** `docs/legal_clauses.md` Part G (G-1, Estimated Cost Clauses) — significantly extends the 2026-07-03 G-1 implementation; update that doc's progress log once built, not just this file.
+
+### 3.13 Attendances — Title Bar + Attendee Titles (scope added 8 July 2026)
+- [ ] Move "Followup Attendance Required" into the title bar (currently elsewhere in the screen body)
+- [ ] Add an editable **title** field per attendee (e.g. "Capt.", "Chief Engineer", "Mr.") — currently missing from the attendee editor
+- [ ] Title must be reflected everywhere the attendee's name is displayed — app UI (attendance lists, attendee chips) and report output (e.g. "Capt. John Doe") — not just stored and unused
+- [ ] **Cross-link attendees with the Parties/Stakeholder register.** When adding an attendee, either pick from existing Parties (`lib/features/parties`) or, if meeting someone new on site, add them straight into the Parties list from the attendee-entry flow — currently these are disconnected, so the same person can end up entered twice with no shared record
+
+### 3.15 Photos — Allocation, AI Auto-Classification on Import, Title Convention (scope added 8 July 2026)
+- [ ] **Allocate from the photo viewer.** Opening a photo currently has no way to allocate it — add the ability, from within the photo detail/viewer itself, to either assign it to an existing attendance or create a new lightweight "event" (e.g. "Diver's Inspection," "Crew Photo") with a date pre-filled from EXIF. Complementary to §3.2's still-missing manual-assignment review sheet — this is an in-viewer action on a single photo rather than a batch review flow; both are worth having
+- [ ] **AI classification queue on import.** Every imported photo should be queued for AI analysis (ties into §4.1's event-driven background pipeline, not a manual per-photo trigger): identify what it is and auto-populate a short description
+  - If it's a **document** → import into the Document Vault and run full extraction (reuses `ClaudeApi.extractDocument`)
+  - If it's a **nameplate** → run full nameplate extraction (reuses `ClaudeApi`'s existing nameplate extraction, currently only manually triggered)
+  - Reuses/extends the existing `ClaudeApi` photo-classification capability already used elsewhere — the gap is wiring it as an automatic on-import step, not building classification from scratch
+- [ ] **Title convention.** Photo titles should follow the same human-readable, hyphen-joined convention already established elsewhere in the app (`lib/core/utils/drive_filename.dart`'s `buildDriveFilename` pattern — parts joined by " - ", most significant first, same style as case titles and Drive folder names). Suggested composition: `{date} - {attendance/event label} - {short AI/manual description}`. Distinct from, but should stay consistent with, the Photo Register caption format already specced in §2.4
+
+**Relates to:** §3.2 (EXIF assignment), §2.4 (Photo Register/Annexure E caption format), §4.1 (background AI queue)
+
+### 3.16 Timeline — Full Event Log Tab + AI Relevance Rating (scope added 8 July 2026)
+- [ ] Add a second tab alongside the existing condensed Timeline view: a **full event log** aggregating every dated/timestamped item collected throughout the case — attendances, damage items, logs, correspondence, documents, report generation events, etc. — not just the curated subset shown today
+- [ ] Each event gets a relevance rating: **Important / Normal / Ignore** (ignored events disappear or grey out from the main view)
+- [ ] Relevance should be **AI-suggested automatically**, not manually rated from scratch by the surveyor — directly reuse the pattern already built for context cues (`SurveyorNote.pendingReview`, priority field, `docs/context_cue_system_review.md` Step 5) rather than building a parallel classification system
+- [ ] Add an **Ignored** tab (mirrors the cues "Suggested"/review-tab pattern) so ignored events can be double-checked and un-ignored if the AI/surveyor got it wrong — nothing should be silently hidden with no way back
+- [ ] **Core purpose:** let the surveyor select specific events from this full log so they appear in the report's actual Chronology section — a curation step feeding report content, not just a case-side view. Ties into the existing Chronology table (`docs/legal_clauses.md`/§2.3, already rendered as a formal Date\|Event table in the docx export) — the selection here should drive what populates that table, rather than it auto-building from all `timeline_events` indiscriminately as it does today
+
+**Relates to:** `docs/context_cue_system_review.md` — same relevance-rating/review-tab architecture as context cues, applied to timeline events instead of surveyor notes. Worth checking if the two could share more implementation than just the pattern (e.g. a shared "rateable item" abstraction) when scoping.
+
+### 3.5 Inbox Screen — Case-Relevance Email Triage (scope clarified 8 July 2026)
+- [ ] Replace the current stub (`inbox_screen.dart`, "Coming next session") with a lightweight triage view — explicitly **not** a full email client / not meant to replicate read/unread, folders, search
+- [ ] Pull recent Gmail messages, reusing `gmail_service.dart` (already wired for the Correspondence Gmail picker)
+- [ ] Let the surveyor flag a message as "relates to case X" (existing case) or "possible new case" — a to-do/action item, not filed away silently
+- [ ] "Possible new case" flag surfaces a "Create case from this email" shortcut
+- [ ] "Relates to case X" flag links the message into that case's Correspondence register
+- [ ] Shares the same periodic background mail-check mechanism as §3.14's Correspondence badge — build one polling/event source, not two
+
+### 3.14 Correspondence — Substantial Rework (scope added 8 July 2026)
+- [ ] **AI-generated trail summary.** After extraction, show a summary of the email/email trail (thread-level), same pattern as the Doc Vault extraction summary
+- [ ] **Attachment handling.** List all meaningful documents found in attachments; also save the raw `.eml` file itself onto the correspondence trail as an attachment (not just parsed away); attachments pulled into Doc Vault should show their status back in Correspondence — cross-link rather than orphan/duplicate the tracking
+- [ ] **Fix mailbox re-login bug.** Some module keeps re-prompting for mailbox login mid-session — Google OAuth tokens should persist and only re-ask at app launch if genuinely required. Check token refresh handling in `google_auth_service.dart`/`gmail_service.dart` for a missing refresh-token flow or an inconsistent second auth path
+- [ ] **Action items in emails.** Emails routinely contain actionable items (contact this person, book flights, send an invoice, etc.) that nothing in the app tracks today — including case-admin actions not yet built at all (freelancer work agreements, billing, surveyor logs). See new **§4.7 App-Wide Action Items / Task Tracking** — this is the correspondence-side source feeding that system, not a standalone feature
+- [ ] **Automate import.** Replace manual email import with a periodic background check for new mail (ties into §4.1's event-driven background pipeline) plus a badge on Correspondence when new case-relevant emails arrive — shares its polling mechanism with §3.5's Inbox screen rather than duplicating it
 
 ---
 
@@ -266,7 +548,9 @@ From `README.md` commercial deployment section:
 - [ ] Create `analyst_usage` table: `case_id, user_id, org_id, model, input_tokens, output_tokens, created_at`
 - [ ] Update `case-analyst` Edge Function to insert a row after each Anthropic call
 - [ ] Build usage report view: per company, per case, per month
-- [ ] Decide billing model: include in service fee vs. pass-through at cost
+- [ ] **Confirmed gap (8 July 2026):** existing Settings AI usage dashboard only shows global/org totals — needs a per-case breakdown
+- [ ] **Confirmed gap (8 July 2026):** model/feature names render as raw `snake_case` in the usage dashboard — needs human-readable labels
+- [ ] **Billing model decided (8 July 2026):** flat fee per case charged to the user/firm to cover token usage, not metered pass-through billing. Pricing/margin per case still to be worked out; superseded the open "include in service fee vs. pass-through" question — it's the former, at a fixed rather than variable rate
 
 ### Configuration & Secrets
 - [ ] Per-deployment `ANTHROPIC_API_KEY` as Supabase secret
@@ -282,6 +566,7 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 
 - [ ] **Flutter PDF module** — native PDF output (same data model as docx; renderer-only change)
 - [ ] **Voice transcription pipeline** — SpeechProvider abstraction → AssemblyAI/Deepgram for interview diarization (P&I selling point); Azure Speech for enterprise data residency
+  - **Confirmed blocking, 8 July 2026:** current on-device speech-to-text quality in the Interviews feature is poor enough that Interviews is "still a major to-do" as a result. Two paths raised: (a) deeper in-house work on the on-device STT itself, or (b) integrate with **Otter.ai** — remote-launch the Otter app for the actual recording/transcription, then share/import the result back into this app's interview record. Otter.ai is a new option, not previously scoped alongside AssemblyAI/Deepgram — evaluate all three before committing
 - [ ] **Offline mode** — case snapshot tables + write queue (architecture in `docs/offline_sync_plan.md`)
 - [ ] **Google Workspace integration** — Gmail correspondence import, Drive photo export, Google Photos library
 - [ ] **Automatic error reporting** — Sentry or custom backend
@@ -290,6 +575,60 @@ From `memory/project_future_roadmap.md` + spec §3 Tier 3:
 - [ ] **P&I integration** — separate report format, policy type support
 - [ ] **Shared Drive / NAS export** — bulk photo export for case archive
 - [ ] **Instructing party linkage** — `cases.instructing_party` is currently a free-text field; should become a FK to `principals_clients` so contact details, billing address, and email domain are auto-populated. Report builder already joins `principals_clients` for the client — pattern established, just needs extending
+
+---
+
+## PHASE 4 — Business & Platform Expansion (added 8 July 2026)
+
+Strategic new initiatives, beyond the single-surveyor field tool. Not started. See `docs/PRESENTATION_BRIEF.md` §12 for the business framing of these.
+
+### 4.1 Event-Driven Background AI Extraction & Production Manager
+- [ ] **Concrete pain point confirmed 8 July 2026, Document Vault:** the UI currently blocks/waits while AI extraction runs on an imported document — this is the primary driver for this item, not just a theoretical nice-to-have. Document Vault is otherwise considered a well-built screen; this is the one thing wrong with it
+- [ ] Replace today's manual "process this document now" AI extraction with an event-driven pipeline: inserts to `documents`/`photos`/`repair_documents` trigger extraction automatically via a background job queue
+- [ ] "Production manager" view: per-case status of what's been AI-processed, what's pending, what failed and needs retry
+- [ ] Notification on completion / failure
+- [ ] Supersedes the older "Batch AI extraction — Process All" idea in Phase 3 below (that was a manual on-demand trigger; this is the always-on successor) — remove the Phase 3 line once this ships
+- [ ] Needs: Supabase Edge Function + job queue (e.g. `pgmq` or a scheduled function), retry/failure handling, status dashboard
+
+### 4.2 Survey Company Management App (one manager, multiple surveyors)
+- [ ] New product surface distinct from the current field-survey tool: a management console for a principal/manager overseeing a team of surveyors
+- [ ] Job/case assignment across the team, workload visibility
+- [ ] Cross-surveyor QC/report-pipeline oversight, team-level KPIs
+- [ ] Depends on Phase 2 multi-tenancy (org data isolation) being in place first — this adds an internal manager/surveyor role hierarchy *within* one org, not just cross-org isolation
+- [ ] Needs: role model (manager vs. surveyor), case-assignment UI, cross-surveyor dashboard, permissions
+
+### 4.3 General Survey Status / Completeness Evaluation
+- [ ] Confirmed via repo grep: no completeness/health-score concept exists anywhere today — closest is the per-report Export Validation Gate (§1.7), which only fires at export time and only checks report-builder-relevant sections, not the whole case
+- [ ] Define "minimum required info" per section (vessel particulars, occurrence, damage register, accounts, etc.)
+- [ ] Case-level completeness indicator (e.g. on Case Home) showing which sections are populated vs. outstanding
+- [ ] Likely reuses/extends the checking patterns already in `lib/features/reports/utils/export_validation.dart`
+
+### 4.4 Checklist Auto-Ticking
+- [ ] Extend `lib/features/checklist` (currently 100% manually ticked, confirmed via code read — `checklist_provider.dart`/`checklist_screen.dart` have no auto-complete logic) so items can tick themselves once the underlying data condition is met (e.g. "vessel particulars complete" auto-ticks when required vessel fields are non-null)
+- [ ] Other items remain manually ticked where there's no clean data signal (e.g. "attended site")
+- [ ] Directly depends on §4.3 — the auto-tick rule for a given item is essentially "is this section populated," the same logic as the completeness evaluation
+- [ ] **Content pending (8 July 2026):** the checklist has no items populated yet — surveyor to get input from a colleague (Andy) on what the actual checklist items should be before this can be finalised
+
+### 4.5 Admin: Surveyor Logs, Freelance Agreements, External Invoicing
+- [ ] New admin/finance section: surveyor time/activity logging (broader than the existing unbuilt `lib/features/timesheet` stub, which was scoped as per-job time only)
+- [ ] Freelancer work agreement storage/tracking
+- [ ] Outgoing invoicing to clients/survey companies
+- [ ] Potential integration with an accounting platform (Xero API, or equivalent) — needs research before committing to a specific provider
+- [ ] Likely reuses UI patterns from the existing `accounts` feature (invoice detail, line items) for consistency
+
+### 4.6 In-App "Why This Matters" Explanations (Front End + Report Sections)
+- [ ] For every data-entry section in the app (vessel particulars, occurrence, causation, damage register, repair periods, accounts, etc.) and every report section, add a clear, short explanation of *why* that section/field matters from a best-practice marine-survey standpoint — not just what to fill in, but why it's professionally/legally significant
+- [ ] Goal is two-fold: ease of use (surveyors understand the purpose, not just the form) and self-training (new/junior surveyors or new hires can learn good survey practice from the app itself, without a separate manual)
+- [ ] Likely UI pattern: an info icon / expandable helper text per section or field group, sourced from a central content table (not hardcoded strings) so wording can be refined without a code change — same "data-driven content" pattern already used for the legal clause library (`clause_library`, see `docs/legal_clauses.md`)
+- [ ] Report-section explanations should draw on the same rationale already captured in `docs/legal_clauses.md` (e.g. why the allegation-of-cause clause must be one of two mutually exclusive variants, why WP language appears where it does) — much of the "why" content already exists in that doc, just needs surfacing in-app rather than staying as internal documentation
+- [ ] Scope note: content-writing effort (one explanation per section, in the surveyor's own voice/expertise) is likely the larger part of this task, not the UI mechanism
+
+### 4.7 App-Wide Action Items / Task Tracking (scope added 8 July 2026)
+- [ ] Emails (and potentially other sources — documents, context cues) routinely contain action items with nothing tracking them today: "contact this person," "book flights," "send invoice," etc.
+- [ ] Needs a proper task/action-item system that's app-wide, not scoped to Correspondence alone (Correspondence/email is the first concrete source, see §3.14, but the model should be source-agnostic)
+- [ ] Two flavors of action: **case-level** (tied to a specific case) and **admin-level** (firm/practice admin — ties directly into §4.5's Admin module: freelancer work agreements, billing, surveyor logs)
+- [ ] AI-extraction surfaces candidate actions for human confirmation — same human-in-the-loop pattern already used for cue `pendingReview` (`docs/context_cue_system_review.md` Step 5), not auto-committed
+- [ ] Needs: a task/action data model (case-scoped vs. admin-scoped), a UI surface (per-case task list, plus a global admin view), and the AI-extraction step itself
 
 ---
 
