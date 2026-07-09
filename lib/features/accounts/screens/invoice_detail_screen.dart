@@ -68,6 +68,10 @@ class _DetailViewState extends ConsumerState<_DetailView> {
   late TextEditingController _notesCtrl;
   late TextEditingController _presentationCtrl;
   DocStatus _status = DocStatus.pendingReview;
+  // Only the status chips count as a manual override (§3.12, 9 July 2026) —
+  // editing supplier name/notes/etc. without touching status shouldn't
+  // freeze the auto-derivation for this invoice.
+  bool _statusTouched = false;
 
   @override
   void initState() {
@@ -113,7 +117,11 @@ class _DetailViewState extends ConsumerState<_DetailView> {
                   style: TextStyle(color: _kAccent)),
             ),
             TextButton(
-              onPressed: () => setState(() => _editingHeader = false),
+              onPressed: () => setState(() {
+                _editingHeader = false;
+                _status = widget.doc.status;
+                _statusTouched = false;
+              }),
               child: const Text('Cancel',
                   style: TextStyle(color: AppColors.textSecondary)),
             ),
@@ -139,7 +147,13 @@ class _DetailViewState extends ConsumerState<_DetailView> {
         children: [
           _DocumentHeader(doc: doc, editing: _editingHeader,
               statusValue: _status,
-              onStatusChange: (s) => setState(() => _status = s)),
+              onStatusChange: (s) => setState(() {
+                _status = s;
+                _statusTouched = true;
+              }),
+              onResetStatusToAuto: () => ref
+                  .read(repairDocumentsProvider(widget.caseId).notifier)
+                  .resetStatusToAuto(doc.id)),
           const SizedBox(height: 12),
           if (doc.aiExtractedAt == null)
             _AiExtractionBanner(
@@ -263,6 +277,10 @@ class _DetailViewState extends ConsumerState<_DetailView> {
         .read(repairDocumentsProvider(widget.caseId).notifier)
         .updateDocument(widget.doc.id, {
       'surveyor_status':        _status.value,
+      // Only pin as a manual override if the status chips were actually
+      // touched this edit (§3.12, 9 July 2026) — editing supplier
+      // name/notes/etc. shouldn't silently freeze auto-derivation.
+      if (_statusTouched) 'status_manually_set': true,
       'surveyor_notes':         _notesCtrl.text.trim().isEmpty
           ? null
           : _notesCtrl.text.trim(),
@@ -271,7 +289,10 @@ class _DetailViewState extends ConsumerState<_DetailView> {
           : _presentationCtrl.text.trim(),
     });
     if (mounted) {
-      setState(() => _editingHeader = false);
+      setState(() {
+        _editingHeader = false;
+        _statusTouched = false;
+      });
       showSavedToast(context);
     }
     _applyFxRates();
@@ -639,11 +660,15 @@ class _DocumentHeader extends StatelessWidget {
     required this.editing,
     required this.statusValue,
     required this.onStatusChange,
+    required this.onResetStatusToAuto,
   });
   final RepairDocumentModel doc;
   final bool editing;
   final DocStatus statusValue;
   final ValueChanged<DocStatus> onStatusChange;
+  /// Clears the manual-override flag and re-derives from line items
+  /// (§3.12, 9 July 2026).
+  final VoidCallback onResetStatusToAuto;
 
   @override
   Widget build(BuildContext context) {
@@ -735,8 +760,32 @@ class _DocumentHeader extends StatelessWidget {
               ),
             ),
           const Divider(height: 16),
-          const Text('Status', style: TextStyle(
-              color: AppColors.textSecondary, fontSize: 11)),
+          Row(
+            children: [
+              const Text('Status', style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 11)),
+              const SizedBox(width: 6),
+              Text(
+                doc.statusManuallySet ? '(manual)' : '(auto)',
+                style: TextStyle(
+                    color: AppColors.textSecondary.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    fontStyle: FontStyle.italic),
+              ),
+              if (doc.statusManuallySet) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: onResetStatusToAuto,
+                  child: const Text('Reset to auto',
+                      style: TextStyle(
+                          color: _kAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline)),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 6),
           if (editing)
             Wrap(

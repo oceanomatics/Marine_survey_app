@@ -15,6 +15,41 @@ import '../../cases/providers/cases_provider.dart';
 
 const _uuid = Uuid();
 
+// ── Invoice status auto-derivation (§3.12, 9 July 2026) ─────────────────────
+//
+// DocStatus (invoice-level) computed from the aggregate of that invoice's
+// LineItemStatus values — used by RepairDocumentsNotifier whenever a line
+// item's status changes, unless the invoice has been manually overridden
+// (RepairDocumentModel.statusManuallySet). Precedence, first match wins:
+//   1. no lines yet, or all still pending review  -> pendingReview
+//   2. any line queried                           -> queried
+//   3. every line rejected                        -> rejected
+//   4. every line approved/apportioned/betterment -> approved
+//   5. otherwise (a mix of decided/undecided/rejected lines) -> partlyApproved
+// LineItemStatus has no 'under review' equivalent, so that DocStatus value
+// is only ever reachable via manual override, never auto-derived.
+DocStatus deriveInvoiceStatus(List<AccountLineModel> lines) {
+  if (lines.isEmpty) return DocStatus.pendingReview;
+  if (lines.every((l) => l.status == LineItemStatus.pendingReview)) {
+    return DocStatus.pendingReview;
+  }
+  if (lines.any((l) => l.status == LineItemStatus.queried)) {
+    return DocStatus.queried;
+  }
+  if (lines.every((l) => l.status == LineItemStatus.rejected)) {
+    return DocStatus.rejected;
+  }
+  const decided = {
+    LineItemStatus.approved,
+    LineItemStatus.apportioned,
+    LineItemStatus.betterment,
+  };
+  if (lines.every((l) => decided.contains(l.status))) {
+    return DocStatus.approved;
+  }
+  return DocStatus.partlyApproved;
+}
+
 // ── Providers ──────────────────────────────────────────────────────────────
 
 final repairDocumentsProvider = AsyncNotifierProviderFamily<
@@ -350,6 +385,7 @@ class RepairDocumentsNotifier
         );
       }).toList(),
     );
+    await _autoDeriveStatus(line.documentId);
   }
 
   Future<void> updateAccountLine(AccountLineModel line) async {
@@ -382,6 +418,7 @@ class RepairDocumentsNotifier
         );
       }).toList(),
     );
+    await _autoDeriveStatus(line.documentId);
   }
 
   Future<void> deleteAccountLine(String lineId, String docId) async {
@@ -398,6 +435,47 @@ class RepairDocumentsNotifier
         );
       }).toList(),
     );
+    await _autoDeriveStatus(docId);
+  }
+
+  // See deriveInvoiceStatus (top of file) for the aggregation rule.
+  Future<void> _autoDeriveStatus(String docId) async {
+    final doc = (state.value ?? []).where((d) => d.id == docId).firstOrNull;
+    if (doc == null || doc.statusManuallySet) return;
+    final derived = deriveInvoiceStatus(doc.accountLines);
+    if (derived == doc.status) return;
+    await SupabaseService.client
+        .from('repair_documents')
+        .update({'surveyor_status': derived.value})
+        .eq('id', docId);
+    state = AsyncData(
+      (state.value ?? []).map((d) {
+        if (d.id != docId) return d;
+        return RepairDocumentModel.fromJson(
+          {..._docToJson(d), 'surveyor_status': derived.value},
+          accountLines: d.accountLines,
+        );
+      }).toList(),
+    );
+  }
+
+  /// Clears the manual-override flag and immediately re-derives from the
+  /// current line-item statuses.
+  Future<void> resetStatusToAuto(String docId) async {
+    await SupabaseService.client
+        .from('repair_documents')
+        .update({'status_manually_set': false})
+        .eq('id', docId);
+    state = AsyncData(
+      (state.value ?? []).map((d) {
+        if (d.id != docId) return d;
+        return RepairDocumentModel.fromJson(
+          {..._docToJson(d), 'status_manually_set': false},
+          accountLines: d.accountLines,
+        );
+      }).toList(),
+    );
+    await _autoDeriveStatus(docId);
   }
 
   /// Create records for each confirmed segment from a batch PDF analysis.
@@ -462,6 +540,7 @@ class RepairDocumentsNotifier
         'ai_presentation_draft': d.aiPresentationDraft,
         'presentation_statement':d.presentationStatement,
         'surveyor_status':       d.status.value,
+        'status_manually_set':   d.statusManuallySet,
         'surveyor_notes':        d.surveyorNotes,
         'source_pdf_path':       d.sourcePdfPath,
         'ai_extracted_at':       d.aiExtractedAt?.toIso8601String(),

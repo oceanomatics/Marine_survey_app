@@ -344,6 +344,7 @@ class RepairDocumentModel {
     this.aiPresentationDraft,
     this.presentationStatement,
     this.status = DocStatus.pendingReview,
+    this.statusManuallySet = false,
     this.surveyorNotes,
     this.sourcePdfPath,
     this.aiExtractedAt,
@@ -375,6 +376,10 @@ class RepairDocumentModel {
   final String? aiPresentationDraft;
   final String? presentationStatement;
   final DocStatus status;
+  /// True once the surveyor has manually picked a status via the chip
+  /// selector — auto-derivation from line-item statuses (accounts_provider.dart
+  /// `_deriveStatus`) skips this document until reset back to auto.
+  final bool statusManuallySet;
   final String? surveyorNotes;
   final String? sourcePdfPath;
   final DateTime? aiExtractedAt;
@@ -434,6 +439,7 @@ class RepairDocumentModel {
         aiPresentationDraft:  j['ai_presentation_draft'] as String?,
         presentationStatement:j['presentation_statement'] as String?,
         status:               DocStatus.fromValue(j['surveyor_status'] as String?),
+        statusManuallySet:    j['status_manually_set'] as bool? ?? false,
         surveyorNotes:        j['surveyor_notes'] as String?,
         sourcePdfPath:        j['source_pdf_path'] as String?,
         aiExtractedAt:        j['ai_extracted_at'] != null
@@ -455,6 +461,7 @@ class RepairDocumentModel {
         'case_id':               caseId,
         'document_type':         documentType.value,
         'surveyor_status':       status.value,
+        'status_manually_set':   statusManuallySet,
         'currency':              currency,
         'without_prejudice':     withoutPrejudice,
         'mixed_nature_flag':     mixedNatureFlag,
