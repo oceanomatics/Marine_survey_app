@@ -63,8 +63,15 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canPop = context.canPop();
-    final fallback = canPop ? null : _derivedFallback(context);
+    // Widget tests pump screens under a plain MaterialApp (no GoRouter
+    // ancestor) — context.canPop()/GoRouterState.of() both throw in that
+    // case. Fall back to plain Navigator.canPop() and no derived-fallback
+    // route, which is enough for a test harness to render without crashing;
+    // every real route in the app is under GoRouter via app_router.dart.
+    final hasGoRouter = GoRouter.maybeOf(context) != null;
+    final canPop = hasGoRouter ? context.canPop() : Navigator.canPop(context);
+    final fallback =
+        (canPop || !hasGoRouter) ? null : _derivedFallback(context);
     final showBack = automaticallyImplyLeading && (canPop || fallback != null);
 
     return AppBar(
@@ -82,7 +89,7 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
               tooltip: 'Back',
               onPressed: () {
                 if (canPop) {
-                  context.pop();
+                  hasGoRouter ? context.pop() : Navigator.pop(context);
                 } else if (fallback != null) {
                   context.go(fallback);
                 }
