@@ -422,13 +422,14 @@ class _VesselComplianceScreenState
         vesselId: vesselId,
         occurrences: occurrences,
         existing: existing,
-        onSave: (ref_, desc, expiry, occRelated, occId) async {
+        onSave: (ref_, desc, expiry, dur, occRelated, occId) async {
           if (existing == null) {
             await ref.read(classConditionsProvider(vesselId).notifier).add(
                   vesselId: vesselId,
                   reference: ref_,
                   description: desc,
                   expiryDate: expiry,
+                  duration: dur,
                   occurrenceRelated: occRelated,
                   occurrenceId: occId,
                 );
@@ -440,6 +441,7 @@ class _VesselComplianceScreenState
                   reference: ref_,
                   description: desc,
                   expiryDate: expiry,
+                  duration: dur,
                   occurrenceRelated: occRelated,
                   occurrenceId: occId,
                 );
@@ -685,6 +687,16 @@ class _ConditionTile extends StatelessWidget {
               Text('Expires ${_fmtDate(condition.expiryDate)}',
                   style: const TextStyle(
                       fontSize: 11, color: AppColors.textTertiary)),
+              if (condition.duration != null &&
+                  condition.duration!.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                const Icon(Icons.hourglass_bottom_outlined,
+                    size: 12, color: AppColors.midBlue),
+                const SizedBox(width: 4),
+                Text(condition.duration!,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.midBlue)),
+              ],
               if (linkedOcc != null) ...[
                 const SizedBox(width: 12),
                 const Icon(Icons.link, size: 12, color: AppColors.amber),
@@ -864,6 +876,7 @@ class _ClassConditionSheet extends StatefulWidget {
     String? reference,
     String? description,
     DateTime? expiryDate,
+    String? duration,
     bool occurrenceRelated,
     String? occurrenceId,
   ) onSave;
@@ -875,6 +888,7 @@ class _ClassConditionSheet extends StatefulWidget {
 class _ClassConditionSheetState extends State<_ClassConditionSheet> {
   final _refCtrl  = TextEditingController();
   final _descCtrl = TextEditingController();
+  final _durationCtrl = TextEditingController();
   DateTime? _expiry;
   bool      _occRelated = false;
   String?   _occId;
@@ -887,6 +901,7 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
     if (e == null) return;
     _refCtrl.text  = e.reference  ?? '';
     _descCtrl.text = e.description ?? '';
+    _durationCtrl.text = e.duration ?? '';
     _expiry        = e.expiryDate;
     _occRelated    = e.occurrenceRelated;
     _occId         = e.occurrenceId;
@@ -896,6 +911,7 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
   void dispose() {
     _refCtrl.dispose();
     _descCtrl.dispose();
+    _durationCtrl.dispose();
     super.dispose();
   }
 
@@ -954,6 +970,16 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
             date: _expiry,
             onChanged: (d) => setState(() => _expiry = d),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _durationCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Duration',
+              hintText: 'e.g. Until next class renewal, 90 days',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -996,6 +1022,9 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
                     _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
                     _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
                     _expiry,
+                    _durationCtrl.text.trim().isEmpty
+                        ? null
+                        : _durationCtrl.text.trim(),
                     _occRelated,
                     _occRelated ? _occId : null,
                   );

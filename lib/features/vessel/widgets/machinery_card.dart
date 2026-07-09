@@ -140,6 +140,43 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
     }
   }
 
+  void _viewNameplateFullSize(BuildContext context, PhotoModel photo) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              maxScale: 5,
+              child: DrivePhotoImage(
+                photo: photo,
+                preferThumbnail: false,
+                fit: BoxFit.contain,
+                errorBuilder: (_) => const SizedBox(
+                  height: 200,
+                  child: Center(
+                    child: Icon(Icons.broken_image_outlined,
+                        color: Colors.white54, size: 40),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 4,
+              top: 4,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Sub-component actions ──────────────────────────────────────────────────
 
   void _openAddComponent(List<VesselComponentModel> existing) {
@@ -349,32 +386,63 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
                     ],
                   ),
                 ),
-                // Nameplate photo thumbnail
+                // Nameplate photo thumbnail — tap to view full-size
+                // (readable text), small overlay button to re-scan
+                // (§2.17 finding #13: a 64px thumbnail whose only tap
+                // action re-opened the photo picker wasn't actually
+                // "readable" as a nameplate reference).
                 if (nameplatePhoto != null) ...[
                   const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _scanMachineryNameplate,
-                    child: SizedBox(
-                      width: 64,
-                      height: 64,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: DrivePhotoImage(
-                          photo: nameplatePhoto,
-                          fit: BoxFit.cover,
-                          noSourceBuilder: (_) => Container(
-                            color: AppColors.surface,
-                            child: const Icon(Icons.cloud_download_outlined,
-                                size: 20, color: AppColors.textTertiary),
-                          ),
-                          errorBuilder: (_) => Container(
-                            color: AppColors.surface,
-                            child: const Icon(Icons.broken_image_outlined,
-                                size: 20, color: AppColors.textTertiary),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      GestureDetector(
+                        onTap: () =>
+                            _viewNameplateFullSize(context, nameplatePhoto),
+                        child: SizedBox(
+                          width: 88,
+                          height: 88,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: DrivePhotoImage(
+                              photo: nameplatePhoto,
+                              preferThumbnail: false,
+                              fit: BoxFit.cover,
+                              noSourceBuilder: (_) => Container(
+                                color: AppColors.surface,
+                                child: const Icon(
+                                    Icons.cloud_download_outlined,
+                                    size: 20,
+                                    color: AppColors.textTertiary),
+                              ),
+                              errorBuilder: (_) => Container(
+                                color: AppColors.surface,
+                                child: const Icon(Icons.broken_image_outlined,
+                                    size: 20, color: AppColors.textTertiary),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      Positioned(
+                        right: -6,
+                        bottom: -6,
+                        child: GestureDetector(
+                          onTap: _scanMachineryNameplate,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.teal,
+                              shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            child: const Icon(Icons.document_scanner_outlined,
+                                size: 12, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ],

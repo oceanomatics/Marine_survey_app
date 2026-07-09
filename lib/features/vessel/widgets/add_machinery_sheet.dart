@@ -3,11 +3,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/vessel_provider.dart';
 import 'survey_field.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
+import '../../photos/models/photo_model.dart';
+import '../../photos/providers/photo_provider.dart';
 
 // ── Role catalogue ─────────────────────────────────────────────────────────
 
@@ -52,7 +55,7 @@ const _gearboxTypes = ['Reduction', 'Double reduction', 'Split gearbox'];
 
 // ──────────────────────────────────────────────────────────────────────────
 
-class AddMachinerySheet extends StatefulWidget {
+class AddMachinerySheet extends ConsumerStatefulWidget {
   const AddMachinerySheet({
     super.key,
     required this.vesselId,
@@ -64,13 +67,23 @@ class AddMachinerySheet extends StatefulWidget {
   final String vesselId;
   final String caseId;
   final MachineryModel? existing;
-  final Future<void> Function(MachineryModel) onSave;
+
+  /// Persists the machinery item and returns the saved model (with its real
+  /// `machineryId` — for a new item, the notifier-assigned id from
+  /// `addMachinery()`). Used after save to attach any nameplate photo
+  /// scanned during this session to the correct machinery id (see
+  /// [_scannedPhoto] below — §2.17 finding #13: previously the nameplate
+  /// scanned while *adding* a new item was used only to prefill text
+  /// fields and the photo reference was discarded, so newly-created
+  /// machinery never got a thumbnail unless re-scanned afterwards from the
+  /// card's own scan button).
+  final Future<MachineryModel> Function(MachineryModel) onSave;
 
   @override
-  State<AddMachinerySheet> createState() => _AddMachinerySheetState();
+  ConsumerState<AddMachinerySheet> createState() => _AddMachinerySheetState();
 }
 
-class _AddMachinerySheetState extends State<AddMachinerySheet> {
+class _AddMachinerySheetState extends ConsumerState<AddMachinerySheet> {
   // Text controllers
   final _makeCtrl    = TextEditingController();
   final _modelCtrl   = TextEditingController();
@@ -94,6 +107,11 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
 
   bool _saving        = false;
   bool _scanningPlate = false;
+
+  // Nameplate photo scanned during this session (§2.17 finding #13) — kept
+  // so it can be linked to the machinery item's real id once saved (a new
+  // item has no id yet at scan time).
+  PhotoModel? _scannedPhoto;
 
   @override
   void initState() {
@@ -192,7 +210,12 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
         runHrsNew:      double.tryParse(_hrsNewCtrl.text.trim()),
         runHrsOverhaul: double.tryParse(_hrsOhCtrl.text.trim()),
       );
-      await widget.onSave(m);
+      final saved = await widget.onSave(m);
+      final scannedPhoto = _scannedPhoto;
+      if (scannedPhoto != null) {
+        await ref.read(photosProvider(widget.caseId).notifier).attachLink(
+            scannedPhoto.id, 'machinery_nameplate', saved.machineryId);
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -208,7 +231,7 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
   bool get _isGeneric   => !_isEngine && !_isThruster && !_isGearbox;
 
   Future<void> _scanNameplate() async {
-    final picked = await showModalBottomSheet<List<dynamic>>(
+    final picked = await showModalBottomSheet<List<PhotoModel>>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -222,8 +245,20 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
 
     setState(() => _scanningPlate = true);
     try {
-      final photo  = picked.first;
-      final bytes  = await File(photo.localPath as String).readAsBytes();
+      final photo = picked.first;
+      // Photo may not have a local file cached yet (synced from another
+      // device, or web) — download from Drive first, same pattern as
+      // MachineryCard's own nameplate scan.
+      final resolved = photo.hasLocalFile
+          ? photo
+          : await ref
+                  .read(photosProvider(widget.caseId).notifier)
+                  .ensureLocalFile(photo.id) ??
+              photo;
+      if (!resolved.hasLocalFile) {
+        throw Exception('Photo file not available');
+      }
+      final bytes  = await File(resolved.localPath!).readAsBytes();
       final b64    = base64Encode(bytes);
       const mime   = 'image/jpeg';
       final result = await ClaudeApi.extractNameplate(
@@ -240,6 +275,9 @@ class _AddMachinerySheetState extends State<AddMachinerySheet> {
         if (serial.isNotEmpty) _serialCtrl.text = serial;
         if (power != null)     _kWCtrl.text     = power.toStringAsFixed(0);
         if (rpm != null)       _rpmCtrl.text    = rpm.toStringAsFixed(0);
+        // Remember this photo so Save can link it as the nameplate
+        // thumbnail once the machinery item has a real id.
+        _scannedPhoto = resolved;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
