@@ -564,24 +564,23 @@ WNCA and General Services & Access share the same underlying `RepairPeriodScoped
 
 ### 3.12 Accounts Screen — Cost Estimate Redesign + Bugs (scope added 8 July 2026)
 
-**Bugs (fix first — blocking):**
-- [ ] Title bar is light-coloured with barely readable text — contrast/theming bug
-- [ ] Bottom overflow when the keyboard opens (same class of layout-overflow bug as §3.9 Repair Periods)
-- [ ] **Estimated cost cannot be saved** — entering a value in the estimate field doesn't persist; check `_CostEstimateSelector` (`accounts_screen.dart`) write path to `cases.estimated_repair_cost`
-- [ ] Account Summary shows unpopulated white rectangles when there are no invoices yet — only renders correctly once invoices are present; needs a proper empty state
+**Bugs — all fixed 9 July 2026 (Cluster D, see overnight session log above):**
+- [✓] Title bar contrast fixed at the `BackAppBar` level (`titleTextStyle` now derived from `foregroundColor`)
+- [✓] Keyboard overflow fixed (Cluster A) — Accounts-specific instance of §3.9's overflow class
+- [✓] Estimated cost save bug fixed — was a focus-loss UI bug (`_AutoSaveField`), not a persistence bug
+- [✓] Account Summary empty state added
 
-**Cost Estimate — structural redesign:**
-- [ ] Replace the single estimated-cost figure with **editable line items**, each with a suggested category (general expenses, towing, dry-docking, parts, labour, pilotage, wharfage, etc.) or a free-text line — so the estimate is explainable/itemised, not just one number
-- [ ] Add a **comment box** under the line items for caveats (e.g. "estimate still dependent on X")
-- [ ] This makes the existing "cost inclusions" concept redundant — remove it once the line-item estimate ships
-- [ ] **Automate `cost_estimate_status`** (currently manual via the existing 3-state `_CostEstimateSelector`, see `docs/legal_clauses.md` G-1, 2026-07-03 entry):
-  - No invoices at all → automatically "purely estimated," no prompt needed
-  - Once invoices exist → prompt "do you still expect further invoices?" (yes/no)
-    - Yes → stays in estimate mode (blended estimate + actuals)
-    - No → switches to pure accounting mode (final, no estimate shown)
-- [ ] **Section order:** Cost Estimate should always render above Account Summary on this screen, and the same ordering should carry through to the Accounts mini-summary card on Case Home
+**Cost Estimate — structural redesign — done 9 July 2026 (Cluster D):**
+- [✓] Editable line items (category + free-text description + amount) — `case_cost_estimate_items` table, migration `029_cost_estimate_items.sql`
+- [✓] Comment box for caveats — `cases.cost_estimate_comment`
+- [✓] "Cost inclusions" yes/no chip UI retired from this screen (underlying `cost_includes_general_expenses`/`cost_includes_towing` fields kept — still read by the Advice Summary card)
+- [✓] `cost_estimate_status` auto-derives from whether any invoices exist, instead of manual selection
+- [✓] Section order: Cost Estimate renders above Account Summary, both here and on the Case Home mini-summary card
 
-**Relates to:** `docs/legal_clauses.md` Part G (G-1, Estimated Cost Clauses) — significantly extends the 2026-07-03 G-1 implementation; update that doc's progress log once built, not just this file.
+**Relates to:** `docs/legal_clauses.md` Part G (G-1, Estimated Cost Clauses) — update that doc's progress log to reflect the above, not just this file.
+
+**New, not started (flagged by surveyor 9 July 2026):**
+- [ ] **Auto-derive invoice status from line-item statuses.** `invoice_detail_screen.dart:745` is a manual chip selector over `DocStatus` (pending_review / under_review / queried / approved / partly_approved / rejected), set once per invoice and requiring a manual edit every time. Surveyor wants this computed instead, from the aggregate of that invoice's `AccountLineModel.status` values (`LineItemStatus`: pending_review / queried / approved / apportioned / betterment / rejected — `accounts_models.dart:92`). **Note the two enums don't map 1:1** — `DocStatus` has `under_review`/`partly_approved` with no `LineItemStatus` equivalent, and `LineItemStatus` has `apportioned`/`betterment` with no `DocStatus` equivalent — so this needs a defined aggregation rule (e.g. any line rejected → invoice rejected; all lines approved → approved; mixed approved/rejected/apportioned/betterment → partly approved; any line queried → queried; otherwise pending/under review), not a direct value copy. Decide whether the manual selector is fully replaced or kept as a surveyor override that the auto-derivation only pre-fills/suggests.
 
 ### 3.13 Attendances — Title Bar + Attendee Titles (scope added 8 July 2026)
 - [ ] Move "Followup Attendance Required" into the title bar (currently elsewhere in the screen body)
