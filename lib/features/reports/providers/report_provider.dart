@@ -1674,7 +1674,13 @@ class SectionDraftNotifier
     );
 
     // ── §19: Waiver ───────────────────────────────────────────────
-    final waiverClause = data.clauseByType('waiver');
+    // TODO.md row 73 (9 July 2026): 'waiver' was never a valid
+    // clause_type_enum value (the seeded clause type is
+    // 'without_prejudice') — this lookup silently always returned null,
+    // so isLocked was always false and Waiver never got the same
+    // tinted-box Preview treatment as Disclaimer (closing_disclaimer,
+    // which does resolve). Root cause of that visual mismatch complaint.
+    final waiverClause = data.clauseByType('without_prejudice');
     final orgWaiver = data.organisation?['waiver_text'] as String?;
     final waiverText = orgWaiver?.isNotEmpty == true
         ? orgWaiver!

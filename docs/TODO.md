@@ -92,6 +92,8 @@ Surveyor is offline until tomorrow morning. Working unsupervised on branch `over
 - **9 July, interactive session (surveyor present), invoice status auto-derivation (§3.12) — done.** New item raised by the surveyor: the Accounts invoice status selector was purely manual, should compute from the aggregate of that invoice's line-item statuses. `deriveInvoiceStatus()` (`accounts_provider.dart`, top-level, unit-tested), auto-with-manual-override (`repair_documents.status_manually_set`, migration `030_invoice_status_auto_derive.sql`) — chosen over fully-automatic or suggest-only per the surveyor's explicit choice. Full detail in §3.12 above.
 - **9 July, resumed Cluster C — Occurrence (§3.7) and Damage Register (§3.8), the two screens the background agent didn't reach before its session limit last night.** Both now fully done — see §3.7/§3.8 above for the complete breakdown. Headline items: `OccurrenceEditorScreen` and `DamageItemEditorScreen` (full-screen, replacing the old popup/sheet editors); per-occurrence and per-damage-item cue scoping/promotion via the same polymorphic `linked_to_type`/`linked_to_id` mechanism; a deterministic (not AI-drafted) auto-composed register-row description. `flutter analyze`: 0 new errors throughout (39 issues, matching the post-Cluster-A baseline). `flutter test`: 132/133 passing (only the pre-existing unrelated `test/widget_test.dart` placeholder fails) — 15 new unit tests added (`accounts_provider_test.dart`, `damage_provider_test.dart`).
 - **Cluster C is now fully complete** (all of §3.7 Occurrence, §3.8 Damage Register, §3.9 Repair Periods done across last night + this session). Remaining open threads: back matter + §1.9 dynamic section numbering (Cluster I, needs a dedicated pass — see above), §2.18 editor redesign (not started, large), Cluster E/G (Attendances/Photos/Case Home header/Documentation — not started).
+- **9 July, Cluster I resumed — back matter (row 73) + §1.9 omit-when-empty/dynamic renumbering, done.** Full detail in §1.8/§1.9 above. Headline: the Waiver/Disclaimer visual-mismatch complaint turned out to be a real one-line bug (`clauseByType('waiver')` — `'waiver'` was never a valid enum value, should have been `'without_prejudice'`), not a missing feature — found by checking the DB enum directly rather than assuming code needed writing. Sign-off moved to directly after Waiver; Disclaimer pushed to the very bottom (after the Final-report authentication block in docx), both unnumbered. Section numbers in the Preview tab are now a dynamic 1-based position within the actually-rendered list instead of a static lookup that left gaps whenever a section was omitted. Generalised omit-when-empty to (almost) every section type — four (`classStatutory`/`causation`/`informationSources`/`repairs`) deliberately left always-shown since their real content can live in a structured table sourced independently of `section.content`, and a shallow content-emptiness check risked hiding real data; flagged for a proper per-type check later if it matters in practice. §1.9's other ask — AI Draft button + structured-data summary in the header of all 8 narrative sections — is **not done**: 4 of the 8 (Occurrence/Extent of Damage/Nature of Repairs/Repairs) have no AI-draft function at all today (they're deterministic-template sections, not free narrative), so this needs a scoping decision before implementation, not just more code. `flutter analyze`: 0 new errors. `flutter test`: 132/133 passing (only the pre-existing unrelated placeholder).
+- Also fixed while in the area: §1.8's S1/S2/S4/S6 checkboxes were still showing unchecked in this file despite being completed and committed in the earlier Cluster I pass — corrected to reflect actual status. **Reminder to self for future sessions: update the section's own checkboxes at the same time as the overnight log, not just the log** — the log narrates what happened, but the checkboxes are what a surveyor scanning the file top-to-bottom actually sees first.
 <!-- OVERNIGHT_LOG_END -->
 
 **Execution plan (clusters, in order):**
@@ -273,61 +275,57 @@ Nothing here is optional. A report that misses these items is not professionally
 
 **Spec:** §5.4
 
-### 1.8 Report Builder — Section Content Fixes, S1–S5 (scope added 8 July 2026)
-Section-by-section review with the surveyor, in progress — **not finished, more sections to come in a follow-up pass.** These are mostly content/wording fixes to already-implemented clauses (`docs/legal_clauses.md`), plus two small logic fixes (attendee title default, nameplate image) — should land regardless of whether the bigger §2.18 editor redesign happens first.
+### 1.8 Report Builder — Section Content Fixes, S1–S6 (scope added 8 July 2026)
+Section-by-section review with the surveyor. **S1/S2/S4/S6 and back matter done 9 July 2026** (see overnight session log above for full detail); S5 partially done (3-way narrative done with placeholder wording pending surveyor sign-off, table widths done, C-6f refinement not attempted — no concrete spec given); Repair Cost/Repair Times/Advice to Assured/Documentation Retained not attempted.
 
-**S1 — Introduction / Opening Certification:**
-- [ ] Fix instructing-party substitution — "at the request of [CLIENT]" isn't populating from the actual instructing party; check the opening-clause fill logic in `report_provider.dart`
-- [ ] Rewrite the B-2 survey-type sentence ("The survey undertaken was a hull and machinery survey," `docs/legal_clauses.md` Part B) — reads awkwardly, needs better English flow
-- [ ] Opening paragraph should also state the vessel's class status (classed / conditionally classed / out of class) up front, using the hard field already captured on the Class & Certification screen — AI should read all available case data and produce a short, accurate opening summary rather than a rigid fixed template
+**S1 — Introduction / Opening Certification — done 9 July 2026:**
+- [✓] Instructing-party substitution fixed — was reading an unpopulated `principals_clients` FK join instead of `cases.instructing_party`, silently rendering the literal `[CLIENT]` placeholder
+- [✓] B-2 survey-type sentence rewritten in `clause_library` (both `abl`/`oceano_services`) for better flow
+- [✓] Opening paragraph now states class status (classed/conditional/suspended/not classed) from the hard `vessels.class_status` field — deterministic, not AI-drafted (nothing for AI to add to a fact already held; keeps GPN-AI audit scope to genuine drafts only)
 
-**S2 — Attendance:**
-- [ ] Every attendee needs a title in the rendered text — use the new attendee title field (§3.13); default to "Mr." when no title is set
+**S2 — Attendance — done 9 July 2026:**
+- [✓] Attendee titles now render — the actually-rendered table (`section_table_rows.dart` `_attendeeName`, used by both docx export and Preview) previously dropped the title prefix entirely when unset; now falls back to a role-based guess (Capt. for master/port_captain, 'Mr./Ms.' otherwise — a hedge instead of a bare 'Mr.' default, to avoid misgendering)
 
 **S3:** confirmed fine as-is, no changes needed.
 
-**S4 — Machinery/nameplate section:**
-- [ ] Insert the nameplate photo for a machinery item into this report section when one is available — extends §2.17's nameplate-thumbnail work into the actual report output, not just the in-app machinery screen
+**S4 — Machinery/nameplate section — done 9 July 2026:**
+- [✓] Nameplate photo now flows into the docx export (`machineryPhotosByItemId`, same resolution convention as `damagePhotosByItemId`), keyed by the same `machinery_nameplate` link type Cluster B's thumbnail fix uses
 
-**S5 — Class & Statutory Certification:**
-- [ ] Improve condition-of-class narrative to correctly phrase three distinct cases: no conditions issued yet; a condition noted **and related to the casualty**; a condition noted **but not related to the casualty**. Surveyor gave near-verbatim reference wording for all three — use it directly
-- [ ] Refinement of the existing C-6f statutory-certificate-dropdown clause logic (`docs/legal_clauses.md` Part C) — extend the existing aggregation rule rather than rebuild it
-- [ ] **(continued, 8 July 2026)** Condition-of-class table has equal column widths but visibly unbalanced content — size columns to fit their content rather than a fixed equal split
+**S5 — Class & Statutory Certification — partially done 9 July 2026:**
+- [~] Condition-of-class 3-way narrative (none issued / related to casualty / not related) implemented, driven by the real `ClassConditionModel.occurrenceRelated` field, not inferred. **Wording is a placeholder — the surveyor's actual reference text from the 8 July walkthrough was never transcribed anywhere and needs to be supplied before this ships.** Seeded via 3 new `clause_library` clause types (`condition_of_class_none`/`_related`/`_not_related`)
+- [ ] C-6f refinement not attempted — TODO gives no concrete complaint beyond "extend the aggregation rule," needs surveyor clarification on what's actually wrong with the current expired/not-sighted/valid logic
+- [✓] Condition of Class table column widths fixed — was equal-flex regardless of content (shared `_RegisterTable` widget), now `[1, 3, 1]` at this call site, every other table's default unchanged
 
-**S6:**
-- [ ] Currently duplicates the same data as both a free-text entry and a table — remove the free-text entry, keep the table, and write a short intro sentence ahead of it instead
+**S6 — done 9 July 2026:**
+- [✓] "Available Information Sources" was rendering the same document list twice (free-text bullet dump + table); fixed at the source (`_buildInfoSourcesText` now returns a short intro sentence)
 
-**Repair Cost:**
-- [ ] Should render based on the general status of the accounts — ties directly into §3.12's cost-estimate-status automation (purely estimated / ongoing / final-accounting modes should each render differently here)
+**Repair Cost:** not attempted — depends on §3.12's cost-estimate-status automation, which only landed in parallel (Cluster D, same day). Do next.
 
-**Repair Times:**
-- [ ] Should auto-populate directly from the repair-period table already established in the case section — §2.14 already wired this fix; re-verify it's actually reading correctly, since it came up again in this review
+**Repair Times:** not re-verified.
 
-**Advice to Assured:**
-- [ ] Should be an optional section — omit entirely if no advice has actually been issued yet
+**Advice to Assured:** not attempted — folds into the general §1.9 omit-when-empty rule below rather than needing a one-off fix.
 
-**Documentation Retained on File:**
-- [ ] Should render as a table summarising what's available across three states: in annexure, retained on file, or requested (with request date) — resolves the same 3-state gap as §2.15/§3.4, now specifically for this report-output table (K-1/K-2 clauses, `docs/legal_clauses.md` Part K), not just the in-app Documentation screen
+**Documentation Retained on File:** not attempted.
 
-**Back matter — Sign-off, Waiver, Disclaimer:**
-- [ ] Sign-off block should not be a numbered section in the section list — it belongs immediately after Limitation of Liability
-- [ ] Limitation of Liability (Waiver) should get the same visual treatment as the Disclaimer — a blueish, boxed/blocked text insert, not plain body text
-- [ ] Disclaimer is likewise not a numbered block — it always sits at the very bottom of the document, on the same page as the sign-off block
+**Back matter — Sign-off, Waiver, Disclaimer — done 9 July 2026:**
+- [✓] Sign-off block no longer numbered — moved to immediately after Waiver (was attached after Disclaimer) in both docx export and Preview
+- [✓] **Root cause found and fixed for the Waiver/Disclaimer visual mismatch:** `report_provider.dart` was calling `data.clauseByType('waiver')` — `'waiver'` was never a valid `clause_type_enum` value (the actual seeded type is `without_prejudice`), so the lookup always silently returned null, `isLocked` was always false, and Waiver never got the same tinted-box Preview treatment as Disclaimer (`closing_disclaimer`, which did resolve). Fixed the lookup key; no visual/docx styling code needed changing since both sections already used the identical `isLocked`-driven mechanism
+- [✓] Disclaimer unnumbered, moved to the very bottom of the document (after the full sign-off + Final-report authentication block in docx; after the sign-off block in Preview), in both docx export, Preview, and the editor tab's section list
 
-**Note:** this review is still not finished as of 8 July 2026 — expect more sections in a follow-up pass.
+**Note:** this review is still not finished — expect more sections in a follow-up pass.
 
 ---
 
 ### 1.9 Report Builder — Narrative Section Standard Pattern (scope added 8 July 2026)
 Applies uniformly to all genuinely-narrative report sections: **Background, Occurrence, Extent of Damage, Allegation/Cause Consideration, Nature of the Repairs, Repairs, General Services, Previous Works** (and any other narrative section not covered by §2.18's auto-populate pattern — these keep free-text editing, unlike the fully-structured sections in §2.18, since they're genuinely narrative rather than structured data wrongly given a text box).
 
-For each of these sections:
+**Omit-when-empty + dynamic renumbering — done 9 July 2026.** Generalised `report_preview.dart`'s `omitWhenEmpty` set (previously only `surveyorNotes`/`natureOfRepairs`) to every section type *except* seven that either must never be omitted (`opening`'s certification is mandatory; `waiver`/`closing` always resolve fallback text so are never actually empty) or whose real content can live entirely in a `_trailingTables`-rendered structured block sourced from something *other* than `section.content` (`classStatutory`, `causation`, `informationSources`, `repairs` — content-emptiness isn't a reliable "nothing here" signal for those four, left always-shown rather than risk hiding real structured data; a proper per-type "has any content" check would be needed to close this gap). Section numbers are now a sequential 1-based position within the actually-rendered list (`report_preview.dart`) instead of a static lookup into the fixed 27-entry `oceanoSectionOrder` — the static version left gaps in the displayed numbers wherever a section was omitted (item 15 still showed "15" even when item 14 had been skipped). Docx export was already unaffected — headings there were never numbered at all (confirmed: `doc.addHeading(...)` is always plain text; numbering is purely an in-app Preview/editor construct). The editor tab's section list was left on the static numbering deliberately — it always shows every section (no omission, by design, so the surveyor can fill in anything), so there's no gap-numbering risk there to fix; `SectionType.closing` is still special-cased unnumbered there for consistency with Preview/docx.
+
+For each of the 8 narrative sections — **not attempted, remaining work:**
 - [ ] Show a summary of the available structured information relevant to that topic (e.g. Nature of the Repairs: summarise the ticks/hard fields already entered on the case screen)
 - [ ] List the available context cues for that section
-- [ ] Add an **AI Draft** button in the section's own header, not buried in a menu
+- [ ] Add an **AI Draft** button in the section's own header, not buried in a menu — **partially exists**: `report_builder_screen.dart`'s `_aiDraftableTypes` already covers Background/Causation/General Services/Previous Works/Extra Expenses/Contractual Hire/Other Matters (via existing `ClaudeApi.draft*` functions), but **Occurrence, Extent of Damage, Nature of the Repairs, and Repairs have no AI-draft function or button at all** — those 4 sections currently build from deterministic structured-data templates (`_buildOccurrenceText`/`_buildDamageText`/etc.), not free narrative, so adding genuine AI-draft support means either building 4 new `ClaudeApi.draft*` functions (matching the prompt-engineering/writing-style-guardrail conventions of the existing ones) or deciding these four should stay deterministic-only and dropping them from this list — needs a decision, not just implementation.
 - [ ] The narrative text itself remains free-text/editable — this pattern surfaces context to support drafting, it doesn't remove editing
-
-**Omit-when-empty rule (general, not limited to these sections):** if a section has no data at all, don't render it in the report — omit entirely rather than showing an empty or near-empty section.
 - [ ] **Section numbering must renumber dynamically.** Once optional sections can be omitted, the rendered section numbers (§1, §2, §3…) need to recompute sequentially based on what's actually included for that specific report — not fixed numbers with gaps where an omitted section would have been. Applies wherever section numbers are shown: docx export, in-app Preview, and the TOC/section list in the editor.
 
 ## PHASE 1 — Report Builder: Tier 2 (Full Feature Parity with Spec)

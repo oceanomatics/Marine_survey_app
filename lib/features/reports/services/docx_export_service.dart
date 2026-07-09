@@ -1024,13 +1024,13 @@ class DocxExportService {
       doc.addSpacer();
     }
 
-    // Closing disclaimer (Clause J-1) — content already resolves org
-    // override → clause_library → hardcoded fallback in report_provider.dart.
-    renderTextSection(SectionType.closing, 'DISCLAIMER');
-
     // ── Section 13 sign-off block (spec §13 — every report type) ──────
     // "Yours faithfully" + surveyor identity, distinct from the internal
-    // attending/reviewing QC authentication block below.
+    // attending/reviewing QC authentication block below. TODO.md row 73
+    // (9 July 2026): moved to immediately after Waiver — the Disclaimer
+    // (below) now follows the full sign-off, at the very bottom of the
+    // document on the same page, rather than sitting between Waiver and
+    // the signature block.
     {
       final signOff = buildReportSignOff(assembled.organisation);
       final city = org?['firm_city'] as String? ?? '[City]';
@@ -1076,6 +1076,13 @@ class DocxExportService {
       );
       doc.addSpacer();
     }
+
+    // Closing disclaimer (Clause J-1) — content already resolves org
+    // override → clause_library → hardcoded fallback in report_provider.dart.
+    // TODO.md row 73 (9 July 2026): moved to after the full sign-off block
+    // — always the very last body content, same page as sign-off, ahead
+    // of only the annexures.
+    renderTextSection(SectionType.closing, 'DISCLAIMER');
 
     // ── Annexures A–H (documents grouped by annexure_assignment) ─────
     for (final group in buildAnnexureGroups(assembled.caseDocuments)) {

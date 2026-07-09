@@ -141,30 +141,37 @@ class ReportPreview extends ConsumerWidget {
     ].join(' — ');
 
     // Summary lives on page 2; body = everything else in §4.1 order.
-    // SectionType.surveyorNotes ("Advice to Assured" — retitled from
-    // "Other Matters of Relevance" 5 July 2026, see SectionType.otherMatters
-    // for the cue-drafted narrative that now carries the old name) and
-    // natureOfRepairs ("Nature of the Repairs") are omitted entirely when
-    // empty rather than shown with a placeholder — per spec (§8.4/8.5/8.6
-    // "section suppressed if no cues") and, as of 4 July 2026, the Advice
-    // to Assured legal-clause ticklist specifically ("if no inclusion omit
-    // the section entirely" — docx already does this via
-    // renderTextSection's empty-content skip; Preview previously showed
-    // every section including this one, placeholder and all). Nature of
-    // the Repairs is optional/indicative by design (5 July 2026) — it's
-    // meant to be blank until there's something worth flagging, not a
-    // section the surveyor is expected to eventually fill in.
-    const omitWhenEmpty = {
-      SectionType.surveyorNotes,
-      SectionType.natureOfRepairs,
+    //
+    // Omit-when-empty (TODO.md §1.9, general rule as of 9 July 2026 —
+    // previously only applied to surveyorNotes/natureOfRepairs): a section
+    // with nothing in it shouldn't render at all, rather than an empty or
+    // near-empty block. Generalised to every section type EXCEPT the ones
+    // below, which either must never be omitted (opening's certification
+    // is mandatory; waiver/closing always resolve fallback text so are
+    // never actually empty) or whose real content can live entirely in a
+    // _trailingTables-rendered structured block from a *different* data
+    // source than `content` (classStatutory: certs/conditions; causation:
+    // third-party findings; informationSources: case documents;
+    // repairs: WNCA cues) — content.isEmpty isn't a reliable "nothing
+    // here" signal for those four, so they're left always-shown rather
+    // than risk hiding real structured data. Revisit with a proper
+    // per-type "has any content" check if that turns out to matter.
+    const alwaysShow = {
+      SectionType.opening,
+      SectionType.waiver,
+      SectionType.closing,
+      SectionType.classStatutory,
+      SectionType.causation,
+      SectionType.informationSources,
+      SectionType.repairs,
     };
     final summarySection = sections[SectionType.executiveSummary];
     final bodyTypes = oceanoSectionOrder
         .where((t) =>
             t != SectionType.executiveSummary &&
             sections.containsKey(t) &&
-            !(omitWhenEmpty.contains(t) &&
-                sections[t]!.fullContent.trim().isEmpty))
+            (alwaysShow.contains(t) ||
+                sections[t]!.fullContent.trim().isNotEmpty))
         .toList();
     final bodySections = bodyTypes.map((t) => sections[t]!).toList();
 
@@ -199,8 +206,20 @@ class ReportPreview extends ConsumerWidget {
       }
     }
 
-    // Section numbers parallel to bodyTypes / bodySections
-    final sectionNumbers = bodyTypes.map(oceanoSectionNumber).toList();
+    // Section numbers parallel to bodyTypes / bodySections — computed as a
+    // sequential 1-based position within the *actually-rendered* list
+    // (TODO.md §1.9, 9 July 2026), not looked up from the static
+    // oceanoSectionOrder index. oceanoSectionNumber() gave every section a
+    // fixed index regardless of what else was omitted, so numbers left
+    // gaps wherever an empty section was skipped (e.g. if item 14 was
+    // omitted, item 15 still showed "15" instead of shifting to "14").
+    // SectionType.closing (Disclaimer) is never numbered at all — TODO.md
+    // row 73, it belongs at the very bottom as unnumbered back matter,
+    // same as the sign-off block it now follows.
+    var nextNumber = 1;
+    final sectionNumbers = bodyTypes
+        .map((t) => t == SectionType.closing ? null : nextNumber++)
+        .toList();
 
     final tocEntries = List.generate(
       bodySections.length,
@@ -2056,11 +2075,12 @@ List<Widget> _trailingTables(
       }
       break;
 
-    case SectionType.closing:
+    case SectionType.waiver:
       // Spec §13 sign-off block — "Yours faithfully" + surveyor identity.
-      // Appears in every report type, immediately below the Waiver/
-      // Disclaimer text (SectionType.closing is the last-rendered of the
-      // two).
+      // TODO.md row 73 (9 July 2026): moved here from SectionType.closing
+      // — sign-off now follows Waiver directly, with Disclaimer (closing)
+      // pushed to the very bottom of the document instead of sitting
+      // between Waiver and the signature block.
       widgets.add(const SizedBox(height: 14));
       widgets.add(_SignOffBlockView(
           signOff: buildReportSignOff(assembled.organisation), brand: brand));

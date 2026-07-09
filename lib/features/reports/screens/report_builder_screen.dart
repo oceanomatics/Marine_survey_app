@@ -487,7 +487,13 @@ class _EditorTab extends ConsumerWidget {
             section: section,
             isLocked: isLocked,
             assembled: assembled,
-            sectionNumber: oceanoSectionNumber(key),
+            // TODO.md row 73 (9 July 2026): Disclaimer is unnumbered back
+            // matter, same as in the Preview tab/docx export — everything
+            // else still uses the static section-list position (this list
+            // always shows every section, unlike Preview's omit-when-empty
+            // filtering, so there's no gap-numbering risk here to fix).
+            sectionNumber:
+                key == SectionType.closing ? null : oceanoSectionNumber(key),
             onContentChanged: (content) => notifier.updateContent(key, content),
             onSurveyorReviewChanged: (review) =>
                 notifier.setSurveyorReview(key, review),
