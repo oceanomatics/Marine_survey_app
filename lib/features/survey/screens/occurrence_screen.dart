@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/add_occurrence_sheet.dart';
+import 'occurrence_editor_screen.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -55,7 +56,11 @@ class OccurrenceScreen extends ConsumerWidget {
                         itemBuilder: (_, i) => _OccurrenceCard(
                           occurrence: sorted[i],
                           occurrenceCount: sorted.length,
-                          onEdit: () => _showEditSheet(context, ref, sorted[i]),
+                          onEdit: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => OccurrenceEditorScreen(
+                                      caseId: caseId, occurrence: sorted[i]))),
                           onDelete: () => _confirmDelete(context, ref, sorted[i]),
                           onSetPrimary: () => ref
                               .read(damageProvider(caseId).notifier)
@@ -125,44 +130,6 @@ class OccurrenceScreen extends ConsumerWidget {
     );
   }
 
-  void _showEditSheet(
-      BuildContext context, WidgetRef ref, OccurrenceModel occ) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => AddOccurrenceSheet(
-        existing: occ,
-        onSave: (title, dateTime, location, description,
-            vesselStatusAtCasualty, aftermathStatus, aftermathPort) async {
-          final updated = OccurrenceModel(
-            occurrenceId:        occ.occurrenceId,
-            caseId:              occ.caseId,
-            occurrenceNo:        occ.occurrenceNo,
-            isPrimary:           occ.isPrimary,
-            title:               title,
-            dateTime:            dateTime,
-            location:            (location == null || location.isEmpty) ? null : location,
-            briefDescription:    description?.isEmpty == true ? null : description,
-            backgroundNarrative: occ.backgroundNarrative,
-            chronology:          occ.chronology,
-            causeType:           occ.causeType,
-            allegationType:      occ.allegationType,
-            causeAgreement:      occ.causeAgreement,
-            causeNarrative:      occ.causeNarrative,
-            ismReported:         occ.ismReported,
-            createdAt:           occ.createdAt,
-            vesselStatusAtCasualty: vesselStatusAtCasualty,
-            aftermathStatus:        aftermathStatus,
-            aftermathPort:          aftermathPort,
-          );
-          await ref
-              .read(damageProvider(caseId).notifier)
-              .updateOccurrence(updated);
-        },
-      ),
-    );
-  }
 }
 
 // ── Occurrence card ────────────────────────────────────────────────────────
@@ -232,7 +199,6 @@ class _OccurrenceCard extends StatelessWidget {
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                   color: AppColors.coral),
-                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (occurrenceCount > 1 && occurrence.isPrimary) ...[
