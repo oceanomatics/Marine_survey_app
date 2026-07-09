@@ -282,6 +282,11 @@ class _SectionEditorState extends State<SectionEditor> {
               SectionReferencePanel(
                   type: section.type, assembled: widget.assembled!),
 
+            // ── Available context cues (§1.9, 9 July 2026) ─────────
+            if (widget.assembled != null)
+              SectionCuesPanel(
+                  type: section.type, assembled: widget.assembled!),
+
             // ── Writing style rulebook advisory ───────────────────
             if (!locked) _StyleFlagsBanner(type: section.type, text: section.content),
 

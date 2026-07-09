@@ -398,6 +398,11 @@ class _EditorTab extends ConsumerWidget {
     SectionType.extraExpenses,
     SectionType.contractualHire,
     SectionType.otherMatters,
+    // §1.9 (9 July 2026) — completes the 8-section narrative-pattern list.
+    SectionType.occurrence,
+    SectionType.damageDescription,
+    SectionType.natureOfRepairs,
+    SectionType.repairs,
   };
 
   @override
@@ -476,9 +481,28 @@ class _EditorTab extends ConsumerWidget {
         final section = sections[key]!;
         final hasGeneralServiceCues = assembled.surveyorNotes
             .any((n) => n['report_section'] == 'general_expenses');
+        // §1.9 (9 July 2026): occurrence/damageDescription/natureOfRepairs/
+        // repairs are populated by default from a deterministic structured-
+        // data template (report_provider.dart's _build*Text functions), not
+        // left empty — so gating the AI Draft button on content.isEmpty
+        // like the other draftable sections would mean it almost never
+        // shows for these four. Offered instead until the first successful
+        // AI draft (section.aiDrafted), which replaces the deterministic
+        // text with flowing narrative prose; hidden after that so a
+        // surveyor's subsequent manual edits can't be accidentally
+        // overwritten by a second click — same one-shot behaviour the other
+        // draftable sections already have via the emptiness check.
+        const deterministicDefaultTypes = {
+          SectionType.occurrence,
+          SectionType.damageDescription,
+          SectionType.natureOfRepairs,
+          SectionType.repairs,
+        };
         final canAiDraft = !isLocked &&
             !section.isLocked &&
-            section.content.isEmpty &&
+            !section.aiDrafted &&
+            (section.content.isEmpty ||
+                deterministicDefaultTypes.contains(key)) &&
             _aiDraftableTypes.contains(key) &&
             (key != SectionType.generalServices || hasGeneralServiceCues);
         return Padding(

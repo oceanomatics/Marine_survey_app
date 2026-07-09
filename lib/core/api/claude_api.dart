@@ -827,6 +827,244 @@ Draft the paragraph now:''',
     return _extractText(response.data);
   }
 
+  // ── §1.9 narrative-pattern drafts (8/9 July 2026) ──────────────────────────
+  // Occurrence, Extent of Damage, Nature of the Repairs, and Repairs
+  // previously had no AI-draft option at all — they build from deterministic
+  // structured-data templates (report_provider.dart's _buildOccurrenceText/
+  // _buildDamageText/_buildNatureOfRepairsText/_buildRepairsText), not free
+  // narrative. These give the surveyor an alternative: flowing prose drafted
+  // from the same underlying structured data + context cues, still editable
+  // afterward like every other AI-drafted section.
+
+  /// Drafts the "Occurrence" narrative from the occurrence's own hard fields
+  /// (brief description, vessel status at casualty, aftermath) plus any
+  /// occurrence-tagged context cues — an alternative to the deterministic
+  /// clause-based template in report_provider.dart's _buildOccurrenceText.
+  static Future<String> draftOccurrenceSection({
+    required String vesselName,
+    required String occurrenceSummary,
+    required List<String> contextCues,
+    String? reportFormat,
+    String? priorApprovedText,
+  }) async {
+    final cuesText = contextCues.isEmpty
+        ? '(none)'
+        : contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If nothing below '
+            'is genuinely new compared to the prior text, return an empty '
+            'string.'
+        : '';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'occurrence_section_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Occurrence" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This states what happened, the vessel's status at the time, and what happened immediately afterward (aftermath).
+
+Write one short prose paragraph based only on the information below. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+OCCURRENCE DATA:
+$occurrenceSummary
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  /// Drafts the "Extent of Damage" narrative from the case's damage items
+  /// (component, description, condition, confirmation) plus damage-tagged
+  /// context cues — an alternative to the deterministic bulleted template in
+  /// report_provider.dart's _buildDamageText.
+  static Future<String> draftDamageDescriptionSection({
+    required String vesselName,
+    required List<String> damageItemSummaries,
+    required List<String> contextCues,
+    String? reportFormat,
+    String? priorApprovedText,
+  }) async {
+    final itemsText = damageItemSummaries.isEmpty
+        ? '(none recorded)'
+        : damageItemSummaries.map((d) => '• $d').join('\n');
+    final cuesText = contextCues.isEmpty
+        ? '(none)'
+        : contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If nothing below '
+            'is genuinely new compared to the prior text, return an empty '
+            'string.'
+        : '';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'damage_description_section_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 700,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Extent of Damage" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This describes, item by item, the damage found on inspection and how it was confirmed.
+
+Write prose (short paragraphs, one per claim object/component group is fine) based only on the damage items and context cues below. Do not add information not provided. Do not use bullet points — write flowing prose, grouping by component/claim object where natural.
+
+VESSEL: $vesselName
+
+DAMAGE ITEMS:
+$itemsText
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the section now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  /// Drafts the "Nature of the Repairs" narrative from the surveyor's own
+  /// flagged considerations (drydocking required, assured's plan formulated,
+  /// further inspections planned, long-lead-time parts, foreseeable
+  /// difficulties) and the anticipated repair sequence. No CaseSection cue
+  /// tag exists for this section (report_provider.dart reads structured
+  /// flags/comments, not tagged cues), so there are no context cues to pass.
+  static Future<String> draftNatureOfRepairsSection({
+    required String vesselName,
+    required String flagsSummary,
+    String? reportFormat,
+    String? priorApprovedText,
+  }) async {
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If nothing below '
+            'is genuinely new compared to the prior text, return an empty '
+            'string.'
+        : '';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'nature_of_repairs_section_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Nature of the Repairs" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This is an indicative, forward-looking statement of how repairs are expected to proceed — not a record of repairs already carried out.
+
+Write one short prose paragraph based only on the information below. Do not add information not provided or speculate beyond it. Do not use bullet points or headings. If nothing below indicates a repair consideration worth flagging, return an empty string rather than inventing content.
+
+VESSEL: $vesselName
+
+SURVEYOR'S FLAGGED CONSIDERATIONS:
+$flagsSummary
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
+  /// Drafts the "Repairs" narrative from the case's repair periods (dates,
+  /// location, port context) plus repairs-tagged context cues — an
+  /// alternative to the deterministic one-line-per-period template in
+  /// report_provider.dart's _buildRepairsText.
+  static Future<String> draftRepairsSection({
+    required String vesselName,
+    required List<String> repairPeriodSummaries,
+    required List<String> contextCues,
+    String? reportFormat,
+    String? priorApprovedText,
+  }) async {
+    final periodsText = repairPeriodSummaries.isEmpty
+        ? '(none recorded)'
+        : repairPeriodSummaries.map((p) => '• $p').join('\n');
+    final cuesText = contextCues.isEmpty
+        ? '(none)'
+        : contextCues.map((c) => '• $c').join('\n');
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED TEXT (already issued in an earlier report on '
+            'this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior report above, as '
+            'a continuation that reads naturally after it. If nothing below '
+            'is genuinely new compared to the prior text, return an empty '
+            'string.'
+        : '';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'repairs_section_draft'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Draft the "Repairs" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This records the repair period(s) — when and where repairs took place.
+
+Write one short prose paragraph based only on the repair periods and context cues below. Do not add information not provided. Do not use bullet points or headings.
+
+VESSEL: $vesselName
+
+REPAIR PERIODS:
+$periodsText
+
+SURVEYOR CONTEXT CUES:
+$cuesText
+$_writingStyleGuardrails$amendSection
+
+Draft the paragraph now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data);
+  }
+
   // ── Case-screen cue quick summary (NOT report content) ────────────────────
 
   /// Short synopsis of a case section's cues for the case-screen

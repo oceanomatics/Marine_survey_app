@@ -1984,6 +1984,128 @@ class SectionDraftNotifier
             reportFormat: data.outputFormat,
             priorApprovedText: existing.carriedForwardContent,
           );
+        // §1.9 (9 July 2026): these four previously had no AI-draft option
+        // at all — deterministic structured-data templates only (see the
+        // matching _build*Text functions below). Drafts from the same
+        // underlying data + tagged cues where a cue tag exists for the
+        // section, as a flowing-prose alternative the surveyor can still
+        // edit afterward like any other AI-drafted section.
+        case SectionType.occurrence:
+          if (data.occurrences.isEmpty) return;
+          final occ = data.occurrences.first;
+          final cues = data.surveyorNotes
+              .where((n) =>
+                  n['case_section'] == 'occurrence' &&
+                  n['pending_review'] != true)
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          final summary = [
+            'Brief description: ${occ['brief_description'] ?? '(none)'}',
+            'Vessel status at casualty: ${occ['vessel_status_at_casualty'] ?? '(not recorded)'}',
+            'Aftermath: ${occ['aftermath_status'] ?? '(not recorded)'}'
+                '${(occ['aftermath_port'] as String?)?.isNotEmpty == true ? ' at ${occ['aftermath_port']}' : ''}',
+          ].join('\n');
+          content = await ClaudeApi.draftOccurrenceSection(
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            occurrenceSummary: summary,
+            contextCues: cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.damageDescription:
+          if (data.damageItems.isEmpty) return;
+          final items = data.damageItems.map((d) {
+            final parts = <String>[
+              d['component_name'] as String? ?? 'Unnamed component',
+              if ((d['damage_description'] as String?)?.isNotEmpty == true)
+                d['damage_description'] as String,
+              if ((d['condition_found'] as String?)?.isNotEmpty == true)
+                'condition: ${d['condition_found']}',
+            ];
+            return parts.join(' — ');
+          }).toList();
+          final cues = data.surveyorNotes
+              .where((n) =>
+                  n['case_section'] == 'damage' &&
+                  n['pending_review'] != true)
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          content = await ClaudeApi.draftDamageDescriptionSection(
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            damageItemSummaries: items,
+            contextCues: cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.natureOfRepairs:
+          final n = data.natureOfRepairs;
+          if (n == null) return;
+          // (flagKey, commentKey, label) — same three per flag as
+          // _buildNatureOfRepairsText's bullet() calls below, kept in sync.
+          const flagSpecs = [
+            ('drydocking_required', 'drydocking_comment',
+                'Drydocking of the vessel is anticipated'),
+            ('assured_plan_formulated', 'assured_plan_comment',
+                "The Assured has formulated a plan for the repairs"),
+            ('further_inspections_planned', 'further_inspections_comment',
+                'Further inspections are planned prior to the repairs'),
+            ('parts_long_lead_time', 'parts_lead_time_comment',
+                'Parts with a long lead time are required'),
+            ('foreseeable_difficulties', 'foreseeable_difficulties_comment',
+                'Foreseeable difficulties have been identified'),
+          ];
+          final flagLines = <String>[];
+          for (final (flagKey, commentKey, label) in flagSpecs) {
+            if (n[flagKey] == true) {
+              final comment = (n[commentKey] as String?)?.trim();
+              flagLines.add(comment != null && comment.isNotEmpty
+                  ? '$label: $comment'
+                  : label);
+            }
+          }
+          final sequenceItems = (n['sequence_items'] as List?)
+                  ?.cast<Map<String, dynamic>>()
+                  .map((e) => e['text'] as String? ?? '')
+                  .where((t) => t.isNotEmpty)
+                  .toList() ??
+              const [];
+          if (flagLines.isEmpty && sequenceItems.isEmpty) return;
+          final flagsSummary = [
+            ...flagLines,
+            if (sequenceItems.isNotEmpty)
+              'Anticipated sequence of repairs: ${sequenceItems.join('; ')}',
+          ].join('\n');
+          content = await ClaudeApi.draftNatureOfRepairsSection(
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            flagsSummary: flagsSummary,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
+        case SectionType.repairs:
+          if (data.repairPeriods.isEmpty) return;
+          final periods = data.repairPeriods.map((json) {
+            final p = RepairPeriodModel.fromJson(json);
+            final loc = p.location ?? '';
+            final prefix =
+                p.portContext == PortContext.diversion ? 'Diversion — ' : '';
+            return '$prefix${p.displayTitle}${loc.isNotEmpty ? ', $loc' : ''}';
+          }).toList();
+          final cues = data.surveyorNotes
+              .where((n) =>
+                  n['case_section'] == 'repairs' &&
+                  n['pending_review'] != true)
+              .map((n) => n['content'] as String? ?? '')
+              .where((c) => c.isNotEmpty)
+              .toList();
+          content = await ClaudeApi.draftRepairsSection(
+            vesselName: data.vessel?['name'] as String? ?? 'the vessel',
+            repairPeriodSummaries: periods,
+            contextCues: cues,
+            reportFormat: data.outputFormat,
+            priorApprovedText: existing.carriedForwardContent,
+          );
         default:
           return;
       }

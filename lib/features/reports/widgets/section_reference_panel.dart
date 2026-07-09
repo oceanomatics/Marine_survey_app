@@ -209,6 +209,65 @@ class SectionReferencePanel extends StatelessWidget {
               ),
             ]));
 
+      // §1.9 (9 July 2026): structured hard-field summaries for the three
+      // narrative sections that previously had no reference panel at all
+      // (repairs already had one, above, for WNCA — a different concept).
+      case SectionType.occurrence:
+        if (assembled.occurrences.isEmpty) return null;
+        final occ = assembled.occurrences.first;
+        final rows = [
+          if ((occ['brief_description'] as String?)?.isNotEmpty == true)
+            ['Brief description', occ['brief_description'] as String],
+          if ((occ['vessel_status_at_casualty'] as String?)?.isNotEmpty == true)
+            ['Vessel status at casualty', occ['vessel_status_at_casualty'] as String],
+          if ((occ['aftermath_status'] as String?)?.isNotEmpty == true)
+            ['Aftermath', occ['aftermath_status'] as String],
+        ];
+        if (rows.isEmpty) return null;
+        return _panel('Occurrence data on file', _KeyValueTable(rows: rows));
+
+      case SectionType.damageDescription:
+        if (assembled.damageItems.isEmpty) return null;
+        final rows = assembled.damageItems
+            .map((d) => [
+                  d['component_name'] as String? ?? 'Unnamed component',
+                  (d['damage_description'] as String?)?.isNotEmpty == true
+                      ? d['damage_description'] as String
+                      : ((d['condition_found'] as String?) ?? '—'),
+                ])
+            .toList();
+        return _panel('Damage items on file',
+            _RegisterTable(rows: [
+              ['Component', 'Description / Condition'],
+              ...rows,
+            ]));
+
+      case SectionType.natureOfRepairs:
+        final n = assembled.natureOfRepairs;
+        if (n == null) return null;
+        const flagLabels = {
+          'drydocking_required': 'Drydocking anticipated',
+          'assured_plan_formulated': "Assured's plan formulated",
+          'further_inspections_planned': 'Further inspections planned',
+          'parts_long_lead_time': 'Long-lead-time parts required',
+          'foreseeable_difficulties': 'Foreseeable difficulties identified',
+        };
+        final flags = flagLabels.entries
+            .where((e) => n[e.key] == true)
+            .map((e) => e.value)
+            .toList();
+        if (flags.isEmpty) return null;
+        return _panel('Flagged considerations on file',
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final f in flags)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text('•  $f',
+                      style: const TextStyle(
+                          fontSize: 10.5, color: AppColors.textPrimary)),
+                ),
+            ]));
+
       default:
         return null;
     }
@@ -234,6 +293,86 @@ class SectionReferencePanel extends StatelessWidget {
         const SizedBox(height: 8),
         child,
       ],
+    );
+  }
+}
+
+// ── Available context cues (§1.9, 9 July 2026) ─────────────────────────────
+//
+// "List the available context cues for that section" — shown separately
+// from SectionReferencePanel above (which is hard-field structured data;
+// this is the cue register) so both can appear together in the section
+// header per the spec. Covers every SectionType that has a direct
+// CaseSection cue tag; returns nothing for types that don't (e.g.
+// natureOfRepairs — no CaseSection value exists for it).
+const _sectionCueTags = {
+  SectionType.background: 'background',
+  SectionType.occurrence: 'occurrence',
+  SectionType.damageDescription: 'damage',
+  SectionType.causation: 'causation',
+  SectionType.repairs: 'repairs',
+  SectionType.generalServices: 'general_expenses',
+  SectionType.previousWorks: 'previous_works',
+  SectionType.extraExpenses: 'extra_expenses',
+  SectionType.contractualHire: 'contractual_hire',
+  SectionType.otherMatters: 'other_matters',
+};
+
+class SectionCuesPanel extends StatelessWidget {
+  const SectionCuesPanel({
+    super.key,
+    required this.type,
+    required this.assembled,
+  });
+
+  final SectionType type;
+  final AssembledReportData assembled;
+
+  @override
+  Widget build(BuildContext context) {
+    final tag = _sectionCueTags[type];
+    if (tag == null) return const SizedBox.shrink();
+    final cues = assembled.surveyorNotes
+        .where((n) =>
+            n['case_section'] == tag && n['pending_review'] != true)
+        .map((n) => n['content'] as String? ?? '')
+        .where((c) => c.isNotEmpty)
+        .toList();
+    if (cues.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.lightAmber.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.amber.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.label_outline, size: 12, color: AppColors.amber),
+              const SizedBox(width: 5),
+              Text('Available context cues (${cues.length})',
+                  style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.amber)),
+            ]),
+            const SizedBox(height: 8),
+            for (final c in cues)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text('•  $c',
+                    style: const TextStyle(
+                        fontSize: 10.5, color: AppColors.textPrimary)),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
