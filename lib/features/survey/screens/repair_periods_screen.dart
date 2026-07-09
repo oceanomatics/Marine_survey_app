@@ -43,8 +43,8 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Repair Periods'),
+      appBar: const BackAppBar(
+        title: Text('Repair Periods'),
         backgroundColor: _kRepairColor,
         foregroundColor: Colors.white,
       ),

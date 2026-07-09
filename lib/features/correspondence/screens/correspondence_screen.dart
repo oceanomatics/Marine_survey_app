@@ -39,7 +39,7 @@ class CorrespondenceScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Correspondence')),
+      appBar: const BackAppBar(title: Text('Correspondence')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref),
         backgroundColor: _kColor,

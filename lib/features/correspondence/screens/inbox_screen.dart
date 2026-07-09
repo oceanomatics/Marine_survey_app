@@ -8,9 +8,9 @@ class InboxScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: BackAppBar(title: const Text('InboxScreen')),
-      body: const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+    return const Scaffold(
+      appBar: BackAppBar(title: Text('InboxScreen')),
+      body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.construction_outlined, size: 48, color: AppColors.textTertiary),
         SizedBox(height: 12),
         Text('Coming next session',

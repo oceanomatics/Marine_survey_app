@@ -213,8 +213,8 @@ class DamageRegisterScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Damage Register'),
+      appBar: const BackAppBar(
+        title: Text('Damage Register'),
       ),
       floatingActionButton: damageAsync.when(
         data: (ds) => FloatingActionButton.extended(

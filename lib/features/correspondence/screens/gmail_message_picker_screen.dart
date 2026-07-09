@@ -147,8 +147,8 @@ class _GmailMessagePickerScreenState extends State<GmailMessagePickerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Import from Gmail', style: TextStyle(fontSize: 15)),
+      appBar: const BackAppBar(
+        title: Text('Import from Gmail', style: TextStyle(fontSize: 15)),
       ),
       body: Column(
         children: [

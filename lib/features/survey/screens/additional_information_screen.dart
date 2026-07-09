@@ -79,7 +79,7 @@ class AdditionalInformationScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Additional Information')),
+      appBar: const BackAppBar(title: Text('Additional Information')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

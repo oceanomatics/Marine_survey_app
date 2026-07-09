@@ -22,7 +22,7 @@ class OccurrenceScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Occurrences')),
+      appBar: const BackAppBar(title: Text('Occurrences')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref),
         backgroundColor: AppColors.coral,

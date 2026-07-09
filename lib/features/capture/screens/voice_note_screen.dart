@@ -217,7 +217,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Voice Notes')),
+      appBar: const BackAppBar(title: Text('Voice Notes')),
       body: Column(children: [
         // ── Recorder panel ───────────────────────────────────────────
         Container(

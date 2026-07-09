@@ -49,7 +49,7 @@ class _ChecklistScreenState extends ConsumerState<ChecklistScreen>
     return checklistAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
       error: (e, _) => Scaffold(
-        appBar: BackAppBar(title: const Text('Checklist')),
+        appBar: const BackAppBar(title: Text('Checklist')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (cl) => _buildScaffold(cl),

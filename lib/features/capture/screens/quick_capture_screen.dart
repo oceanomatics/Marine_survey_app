@@ -45,7 +45,7 @@ class _QuickCaptureScreenState
       loading: () => const Scaffold(
           body: AppLoadingWidget(message: 'Loading inbox...')),
       error: (e, _) => Scaffold(
-        appBar: BackAppBar(title: const Text('Quick Capture Inbox')),
+        appBar: const BackAppBar(title: Text('Quick Capture Inbox')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (cs) => _buildScaffold(cs),

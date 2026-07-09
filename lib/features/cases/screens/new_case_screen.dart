@@ -22,7 +22,7 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: BackAppBar(title: const Text('New Case')),
+      appBar: const BackAppBar(title: Text('New Case')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

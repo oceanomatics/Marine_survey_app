@@ -72,7 +72,7 @@ class _NatureOfRepairsScreenState
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Nature of the Repairs')),
+      appBar: const BackAppBar(title: Text('Nature of the Repairs')),
       body: async.when(
         loading: () => const AppLoadingWidget(),
         error: (e, _) => Center(child: Text('Error: $e')),

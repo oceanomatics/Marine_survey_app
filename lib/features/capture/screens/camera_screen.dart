@@ -17,9 +17,9 @@ class CameraScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: BackAppBar(title: const Text('Camera')),
-      body: const Center(
+    return const Scaffold(
+      appBar: BackAppBar(title: Text('Camera')),
+      body: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.camera_alt_outlined,
               size: 64, color: AppColors.textTertiary),

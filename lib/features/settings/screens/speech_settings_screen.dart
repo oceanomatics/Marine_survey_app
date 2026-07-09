@@ -93,7 +93,7 @@ class _SpeechSettingsScreenState extends ConsumerState<SpeechSettingsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Speech & Transcription')),
+      appBar: const BackAppBar(title: Text('Speech & Transcription')),
       body: settingsAsync.when(
         loading: () =>
             const Center(child: CircularProgressIndicator()),

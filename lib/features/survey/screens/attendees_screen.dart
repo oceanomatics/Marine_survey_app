@@ -20,8 +20,8 @@ class AttendeesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Attendees'),
+      appBar: const BackAppBar(
+        title: Text('Attendees'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEdit(context, ref),

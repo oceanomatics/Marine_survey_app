@@ -238,7 +238,7 @@ class SectionReferencePanel extends StatelessWidget {
             .toList();
         return _panel('Damage items on file',
             _RegisterTable(rows: [
-              ['Component', 'Description / Condition'],
+              const ['Component', 'Description / Condition'],
               ...rows,
             ]));
 

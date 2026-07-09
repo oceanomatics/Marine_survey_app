@@ -20,7 +20,7 @@ class CausationScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Allegation / Causation')),
+      appBar: const BackAppBar(title: Text('Allegation / Causation')),
       body: damageAsync.when(
         loading: () =>
             const AppLoadingWidget(message: 'Loading occurrences...'),

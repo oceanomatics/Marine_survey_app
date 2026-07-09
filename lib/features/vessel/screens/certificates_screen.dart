@@ -19,8 +19,8 @@ class CertificatesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Certificates'),
+      appBar: const BackAppBar(
+        title: Text('Certificates'),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEdit(context, ref),

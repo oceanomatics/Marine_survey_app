@@ -704,7 +704,7 @@ class _VesselParticularsScreenState
     return vesselAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
       error: (e, _) => Scaffold(
-        appBar: BackAppBar(title: const Text('Vessel Particulars')),
+        appBar: const BackAppBar(title: Text('Vessel Particulars')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

@@ -54,14 +54,14 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
     final notesAsync = ref.watch(surveyorNotesProvider(widget.caseId));
 
     return notesAsync.when(
-      loading: () => Scaffold(
+      loading: () => const Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: BackAppBar(title: const Text('Context Cues')),
-        body: const AppLoadingWidget(message: 'Loading cues…'),
+        appBar: BackAppBar(title: Text('Context Cues')),
+        body: AppLoadingWidget(message: 'Loading cues…'),
       ),
       error: (e, _) => Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: BackAppBar(title: const Text('Context Cues')),
+        appBar: const BackAppBar(title: Text('Context Cues')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (notes) {

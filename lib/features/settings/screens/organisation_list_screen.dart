@@ -54,7 +54,7 @@ class OrganisationListScreen extends ConsumerWidget {
     final async = ref.watch(organisationsProvider);
 
     return Scaffold(
-      appBar: BackAppBar(title: const Text('Organisations')),
+      appBar: const BackAppBar(title: Text('Organisations')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createNew(context, ref),
         icon: const Icon(Icons.add),
