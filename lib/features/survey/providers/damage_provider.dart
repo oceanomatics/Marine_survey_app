@@ -362,6 +362,57 @@ class OccurrenceModel {
       };
 }
 
+// ── Auto-composed register-row description (§3.8 row 23, 8 July 2026) ──────
+//
+// Semi-automatic two-line summary from structured fields + confirmation
+// provenance, replacing the separate "Damage Description" / "Condition
+// Found" blocks previously shown as isolated fields on the register card
+// (row 21 — Condition Found still exists as a captured field in the
+// editor, just no longer displayed standalone). Deterministic template,
+// not an AI draft — every input is a hard field already on the model, so
+// there's nothing for a draft to add and this stays free/instant/
+// auditable. Worked example from the surveyor (docs/TODO.md §3.8 row 23):
+// "[part] was inspected by the attending surveyor [confirmed by]. Further
+// confirmation was indicated in [cue source] by [specialist], as it was
+// [condition found] and showed [damage description]."
+String composeDamageRowDescription(DamageItemModel item) {
+  final others = item.confirmedBy
+      .where((r) => r != ConfirmedByRole.undersignedSurveyor)
+      .toList();
+  final hasSurveyor =
+      item.confirmedBy.contains(ConfirmedByRole.undersignedSurveyor);
+  final condition = (item.conditionFound ?? '').trim();
+  final description = (item.damageDescription ?? '').trim();
+
+  final buf = StringBuffer(item.componentName);
+  if (hasSurveyor) {
+    buf.write(' was inspected by the attending surveyor');
+  } else if (others.isNotEmpty) {
+    buf.write(' was inspected by ${others.map((r) => r.label).join(', ')}');
+  }
+  buf.write('.');
+
+  if (others.isNotEmpty && hasSurveyor) {
+    final method = (item.confirmationMethod ?? '').trim();
+    buf.write(' Further confirmation was indicated');
+    if (method.isNotEmpty) buf.write(' in $method');
+    buf.write(' by ${others.map((r) => r.label).join(', ')}');
+    final extras = <String>[
+      if (condition.isNotEmpty) 'as it was $condition',
+      if (description.isNotEmpty) 'showed $description',
+    ];
+    if (extras.isNotEmpty) buf.write(', ${extras.join(' and ')}');
+    buf.write('.');
+  } else {
+    final extras = <String>[
+      if (condition.isNotEmpty) condition,
+      if (description.isNotEmpty) description,
+    ];
+    if (extras.isNotEmpty) buf.write(' ${extras.join(' — ')}.');
+  }
+  return buf.toString();
+}
+
 // ── Damage item model ──────────────────────────────────────────────────────
 
 @immutable

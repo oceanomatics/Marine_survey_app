@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/damage_provider.dart';
 import '../widgets/damage_item_card.dart';
-import '../widgets/add_damage_item_sheet.dart';
+import 'damage_item_editor_screen.dart';
 import '../widgets/add_occurrence_sheet.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../photos/models/photo_model.dart';
@@ -54,41 +54,43 @@ class DamageRegisterScreen extends ConsumerWidget {
       );
     }
 
-    void showAddDamageItem(String occurrenceId) {
+    void showAddDamageItem(String occurrenceId, {SurveyorNote? sourceCue}) {
       final occs = damageAsync.value?.occurrences ?? [];
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => AddDamageItemSheet(
-          caseId: caseId,
-          vesselId: vesselId,
-          occurrenceId: occurrenceId,
-          occurrences: occs,
-          onSave: (item) async {
-            await ref.read(damageProvider(caseId).notifier).addDamageItem(item);
-          },
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DamageItemEditorScreen(
+            caseId: caseId,
+            vesselId: vesselId,
+            occurrenceId: occurrenceId,
+            occurrences: occs,
+            sourceCue: sourceCue,
+            onSave: (item) =>
+                ref.read(damageProvider(caseId).notifier).addDamageItem(item),
+          ),
         ),
       );
     }
 
-    void showEditDamageItem(DamageItemModel item) {
+    void showEditDamageItem(DamageItemModel item, {SurveyorNote? sourceCue}) {
       final occs = damageAsync.value?.occurrences ?? [];
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => AddDamageItemSheet(
-          caseId: caseId,
-          vesselId: vesselId,
-          occurrenceId: item.occurrenceId,
-          occurrences: occs,
-          existing: item,
-          onSave: (updated) async {
-            await ref
-                .read(damageProvider(caseId).notifier)
-                .updateDamageItem(updated);
-          },
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DamageItemEditorScreen(
+            caseId: caseId,
+            vesselId: vesselId,
+            occurrenceId: item.occurrenceId,
+            occurrences: occs,
+            existing: item,
+            sourceCue: sourceCue,
+            onSave: (updated) async {
+              await ref
+                  .read(damageProvider(caseId).notifier)
+                  .updateDamageItem(updated);
+              return updated;
+            },
+          ),
         ),
       );
     }
@@ -142,6 +144,73 @@ class DamageRegisterScreen extends ConsumerWidget {
       );
     }
 
+    // Row 17: cue -> damage item promotion (create new, or merge into an
+    // existing item as supporting evidence) — the standing cue-action
+    // principle, docs/context_cue_system_review.md.
+    void promoteCue(SurveyorNote note) {
+      final ds = damageAsync.value;
+      if (ds == null || ds.occurrences.isEmpty) return;
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (sheetCtx) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Promote Context Cue',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary)),
+              const SizedBox(height: 4),
+              Text('"${note.content}"',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                      fontStyle: FontStyle.italic)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.add_box_outlined,
+                    color: AppColors.coral),
+                title: const Text('Create new damage item'),
+                subtitle: const Text('Prefills the description from this cue',
+                    style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  showAddDamageItem(ds.occurrences.first.occurrenceId,
+                      sourceCue: note);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.merge_type_outlined,
+                    color: AppColors.coral),
+                title: const Text('Merge into existing item'),
+                subtitle: const Text(
+                    'Appends this cue as supporting evidence',
+                    style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _pickExistingDamageItem(context, ds).then((picked) {
+                    if (picked != null) {
+                      showEditDamageItem(picked, sourceCue: note);
+                    }
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
@@ -190,7 +259,68 @@ class DamageRegisterScreen extends ConsumerWidget {
                           .deletePhoto(photoId),
                     ),
             ),
-            ContextCuesPanel(caseId: caseId, section: CaseSection.damage),
+            ContextCuesPanel(
+              caseId: caseId,
+              section: CaseSection.damage,
+              onPromote: promoteCue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Bottom sheet listing every damage item across all occurrences, for
+  /// the "merge cue into existing item" promotion path.
+  Future<DamageItemModel?> _pickExistingDamageItem(
+      BuildContext context, DamageState ds) {
+    return showModalBottomSheet<DamageItemModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetCtx).size.height * 0.6),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Select Damage Item',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 12),
+            if (ds.damageItems.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No damage items yet — create one instead.',
+                    style: TextStyle(
+                        fontSize: 13, color: AppColors.textSecondary)),
+              )
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: ds.damageItems.length,
+                  itemBuilder: (_, i) {
+                    final item = ds.damageItems[i];
+                    return ListTile(
+                      title: Text(item.componentName),
+                      subtitle: item.damageDescription != null
+                          ? Text(item.damageDescription!,
+                              maxLines: 1, overflow: TextOverflow.ellipsis)
+                          : null,
+                      onTap: () => Navigator.pop(sheetCtx, item),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),

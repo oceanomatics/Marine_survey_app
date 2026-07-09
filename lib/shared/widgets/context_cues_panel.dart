@@ -169,6 +169,7 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     this.periodScope,
     this.itemScope,
     this.initiallyExpanded = true,
+    this.onPromote,
   });
 
   final String caseId;
@@ -184,6 +185,12 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
   /// Set false when stacking multiple panels on one screen (e.g. Repairs +
   /// Repair Times) so they don't all default open at once.
   final bool initiallyExpanded;
+  /// Optional "promote this cue" action shown on each cue tile (e.g. turn a
+  /// Damage Register cue into a damage item, per the standing cue-action
+  /// principle in docs/context_cue_system_review.md — create new or merge
+  /// into existing). Omitted (null) everywhere else; cue presentation
+  /// outside the Damage Register needs no change.
+  final void Function(SurveyorNote note)? onPromote;
 
   @override
   ConsumerState<ContextCuesPanel> createState() => _ContextCuesPanelState();
@@ -458,6 +465,9 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                               .read(surveyorNotesProvider(widget.caseId)
                                   .notifier)
                               .delete(visibleNotes[i].id),
+                          onPromote: widget.onPromote == null
+                              ? null
+                              : () => widget.onPromote!(visibleNotes[i]),
                         ),
                       ),
               ),
@@ -599,12 +609,14 @@ class _CuePanelTile extends StatelessWidget {
     required this.accent,
     required this.onEdit,
     required this.onDelete,
+    this.onPromote,
   });
 
   final SurveyorNote note;
   final Color accent;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onPromote;
 
   @override
   Widget build(BuildContext context) {
@@ -672,6 +684,15 @@ class _CuePanelTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onPromote != null)
+                GestureDetector(
+                  onTap: onPromote,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(Icons.arrow_circle_right_outlined,
+                        size: 15, color: accent),
+                  ),
+                ),
               GestureDetector(
                 onTap: onDelete,
                 child: const Padding(

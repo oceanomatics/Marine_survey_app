@@ -27,7 +27,12 @@ class DamageItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
+      child: InkWell(
+        // TODO.md §3.8 row 22: clicking a damage item opens the editor
+        // directly — no longer requires finding Edit in the overflow menu.
+        onTap: onEdit,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,18 +98,11 @@ class DamageItemCard extends StatelessWidget {
                   icon: const Icon(Icons.more_vert,
                       size: 18, color: AppColors.textTertiary),
                   onSelected: (v) {
-                    if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
                   },
+                  // 'Edit' removed from the menu (row 22) — the whole card
+                  // now opens the editor directly on tap.
                   itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'edit',
-                      child: Row(children: [
-                        Icon(Icons.edit_outlined, size: 15),
-                        SizedBox(width: 8),
-                        Text('Edit', style: TextStyle(fontSize: 13)),
-                      ]),
-                    ),
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(children: [
@@ -136,47 +134,22 @@ class DamageItemCard extends StatelessWidget {
               ]),
             ],
 
-            // ── Damage description ────────────────────────────────────
-            if (item.damageDescription != null) ...[
+            // ── Auto-composed summary (§3.8 rows 21+23) ────────────────
+            // Replaces the old separate Damage Description / Condition
+            // Found blocks with one semi-automatic two-line summary woven
+            // from those same fields plus confirmation provenance —
+            // Condition Found is still captured in the editor, just no
+            // longer shown as an isolated field here.
+            if (item.damageDescription != null || item.conditionFound != null) ...[
               const SizedBox(height: 8),
               Text(
-                item.damageDescription!,
+                composeDamageRowDescription(item),
                 style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textPrimary,
                     height: 1.4),
-                maxLines: 3,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-              ),
-            ],
-
-            // ── Condition found ───────────────────────────────────────
-            if (item.conditionFound != null) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Condition: ',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary)),
-                    Expanded(
-                      child: Text(item.conditionFound!,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textSecondary,
-                              height: 1.3)),
-                    ),
-                  ],
-                ),
               ),
             ],
 
@@ -201,6 +174,7 @@ class DamageItemCard extends StatelessWidget {
               ),
             ],
           ],
+        ),
         ),
       ),
     );
