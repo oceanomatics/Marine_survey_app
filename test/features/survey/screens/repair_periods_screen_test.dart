@@ -76,6 +76,7 @@ void main() {
       endDate: DateTime(2026, 6, 15),
       location: 'Sembawang Shipyard, Singapore',
       portContext: PortContext.diversion,
+      repairPhase: RepairPhase.permanent,
       notes: 'Vessel diverted for permanent repairs following main '
           'engine turbocharger failure.',
       assignments: const [
@@ -162,6 +163,24 @@ void main() {
     // FlutterError (including "A RenderFlex overflowed by ... pixels")
     // surfaces via tester.takeException() rather than being thrown
     // synchronously from pump — assert none was recorded.
+    expect(tester.takeException(), isNull);
+
+    // docs/TODO.md §3.9 — repair-phase field is shown on the card, and the
+    // period is editable via the overflow menu (not read-only after
+    // creation).
+    // Two matches expected: the repair-phase badge on the card header and
+    // the "Permanent" outcome label on the turbocharger assignment row.
+    expect(find.text('Permanent'), findsWidgets);
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Edit period details'), findsOneWidget);
+    await tester.tap(find.text('Edit period details'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit Repair Period'), findsOneWidget);
+    // Pre-filled from the existing period, not a blank form — matches both
+    // the (now-hidden-behind-the-sheet) card title and the sheet's title
+    // TextField, whose controller text find.text also matches.
+    expect(find.text('Permanent Repairs — Singapore'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }

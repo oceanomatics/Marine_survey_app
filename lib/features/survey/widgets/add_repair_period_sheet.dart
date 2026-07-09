@@ -30,11 +30,16 @@ class AddRepairPeriodSheet extends StatefulWidget {
     required this.caseId,
     required this.nextPeriodNo,
     required this.onSave,
+    this.existing,
   });
 
   final String caseId;
   final int nextPeriodNo;
   final Future<void> Function(RepairPeriodModel) onSave;
+  /// When set, the sheet edits this existing period in place instead of
+  /// creating a new one (docs/TODO.md §3.9 — "fields become read-only
+  /// after the period is created").
+  final RepairPeriodModel? existing;
 
   @override
   State<AddRepairPeriodSheet> createState() => _AddRepairPeriodSheetState();
@@ -49,10 +54,32 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
   DateTime? _startDate;
   DateTime? _endDate;
   PortContext _portContext = PortContext.planned;
+  RepairPhase? _repairPhase;
   final Set<String> _servicesProvided = {};
   String? _hotWorkStatus;
   bool _saving = false;
   String? _error;
+
+  bool get _isEdit => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _titleCtrl.text = e.title ?? '';
+      _locationCtrl.text = e.location ?? '';
+      _notesCtrl.text = e.notes ?? '';
+      _servicesNotesCtrl.text = e.servicesProvidedNotes ?? '';
+      _hotWorkNotesCtrl.text = e.hotWorkNotes ?? '';
+      _startDate = e.startDate;
+      _endDate = e.endDate;
+      _portContext = e.portContext;
+      _repairPhase = e.repairPhase;
+      _servicesProvided.addAll(e.servicesProvided);
+      _hotWorkStatus = e.hotWorkStatus;
+    }
+  }
 
   @override
   void dispose() {
@@ -95,16 +122,26 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
   Future<void> _save() async {
     setState(() { _error = null; _saving = true; });
     try {
+      final e = widget.existing;
       final period = RepairPeriodModel(
-        periodId:    '',
+        periodId:    e?.periodId ?? '',
         caseId:      widget.caseId,
-        periodNo:    widget.nextPeriodNo,
+        periodNo:    e?.periodNo ?? widget.nextPeriodNo,
         title:       _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
         startDate:   _startDate,
         endDate:     _endDate,
         location:    _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
         portContext: _portContext,
+        repairPhase: _repairPhase,
         notes:       _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        assignments: e?.assignments ?? const [],
+        createdAt:   e?.createdAt,
+        repairTimes: e?.repairTimes ?? const {},
+        budgetItems: e?.budgetItems ?? const [],
+        budgetDisplayCurrency: e?.budgetDisplayCurrency ?? 'USD',
+        budgetBaseCurrency: e?.budgetBaseCurrency ?? 'USD',
+        budgetExchangeRate: e?.budgetExchangeRate,
+        budgetRateDate: e?.budgetRateDate,
         servicesProvided: _servicesProvided.toList(),
         servicesProvidedNotes: _servicesNotesCtrl.text.trim().isEmpty
             ? null
@@ -160,7 +197,7 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                     ),
                     child: Center(
                       child: Text(
-                        '${widget.nextPeriodNo}',
+                        '${widget.existing?.periodNo ?? widget.nextPeriodNo}',
                         style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -169,12 +206,15 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Text('New Repair Period',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary)),
-                  const Spacer(),
+                  Expanded(
+                    child: Text(
+                        _isEdit ? 'Edit Repair Period' : 'New Repair Period',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary)),
+                  ),
                   TextButton(
                     onPressed: _saving ? null : () => Navigator.pop(context),
                     child: const Text('Cancel'),
@@ -301,6 +341,35 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                   }).toList()),
                   const SizedBox(height: 16),
 
+                  // Repair phase (docs/TODO.md §3.9 — previously-flagged
+                  // gap, now confirmed needed). Optional and independent of
+                  // the port-call context above and of the per-item
+                  // RepairType recorded on individual damage assignments.
+                  _label('Repair Phase (optional)'),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(
+                      child: _ChipOption(
+                        label: 'Not Set',
+                        selected: _repairPhase == null,
+                        color: AppColors.textTertiary,
+                        onTap: () => setState(() => _repairPhase = null),
+                      ),
+                    ),
+                    ...RepairPhase.values.map((p) => Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: _ChipOption(
+                              label: p.label,
+                              selected: _repairPhase == p,
+                              color: _kColor,
+                              onTap: () => setState(() => _repairPhase = p),
+                            ),
+                          ),
+                        )),
+                  ]),
+                  const SizedBox(height: 16),
+
                   // Notes
                   _label('Notes (optional)'),
                   TextField(
@@ -404,8 +473,8 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                               width: 20, height: 20,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white))
-                          : const Text('Save Repair Period',
-                              style: TextStyle(
+                          : Text(_isEdit ? 'Save Changes' : 'Save Repair Period',
+                              style: const TextStyle(
                                   fontWeight: FontWeight.w600, fontSize: 15)),
                     ),
                   ),

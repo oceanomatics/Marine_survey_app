@@ -15,6 +15,34 @@ enum PortContext {
       values.firstWhere((e) => e.value == v, orElse: () => PortContext.planned);
 }
 
+// ── Repair phase (preliminary / temporary / permanent) ─────────────────────
+//
+// Previously-flagged gap (docs/context_cue_system_review.md §3.1/§4/§6):
+// "no existing structured preliminary/temporary/permanent repair-phase
+// concept in the data model" — confirmed needed 8 July 2026
+// (docs/TODO.md Phase 0.1 row 25 / §3.9). Describes the repair period
+// itself (e.g. "these are the temporary repairs done en route"), distinct
+// from RepairType which records the outcome of an individual damage item
+// within a period. Optional — a period can exist with no phase set yet.
+enum RepairPhase {
+  preliminary('preliminary', 'Preliminary'),
+  temporary('temporary', 'Temporary'),
+  permanent('permanent', 'Permanent');
+
+  const RepairPhase(this.value, this.label);
+  final String value;
+  final String label;
+
+  static RepairPhase? fromValue(String? v) {
+    if (v == null) return null;
+    try {
+      return values.firstWhere((e) => e.value == v);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 // ── Repair time entry (dry-dock + alongside days per row) ──────────────────
 
 @immutable
@@ -143,6 +171,7 @@ class RepairPeriodModel {
     this.endDate,
     this.location,
     this.portContext = PortContext.planned,
+    this.repairPhase,
     this.notes,
     this.assignments = const [],
     this.createdAt,
@@ -166,6 +195,9 @@ class RepairPeriodModel {
   final DateTime? endDate;
   final String? location;
   final PortContext portContext;
+  /// Preliminary / temporary / permanent — see [RepairPhase]. Nullable;
+  /// not every period has this set.
+  final RepairPhase? repairPhase;
   final String? notes;
   final List<RepairAssignmentModel> assignments;
   final DateTime? createdAt;
@@ -210,24 +242,40 @@ class RepairPeriodModel {
   }
 
   RepairPeriodModel copyWith({
+    Object? title = _sentinel,
+    Object? startDate = _sentinel,
+    Object? endDate = _sentinel,
+    Object? location = _sentinel,
+    PortContext? portContext,
+    Object? repairPhase = _sentinel,
+    Object? notes = _sentinel,
+    List<RepairAssignmentModel>? assignments,
     Map<String, RepairTimeEntry>? repairTimes,
     List<BudgetItem>? budgetItems,
     String? budgetDisplayCurrency,
     String? budgetBaseCurrency,
     Object? budgetExchangeRate = _sentinel,
     Object? budgetRateDate = _sentinel,
+    List<String>? servicesProvided,
+    Object? servicesProvidedNotes = _sentinel,
+    Object? hotWorkStatus = _sentinel,
+    Object? hotWorkNotes = _sentinel,
   }) =>
       RepairPeriodModel(
         periodId: periodId,
         caseId: caseId,
         periodNo: periodNo,
-        title: title,
-        startDate: startDate,
-        endDate: endDate,
-        location: location,
-        portContext: portContext,
-        notes: notes,
-        assignments: assignments,
+        title: title == _sentinel ? this.title : title as String?,
+        startDate:
+            startDate == _sentinel ? this.startDate : startDate as DateTime?,
+        endDate: endDate == _sentinel ? this.endDate : endDate as DateTime?,
+        location: location == _sentinel ? this.location : location as String?,
+        portContext: portContext ?? this.portContext,
+        repairPhase: repairPhase == _sentinel
+            ? this.repairPhase
+            : repairPhase as RepairPhase?,
+        notes: notes == _sentinel ? this.notes : notes as String?,
+        assignments: assignments ?? this.assignments,
         createdAt: createdAt,
         repairTimes: repairTimes ?? this.repairTimes,
         budgetItems: budgetItems ?? this.budgetItems,
@@ -240,6 +288,16 @@ class RepairPeriodModel {
         budgetRateDate: budgetRateDate == _sentinel
             ? this.budgetRateDate
             : budgetRateDate as DateTime?,
+        servicesProvided: servicesProvided ?? this.servicesProvided,
+        servicesProvidedNotes: servicesProvidedNotes == _sentinel
+            ? this.servicesProvidedNotes
+            : servicesProvidedNotes as String?,
+        hotWorkStatus: hotWorkStatus == _sentinel
+            ? this.hotWorkStatus
+            : hotWorkStatus as String?,
+        hotWorkNotes: hotWorkNotes == _sentinel
+            ? this.hotWorkNotes
+            : hotWorkNotes as String?,
       );
 
   factory RepairPeriodModel.fromJson(
@@ -262,6 +320,7 @@ class RepairPeriodModel {
       location: j['location'] as String?,
       portContext:
           PortContext.fromValue(j['port_context'] as String? ?? 'planned'),
+      repairPhase: RepairPhase.fromValue(j['repair_phase'] as String?),
       notes: j['notes'] as String?,
       assignments: assignments,
       createdAt: j['created_at'] != null
@@ -312,6 +371,7 @@ class RepairPeriodModel {
         'case_id': caseId,
         'period_no': periodNo,
         'port_context': portContext.value,
+        if (repairPhase != null) 'repair_phase': repairPhase!.value,
         if (title != null) 'title': title,
         if (startDate != null) 'start_date': _fmt(startDate!),
         if (endDate != null) 'end_date': _fmt(endDate!),
@@ -327,6 +387,29 @@ class RepairPeriodModel {
           'services_provided_notes': servicesProvidedNotes,
         if (hotWorkStatus != null) 'hot_work_status': hotWorkStatus,
         if (hotWorkNotes != null) 'hot_work_notes': hotWorkNotes,
+      };
+
+  /// Like [toInsertJson] but always includes the editable header fields
+  /// (title/dates/location/port context/repair phase/notes/services/hot
+  /// work) even when null, so an update can actually *clear* a field the
+  /// surveyor emptied out — `toInsertJson()` omits null keys entirely,
+  /// which is correct for a fresh insert (let DB defaults apply) but wrong
+  /// for an edit, where "field left blank" should persist as cleared. Used
+  /// by `RepairPeriodsNotifier.updatePeriod` (docs/TODO.md §3.9 —
+  /// "fields become read-only after the period is created").
+  Map<String, dynamic> toUpdateJson() => {
+        'period_no': periodNo,
+        'port_context': portContext.value,
+        'repair_phase': repairPhase?.value,
+        'title': title,
+        'start_date': startDate != null ? _fmt(startDate!) : null,
+        'end_date': endDate != null ? _fmt(endDate!) : null,
+        'location': location,
+        'notes': notes,
+        'services_provided': servicesProvided,
+        'services_provided_notes': servicesProvidedNotes,
+        'hot_work_status': hotWorkStatus,
+        'hot_work_notes': hotWorkNotes,
       };
 
   static String _fmt(DateTime d) =>

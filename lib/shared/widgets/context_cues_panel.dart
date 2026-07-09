@@ -77,6 +77,25 @@ class RepairPeriodScope {
   final bool isUnassignedBucket;
 }
 
+// ── Generic per-item scoping ────────────────────────────────────────────────
+//
+// The standing design principle (docs/context_cue_system_review.md, added
+// 8 July 2026) is that context cues should scope to a *specific instance*
+// of a thing wherever that makes sense, not just a flat case-section tag —
+// [RepairPeriodScope] above was the first instance of this (a repair period
+// picked from a list, with an "unassigned" bucket). A cue embedded directly
+// on the owning item's own screen (a single occurrence's Narrative tab, a
+// single repair period card) doesn't need a picker or an unassigned bucket
+// — it's always scoped to that one item. [CueItemScope] covers that case,
+// reusing the same polymorphic linked_to_type/linked_to_id mechanism.
+// [periodScope] and [itemScope] are mutually exclusive; pass whichever fits
+// the screen.
+class CueItemScope {
+  const CueItemScope({required this.linkedToType, required this.linkedToId});
+  final String linkedToType;
+  final String linkedToId;
+}
+
 // ── Card wrapper (title + hint header, panel clipped into rounded card) ────
 //
 // Shared shape for embedding a ContextCuesPanel inside a titled card on a
@@ -148,14 +167,20 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     required this.caseId,
     required this.section,
     this.periodScope,
+    this.itemScope,
     this.initiallyExpanded = true,
   });
 
   final String caseId;
   final CaseSection section;
   /// Only meaningful when `section.isRepairPeriodScoped` — see
-  /// [RepairPeriodScope]. Ignored otherwise.
+  /// [RepairPeriodScope]. Ignored otherwise. Mutually exclusive with
+  /// [itemScope].
   final RepairPeriodScope? periodScope;
+  /// Scopes this panel to one specific item instance (an occurrence, a
+  /// repair period embedded on its own screen, etc.) — see [CueItemScope].
+  /// Mutually exclusive with [periodScope].
+  final CueItemScope? itemScope;
   /// Set false when stacking multiple panels on one screen (e.g. Repairs +
   /// Repair Times) so they don't all default open at once.
   final bool initiallyExpanded;
@@ -180,12 +205,19 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   bool _matchesScope(SurveyorNote n) {
     if (n.caseSection != widget.section) return false;
     final scope = widget.periodScope;
-    if (scope == null) return true;
-    if (scope.isUnassignedBucket) {
-      return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
+    if (scope != null) {
+      if (scope.isUnassignedBucket) {
+        return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
+      }
+      return n.linkedToType == repairPeriodLinkType &&
+          n.linkedToId == scope.periodId;
     }
-    return n.linkedToType == repairPeriodLinkType &&
-        n.linkedToId == scope.periodId;
+    final item = widget.itemScope;
+    if (item != null) {
+      return n.linkedToType == item.linkedToType &&
+          n.linkedToId == item.linkedToId;
+    }
+    return true;
   }
 
   String _signatureFor(List<SurveyorNote> notes) =>
@@ -266,50 +298,69 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                     child: Icon(Icons.label_outline, color: accent, size: 14),
                   ),
                   const SizedBox(width: 9),
-                  const Text(
-                    'Context Cues',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary),
+                  // The title + "not allocated" pill + count badge cluster
+                  // is wrapped in Expanded (with the pill's own text
+                  // ellipsized) so it compresses instead of overflowing —
+                  // on a narrow viewport "Context Cues" + "Not allocated to
+                  // a period" + the Add button/chevron didn't all fit,
+                  // confirmed via live widget-test reproduction on the
+                  // Repair Periods screen's per-period unassigned-cue
+                  // panels (docs/TODO.md §3.9, 9 July 2026).
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Flexible(
+                          child: Text(
+                            'Context Cues',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary),
+                          ),
+                        ),
+                        if (widget.periodScope?.isUnassignedBucket == true) ...[
+                          const SizedBox(width: 7),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: AppColors.warning.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Not allocated to a period',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.warning),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (activeNotes.isNotEmpty) ...[
+                          const SizedBox(width: 7),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${activeNotes.length}',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: accent),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                  if (widget.periodScope?.isUnassignedBucket == true) ...[
-                    const SizedBox(width: 7),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: AppColors.warning.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'Not allocated to a period',
-                        style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.warning),
-                      ),
-                    ),
-                  ],
-                  if (activeNotes.isNotEmpty) ...[
-                    const SizedBox(width: 7),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${activeNotes.length}',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: accent),
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
                   GestureDetector(
                     onTap: () => _addNote(context),
                     child: Container(
@@ -435,11 +486,13 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
           final scope = widget.periodScope;
+          final item = widget.itemScope;
           final linkedToType = scope != null && !scope.isUnassignedBucket
               ? repairPeriodLinkType
-              : null;
-          final linkedToId =
-              scope != null && !scope.isUnassignedBucket ? scope.periodId : null;
+              : item?.linkedToType;
+          final linkedToId = scope != null && !scope.isUnassignedBucket
+              ? scope.periodId
+              : item?.linkedToId;
           if (existing == null) {
             await notifier.add(
               caseId:            widget.caseId,
