@@ -1724,11 +1724,61 @@ class _PseudoReport extends ConsumerWidget {
     );
   }
 
+  /// Compact one-line Cost Estimate indicator, always rendered above the
+  /// Account Summary content below (§3.12 item 44 — the same ordering as the
+  /// full Accounts screen, `accounts_screen.dart`'s `_Body`). Status and
+  /// total are read straight off `survey` — `estimated_repair_cost` is kept
+  /// in sync with the sum of `case_cost_estimate_items` by
+  /// `CostEstimateItemsNotifier._syncEstimatedTotal()`, so no separate
+  /// line-item fetch is needed just for this summary line.
+  Widget _costEstimateMiniContent(CaseModel survey) {
+    final status = survey.costEstimateStatus;
+    final label = switch (status) {
+      'completed_all_invoices'   => 'Final Accounting',
+      'ongoing_partial_invoices' => 'Ongoing — Further Invoices Expected',
+      _                          => 'Purely Estimated',
+    };
+    final amount = survey.estimatedRepairCost;
+    final currency = survey.baseCurrency ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.calculate_outlined,
+              size: 12, color: AppColors.textSecondary),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text('Cost Estimate — $label',
+                style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600)),
+          ),
+          if (amount != null && amount > 0.005)
+            Text('$currency ${amount.toStringAsFixed(0)}',
+                style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
   Widget _accountsContent(
     List<RepairDocumentModel> docs,
     List<OccurrenceModel> occurrences,
   ) {
-    if (docs.isEmpty) return const _SectionEmpty('No invoices imported yet');
+    final costEstimateMini = _costEstimateMiniContent(survey);
+    if (docs.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          costEstimateMini,
+          const _SectionEmpty('No invoices imported yet'),
+        ],
+      );
+    }
     final summary  = AccountsSummary.fromDocuments(docs);
     final allLines = docs.expand((d) => d.accountLines).toList();
     final cur      = summary.primaryCurrency;
@@ -1804,6 +1854,7 @@ class _PseudoReport extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        costEstimateMini,
         const Text('Summary',
             style: TextStyle(
                 color: AppColors.textSecondary,

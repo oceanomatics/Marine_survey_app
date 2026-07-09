@@ -11,6 +11,7 @@ import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../cases/providers/cases_provider.dart';
 
 const _uuid = Uuid();
 
@@ -19,6 +20,11 @@ const _uuid = Uuid();
 final repairDocumentsProvider = AsyncNotifierProviderFamily<
     RepairDocumentsNotifier, List<RepairDocumentModel>, String>(
   RepairDocumentsNotifier.new,
+);
+
+final costEstimateItemsProvider = AsyncNotifierProviderFamily<
+    CostEstimateItemsNotifier, List<CostEstimateItemModel>, String>(
+  CostEstimateItemsNotifier.new,
 );
 
 // ── Notifier ───────────────────────────────────────────────────────────────
@@ -467,5 +473,87 @@ class RepairDocumentsNotifier
         'thumbnail_path':        d.thumbnailPath,
         'created_at':            d.createdAt?.toIso8601String(),
       };
+}
+
+// ── Cost estimate items notifier (§3.12 item 42) ────────────────────────────
+
+class CostEstimateItemsNotifier
+    extends FamilyAsyncNotifier<List<CostEstimateItemModel>, String> {
+  String get _caseId => arg;
+
+  @override
+  Future<List<CostEstimateItemModel>> build(String caseId) => _fetch();
+
+  Future<List<CostEstimateItemModel>> _fetch() async {
+    final rows = await SupabaseService.client
+        .from('case_cost_estimate_items')
+        .select()
+        .eq('case_id', _caseId)
+        .order('sort_order');
+    return (rows as List)
+        .map((j) => CostEstimateItemModel.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> addItem({
+    CostEstimateCategory category = CostEstimateCategory.generalExpenses,
+    String? description,
+    double amount = 0,
+  }) async {
+    final current = state.value ?? [];
+    final data = await SupabaseService.client
+        .from('case_cost_estimate_items')
+        .insert({
+          'case_id':    _caseId,
+          'category':   category.value,
+          if (description != null) 'description': description,
+          'amount':     amount,
+          'sort_order': current.length,
+        })
+        .select()
+        .single();
+    state = AsyncData([...current, CostEstimateItemModel.fromJson(data)]);
+    await _syncEstimatedTotal();
+  }
+
+  Future<void> updateItem(CostEstimateItemModel item) async {
+    await SupabaseService.client
+        .from('case_cost_estimate_items')
+        .update({
+          'category':    item.category.value,
+          'description': item.description,
+          'amount':      item.amount,
+        })
+        .eq('id', item.id);
+    final current = state.value ?? [];
+    state = AsyncData(
+        current.map((i) => i.id == item.id ? item : i).toList());
+    await _syncEstimatedTotal();
+  }
+
+  Future<void> deleteItem(String itemId) async {
+    await SupabaseService.client
+        .from('case_cost_estimate_items')
+        .delete()
+        .eq('id', itemId);
+    final current = state.value ?? [];
+    state = AsyncData(current.where((i) => i.id != itemId).toList());
+    await _syncEstimatedTotal();
+  }
+
+  /// Keep `cases.estimated_repair_cost` in sync with the sum of the line
+  /// items above. Report Builder reads that single numeric column directly
+  /// (`report_provider.dart` `_buildCostStatusText`, and
+  /// `docx_export_service.dart`'s REPAIR COSTS block) — syncing it here lets
+  /// the Accounts screen present an itemised breakdown without touching
+  /// either of those call sites.
+  Future<void> _syncEstimatedTotal() async {
+    final total = (state.value ?? []).fold(0.0, (s, i) => s + i.amount);
+    await SupabaseService.client
+        .from('cases')
+        .update({'estimated_repair_cost': total})
+        .eq('case_id', _caseId);
+    ref.invalidate(caseProvider(_caseId));
+  }
 }
 

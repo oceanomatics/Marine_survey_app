@@ -536,6 +536,88 @@ class BatchInvoiceSegment {
       );
 }
 
+// ── Cost estimate line item (Clause G-1 redesign, §3.12 item 42) ───────────
+
+enum CostEstimateCategory {
+  generalExpenses('general_expenses', 'General Expenses'),
+  towing('towing', 'Towing'),
+  dryDocking('dry_docking', 'Dry Docking'),
+  parts('parts', 'Parts'),
+  labour('labour', 'Labour'),
+  pilotage('pilotage', 'Pilotage'),
+  wharfage('wharfage', 'Wharfage'),
+  surveyFees('survey_fees', 'Survey Fees'),
+  classSociety('class_society', 'Class Society'),
+  other('other', 'Other');
+
+  const CostEstimateCategory(this.value, this.label);
+  final String value;
+  final String label;
+
+  static CostEstimateCategory fromValue(String? v) =>
+      CostEstimateCategory.values.firstWhere((e) => e.value == v,
+          orElse: () => CostEstimateCategory.other);
+}
+
+@immutable
+class CostEstimateItemModel {
+  const CostEstimateItemModel({
+    required this.id,
+    required this.caseId,
+    this.category = CostEstimateCategory.generalExpenses,
+    this.description,
+    this.amount = 0,
+    this.sortOrder = 0,
+    this.createdAt,
+  });
+
+  final String id;
+  final String caseId;
+  final CostEstimateCategory category;
+  final String? description;
+  final double amount;
+  final int sortOrder;
+  final DateTime? createdAt;
+
+  factory CostEstimateItemModel.fromJson(Map<String, dynamic> j) =>
+      CostEstimateItemModel(
+        id:          j['id'] as String,
+        caseId:      j['case_id'] as String,
+        category:    CostEstimateCategory.fromValue(j['category'] as String?),
+        description: j['description'] as String?,
+        amount:      (j['amount'] as num?)?.toDouble() ?? 0,
+        sortOrder:   j['sort_order'] as int? ?? 0,
+        createdAt:   j['created_at'] != null
+            ? DateTime.tryParse(j['created_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toInsertJson() => {
+        'case_id':    caseId,
+        'category':   category.value,
+        if (description != null) 'description': description,
+        'amount':     amount,
+        'sort_order': sortOrder,
+      };
+
+  CostEstimateItemModel copyWith({
+    CostEstimateCategory? category,
+    Object? description = _sentinel,
+    double? amount,
+  }) =>
+      CostEstimateItemModel(
+        id: id,
+        caseId: caseId,
+        category: category ?? this.category,
+        description: description == _sentinel
+            ? this.description
+            : description as String?,
+        amount: amount ?? this.amount,
+        sortOrder: sortOrder,
+        createdAt: createdAt,
+      );
+}
+
 // ── Summary DTO ────────────────────────────────────────────────────────────
 
 class AccountsSummary {

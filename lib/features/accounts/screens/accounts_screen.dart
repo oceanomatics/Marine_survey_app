@@ -6,6 +6,7 @@ import '../providers/accounts_provider.dart';
 import '../widgets/import_invoice_sheet.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../cases/providers/cases_provider.dart';
+import '../../cases/models/case_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
@@ -121,12 +122,19 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
           child: SingleChildScrollView(
             child: Column(
               children: [
+                // Cost Estimate always renders above Account Summary (§3.12
+                // item 44) — the estimate is the forward-looking figure the
+                // surveyor cares about first; the summary is the retrospective
+                // record of what's actually been submitted.
+                _CostEstimateSelector(
+                  caseId: widget.caseId,
+                  hasInvoices: submitted.isNotEmpty,
+                ),
                 _SummaryBanner(
                   summary: summary,
                   occurrences: widget.occurrences,
                   allLines: submitted.expand((d) => d.accountLines).toList(),
                 ),
-                _CostEstimateSelector(caseId: widget.caseId),
               ],
             ),
           ),
@@ -214,6 +222,33 @@ class _SummaryBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Proper empty state (§3.12 item 41) — previously this fell through to
+    // the normal banner with every row conditionally suppressed by its
+    // `> 0.005` guard, leaving just the "Summary" label over a blank
+    // surface-coloured rectangle. Show an explicit message instead.
+    if (summary.totalDocuments == 0) {
+      return Container(
+        color: AppColors.surface,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Row(
+          children: [
+            Icon(Icons.receipt_long_outlined,
+                size: 22, color: AppColors.textSecondary.withValues(alpha: 0.5)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'No invoices submitted yet — the account summary will '
+                'populate once invoices are imported and submitted.',
+                style: TextStyle(
+                    color: AppColors.textSecondary.withValues(alpha: 0.9),
+                    fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final cur = summary.primaryCurrency;
 
     // Build financial rows
@@ -370,69 +405,57 @@ class _SummaryBanner extends StatelessWidget {
   }
 }
 
-// ── Cost estimate status (Clause G-1) ───────────────────────────────────────
-
-const _kCostStatusOptions = {
-  'no_invoices_yet':          'No Invoices Yet',
-  'ongoing_partial_invoices': 'Ongoing — Partial Invoices',
-  'completed_all_invoices':   'Completed — All Invoices In',
-};
+// ── Cost estimate (Clause G-1 + §3.12 redesign) ─────────────────────────────
+//
+// Replaces the old single "Estimated Cost" figure + manual 3-way status
+// picker + yes/no "Cost Inclusions" chips with:
+//   - editable line items (suggested category + free-text description +
+//     amount), so the estimate is itemised/explainable
+//   - a free-text caveat/comment box
+//   - an auto-derived status: no invoices at all -> "purely estimated"
+//     automatically; once invoices exist, a yes/no prompt for "further
+//     invoices expected?" drives ongoing vs. completed
+//
+// `cases.cost_includes_general_expenses` / `cost_includes_towing` are left
+// alone on the model/DB (still read by the Report Builder's Advice Summary,
+// see advice_summary_card.dart / advice_summary_rows.dart) — only this
+// screen's yes/no chip UI for them is retired.
 
 class _CostEstimateSelector extends ConsumerStatefulWidget {
-  const _CostEstimateSelector({required this.caseId});
+  const _CostEstimateSelector({
+    required this.caseId,
+    required this.hasInvoices,
+  });
   final String caseId;
+  final bool hasInvoices;
 
   @override
   ConsumerState<_CostEstimateSelector> createState() =>
       _CostEstimateSelectorState();
 }
 
-const _kTowingOptions = {
-  'yes': 'Yes',
-  'no': 'No',
-  'n_a': 'N/A',
-};
-
 class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
-  final _estimateCtrl = TextEditingController();
   final _feeHoursCtrl = TextEditingController();
   final _feeExpensesCtrl = TextEditingController();
+  final _commentCtrl = TextEditingController();
   String? _pendingStatus;
   bool _initialised = false;
+  bool? _lastHasInvoices;
 
   @override
   void dispose() {
-    _estimateCtrl.dispose();
     _feeHoursCtrl.dispose();
     _feeExpensesCtrl.dispose();
+    _commentCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _updateStatus(String status) async {
+    if (!mounted) return;
     setState(() => _pendingStatus = status);
     await ref
         .read(caseProvider(widget.caseId).notifier)
         .updateCaseRefs(costEstimateStatus: status);
-  }
-
-  Future<void> _updateEstimate(String text) async {
-    final value = double.tryParse(text.trim());
-    if (value == null) return;
-    await ref
-        .read(caseProvider(widget.caseId).notifier)
-        .updateCaseRefs(estimatedRepairCost: value);
-  }
-
-  Future<void> _updateGeneralExpenses(bool value) async {
-    await ref
-        .read(caseProvider(widget.caseId).notifier)
-        .updateCaseRefs(costIncludesGeneralExpenses: value);
-  }
-
-  Future<void> _updateTowing(String value) async {
-    await ref
-        .read(caseProvider(widget.caseId).notifier)
-        .updateCaseRefs(costIncludesTowing: value);
   }
 
   Future<void> _updateFeeHours(String text) async {
@@ -451,130 +474,121 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
         .updateCaseRefs(surveyFeeReserveExpenses: value);
   }
 
+  Future<void> _updateComment(String text) async {
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .updateCaseRefs(costEstimateComment: text.trim());
+  }
+
   @override
   Widget build(BuildContext context) {
     final caseModel = ref.watch(caseProvider(widget.caseId)).value;
+    final items = ref.watch(costEstimateItemsProvider(widget.caseId)).value ?? [];
     if (caseModel == null) return const SizedBox.shrink();
 
-    final status = _pendingStatus ?? caseModel.costEstimateStatus;
     if (!_initialised) {
       _initialised = true;
-      if (caseModel.estimatedRepairCost != null) {
-        _estimateCtrl.text =
-            caseModel.estimatedRepairCost!.toStringAsFixed(0);
-      }
-      if (caseModel.surveyFeeReserveHours != null) {
-        _feeHoursCtrl.text =
-            caseModel.surveyFeeReserveHours!.toStringAsFixed(1);
-      }
-      if (caseModel.surveyFeeReserveExpenses != null) {
-        _feeExpensesCtrl.text =
-            caseModel.surveyFeeReserveExpenses!.toStringAsFixed(0);
+      _feeHoursCtrl.text = caseModel.surveyFeeReserveHours != null
+          ? caseModel.surveyFeeReserveHours!.toStringAsFixed(1)
+          : '';
+      _feeExpensesCtrl.text = caseModel.surveyFeeReserveExpenses != null
+          ? caseModel.surveyFeeReserveExpenses!.toStringAsFixed(0)
+          : '';
+      _commentCtrl.text = caseModel.costEstimateComment ?? '';
+    }
+
+    // Auto-derive cost_estimate_status (§3.12 item 43) whenever whether any
+    // invoices exist flips, instead of requiring manual selection. No
+    // invoices -> always "purely estimated"; once invoices exist, default to
+    // "ongoing" (more invoices expected) until the surveyor explicitly says
+    // otherwise via the Yes/No prompt below.
+    if (_lastHasInvoices != widget.hasInvoices) {
+      _lastHasInvoices = widget.hasInvoices;
+      final needed = !widget.hasInvoices
+          ? 'no_invoices_yet'
+          : (caseModel.costEstimateStatus == 'completed_all_invoices'
+              ? 'completed_all_invoices'
+              : 'ongoing_partial_invoices');
+      if (needed != caseModel.costEstimateStatus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _updateStatus(needed);
+        });
       }
     }
 
-    final showEstimateField =
-        status == 'no_invoices_yet' || status == 'ongoing_partial_invoices';
+    final currency = caseModel.baseCurrency ?? '';
+    final total = items.fold(0.0, (s, i) => s + i.amount);
 
     return Container(
       color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Cost Estimate Status',
-              style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: _kCostStatusOptions.entries.map((e) {
-              final selected = status == e.key;
-              return GestureDetector(
-                onTap: () => _updateStatus(e.key),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? _kAccent.withValues(alpha: 0.12)
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: selected ? _kAccent : AppColors.border,
-                        width: selected ? 1.5 : 1),
-                  ),
-                  child: Text(e.value,
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight:
-                              selected ? FontWeight.w600 : FontWeight.w400,
-                          color: selected
-                              ? _kAccent
-                              : AppColors.textSecondary)),
-                ),
-              );
-            }).toList(),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Cost Estimate',
+                    style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700)),
+              ),
+              if (items.isNotEmpty)
+                Text(_fmtMoney(total, currency),
+                    style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700)),
+            ],
           ),
-          if (showEstimateField) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: 180,
-              child: TextField(
-                controller: _estimateCtrl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  isDense: true,
-                  prefixText: '${caseModel.baseCurrency ?? ''} ',
-                  hintText: 'Estimated cost',
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 8),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                onSubmitted: _updateEstimate,
-                onEditingComplete: () => _updateEstimate(_estimateCtrl.text),
+          const SizedBox(height: 8),
+          _buildStatusSection(caseModel),
+
+          const SizedBox(height: 12),
+          ...items.map((item) => _LineItemRow(
+                key: ValueKey(item.id),
+                item: item,
+                caseId: widget.caseId,
+                currency: currency,
+              )),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => ref
+                  .read(costEstimateItemsProvider(widget.caseId).notifier)
+                  .addItem(),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add line'),
+              style: TextButton.styleFrom(
+                foregroundColor: _kAccent,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
               ),
             ),
-          ],
+          ),
 
-          const SizedBox(height: 14),
-          const Text('Cost Inclusions',
+          const SizedBox(height: 10),
+          const Text('Caveats / Comments',
               style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5)),
           const SizedBox(height: 6),
-          Wrap(
-            spacing: 16,
-            runSpacing: 8,
-            children: [
-              _YesNoChips(
-                label: 'General expenses',
-                value: caseModel.costIncludesGeneralExpenses == true
-                    ? 'yes'
-                    : caseModel.costIncludesGeneralExpenses == false
-                        ? 'no'
-                        : null,
-                options: const {'yes': 'Yes', 'no': 'No'},
-                accent: _kAccent,
-                onChanged: (v) => _updateGeneralExpenses(v == 'yes'),
-              ),
-              _YesNoChips(
-                label: 'Towing costs',
-                value: caseModel.costIncludesTowing,
-                options: _kTowingOptions,
-                accent: _kAccent,
-                onChanged: _updateTowing,
-              ),
-            ],
+          _AutoSaveField(
+            controller: _commentCtrl,
+            onCommit: _updateComment,
+            maxLines: 3,
+            style: const TextStyle(fontSize: 12),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'e.g. estimate still dependent on drydock quote',
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8))),
+            ),
           ),
 
           const SizedBox(height: 14),
@@ -587,46 +601,37 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
           const SizedBox(height: 6),
           Row(
             children: [
-              SizedBox(
+              _AutoSaveField(
+                controller: _feeHoursCtrl,
+                onCommit: _updateFeeHours,
                 width: 100,
-                child: TextField(
-                  controller: _feeHoursCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(fontSize: 13),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    suffixText: 'hrs',
-                    hintText: 'Hours',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onSubmitted: _updateFeeHours,
-                  onEditingComplete: () => _updateFeeHours(_feeHoursCtrl.text),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  suffixText: 'hrs',
+                  hintText: 'Hours',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
               ),
               const SizedBox(width: 10),
-              SizedBox(
+              _AutoSaveField(
+                controller: _feeExpensesCtrl,
+                onCommit: _updateFeeExpenses,
                 width: 160,
-                child: TextField(
-                  controller: _feeExpensesCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(fontSize: 13),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixText: '${caseModel.baseCurrency ?? ''} ',
-                    hintText: 'Expenses',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onSubmitted: _updateFeeExpenses,
-                  onEditingComplete: () =>
-                      _updateFeeExpenses(_feeExpensesCtrl.text),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixText: '$currency ',
+                  hintText: 'Expenses',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             ],
@@ -635,65 +640,289 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
       ),
     );
   }
-}
 
-/// Small labelled Yes/No(/N-A) chip row — shared by the cost-inclusion
-/// toggles above.
-class _YesNoChips extends StatelessWidget {
-  const _YesNoChips({
-    required this.label,
-    required this.value,
-    required this.options,
-    required this.accent,
-    required this.onChanged,
-  });
-  final String label;
-  final String? value;
-  final Map<String, String> options;
-  final Color accent;
-  final ValueChanged<String> onChanged;
+  Widget _buildStatusSection(CaseModel caseModel) {
+    if (!widget.hasInvoices) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: _kAccent.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _kAccent.withValues(alpha: 0.4)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline, size: 13, color: _kAccent),
+            SizedBox(width: 6),
+            Text('Purely Estimated — no invoices received yet',
+                style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w600, color: _kAccent)),
+          ],
+        ),
+      );
+    }
 
-  @override
-  Widget build(BuildContext context) {
+    final status = _pendingStatus ?? caseModel.costEstimateStatus;
+    final expectMore = status != 'completed_all_invoices';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+        const Text('Further invoices still expected?',
+            style: TextStyle(fontSize: 11, color: AppColors.textTertiary)),
         const SizedBox(height: 4),
         Row(
           mainAxisSize: MainAxisSize.min,
-          children: options.entries.map((e) {
-            final selected = value == e.key;
-            return Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: GestureDetector(
-                onTap: () => onChanged(e.key),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? accent.withValues(alpha: 0.12)
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                        color: selected ? accent : AppColors.border,
-                        width: selected ? 1.5 : 1),
-                  ),
-                  child: Text(e.value,
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight:
-                              selected ? FontWeight.w600 : FontWeight.w400,
-                          color: selected ? accent : AppColors.textSecondary)),
-                ),
-              ),
-            );
-          }).toList(),
+          children: [
+            _statusChip('Yes', expectMore,
+                () => _updateStatus('ongoing_partial_invoices')),
+            const SizedBox(width: 6),
+            _statusChip('No — final accounting', !expectMore,
+                () => _updateStatus('completed_all_invoices')),
+          ],
         ),
       ],
     );
+  }
+
+  Widget _statusChip(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? _kAccent.withValues(alpha: 0.12) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: selected ? _kAccent : AppColors.border,
+              width: selected ? 1.5 : 1),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: selected ? _kAccent : AppColors.textSecondary)),
+      ),
+    );
+  }
+}
+
+/// One editable cost-estimate line item: suggested category + free-text
+/// description + amount. Owns its own controllers, keyed by item id
+/// (`ValueKey` in the parent's list) so edits in one row survive rebuilds
+/// triggered by other rows or by provider refreshes elsewhere on screen.
+class _LineItemRow extends ConsumerStatefulWidget {
+  const _LineItemRow({
+    required this.item,
+    required this.caseId,
+    required this.currency,
+    super.key,
+  });
+  final CostEstimateItemModel item;
+  final String caseId;
+  final String currency;
+
+  @override
+  ConsumerState<_LineItemRow> createState() => _LineItemRowState();
+}
+
+class _LineItemRowState extends ConsumerState<_LineItemRow> {
+  late final _descCtrl = TextEditingController(text: widget.item.description ?? '');
+  late final _amountCtrl = TextEditingController(
+      text: widget.item.amount == 0 ? '' : _fmtAmount(widget.item.amount));
+
+  static String _fmtAmount(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  void _commitDescription(String text) {
+    final trimmed = text.trim();
+    if (trimmed == (widget.item.description ?? '')) return;
+    ref.read(costEstimateItemsProvider(widget.caseId).notifier).updateItem(
+        widget.item.copyWith(description: trimmed.isEmpty ? null : trimmed));
+  }
+
+  void _commitAmount(String text) {
+    final value = double.tryParse(text.trim()) ?? 0;
+    if (value == widget.item.amount) return;
+    ref
+        .read(costEstimateItemsProvider(widget.caseId).notifier)
+        .updateItem(widget.item.copyWith(amount: value));
+  }
+
+  void _commitCategory(CostEstimateCategory? cat) {
+    if (cat == null || cat == widget.item.category) return;
+    ref
+        .read(costEstimateItemsProvider(widget.caseId).notifier)
+        .updateItem(widget.item.copyWith(category: cat));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<CostEstimateCategory>(
+                  initialValue: widget.item.category,
+                  isDense: true,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(8))),
+                  ),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                  items: CostEstimateCategory.values
+                      .map((c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(c.label, overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: _commitCategory,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _AutoSaveField(
+                controller: _amountCtrl,
+                onCommit: _commitAmount,
+                width: 110,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixText: '${widget.currency} ',
+                  hintText: 'Amount',
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                color: AppColors.textSecondary,
+                tooltip: 'Remove line',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => ref
+                    .read(costEstimateItemsProvider(widget.caseId).notifier)
+                    .deleteItem(widget.item.id),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _AutoSaveField(
+            controller: _descCtrl,
+            onCommit: _commitDescription,
+            style: const TextStyle(fontSize: 12),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'Description (optional)',
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Text field that reliably commits its value both on explicit keyboard
+/// submission (Done/Enter) *and* on focus loss (tapping elsewhere).
+///
+/// Root cause of §3.12 item 40 ("estimated cost won't save"): the old field
+/// only called its update function from `TextField.onSubmitted`/
+/// `onEditingComplete`, which fire only when the user explicitly presses the
+/// keyboard's submit action — tapping away to dismiss the keyboard (the more
+/// natural gesture) fires neither callback, so the typed value was silently
+/// discarded. This wrapper adds a `FocusNode` listener that commits whenever
+/// focus is lost, regardless of how the user leaves the field, while still
+/// also committing on explicit submission for the no-focus-change case (e.g.
+/// pressing "Done" then immediately backgrounding the app).
+class _AutoSaveField extends StatefulWidget {
+  const _AutoSaveField({
+    required this.controller,
+    required this.onCommit,
+    this.decoration,
+    this.keyboardType,
+    this.style,
+    this.width,
+    this.maxLines = 1,
+  });
+  final TextEditingController controller;
+  final ValueChanged<String> onCommit;
+  final InputDecoration? decoration;
+  final TextInputType? keyboardType;
+  final TextStyle? style;
+  final double? width;
+  final int maxLines;
+
+  @override
+  State<_AutoSaveField> createState() => _AutoSaveFieldState();
+}
+
+class _AutoSaveFieldState extends State<_AutoSaveField> {
+  final _focusNode = FocusNode();
+  late String _lastCommitted = widget.controller.text;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus) _commit();
+  }
+
+  void _commit() {
+    final text = widget.controller.text;
+    if (text == _lastCommitted) return;
+    _lastCommitted = text;
+    widget.onCommit(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final field = TextField(
+      controller: widget.controller,
+      focusNode: _focusNode,
+      keyboardType: widget.keyboardType,
+      style: widget.style,
+      decoration: widget.decoration,
+      maxLines: widget.maxLines,
+      onSubmitted: (_) => _commit(),
+      onEditingComplete: _commit,
+    );
+    return widget.width != null ? SizedBox(width: widget.width, child: field) : field;
   }
 }
 

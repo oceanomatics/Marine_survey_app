@@ -232,6 +232,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     String? costIncludesTowing,
     double? surveyFeeReserveHours,
     double? surveyFeeReserveExpenses,
+    String? costEstimateComment,
     bool? followUpRequired,
     String? followUpDetail,
   }) async {
@@ -262,6 +263,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     if (surveyFeeReserveExpenses != null) {
       updates['survey_fee_reserve_expenses'] = surveyFeeReserveExpenses;
     }
+    if (costEstimateComment != null) updates['cost_estimate_comment'] = costEstimateComment;
     if (followUpRequired != null) updates['follow_up_required'] = followUpRequired;
     if (followUpDetail != null)   updates['follow_up_detail']   = followUpDetail;
 

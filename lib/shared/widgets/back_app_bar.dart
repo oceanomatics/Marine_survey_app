@@ -67,12 +67,32 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
     final fallback = canPop ? null : _derivedFallback(context);
     final showBack = automaticallyImplyLeading && (canPop || fallback != null);
 
+    // Root cause of the "light/barely readable title text" bug (§3.12 item
+    // 38, also latent on any other screen overriding backgroundColor away
+    // from the navy default — e.g. vessel_compliance_screen.dart,
+    // invoice_detail_screen.dart): the app-wide AppBarTheme in app_theme.dart
+    // hardcodes `titleTextStyle: TextStyle(color: Colors.white)` for the
+    // default navy bar. Flutter's AppBar resolves its title style as
+    // `widget.titleTextStyle ?? appBarTheme.titleTextStyle ?? defaults...`
+    // (see flutter/material/app_bar.dart) — `foregroundColor` is only ever
+    // used as a fallback *inside* that last `defaults` branch, so it never
+    // gets a chance to override a theme-set titleTextStyle. Passing
+    // `foregroundColor` here silently did nothing to the title colour.
+    // Fix: when a caller explicitly overrides `foregroundColor`, also derive
+    // an explicit `titleTextStyle` from it (keeping the theme's font/size/
+    // weight) so it actually wins over the theme default.
+    final themeTitleStyle = Theme.of(context).appBarTheme.titleTextStyle;
+    final resolvedTitleTextStyle = foregroundColor != null
+        ? (themeTitleStyle ?? const TextStyle()).copyWith(color: foregroundColor)
+        : null;
+
     return AppBar(
       title: title,
       actions: actions,
       bottom: bottom,
       backgroundColor: backgroundColor,
       foregroundColor: foregroundColor,
+      titleTextStyle: resolvedTitleTextStyle,
       elevation: elevation,
       titleSpacing: titleSpacing,
       automaticallyImplyLeading: false,

@@ -120,6 +120,7 @@ class CaseModel {
     this.costIncludesTowing,
     this.surveyFeeReserveHours,
     this.surveyFeeReserveExpenses,
+    this.costEstimateComment,
     // Follow-up attendance (relocated from the report builder — see
     // docs/migrations/017).
     this.followUpRequired,
@@ -182,6 +183,9 @@ class CaseModel {
   final String? costIncludesTowing; // 'yes' / 'no' / 'n_a'
   final double? surveyFeeReserveHours;
   final double? surveyFeeReserveExpenses;
+  /// Free-text caveat/comment attached to the itemised cost estimate (§3.12
+  /// item 42), e.g. "estimate still dependent on drydock quote".
+  final String? costEstimateComment;
   /// Is a follow-up survey attendance required before the case can close?
   final bool? followUpRequired;
   final String? followUpDetail;
@@ -262,6 +266,7 @@ class CaseModel {
       surveyFeeReserveHours: (json['survey_fee_reserve_hours'] as num?)?.toDouble(),
       surveyFeeReserveExpenses:
           (json['survey_fee_reserve_expenses'] as num?)?.toDouble(),
+      costEstimateComment: json['cost_estimate_comment'] as String?,
       followUpRequired: json['follow_up_required'] as bool?,
       followUpDetail:   json['follow_up_detail'] as String?,
       otherMattersClauseIds:
@@ -322,6 +327,7 @@ class CaseModel {
       'survey_fee_reserve_hours': surveyFeeReserveHours,
     if (surveyFeeReserveExpenses != null)
       'survey_fee_reserve_expenses': surveyFeeReserveExpenses,
+    if (costEstimateComment != null)  'cost_estimate_comment':    costEstimateComment,
     if (followUpRequired != null)     'follow_up_required':       followUpRequired,
     if (followUpDetail != null)       'follow_up_detail':         followUpDetail,
     'signed_off_attending': signedOffAttending,
@@ -380,6 +386,7 @@ class CaseModel {
     String? costIncludesTowing,
     double? surveyFeeReserveHours,
     double? surveyFeeReserveExpenses,
+    String? costEstimateComment,
     bool? followUpRequired,
     String? followUpDetail,
     List<String>? otherMattersClauseIds,
@@ -421,6 +428,7 @@ class CaseModel {
       surveyFeeReserveHours: surveyFeeReserveHours ?? this.surveyFeeReserveHours,
       surveyFeeReserveExpenses:
           surveyFeeReserveExpenses ?? this.surveyFeeReserveExpenses,
+      costEstimateComment:   costEstimateComment   ?? this.costEstimateComment,
       followUpRequired:      followUpRequired      ?? this.followUpRequired,
       followUpDetail:        followUpDetail        ?? this.followUpDetail,
       otherMattersClauseIds: otherMattersClauseIds ?? this.otherMattersClauseIds,
