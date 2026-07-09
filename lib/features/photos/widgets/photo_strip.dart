@@ -10,6 +10,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import '../models/photo_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kThumbSize = 72.0;
 const _kColor = AppColors.purple;
@@ -200,7 +201,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     final photo = widget.photos[_current];
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
+      appBar: BackAppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: Text(

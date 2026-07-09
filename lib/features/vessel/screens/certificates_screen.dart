@@ -7,6 +7,7 @@ import '../widgets/certificate_card.dart';
 import '../widgets/add_certificate_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class CertificatesScreen extends ConsumerWidget {
   const CertificatesScreen({super.key, required this.caseId});
@@ -18,7 +19,7 @@ class CertificatesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Certificates'),
       ),
       floatingActionButton: FloatingActionButton.extended(

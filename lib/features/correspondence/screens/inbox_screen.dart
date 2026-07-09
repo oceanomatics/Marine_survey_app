@@ -1,6 +1,7 @@
 // lib/features/correspondence/screens/inbox_screen.dart — stub, will be built out in subsequent sessions
 import 'package:flutter/material.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class InboxScreen extends StatelessWidget {
   const InboxScreen({super.key});
@@ -8,7 +9,7 @@ class InboxScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('InboxScreen')),
+      appBar: BackAppBar(title: const Text('InboxScreen')),
       body: const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.construction_outlined, size: 48, color: AppColors.textTertiary),
         SizedBox(height: 12),

@@ -12,6 +12,8 @@ import '../../../core/services/model_manager.dart';
 import '../../../core/services/sherpa_service.dart';
 import '../../settings/providers/speech_settings_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 class InterviewScreen extends ConsumerStatefulWidget {
   const InterviewScreen({super.key, required this.caseId});
@@ -156,11 +158,7 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
             durationSecs: _seconds,
           );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Interview saved ✓'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ));
+        showSavedToast(context, label: 'Interview saved');
         _reset();
       }
     } catch (e) {
@@ -225,7 +223,7 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Text(_isRecording
             ? 'Recording…'
             : _done

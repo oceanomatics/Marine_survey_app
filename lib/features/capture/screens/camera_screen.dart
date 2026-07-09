@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/quick_capture_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class CameraScreen extends StatelessWidget {
   const CameraScreen(
@@ -17,7 +18,7 @@ class CameraScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Camera')),
+      appBar: BackAppBar(title: const Text('Camera')),
       body: const Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.camera_alt_outlined,

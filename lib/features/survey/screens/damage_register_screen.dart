@@ -14,6 +14,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -143,7 +144,7 @@ class DamageRegisterScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Damage Register'),
       ),
       floatingActionButton: damageAsync.when(

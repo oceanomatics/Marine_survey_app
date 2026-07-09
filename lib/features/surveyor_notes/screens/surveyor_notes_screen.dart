@@ -20,6 +20,7 @@ import '../../survey/widgets/quick_create_repair_period.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF4A7A5A);
 
@@ -55,12 +56,12 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
     return notesAsync.when(
       loading: () => Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: AppBar(title: const Text('Context Cues')),
+        appBar: BackAppBar(title: const Text('Context Cues')),
         body: const AppLoadingWidget(message: 'Loading cues…'),
       ),
       error: (e, _) => Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: AppBar(title: const Text('Context Cues')),
+        appBar: BackAppBar(title: const Text('Context Cues')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (notes) {
@@ -84,7 +85,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
 
         return Scaffold(
           backgroundColor: AppColors.surface,
-          appBar: AppBar(
+          appBar: BackAppBar(
             title: const Text('Context Cues'),
             bottom: TabBar(
               controller: _tabCtrl,

@@ -9,6 +9,7 @@ import '../widgets/stage_progress_header.dart';
 import '../widgets/add_item_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class ChecklistScreen extends ConsumerStatefulWidget {
   const ChecklistScreen({super.key, required this.caseId, this.stage});
@@ -48,7 +49,7 @@ class _ChecklistScreenState extends ConsumerState<ChecklistScreen>
     return checklistAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('Checklist')),
+        appBar: BackAppBar(title: const Text('Checklist')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (cl) => _buildScaffold(cl),
@@ -58,7 +59,7 @@ class _ChecklistScreenState extends ConsumerState<ChecklistScreen>
   Widget _buildScaffold(ChecklistState cl) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

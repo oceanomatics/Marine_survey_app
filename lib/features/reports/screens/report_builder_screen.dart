@@ -17,6 +17,7 @@ import '../../../shared/widgets/loading_widget.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class ReportBuilderScreen extends ConsumerStatefulWidget {
   const ReportBuilderScreen({super.key, required this.caseId});
@@ -71,7 +72,7 @@ class _ReportBuilderScreenState extends ConsumerState<ReportBuilderScreen>
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

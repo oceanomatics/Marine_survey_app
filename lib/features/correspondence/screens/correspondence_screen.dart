@@ -18,12 +18,14 @@ import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
 import '../../../features/parties/providers/parties_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import 'gmail_message_picker_screen.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -37,7 +39,7 @@ class CorrespondenceScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Correspondence')),
+      appBar: BackAppBar(title: const Text('Correspondence')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref),
         backgroundColor: _kColor,
@@ -220,12 +222,8 @@ class CorrespondenceScreen extends ConsumerWidget {
         );
       }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                '${selected.length} attachment(s) saved to Document Vault'),
-          ),
-        );
+        showSavedToast(context,
+            label: '${selected.length} attachment(s) saved to Document Vault');
       }
     }
   }
@@ -296,12 +294,8 @@ class CorrespondenceScreen extends ConsumerWidget {
         );
       }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                '${selected.length} attachment(s) saved to Document Vault'),
-          ),
-        );
+        showSavedToast(context,
+            label: '${selected.length} attachment(s) saved to Document Vault');
       }
     }
   }
@@ -1499,7 +1493,7 @@ class _PdfPreviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
+        appBar: BackAppBar(
             title:
                 Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
         body: PdfViewer.file(item.localPath!),
@@ -1516,7 +1510,7 @@ class _PdfBytesPreviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
+        appBar: BackAppBar(
             title:
                 Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
         body: PdfViewer.data(bytes, sourceName: item.id),
@@ -1531,7 +1525,7 @@ class _EmailPreviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
+        appBar: BackAppBar(
             title:
                 Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
         body: SingleChildScrollView(

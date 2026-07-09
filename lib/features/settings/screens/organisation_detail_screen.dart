@@ -6,6 +6,7 @@ import '../models/organisation_model.dart';
 import '../providers/organisations_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/save_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 class OrganisationDetailScreen extends ConsumerStatefulWidget {
   const OrganisationDetailScreen({super.key, required this.orgId});
@@ -112,11 +113,7 @@ class _OrganisationDetailScreenState
       await ref.read(organisationsProvider.notifier).saveOrganisation(updated);
       if (mounted) {
         setState(() => _dirty = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Organisation saved'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ));
+        showSavedToast(context, label: 'Organisation saved');
       }
     } catch (e) {
       if (mounted) {

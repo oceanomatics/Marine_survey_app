@@ -11,6 +11,8 @@ import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 class PhotoDetailSheet extends ConsumerStatefulWidget {
   const PhotoDetailSheet({
@@ -55,14 +57,17 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
     await notifier.updateAllocation(widget.photo.id, _allocation);
     await notifier.updatePlacementMode(widget.photo.id, _placementMode);
     await notifier.updatePhotoSource(widget.photo.id, _photoSource);
-    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      showSavedToast(context);
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Photo Details', style: TextStyle(fontSize: 16)),
         actions: [
           TextButton(

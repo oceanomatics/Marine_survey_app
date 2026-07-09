@@ -54,6 +54,7 @@ import '../../reports/providers/report_provider.dart' show ClauseModel;
 import '../providers/other_matters_clauses_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class AdditionalInformationScreen extends ConsumerWidget {
   const AdditionalInformationScreen({super.key, required this.caseId});
@@ -78,7 +79,7 @@ class AdditionalInformationScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Additional Information')),
+      appBar: BackAppBar(title: const Text('Additional Information')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

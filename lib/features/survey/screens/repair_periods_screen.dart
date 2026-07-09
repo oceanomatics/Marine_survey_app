@@ -15,6 +15,8 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kRepairColor = Color(0xFF1A6B9E);
 const _kTimesColor  = Color(0xFF0F766E);
@@ -41,7 +43,7 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Repair Periods'),
         backgroundColor: _kRepairColor,
         foregroundColor: Colors.white,
@@ -845,7 +847,10 @@ class _EditRepairTimeSheetState extends State<_EditRepairTimeSheet> {
         alongsideDays: double.tryParse(_alongside.text.trim()),
       );
       await widget.onSave(entry);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        showSavedToast(context);
+        Navigator.pop(context);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1622,7 +1627,10 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
         status: _status,
       );
       await widget.onSave(item);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        showSavedToast(context);
+        Navigator.pop(context);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1890,7 +1898,10 @@ class _BudgetDisplaySheetState extends State<_BudgetDisplaySheet> {
     try {
       final rate = double.tryParse(_rateCtrl.text.trim());
       await widget.onSave(_base, _display, rate, _rateDate);
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        showSavedToast(context);
+        Navigator.pop(context);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

@@ -11,6 +11,7 @@ import '../providers/cases_provider.dart';
 import '../models/case_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../settings/providers/organisations_provider.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kCurrencies = [
   'AUD', 'USD', 'GBP', 'EUR', 'SGD', 'NZD',
@@ -85,7 +86,10 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
         instructingParty: _v(_instructingPartyCtrl),
         assured:         _v(_assuredCtrl),
       );
-      if (mounted) context.pop();
+      if (mounted) {
+        showSavedToast(context);
+        context.pop();
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

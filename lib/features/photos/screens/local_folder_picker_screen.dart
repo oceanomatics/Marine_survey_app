@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class LocalFolderPickerScreen extends StatefulWidget {
   const LocalFolderPickerScreen({
@@ -73,7 +74,7 @@ class _LocalFolderPickerScreenState extends State<LocalFolderPickerScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

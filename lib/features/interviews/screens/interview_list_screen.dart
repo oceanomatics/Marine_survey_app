@@ -8,6 +8,7 @@ import '../models/interview_model.dart';
 import '../providers/interview_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class InterviewListScreen extends ConsumerWidget {
   const InterviewListScreen({super.key, required this.caseId});
@@ -19,7 +20,7 @@ class InterviewListScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Interviews'),
         actions: [
           IconButton(

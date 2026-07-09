@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../models/organisation_model.dart';
 import '../providers/organisations_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class OrganisationListScreen extends ConsumerWidget {
   const OrganisationListScreen({super.key});
@@ -53,7 +54,7 @@ class OrganisationListScreen extends ConsumerWidget {
     final async = ref.watch(organisationsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Organisations')),
+      appBar: BackAppBar(title: const Text('Organisations')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createNew(context, ref),
         icon: const Icon(Icons.add),

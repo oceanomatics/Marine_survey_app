@@ -26,6 +26,8 @@ import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../shared/widgets/photo_picker_sheet.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kColor = AppColors.purple;
 const _kSpacing = 3.0;
@@ -310,7 +312,7 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Text(
           photos.isEmpty ? 'Photos' : 'Photos  (${photos.length})',
           style: const TextStyle(fontSize: 16),
@@ -1085,11 +1087,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     await notifier.updateAllocation(ph.id, _allocation);
     if (!mounted) return;
     setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Saved'),
-      duration: Duration(seconds: 1),
-      behavior: SnackBarBehavior.floating,
-    ));
+    showSavedToast(context);
   }
 
   Future<void> _rotate() async {
@@ -1267,7 +1265,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
+      appBar: BackAppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         titleSpacing: 0,

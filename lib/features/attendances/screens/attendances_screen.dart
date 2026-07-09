@@ -13,6 +13,7 @@ import '../../survey/providers/attendees_provider.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kVisitsColor = Color(0xFFBF7E3A);
 
@@ -154,7 +155,7 @@ class AttendancesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Attendance')),
+      appBar: BackAppBar(title: const Text('Attendance')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref, uniquePrevious),
         backgroundColor: _kVisitsColor,

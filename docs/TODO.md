@@ -10,6 +10,61 @@ Status legend: `[ ]` Not started · `[~]` In progress · `[✓]` Done · `[!]` B
 
 ---
 
+## AUTONOMOUS OVERNIGHT SESSION — started 8 July 2026 (evening)
+
+Surveyor is offline until tomorrow morning. Working unsupervised on branch `overnight-work-2026-07-08` off `main` (never pushed, never merged automatically — for the surveyor to review/merge in the morning). Structural decisions made without asking, so downstream work stays consistent:
+
+- **Back navigation (B3):** one shared AppBar wrapper honouring `GoRouter.canPop()`, applied app-wide.
+- **Save feedback (B4):** one shared green success SnackBar helper, used everywhere a save completes.
+- **Rounded-corner bug (§3.10/§3.11):** fixed at the shared `ContextCuesPanel`/`CueSectionCard` widget level.
+- **Cue create-or-merge, per-item scoping (§3.7/§3.8/§3.9/§2.17):** reuses the existing polymorphic `linked_to_type`/`linked_to_id` mechanism already proven for repair-period scoping (`docs/context_cue_system_review.md` Step 2) — extend the vocabulary, no schema rework.
+- **DB changes:** additive only (`ADD COLUMN IF NOT EXISTS` / new tables), applied via the Supabase Management API, every statement logged below. No drops, no destructive renames.
+- **Git:** incremental commits on this branch only, never pushed, `main` untouched.
+
+**Live progress log (updated as work lands):**
+
+<!-- OVERNIGHT_LOG_START -->
+- 8 July, session start — branch created, plan below.
+- **8 July, paused for VS Code restart (permission-mode reload).** Status snapshot below — nothing committed yet, all changes live in the working tree on `overnight-work-2026-07-08`. Safe to resume exactly here.
+
+### Snapshot at pause point
+
+**Done and verified (`flutter analyze` clean: 0 errors, 37 issues, all pre-existing-style info/warnings — baseline was 10):**
+- `lib/shared/widgets/back_app_bar.dart` — **new file.** `BackAppBar` (B3 fix): drop-in `AppBar` replacement. Root cause confirmed: this app uses `context.go()` almost everywhere (37 call sites vs. 4 `context.push()`), which replaces the route instead of pushing, so `Navigator.canPop()` is false on nearly every screen and Flutter's built-in back button never appears. `BackAppBar` shows a back button when `canPop()` is true (pops), otherwise derives a fallback by stripping the last path segment off the current location (e.g. `/cases/abc/vessel` → `/cases/abc`) and `go()`s there — no per-screen config needed. Mirrors `title`/`actions`/`bottom`/`backgroundColor`/`foregroundColor`/`elevation`/`titleSpacing`/`automaticallyImplyLeading`.
+- `lib/shared/widgets/app_feedback.dart` — **new file.** `showSavedToast(context)` (B4 fix): green `SnackBar` with a check icon, `AppColors.success`. **Built but not yet wired into any screen's save action** — that rollout is the next step, not started.
+- `lib/shared/widgets/context_cues_panel.dart` — **modified.** Fixed the WNCA/General Services/Additional Information/Nature-of-Repairs rounded-corner bug (§3.10/§3.11): `CueSectionCard` was wrapping a bordered+rounded `Container` in a *separate* `ClipRRect` with the same nominal radius — two independently-computed rounded paths at the same radius don't pixel-align, producing the reported seam. Fixed by giving the `Container` its own `clipBehavior: Clip.antiAlias` and removing the outer `ClipRRect` — border and clip now share one path.
+- **Back-button rollout — 41 screen files** now use `BackAppBar` instead of `AppBar`, each with the import added:
+  `photo_detail_sheet.dart`, `timesheet_screen.dart`, `photo_strip.dart`, `vessel_compliance_screen.dart`, `speech_settings_screen.dart`, `case_analyst_screen.dart`, `photo_gallery_screen.dart` (+ `titleSpacing` param added to `BackAppBar` to match), `debug_log_screen.dart`, `certificates_screen.dart`, `attendances_screen.dart`, `additional_information_screen.dart`, `quick_capture_screen.dart`, `cases_list_screen.dart`, `invoice_detail_screen.dart`, `interview_list_screen.dart`, `new_case_screen.dart`, `causation_screen.dart`, `background_screen.dart`, `nature_of_repairs_screen.dart`, `damage_register_screen.dart`, `timeline_screen.dart`, `inbox_screen.dart`, `checklist_screen.dart`, `camera_screen.dart`, `voice_note_screen.dart`, `occurrence_screen.dart`, `accounts_screen.dart`, `repair_period_scoped_cues_screen.dart`, `surveyor_notes_screen.dart`, `repair_periods_screen.dart`, `attendees_screen.dart`, `local_folder_picker_screen.dart`, `correspondence_screen.dart`, `gmail_message_picker_screen.dart`, `organisation_list_screen.dart`, `report_builder_screen.dart`, `vessel_particulars_screen.dart`, `document_vault_screen.dart`, `record_interview_screen.dart`, `interview_screen.dart`, `parties_screen.dart` (full paths under `lib/features/.../screens/` or `.../widgets/`).
+- **Deliberately left alone** (already had a custom `leading`, e.g. a modal close button — correct as-is): `drive_folder_picker_screen.dart`, `usage_screen.dart`, `account_screen.dart`, `edit_case_screen.dart`, `case_home_screen.dart`. **Not yet reviewed, low priority:** `hse_screen.dart` (stub screen anyway), `organisation_detail_screen.dart`'s two bare `AppBar()` error-state instances (no title context, low value).
+
+**Not started yet (next steps on resume, in order):**
+1. Roll `showSavedToast()` out to actual save call sites (search for existing ad hoc SnackBar-on-save code and replace).
+2. Fix keyboard-overflow bug pattern (Repair Periods §3.9, Accounts §3.12) — likely a `resizeToAvoidBottomInset`/scrollable-wrapper fix, not yet investigated.
+3. `git add` + commit Cluster A as one commit (nothing is committed yet — everything above is in the working tree only).
+4. Spawn background agents for Cluster B (Vessel §2.17), Cluster C (Occurrence/Damage/Repair §3.7–3.9), Cluster D (Accounts §3.12).
+5. Cluster I (Report Builder §1.8/§1.9/§2.18) directly, not started.
+
+**Housekeeping done this session:** `.claude/settings.local.json` `defaultMode` changed from `acceptEdits` to `bypassPermissions` per explicit surveyor request (gitignored, not part of any commit) — a VS Code restart is needed for that to take effect, which is why we paused here.
+
+- **Resumed 9 July, interactive session (surveyor present, asked to continue overnight work).** Finished the rest of Cluster A:
+  - `showSavedToast()` wired into every real save-action call site found: Voice Notes, Interview (both entry points), Parties, Photo caption/allocation editor (`photo_gallery_screen.dart` viewer + `photo_detail_sheet.dart`), Account profile, Organisation settings, Vessel Particulars (save + create-and-save + Equasis fetch), Correspondence (both attachment-save paths), Vessel Compliance (main save + Class Condition dialog + PSC Deficiency dialog), Document Vault metadata-edit dialog, Repair Periods (time-entry / budget-item / budget-display dialogs), Invoice header save, Edit Case screen. Replaced every ad hoc "X saved" `SnackBar` with the shared helper; added it to several screens (Vessel Compliance, Edit Case, Document Vault dialog, Photo Detail sheet, all three Repair Periods dialogs) that previously gave **no** save feedback at all — that silent-save gap was probably a bigger part of the original complaint than the visual inconsistency.
+  - **Accounts keyboard overflow (§3.12 item 39) — root-caused and fixed.** `accounts_screen.dart`'s `_Body` stacked `_SummaryBanner` + `_CostEstimateSelector` (which owns the Estimated Cost / Survey Fee Reserve text fields) as fixed non-scrollable children in a `Column`, above a `TabBar` and an `Expanded` `TabBarView`. When the keyboard opens on a phone-height viewport, the fixed header no longer fits in the shrunk viewport — classic "fixed content above Expanded" overflow. Fixed by wrapping the header in `Flexible(child: SingleChildScrollView(...))` so it can scroll/shrink under the keyboard instead of hard-overflowing.
+  - **Repair Periods overflow (§3.9 item 24) — investigated, not fixed here.** Checked every bottom sheet in `repair_periods_screen.dart` and `assign_repair_items_sheet.dart` (`AddRepairPeriodSheet`, `_EditRepairTimeSheet`, `_BudgetItemSheet`, `_BudgetDisplaySheet`, `AssignRepairItemsSheet`) — all already wrap correctly with `Padding(bottom: viewInsets.bottom)` / `DraggableScrollableSheet`, so this isn't the same keyboard-inset bug as Accounts. Most likely lives in `_PeriodCard`'s expanded-state inner layout instead (cards default to `_expanded = true`). Didn't chase further with live reproduction — properly belongs to Cluster C (Repair Periods editors), which has a background agent with room to actually launch the app and reproduce it, rather than guessing blind. Flagged explicitly in that agent's brief.
+  - `flutter analyze` after all of the above: **0 errors, 39 issues** (baseline 37 pre-existing info/warnings + 2 new instances of the same pre-existing `use_build_context_synchronously`-guarded-by-`mounted` info lint, at the two new dialog call sites in `vessel_compliance_screen.dart` — same tolerated pattern already present elsewhere in that file, not a new category of issue).
+  - Cluster A committed as a single commit at this point. Moving on to spawning background agents for Clusters B/C/D and working Cluster I directly, per the plan below.
+<!-- OVERNIGHT_LOG_END -->
+
+**Execution plan (clusters, in order):**
+1. Cluster A — App-wide UI infrastructure (back button, save toast, cue-widget corner/scaling bug, keyboard-overflow pattern) — foundation for everything else, done first, by the orchestrating session directly.
+2. Cluster B — Vessel Particulars restructure (§2.17) — background agent.
+3. Cluster C — Occurrence/Damage Register/Repair Periods editors + cues (§3.7/§3.8/§3.9) — background agent.
+4. Cluster D — Accounts bugs + cost estimate redesign (§3.12) — background agent.
+5. Cluster I — Report Builder content fixes + narrative pattern + numbering (§1.8/§1.9), editor redesign (§2.18) best-effort — orchestrating session directly (legal/compliance-sensitive, keeping this one under tighter control).
+6. Cluster E/G — Attendances/Photos/Case Home header/Documentation screen — if time remains.
+7. Deferred, not attempted tonight (flagged for a supervised session): Correspondence/Gmail rework (§3.14, live OAuth risk), Timeline AI-rating system (§3.16), event-driven background AI pipeline (§4.1) — all logged, none started blind.
+
+---
+
 ## PHASE 0 — Active Bugs (fix now)
 
 | # | Bug | Location | Notes |

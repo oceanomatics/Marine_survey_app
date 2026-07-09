@@ -11,6 +11,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/tri_state_row.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../models/class_condition_model.dart';
 import '../models/psc_deficiency_model.dart';
 import '../providers/certificates_provider.dart';
@@ -19,6 +20,7 @@ import '../providers/psc_deficiencies_provider.dart';
 import '../providers/vessel_provider.dart';
 import '../widgets/add_certificate_sheet.dart';
 import '../widgets/certificate_card.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
@@ -83,6 +85,7 @@ class _VesselComplianceScreenState
         'class_incident_reported': _classIncident,
       });
       setState(() => _hasChanges = false);
+      if (mounted) showSavedToast(context);
     } catch (e, st) {
       if (mounted) {
         showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Compliance');
@@ -119,7 +122,7 @@ class _VesselComplianceScreenState
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Certificates & Class'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -996,7 +999,10 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
                     _occRelated,
                     _occRelated ? _occId : null,
                   );
-                  if (mounted) Navigator.pop(context);
+                  if (mounted) {
+                    showSavedToast(context);
+                    Navigator.pop(context);
+                  }
                 } catch (e, st) {
                   if (mounted) {
                     showError(context, 'Save failed: $e',
@@ -1152,7 +1158,10 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
                     _actionCtrl.text.trim().isEmpty ? null : _actionCtrl.text.trim(),
                     _rectified,
                   );
-                  if (mounted) Navigator.pop(context);
+                  if (mounted) {
+                    showSavedToast(context);
+                    Navigator.pop(context);
+                  }
                 } catch (e, st) {
                   if (mounted) {
                     showError(context, 'Save failed: $e',

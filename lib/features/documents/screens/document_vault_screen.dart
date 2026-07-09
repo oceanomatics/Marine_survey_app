@@ -34,6 +34,7 @@ import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../providers/document_provider.dart';
 import '../widgets/document_tile.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = AppColors.amber;
 
@@ -102,7 +103,7 @@ class DocumentVaultScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Document Vault'),
         actions: [
           IconButton(
@@ -2290,7 +2291,7 @@ class _PdfViewerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade200,
-      appBar: AppBar(title: Text(title, overflow: TextOverflow.ellipsis)),
+      appBar: BackAppBar(title: Text(title, overflow: TextOverflow.ellipsis)),
       body: PdfViewer.uri(
         Uri.parse(url),
         params: const PdfViewerParams(backgroundColor: Color(0xFFE0E0E0)),
@@ -2310,7 +2311,7 @@ class _ImagePreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
+      appBar: BackAppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: Text(title,

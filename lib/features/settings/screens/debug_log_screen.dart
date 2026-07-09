@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/debug_logger.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class DebugLogScreen extends StatefulWidget {
   const DebugLogScreen({super.key});
@@ -148,7 +149,7 @@ class _DebugLogScreenState extends State<DebugLogScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Debug Log'),
         actions: [
           if (_entries.isNotEmpty) ...[

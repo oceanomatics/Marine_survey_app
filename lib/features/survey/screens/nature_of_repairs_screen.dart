@@ -21,6 +21,7 @@ import '../providers/nature_of_repairs_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/addable_bullet_list.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class NatureOfRepairsScreen extends ConsumerStatefulWidget {
   const NatureOfRepairsScreen({super.key, required this.caseId});
@@ -71,7 +72,7 @@ class _NatureOfRepairsScreenState
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Nature of the Repairs')),
+      appBar: BackAppBar(title: const Text('Nature of the Repairs')),
       body: async.when(
         loading: () => const AppLoadingWidget(),
         error: (e, _) => Center(child: Text('Error: $e')),

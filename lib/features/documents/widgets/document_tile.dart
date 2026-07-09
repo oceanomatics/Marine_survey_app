@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/document_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 class DocumentTile extends ConsumerWidget {
   const DocumentTile({
@@ -400,6 +401,7 @@ class DocumentTile extends ConsumerWidget {
                         category: selectedCat,
                         annexureAssignment: capturedAnnexure,
                         surveyorConfirmed: capturedConfirmed);
+                    if (context.mounted) showSavedToast(context);
                   } catch (e, st) {
                     if (context.mounted) {
                       showError(context, 'Update failed: $e',

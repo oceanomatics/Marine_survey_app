@@ -13,6 +13,8 @@ import '../../settings/providers/speech_settings_provider.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 class VoiceNoteScreen extends ConsumerStatefulWidget {
   const VoiceNoteScreen({super.key, required this.caseId});
@@ -181,11 +183,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
 
       _discard();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Voice note saved and sent to inbox ✓'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ));
+        showSavedToast(context, label: 'Voice note saved and sent to inbox');
       }
     } catch (e, st) {
       if (mounted) {
@@ -219,7 +217,7 @@ class _VoiceNoteScreenState extends ConsumerState<VoiceNoteScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Voice Notes')),
+      appBar: BackAppBar(title: const Text('Voice Notes')),
       body: Column(children: [
         // ── Recorder panel ───────────────────────────────────────────
         Container(

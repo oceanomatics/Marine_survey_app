@@ -17,6 +17,7 @@ import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart' show vesselForCaseProvider;
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 // ── Accent colour ─────────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ class _CaseAnalystScreenState extends ConsumerState<CaseAnalystScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         backgroundColor: _kAccent,
         foregroundColor: Colors.white,
         title: Column(

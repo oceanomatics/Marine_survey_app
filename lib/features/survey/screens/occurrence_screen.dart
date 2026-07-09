@@ -9,6 +9,7 @@ import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class OccurrenceScreen extends ConsumerWidget {
   const OccurrenceScreen({super.key, required this.caseId});
@@ -20,7 +21,7 @@ class OccurrenceScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Occurrences')),
+      appBar: BackAppBar(title: const Text('Occurrences')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref),
         backgroundColor: AppColors.coral,

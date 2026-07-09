@@ -15,6 +15,7 @@ import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/tri_state_row.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../providers/certificates_provider.dart';
 import '../providers/class_conditions_provider.dart';
 import '../models/class_condition_model.dart';
@@ -31,6 +32,7 @@ import '../../photos/models/photo_model.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 // ── ABL London H&M Report template option lists ───────────────────────────────
 
@@ -525,13 +527,7 @@ class _VesselParticularsScreenState
       ref.invalidate(caseProvider(widget.caseId));
       ref.invalidate(casesProvider);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vessel particulars saved'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        showSavedToast(context, label: 'Vessel particulars saved');
       }
     } on ImoConflictException catch (e) {
       if (mounted) showError(context, e.toString(), tag: 'Vessel');
@@ -568,13 +564,7 @@ class _VesselParticularsScreenState
       ref.invalidate(caseProvider(widget.caseId));
       ref.invalidate(casesProvider);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vessel particulars saved'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        showSavedToast(context, label: 'Vessel particulars saved');
       }
     } on ImoConflictException catch (e) {
       if (mounted) showError(context, e.toString(), tag: 'Vessel');
@@ -660,13 +650,7 @@ class _VesselParticularsScreenState
           );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Equasis report saved to Document Vault ✓'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 3),
-          ),
-        );
+        showSavedToast(context, label: 'Equasis report saved to Document Vault');
       }
     } catch (e, st) {
       if (mounted) {
@@ -687,7 +671,7 @@ class _VesselParticularsScreenState
     return vesselAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('Vessel Particulars')),
+        appBar: BackAppBar(title: const Text('Vessel Particulars')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -737,7 +721,7 @@ class _VesselParticularsScreenState
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

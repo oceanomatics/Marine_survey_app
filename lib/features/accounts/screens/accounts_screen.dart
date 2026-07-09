@@ -7,6 +7,7 @@ import '../widgets/import_invoice_sheet.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ class AccountsScreen extends ConsumerWidget {
         ?? const [];
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Accounts'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -116,12 +117,20 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
 
     return Column(
       children: [
-        _SummaryBanner(
-          summary: summary,
-          occurrences: widget.occurrences,
-          allLines: submitted.expand((d) => d.accountLines).toList(),
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _SummaryBanner(
+                  summary: summary,
+                  occurrences: widget.occurrences,
+                  allLines: submitted.expand((d) => d.accountLines).toList(),
+                ),
+                _CostEstimateSelector(caseId: widget.caseId),
+              ],
+            ),
+          ),
         ),
-        _CostEstimateSelector(caseId: widget.caseId),
         TabBar(
           controller: _tabs,
           labelColor: _kAccent,

@@ -13,6 +13,7 @@ import '../../attendances/models/attendance_model.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2E7CB7);
 
@@ -60,7 +61,7 @@ class TimelineScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         backgroundColor: _kColor,
         foregroundColor: Colors.white,
         elevation: 0,

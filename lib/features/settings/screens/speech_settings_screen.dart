@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/model_manager.dart';
 import '../providers/speech_settings_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class SpeechSettingsScreen extends ConsumerStatefulWidget {
   const SpeechSettingsScreen({super.key});
@@ -92,7 +93,7 @@ class _SpeechSettingsScreenState extends ConsumerState<SpeechSettingsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(title: const Text('Speech & Transcription')),
+      appBar: BackAppBar(title: const Text('Speech & Transcription')),
       body: settingsAsync.when(
         loading: () =>
             const Center(child: CircularProgressIndicator()),

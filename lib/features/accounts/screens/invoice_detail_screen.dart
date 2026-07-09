@@ -14,6 +14,8 @@ import '../../../features/survey/providers/repair_period_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kAccent = Color(0xFF2E7D32);
 
@@ -90,7 +92,7 @@ class _DetailViewState extends ConsumerState<_DetailView> {
     final doc = widget.doc;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Text(doc.effectiveName,
             style: const TextStyle(fontSize: 14),
             overflow: TextOverflow.ellipsis),
@@ -268,7 +270,10 @@ class _DetailViewState extends ConsumerState<_DetailView> {
           ? null
           : _presentationCtrl.text.trim(),
     });
-    if (mounted) setState(() => _editingHeader = false);
+    if (mounted) {
+      setState(() => _editingHeader = false);
+      showSavedToast(context);
+    }
     _applyFxRates();
   }
 
@@ -1544,7 +1549,7 @@ class _PdfViewerScreenState extends State<_PdfViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade200,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Text(widget.title, overflow: TextOverflow.ellipsis),
       ),
       body: _signedUrl == null

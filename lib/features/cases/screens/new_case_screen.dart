@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/cases_provider.dart';
 import '../models/case_model.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class NewCaseScreen extends ConsumerStatefulWidget {
   const NewCaseScreen({super.key});
@@ -21,7 +22,7 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New Case')),
+      appBar: BackAppBar(title: const Text('New Case')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

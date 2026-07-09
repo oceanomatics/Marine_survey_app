@@ -18,6 +18,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/gmail_service.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -146,7 +147,7 @@ class _GmailMessagePickerScreenState extends State<GmailMessagePickerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Import from Gmail', style: TextStyle(fontSize: 15)),
       ),
       body: Column(
@@ -397,7 +398,7 @@ class _ThreadDetailScreenState extends State<_ThreadDetailScreen> {
     final thread = widget.thread;
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Text(thread.subject,
             style: const TextStyle(fontSize: 14),
             maxLines: 1,

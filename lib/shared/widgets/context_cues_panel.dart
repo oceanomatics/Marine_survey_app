@@ -97,40 +97,44 @@ class CueSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: AppColors.border),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              color: Colors.white,
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
+    // Single Container owning both the border and the clip (same RRect for
+    // both) instead of a separate outer ClipRRect — two independently
+    // computed rounded paths at the same nominal radius don't perfectly
+    // align pixel-for-pixel, which produced the "rounded corners not
+    // showing well" seam reported 8 July 2026 across WNCA/General
+    // Services & Access/Additional Information (all built on this widget).
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            color: Colors.white,
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary)),
+                if (hint != null) ...[
+                  const SizedBox(height: 2),
+                  Text(hint!,
                       style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary)),
-                  if (hint != null) ...[
-                    const SizedBox(height: 2),
-                    Text(hint!,
-                        style: const TextStyle(
-                            fontSize: 10.5, color: AppColors.textTertiary)),
-                  ],
+                          fontSize: 10.5, color: AppColors.textTertiary)),
                 ],
-              ),
+              ],
             ),
-            child,
-          ],
-        ),
+          ),
+          child,
+        ],
       ),
     );
   }

@@ -7,6 +7,7 @@ import '../models/case_model.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class CasesListScreen extends ConsumerWidget {
   const CasesListScreen({super.key});
@@ -15,7 +16,7 @@ class CasesListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final casesAsync = ref.watch(casesProvider);
     return Scaffold(
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Cases'),
         actions: [
           IconButton(

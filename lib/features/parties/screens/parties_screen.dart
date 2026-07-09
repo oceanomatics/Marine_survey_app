@@ -9,6 +9,8 @@ import '../widgets/assured_contact_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kPartiesColor = Color(0xFF2F80ED);
 
@@ -161,11 +163,7 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
       );
       await ref.read(partiesProvider(widget.caseId).notifier).save(model);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Parties saved'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ));
+        showSavedToast(context, label: 'Parties saved');
       }
     } catch (e, st) {
       if (mounted) showError(context, 'Save failed: $e', error: e, stack: st, tag: 'App');
@@ -259,7 +257,7 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Parties & Stakeholders'),
         bottom: TabBar(
           controller: _tab,

@@ -7,6 +7,7 @@ import '../widgets/capture_item_card.dart';
 import '../widgets/route_picker_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 class QuickCaptureScreen extends ConsumerStatefulWidget {
   const QuickCaptureScreen({super.key, required this.caseId});
@@ -44,7 +45,7 @@ class _QuickCaptureScreenState
       loading: () => const Scaffold(
           body: AppLoadingWidget(message: 'Loading inbox...')),
       error: (e, _) => Scaffold(
-        appBar: AppBar(title: const Text('Quick Capture Inbox')),
+        appBar: BackAppBar(title: const Text('Quick Capture Inbox')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (cs) => _buildScaffold(cs),
@@ -54,7 +55,7 @@ class _QuickCaptureScreenState
   Widget _buildScaffold(QuickCaptureState cs) {
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

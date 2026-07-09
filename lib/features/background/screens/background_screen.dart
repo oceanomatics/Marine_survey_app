@@ -17,6 +17,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/save_bar.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kAccent = Color(0xFF2A6B9E);
 
@@ -172,7 +173,7 @@ class _BackgroundAppBar extends StatelessWidget
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
+    return BackAppBar(
       backgroundColor: AppColors.navy,
       title: Row(
         children: [
