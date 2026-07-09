@@ -235,7 +235,7 @@ class PhotoModel {
     Object? allocation = _unset,
     String? linkedToType,
     String? linkedToId,
-    String? attendanceId,
+    Object? attendanceId = _unset,
     PhotoSyncStatus? syncStatus,
     String? remotePath,
     String? localPath,
@@ -256,7 +256,9 @@ class PhotoModel {
             : allocation as PhotoAllocation?,
         linkedToType: linkedToType ?? this.linkedToType,
         linkedToId: linkedToId ?? this.linkedToId,
-        attendanceId: attendanceId ?? this.attendanceId,
+        attendanceId: attendanceId == _unset
+            ? this.attendanceId
+            : attendanceId as String?,
         takenAt: takenAt,
         syncStatus: syncStatus ?? this.syncStatus,
         remotePath: remotePath ?? this.remotePath,

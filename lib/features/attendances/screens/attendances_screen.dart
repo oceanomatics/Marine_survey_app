@@ -191,7 +191,12 @@ class AttendancesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final attendancesAsync = ref.watch(attendancesProvider(caseId));
+    // TODO.md §3.15 (8 July 2026): AttendanceType.event rows are lightweight
+    // ad-hoc photo-allocation targets (photo_detail_sheet.dart), not formal
+    // survey attendances — excluded from this register so they don't mix
+    // in with the real thing, even though both share the same table.
+    final attendancesAsync = ref.watch(attendancesProvider(caseId)).whenData(
+        (list) => list.where((a) => a.attendanceType != AttendanceType.event).toList());
     final allAttendees = ref.watch(attendeesProvider(caseId)).value ?? [];
 
     // Deduplicate previous attendees by name so suggestions are unique
@@ -461,6 +466,9 @@ class _AttendanceCard extends StatelessWidget {
         AttendanceType.followUp        => AppColors.midBlue,
         AttendanceType.finalInspection => AppColors.teal,
         AttendanceType.remoteReview    => AppColors.purple,
+        // AttendanceType.event rows are filtered out before reaching this
+        // widget (see AttendancesScreen.build) — unreachable in practice.
+        AttendanceType.event           => AppColors.purple,
       };
 
   Color _statusColor(VesselStatus? s) => switch (s) {

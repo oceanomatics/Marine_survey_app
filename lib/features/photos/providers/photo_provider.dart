@@ -365,7 +365,15 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       // Short id suffix guarantees uniqueness (same caption/minute is common
       // when several photos are taken in quick succession).
       final shortId = id.substring(0, 8);
-      final baseName = buildDriveFilename([dateStr, namePart, shortId], 'jpg');
+      // TODO.md §3.15: title convention now includes the attendance/event
+      // label as its own part (previously only used to pick the Drive
+      // subfolder, not reflected in the filename itself) — {date} -
+      // {attendance/event label} - {description} - {id}. Only reflects
+      // whatever attendanceId is known at upload time, same limitation
+      // already accepted for caption (a caption/allocation added later via
+      // the photo viewer doesn't retroactively rename the Drive file).
+      final baseName = buildDriveFilename(
+          [dateStr, attendanceLabel, namePart, shortId], 'jpg');
       driveFileId = await DriveStorageService.uploadCaseFile(
         caseModel: caseModel,
         category: CaseFileCategory.photos,
@@ -379,7 +387,8 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
         category: CaseFileCategory.photos,
         subFolders: subFolders,
         bytes: thumbBytes,
-        filename: buildDriveFilename([dateStr, namePart, shortId, 'thumb'], 'jpg'),
+        filename: buildDriveFilename(
+            [dateStr, attendanceLabel, namePart, shortId, 'thumb'], 'jpg'),
         mimeType: 'image/jpeg',
       );
     } catch (e) {
@@ -508,6 +517,11 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
 
   Future<void> updatePhotoSource(String photoId, PhotoSource? photoSource) =>
       _applyUpdate(photoId, (ph) => ph.copyWith(photoSource: photoSource));
+
+  /// TODO.md §3.15 (8 July 2026) — allocate a photo to an attendance/event
+  /// from the photo viewer.
+  Future<void> updateAttendanceId(String photoId, String? attendanceId) =>
+      _applyUpdate(photoId, (ph) => ph.copyWith(attendanceId: attendanceId));
 
   Future<void> updateAllocation(
       String photoId, PhotoAllocation? allocation) async {

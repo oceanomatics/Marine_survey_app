@@ -8,7 +8,13 @@ enum AttendanceType {
   initial('initial', 'Initial Attendance'),
   followUp('follow_up', 'Follow-up Attendance'),
   finalInspection('final_inspection', 'Final Inspection'),
-  remoteReview('remote_review', 'Remote / Desk Review');
+  remoteReview('remote_review', 'Remote / Desk Review'),
+  // TODO.md §3.15 (8 July 2026): lightweight ad-hoc event a photo can be
+  // allocated to from the photo viewer (e.g. "Diver's Inspection", "Crew
+  // Photo") — not a formal survey attendance, but stored the same way
+  // since photos already link via attendance_id. attendance_type is a
+  // plain text column (no DB enum), so this needed no migration.
+  event('event', 'Event');
 
   const AttendanceType(this.value, this.label);
   final String value;

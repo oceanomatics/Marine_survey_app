@@ -582,6 +582,10 @@ class _AttendanceSectionHeader extends StatelessWidget {
         AttendanceType.followUp => AppColors.midBlue,
         AttendanceType.finalInspection => AppColors.teal,
         AttendanceType.remoteReview => AppColors.purple,
+        // TODO.md §3.15 (8 July 2026) — lightweight photo-allocation events
+        // are valid groupings here (unlike the formal Attendances register,
+        // which excludes them), so they get their own colour, not a fallback.
+        AttendanceType.event => AppColors.amber,
       };
 
   @override

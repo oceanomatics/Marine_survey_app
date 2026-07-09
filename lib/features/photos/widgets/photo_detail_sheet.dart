@@ -11,6 +11,8 @@ import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
+import '../../attendances/models/attendance_model.dart';
+import '../../attendances/providers/attendances_provider.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 import '../../../shared/widgets/app_feedback.dart';
 
@@ -33,6 +35,7 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
   PhotoAllocation? _allocation;
   PlacementMode? _placementMode;
   PhotoSource? _photoSource;
+  String? _attendanceId;
   bool _saving = false;
 
   @override
@@ -42,6 +45,7 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
     _allocation = widget.photo.allocation;
     _placementMode = widget.photo.placementMode;
     _photoSource = widget.photo.photoSource;
+    _attendanceId = widget.photo.attendanceId;
   }
 
   @override
@@ -57,10 +61,77 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
     await notifier.updateAllocation(widget.photo.id, _allocation);
     await notifier.updatePlacementMode(widget.photo.id, _placementMode);
     await notifier.updatePhotoSource(widget.photo.id, _photoSource);
+    await notifier.updateAttendanceId(widget.photo.id, _attendanceId);
     if (mounted) {
       showSavedToast(context);
       Navigator.pop(context);
     }
+  }
+
+  // TODO.md §3.15 (8 July 2026): quick-create a lightweight event (not a
+  // formal survey attendance — AttendanceType.event, excluded from the
+  // Attendances screen's register) right from the photo viewer, date
+  // pre-filled from this photo's EXIF-derived taken_at.
+  Future<void> _createEvent() async {
+    final labelCtrl = TextEditingController();
+    var date = widget.photo.takenAt;
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('New Event'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: labelCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                    hintText: 'e.g. Diver\'s Inspection, Crew Photo'),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: date,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) setDialogState(() => date = picked);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(labelText: 'Date'),
+                  child: Text('${date.day.toString().padLeft(2, '0')}/'
+                      '${date.month.toString().padLeft(2, '0')}/${date.year}'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: labelCtrl.text.trim().isEmpty
+                    ? null
+                    : () => Navigator.pop(ctx, true),
+                child: const Text('Create')),
+          ],
+        ),
+      ),
+    );
+    if (created != true || labelCtrl.text.trim().isEmpty || !mounted) return;
+    final event = await ref
+        .read(attendancesProvider(widget.caseId).notifier)
+        .add(
+          caseId: widget.caseId,
+          type: AttendanceType.event,
+          date: date,
+          summary: labelCtrl.text.trim(),
+        );
+    if (mounted) setState(() => _attendanceId = event.attendanceId);
   }
 
   @override
@@ -200,6 +271,43 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
               selected: _photoSource,
               label: (s) => s.label,
               onChanged: (v) => setState(() => _photoSource = v),
+            ),
+            const SizedBox(height: 20),
+
+            // TODO.md §3.15 (8 July 2026): allocate this photo to an
+            // existing attendance/event, or quick-create a new one.
+            const _Label('Link to Attendance / Event'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _AllocationChip(
+                  label: 'None',
+                  icon: Icons.block_outlined,
+                  selected: _attendanceId == null,
+                  color: AppColors.textSecondary,
+                  onTap: () => setState(() => _attendanceId = null),
+                ),
+                for (final a
+                    in ref.watch(attendancesProvider(widget.caseId)).value ??
+                        const <SurveyAttendanceModel>[])
+                  _AllocationChip(
+                    label: a.summary ?? a.attendanceType.label,
+                    icon: Icons.event_outlined,
+                    selected: _attendanceId == a.attendanceId,
+                    color: AppColors.purple,
+                    onTap: () =>
+                        setState(() => _attendanceId = a.attendanceId),
+                  ),
+                _AllocationChip(
+                  label: '+ New Event',
+                  icon: Icons.add,
+                  selected: false,
+                  color: AppColors.purple,
+                  onTap: _createEvent,
+                ),
+              ],
             ),
             const SizedBox(height: 32),
 
