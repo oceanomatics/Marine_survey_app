@@ -203,37 +203,57 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
         icon: const Icon(Icons.arrow_back, color: Colors.white),
         onPressed: onBack,
       ),
+      // TODO.md §3.6 (8 July 2026): previously showed the full composite
+      // case title (job no. – vessel – survey type – occurrence brief,
+      // see project_case_title_format) as the primary line — often long
+      // enough to truncate/feel "not always visible". Vessel name now
+      // leads (short, single line), with the rest as a subline instead.
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            survey.title ?? survey.vesselName ?? survey.technicalFileNo,
+            survey.vesselName ?? survey.title ?? survey.technicalFileNo,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
                 color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
           ),
           Text(
-            '${survey.caseType.label} · ${survey.technicalFileNo}',
+            [
+              survey.caseType.label,
+              survey.technicalFileNo,
+              if ((survey.instructingParty ?? '').isNotEmpty)
+                survey.instructingParty!,
+            ].join(' – '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.65), fontSize: 11),
           ),
         ],
       ),
       actions: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.checklist_outlined, color: Colors.white60, size: 14),
-              const SizedBox(width: 3),
-              Text(
-                '${(progress * 100).round()}%',
-                style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
-              ),
-            ],
+        // TODO.md §3.6 (8 July 2026): existed visually but wasn't wired to
+        // navigate — now the checklist quick-link it looks like.
+        InkWell(
+          onTap: () => context.go('/cases/${survey.caseId}/checklist'),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.checklist_outlined, color: Colors.white60, size: 14),
+                const SizedBox(width: 3),
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
           ),
         ),
         Container(

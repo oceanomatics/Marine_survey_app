@@ -287,7 +287,7 @@ class _AttendeeCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    attendee.fullName,
+                    '${attendee.prefix} ${attendee.fullName}',
                     style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,

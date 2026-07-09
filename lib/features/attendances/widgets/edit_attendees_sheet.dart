@@ -432,9 +432,7 @@ class _AttendeeRowState extends State<_AttendeeRow> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.attendee.title != null
-                    ? '${widget.attendee.title!.label} ${widget.attendee.fullName}'
-                    : widget.attendee.fullName,
+                '${widget.attendee.prefix} ${widget.attendee.fullName}',
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,

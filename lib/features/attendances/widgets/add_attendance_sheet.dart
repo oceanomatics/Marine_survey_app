@@ -820,9 +820,7 @@ class _PreviousAttendeeRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                attendee.title != null
-                    ? '${attendee.title!.label} ${attendee.fullName}'
-                    : attendee.fullName,
+                '${attendee.prefix} ${attendee.fullName}',
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,

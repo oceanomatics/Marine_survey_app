@@ -17,11 +17,58 @@ import '../../../shared/widgets/back_app_bar.dart';
 
 const _kVisitsColor = Color(0xFFBF7E3A);
 
-/// Case-level "is a follow-up attendance required" flag — relocated here
-/// from the report builder's Advice Summary card per surveyor direction
-/// (4 July 2026): this is a fact about the case, not something that
-/// legitimately varies by which report is currently open, and it's
-/// inherently about attendance, so it lives at the top of this screen.
+/// Compact title-bar badge (TODO.md §3.13, 8 July 2026 — moved out of the
+/// screen body) showing the case-level "is a follow-up attendance
+/// required" flag; tapping opens the full toggle+detail editor in a sheet.
+class _FollowUpBadge extends ConsumerWidget {
+  const _FollowUpBadge({required this.caseId});
+  final String caseId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final caseModel = ref.watch(caseProvider(caseId)).value;
+    final required = caseModel?.followUpRequired;
+    final label = required == true
+        ? 'Follow-up: Yes'
+        : required == false
+            ? 'Follow-up: No'
+            : 'Follow-up?';
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => Padding(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: _FollowUpAttendanceCard(caseId: caseId),
+            ),
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: required == true ? 0.25 : 0.12),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(label,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+        ),
+      ),
+    );
+  }
+}
+
 class _FollowUpAttendanceCard extends ConsumerStatefulWidget {
   const _FollowUpAttendanceCard({required this.caseId});
   final String caseId;
@@ -155,7 +202,13 @@ class AttendancesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(title: const Text('Attendance')),
+      appBar: BackAppBar(
+        title: const Text('Attendance'),
+        // TODO.md §3.13 (8 July 2026): moved out of the screen body into
+        // the title bar — a compact tappable badge here instead of the
+        // full toggle+detail card taking up body space.
+        actions: [_FollowUpBadge(caseId: caseId)],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref, uniquePrevious),
         backgroundColor: _kVisitsColor,
@@ -166,7 +219,6 @@ class AttendancesScreen extends ConsumerWidget {
       ),
       body: Column(
         children: [
-          _FollowUpAttendanceCard(caseId: caseId),
           Expanded(
             child: attendancesAsync.when(
         loading: () =>
@@ -611,7 +663,7 @@ class _AttendanceCard extends StatelessWidget {
                       ),
                       ...attendees.map((a) => TableRow(
                             children: [
-                              _TableCell(a.fullName, bold: true),
+                              _TableCell('${a.prefix} ${a.fullName}', bold: true),
                               _TableCell(
                                   a.roleType?.label ?? a.rankPosition ?? '—'),
                               _TableCell(a.company ?? a.representing ?? '—'),

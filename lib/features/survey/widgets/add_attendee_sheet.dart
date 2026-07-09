@@ -1,11 +1,14 @@
 // lib/features/survey/widgets/add_attendee_sheet.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/attendees_provider.dart';
+import '../../parties/models/party_model.dart';
+import '../../parties/providers/parties_provider.dart';
 import '../../vessel/widgets/survey_field.dart';
 import '../../../shared/theme/app_theme.dart';
 
-class AddAttendeeSheet extends StatefulWidget {
+class AddAttendeeSheet extends ConsumerStatefulWidget {
   const AddAttendeeSheet({
     super.key,
     required this.caseId,
@@ -18,10 +21,10 @@ class AddAttendeeSheet extends StatefulWidget {
   final Future<void> Function(AttendeeModel) onSave;
 
   @override
-  State<AddAttendeeSheet> createState() => _AddAttendeeSheetState();
+  ConsumerState<AddAttendeeSheet> createState() => _AddAttendeeSheetState();
 }
 
-class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
+class _AddAttendeeSheetState extends ConsumerState<AddAttendeeSheet> {
   final _nameCtrl          = TextEditingController();
   final _rankCtrl          = TextEditingController();
   final _companyCtrl       = TextEditingController();
@@ -30,7 +33,15 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
   final _phoneCtrl         = TextEditingController();
 
   AttendeeRole _role = AttendeeRole.other;
+  // TODO.md §3.13 (8 July 2026): title existed on AttendeeModel already but
+  // had no editor UI — always null in practice, so the report/app-UI
+  // prefix fallback (Capt./Mr.-Ms.) was the only thing ever shown.
+  AttendeeTitle? _title;
   bool _saving = false;
+  // TODO.md §3.13 row 48 (8 July 2026): true once the surveyor has picked
+  // an existing Parties contact (or dismissed the add-to-Parties prompt),
+  // so a brand-new person isn't offered to be re-added on every save.
+  bool _partyLinkResolved = false;
 
   @override
   void initState() {
@@ -44,6 +55,7 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
       _emailCtrl.text        = e.contactEmail      ?? '';
       _phoneCtrl.text        = e.contactPhone      ?? '';
       _role                  = e.roleType          ?? AttendeeRole.other;
+      _title                 = e.title;
     }
   }
 
@@ -75,6 +87,53 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
     }
   }
 
+  // TODO.md §3.13 row 48: pick an existing Parties contact to prefill from,
+  // instead of re-typing someone who's already on file.
+  void _pickFromParty(AssuredContactModel c) {
+    setState(() {
+      _nameCtrl.text = c.fullName;
+      _companyCtrl.text = c.company ?? '';
+      _representingCtrl.text = c.roleTitle ?? '';
+      _emailCtrl.text = c.email ?? '';
+      _phoneCtrl.text = c.phone ?? '';
+      _partyLinkResolved = true;
+    });
+  }
+
+  Future<void> _offerAddToParties() async {
+    if (!mounted) return;
+    final add = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add to Parties?'),
+        content: Text(
+          '${_nameCtrl.text.trim()} isn\'t in this case\'s Parties/'
+          'Stakeholder register yet. Add them now so they don\'t need to '
+          'be re-entered later?',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Not now')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add to Parties')),
+        ],
+      ),
+    );
+    if (add != true || !mounted) return;
+    await ref.read(assuredContactsProvider(widget.caseId).notifier).add(
+          caseId: widget.caseId,
+          fullName: _nameCtrl.text.trim(),
+          company: _companyCtrl.text.trim().isEmpty ? null : _companyCtrl.text.trim(),
+          roleTitle: _representingCtrl.text.trim().isEmpty
+              ? null : _representingCtrl.text.trim(),
+          stakeholderGroup: StakeholderGroup.fromRole(_role.label),
+          email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+        );
+  }
+
   Future<void> _save() async {
     if (_nameCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,12 +154,18 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
         representing: _representingCtrl.text.trim().isEmpty
             ? null : _representingCtrl.text.trim(),
         roleType:     _role,
+        title:        _title,
         contactEmail: _emailCtrl.text.trim().isEmpty
             ? null : _emailCtrl.text.trim(),
         contactPhone: _phoneCtrl.text.trim().isEmpty
             ? null : _phoneCtrl.text.trim(),
       );
       await widget.onSave(attendee);
+      // Only offer for a brand-new attendee who wasn't picked from Parties
+      // already — not on every edit-save of an existing one.
+      if (widget.existing == null && !_partyLinkResolved) {
+        await _offerAddToParties();
+      }
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -144,6 +209,11 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
             ),
             const SizedBox(height: 16),
 
+            // TODO.md §3.13 row 48 (8 July 2026): pick from this case's
+            // existing Parties/Stakeholder contacts instead of re-typing
+            // someone already on file — new attendees only.
+            if (!isEdit) _PartyPickerRow(caseId: widget.caseId, onPick: _pickFromParty),
+
             // Role selector — first, drives rank autofill
             const Text('Role',
                 style: TextStyle(
@@ -179,10 +249,53 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
             ),
             const SizedBox(height: 14),
 
-            // Name + rank side by side
+            // Title + name + rank
             Row(children: [
               Expanded(
-                flex: 3,
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Title',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary)),
+                    const SizedBox(height: 5),
+                    DropdownButtonFormField<AttendeeTitle?>(
+                      initialValue: _title,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 11),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: AppColors.border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: AppColors.border),
+                        ),
+                      ),
+                      hint: const Text('—', style: TextStyle(fontSize: 13)),
+                      items: [
+                        const DropdownMenuItem<AttendeeTitle?>(
+                            value: null,
+                            child: Text('—', style: TextStyle(fontSize: 13))),
+                        ...AttendeeTitle.values.map((t) => DropdownMenuItem(
+                            value: t,
+                            child:
+                                Text(t.label, style: const TextStyle(fontSize: 13)))),
+                      ],
+                      onChanged: (v) => setState(() => _title = v),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 4,
                 child: SurveyField(
                   label: 'Full Name *',
                   controller: _nameCtrl,
@@ -190,16 +303,12 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
                   important: true,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: SurveyField(
-                  label: 'Rank / Position',
-                  controller: _rankCtrl,
-                  hint: 'e.g. Master',
-                ),
-              ),
             ]),
+            SurveyField(
+              label: 'Rank / Position',
+              controller: _rankCtrl,
+              hint: 'e.g. Master',
+            ),
 
             SurveyField(
               label: 'Company',
@@ -257,6 +366,58 @@ class _AddAttendeeSheetState extends State<AddAttendeeSheet> {
           ],
         ),
       ),
+      ),
+    );
+  }
+}
+
+/// Quick-pick chips for this case's existing Parties/Stakeholder contacts
+/// (TODO.md §3.13 row 48) — empty when there are none, so it never adds
+/// clutter to cases without any Parties entered yet.
+class _PartyPickerRow extends ConsumerWidget {
+  const _PartyPickerRow({required this.caseId, required this.onPick});
+  final String caseId;
+  final ValueChanged<AssuredContactModel> onPick;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final contacts = ref.watch(assuredContactsProvider(caseId)).value ?? [];
+    if (contacts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Pick from Parties',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: contacts.map((c) {
+              return GestureDetector(
+                onTap: () => onPick(c),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    c.company != null ? '${c.fullName} — ${c.company}' : c.fullName,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textPrimary),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
