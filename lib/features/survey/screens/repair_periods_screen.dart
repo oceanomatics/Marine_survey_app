@@ -340,10 +340,13 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
                             const Icon(Icons.date_range_outlined,
                                 size: 12, color: AppColors.textTertiary),
                             const SizedBox(width: 4),
-                            Text(dateStr,
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textSecondary)),
+                            Expanded(
+                              child: Text(dateStr,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.textSecondary)),
+                            ),
                           ]),
                         ],
                         if (period.location != null &&

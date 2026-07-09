@@ -233,7 +233,13 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
-      height: _expanded ? 268 : (showSummary ? 62 : 44),
+      // Collapsed height must fit the header row's own intrinsic height
+      // (icon box + padding) — 44 was a few px too tight and produced a
+      // "RenderFlex overflowed by 3.0 pixels on the bottom" whenever a
+      // panel rendered collapsed with no quick-summary line yet (confirmed
+      // via live widget-test reproduction on the Repair Periods screen,
+      // docs/TODO.md Phase 0.1 row 24 / §3.9, 9 July 2026).
+      height: _expanded ? 268 : (showSummary ? 62 : 48),
       decoration: const BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border, width: 1)),
