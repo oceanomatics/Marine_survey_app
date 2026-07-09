@@ -43,6 +43,7 @@ class DocxExportService {
     Uint8List? coverPhotoBytes,
     String coverPhotoExt = 'jpg',
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
+    Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
   }) async {
     // Fetch org logo from Supabase Storage (non-fatal)
     Uint8List? logoBytes;
@@ -107,7 +108,8 @@ class DocxExportService {
         coverPhotoHeightEmu: coverPhotoHeightEmu,
         logoBytes: logoBytes, logoExt: logoExt,
         signatureBytes: signatureBytes, signatureExt: signatureExt,
-        damagePhotosByItemId: damagePhotosByItemId);
+        damagePhotosByItemId: damagePhotosByItemId,
+        machineryPhotosByItemId: machineryPhotosByItemId);
     final filename = _filename(output, assembled);
 
     // Snapshot AI log + upload to Supabase Storage (non-fatal)
@@ -151,6 +153,7 @@ class DocxExportService {
     Uint8List? signatureBytes,
     String signatureExt = 'png',
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
+    Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
   }) {
     final doc = DocxBuilder();
     final v     = assembled.vessel ?? {};
@@ -457,9 +460,20 @@ class DocxExportService {
     final machineryBlocks = buildMachineryBlocks(assembled.machinery);
     if (machineryBlocks.isNotEmpty) {
       doc.addHeading('MACHINERY & EQUIPMENT PARTICULARS', 2);
-      for (final block in machineryBlocks) {
+      for (var i = 0; i < machineryBlocks.length; i++) {
+        final block = machineryBlocks[i];
         doc.addParagraph(block.label, bold: true, halfPtSize: 20);
         doc.addTable(block.rows, colWidths: [3000, 6355]);
+        // Nameplate photo (TODO.md §1.8 S4), if one's been attached and
+        // resolved by the caller — same convention as damagePhotosByItemId.
+        final machineryId = assembled.machinery[i]['machinery_id'] as String?;
+        final nameplatePhotos = <ResolvedPhoto>[
+          if (machineryId != null) ...?machineryPhotosByItemId?[machineryId],
+        ];
+        for (final photo in nameplatePhotos) {
+          doc.addImage(photo.bytes, photo.ext,
+              widthEmu: DocxBuilder.kPageWidthEmu ~/ 2);
+        }
         doc.addSpacer();
       }
     }
@@ -496,9 +510,13 @@ class DocxExportService {
     }
 
     // ── Section 6: Available Information Sources ──────────────────────
+    // TODO.md §1.8 S6 (8 July 2026 review): this used to render the same
+    // document list twice — a free-text bullet list AND this table. Fixed
+    // at the source in _buildInfoSourcesText (report_provider.dart), which
+    // now returns a short intro sentence instead of the bullet dump, so
+    // both this and the Preview tab (report_preview.dart, same content
+    // field) show one sentence + the table, not a duplicated list.
     renderTextSection(SectionType.informationSources, 'AVAILABLE INFORMATION SOURCES');
-    // Spec §12 — MINRES BALDER Document | Status table, the platform's
-    // preferred default over the flat bullet-list rendering above.
     final availInfoRows = buildAvailableInformationRows(
         assembled.caseDocuments, assembled.requestedDocuments);
     if (availInfoRows.isNotEmpty) {

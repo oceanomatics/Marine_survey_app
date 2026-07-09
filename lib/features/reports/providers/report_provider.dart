@@ -9,6 +9,8 @@ import '../../../core/models/ai_generation_log_model.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/damage_provider.dart'
     show ConditionStatus, ConfirmedByRole, CertaintyLevel;
+import '../../cases/models/case_model.dart' show ClassStatus;
+import '../../survey/providers/attendees_provider.dart' show AttendeeTitle;
 
 // ── Report output types ────────────────────────────────────────────────────
 
@@ -2012,8 +2014,14 @@ class SectionDraftNotifier
   }
 
   String _fillOpeningClause(String template, AssembledReportData data) {
-    final clientName =
-        data.caseData['principals_clients']?['name'] as String? ?? '[CLIENT]';
+    // instructing_party is the free-text field surveyors actually fill in
+    // (Edit Case Details) — principals_clients is a FK join that isn't
+    // populated for any case yet (see docs/TODO.md §2.10 linkage note), so
+    // relying on it alone silently fell through to the literal '[CLIENT]'
+    // placeholder. Prefer instructing_party, keep the join as a fallback.
+    final clientName = data.caseData['instructing_party'] as String? ??
+        data.caseData['principals_clients']?['name'] as String? ??
+        '[CLIENT]';
 
     // Clause D-3: first attendance date/location — from the earliest
     // survey_attendances record (already ordered ascending), not the
@@ -2042,6 +2050,8 @@ class SectionDraftNotifier
                 data.caseData['notes'] as String? ??
                 'the survey location');
 
+    final trailingSentences = <String>[];
+
     // Clause B-2: survey type. Derived from the case's existing claim type
     // rather than a new field — per the surveyor, this practice's H&M cases
     // are always treated as "a hull and machinery damage survey"; the doc's
@@ -2051,10 +2061,34 @@ class SectionDraftNotifier
       final surveyType =
           data.clauseByType('survey_type_hull_and_machinery')?.clauseText;
       if (surveyType != null && surveyType.isNotEmpty) {
-        return '$filled $surveyType';
+        trailingSentences.add(surveyType);
       }
     }
-    return filled;
+
+    // Class status up front (8 July 2026 review): state classed /
+    // conditionally classed / suspended / not classed from the hard field
+    // captured on the Class & Certification screen, rather than leaving the
+    // reader to find it later in §5. Deliberately a deterministic
+    // field-driven sentence, not an AI-drafted one — GPN-AI audit/review
+    // requirements would apply to AI content in a locked certification
+    // section, and we already hold this as a hard fact, so there's nothing
+    // for an AI draft to add here.
+    final classStatusValue = data.vessel?['class_status'] as String?;
+    if (classStatusValue != null) {
+      final status = ClassStatus.fromValue(classStatusValue);
+      final phrase = switch (status) {
+        ClassStatus.classed => 'is currently in class',
+        ClassStatus.conditional =>
+          'is currently in class, subject to an outstanding condition of class',
+        ClassStatus.suspended => 'has its class currently suspended',
+        ClassStatus.notClassed => 'is not currently classed',
+      };
+      final vesselName = data.vessel?['name'] as String? ?? 'The vessel';
+      trailingSentences.add('$vesselName $phrase.');
+    }
+
+    if (trailingSentences.isEmpty) return filled;
+    return '$filled ${trailingSentences.join(' ')}';
   }
 
   // Clause C-1: only the vessel types below have a matching doc phrase —
@@ -2148,13 +2182,29 @@ class SectionDraftNotifier
     return lines.join('\n');
   }
 
+  // Mirrors AttendeeModel.prefix (attendees_provider.dart) — that getter
+  // only ever runs on the in-app Attendees screen, not on the raw maps the
+  // report builder reads, so the report text rendered no title at all.
+  // Role-based Capt. guess kept for masters/port captains; a bare 'Mr.'
+  // default (as literally asked in the 8 July review) would misgender the
+  // roughly half of attendees who aren't male, so keeping the existing
+  // 'Mr./Ms.' hedge already used elsewhere in the app instead.
+  String _attendeeTitlePrefix(Map<String, dynamic> a) {
+    final title = a['title'] as String?;
+    if (title != null) return AttendeeTitle.fromValue(title).label;
+    final role = a['role_type'] as String?;
+    if (role == 'master' || role == 'port_captain') return 'Capt.';
+    return 'Mr./Ms.';
+  }
+
   String _buildAttendeesText(List<Map<String, dynamic>> attendees) {
     return attendees.map((a) {
+      final prefix = _attendeeTitlePrefix(a);
       final name = a['full_name'] as String? ?? '';
       final rank = a['rank_position'] as String? ?? '';
       final company = a['company'] as String? ?? '';
       final rep = a['representing'] as String? ?? company;
-      return '$rank $name — $rep';
+      return '$rank $prefix $name — $rep';
     }).join('\n');
   }
 
@@ -2514,6 +2564,27 @@ class SectionDraftNotifier
             '  • $name${expiry.isNotEmpty ? ' — expires ${_formatDate(expiry)}' : ''}');
       }
     }
+    // Condition-of-class narrative (8 July 2026 review, S5): three distinct
+    // cases — no conditions issued; a condition issued and related to the
+    // casualty; a condition issued but not related. Driven by
+    // ClassConditionModel.occurrenceRelated (already captured on the Class
+    // Condition editor), not inferred. Clause text is a placeholder pending
+    // the surveyor's exact reference wording from the 8 July walkthrough,
+    // which wasn't transcribed into docs/TODO.md — edit via clause_library
+    // once available, same as any other clause here.
+    final relatedCondition =
+        conditions.where((cc) => cc['occurrence_related'] == true).firstOrNull;
+    final conditionNarrativeType = conditions.isEmpty
+        ? 'condition_of_class_none'
+        : (relatedCondition != null
+            ? 'condition_of_class_related'
+            : 'condition_of_class_not_related');
+    final conditionNarrative = data.clauseByType(conditionNarrativeType);
+    if (conditionNarrative != null) {
+      if (buf.isNotEmpty) buf.writeln();
+      buf.writeln(conditionNarrative.clauseText);
+    }
+
     if (conditions.isNotEmpty) {
       if (buf.isNotEmpty) buf.writeln();
       buf.writeln('Conditions of Class:');
@@ -2528,18 +2599,15 @@ class SectionDraftNotifier
     return buf.toString().trimRight();
   }
 
+  // TODO.md §1.8 S6 (8 July 2026 review): this used to enumerate every
+  // document as a free-text bullet list, duplicating the "Available
+  // Information Sources" table (buildAvailableInformationRows,
+  // section_table_rows.dart) rendered directly below it in both the docx
+  // export and the Preview tab — same section.content field, both readers.
+  // Table is the single source of truth now; this is just the intro line.
   String _buildInfoSourcesText(List<Map<String, dynamic>> docs) {
-    final categorised = <String, List<String>>{};
-    for (final d in docs) {
-      final cat = d['doc_category'] as String? ?? 'Other';
-      final title = d['title'] as String? ?? 'Untitled';
-      categorised.putIfAbsent(cat, () => []).add(title);
-    }
-    return categorised.entries.map((e) {
-      final header = e.key.replaceAll('_', ' ').toUpperCase();
-      final items = e.value.map((t) => '  • $t').join('\n');
-      return '$header\n$items';
-    }).join('\n\n');
+    return 'The following documents and information sources were available '
+        'to the Undersigned Surveyor at the time of this report:';
   }
 
   String _buildDocumentsOnFileText(List<Map<String, dynamic>> docs,

@@ -196,7 +196,9 @@ void main() {
       );
       expect(blocks.length, 2);
       expect(blocks[0].label, 'Attendance No. 1');
-      expect(blocks[0].rows[1][0], 'John Smith');
+      // TODO.md §1.8 S2: master/port_captain attendees get a 'Capt.' prefix
+      // guess when no explicit title is set.
+      expect(blocks[0].rows[1][0], 'Capt. John Smith');
       expect(blocks[1].label, 'Attendance No. 2');
     });
 

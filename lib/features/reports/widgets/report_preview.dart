@@ -1084,11 +1084,17 @@ class _KeyValueTable extends StatelessWidget {
 // Attending Representatives, §5 Certificates / Conditions of Class) ────────
 
 class _RegisterTable extends StatelessWidget {
-  const _RegisterTable({required this.rows, required this.brand});
+  const _RegisterTable({required this.rows, required this.brand, this.columnFlex});
 
   /// First row is the header row.
   final List<List<String>> rows;
   final _Brand brand;
+  /// Relative column widths (e.g. [1, 3, 1]) — defaults to equal flex for
+  /// every column when omitted. TODO.md §1.8 S5: the Condition of Class
+  /// table had equal widths regardless of content (Description needs far
+  /// more room than Reference/Due Date); pass explicit weights there,
+  /// leave every other table's default behaviour unchanged.
+  final List<int>? columnFlex;
 
   @override
   Widget build(BuildContext context) {
@@ -1097,7 +1103,10 @@ class _RegisterTable extends StatelessWidget {
     return Table(
       border: TableBorder.all(color: Colors.grey.shade300, width: 0.6),
       columnWidths: {
-        for (var i = 0; i < header.length; i++) i: const FlexColumnWidth(1),
+        for (var i = 0; i < header.length; i++)
+          i: FlexColumnWidth(
+              (columnFlex != null && i < columnFlex!.length ? columnFlex![i] : 1)
+                  .toDouble()),
       },
       children: [
         TableRow(
@@ -1960,7 +1969,9 @@ List<Widget> _trailingTables(
       final ccRows = buildClassConditionRows(assembled.classConditions);
       if (ccRows.isNotEmpty) {
         heading('CONDITIONS OF CLASS');
-        widgets.add(_RegisterTable(rows: ccRows, brand: brand));
+        // Matches the docx export's [1800, 5700, 1855] ratio (~1:3:1).
+        widgets.add(_RegisterTable(
+            rows: ccRows, brand: brand, columnFlex: const [1, 3, 1]));
       }
       break;
 

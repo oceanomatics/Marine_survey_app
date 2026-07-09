@@ -110,6 +110,10 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
       // same convention as the cover photo, so the export service itself
       // has no filesystem dependency.
       final damagePhotosByItemId = <String, List<ResolvedPhoto>>{};
+      // Machinery nameplate photos (TODO.md §1.8 S4) — same resolution
+      // convention, keyed by machinery_id via the 'machinery_nameplate'
+      // link type already used for the in-app thumbnail (machinery_card.dart).
+      final machineryPhotosByItemId = <String, List<ResolvedPhoto>>{};
       if (!kIsWeb) {
         final photoNotifier =
             ref.read(photosProvider(widget.output.caseId).notifier);
@@ -147,6 +151,25 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
                 .add((bytes: bytes, ext: ext));
           } catch (_) {}
         }
+
+        for (final p in photos) {
+          if (p.linkedToType != 'machinery_nameplate' || p.linkedToId == null) {
+            continue;
+          }
+          try {
+            final resolved = p.hasLocalFile
+                ? p
+                : await photoNotifier.ensureLocalFile(p.id) ?? p;
+            if (!resolved.hasLocalFile) continue;
+            final localPath = resolved.localPath!;
+            final bytes = await File(localPath).readAsBytes();
+            final ext =
+                localPath.contains('.') ? localPath.split('.').last : 'jpg';
+            machineryPhotosByItemId
+                .putIfAbsent(p.linkedToId!, () => [])
+                .add((bytes: bytes, ext: ext));
+          } catch (_) {}
+        }
       }
 
       final filename = await DocxExportService.export(
@@ -156,6 +179,7 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
         coverPhotoBytes: coverPhotoBytes,
         coverPhotoExt: coverPhotoExt,
         damagePhotosByItemId: damagePhotosByItemId,
+        machineryPhotosByItemId: machineryPhotosByItemId,
       );
 
       if (!context.mounted) return;

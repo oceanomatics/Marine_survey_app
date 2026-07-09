@@ -128,11 +128,22 @@ const _roleLabels = {
   'surveyor': 'Surveyor',
 };
 
+// This is the table actually rendered in both the docx export and the
+// Preview tab (see buildAttendanceBlocks below) — previously silently
+// dropped the title prefix entirely when unset, rather than falling back
+// to a guess (TODO.md §1.8 S2). 'Mr./Ms.' hedge instead of a bare 'Mr.'
+// default (as literally asked) to avoid misgendering — mirrors
+// AttendeeModel.prefix in attendees_provider.dart, which only runs on the
+// in-app Attendees screen, not this raw-map path.
 String _attendeeName(Map<String, dynamic> a) {
   final title = a['title'] as String?;
   final name = a['full_name'] as String? ?? '';
-  if (title == null) return name;
-  return '${_titleLabels[title] ?? ''} $name'.trim();
+  if (title != null) return '${_titleLabels[title] ?? ''} $name'.trim();
+  final role = a['role_type'] as String?;
+  final prefix = (role == 'master' || role == 'port_captain')
+      ? 'Capt.'
+      : 'Mr./Ms.';
+  return '$prefix $name'.trim();
 }
 
 String _attendeeFunction(Map<String, dynamic> a) {
