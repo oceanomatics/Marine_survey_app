@@ -1978,8 +1978,9 @@ class _MachineryTab extends ConsumerWidget {
             await ref
                 .read(machineryProvider(vesselId).notifier)
                 .updateMachinery(m);
+            return m;
           } else {
-            await ref
+            return ref
                 .read(machineryProvider(vesselId).notifier)
                 .addMachinery(m);
           }
