@@ -35,6 +35,10 @@ import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/screens/vessel_compliance_screen.dart';
 import '../../reports/providers/report_provider.dart';
 import '../../documents/providers/document_provider.dart';
+import '../../documents/utils/document_request_email.dart';
+import '../../parties/providers/parties_provider.dart';
+import '../../../core/services/gmail_service.dart';
+import '../../../shared/widgets/app_feedback.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
 
@@ -1954,9 +1958,8 @@ class _PseudoReport extends ConsumerWidget {
     final enclosed = documents
         .where((d) => d.availability == DocAvailability.enclosed)
         .length;
-    final requested = documents
-        .where((d) => d.availability == DocAvailability.requested)
-        .length;
+    final requestedDocs =
+        documents.where((d) => d.availability == DocAvailability.requested).toList();
     final notAvailable = documents
         .where((d) => d.availability == DocAvailability.notAvailable)
         .length;
@@ -1964,10 +1967,23 @@ class _PseudoReport extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _accountAmountRow('On File', '$enclosed', AppColors.success),
-        if (requested > 0)
-          _accountAmountRow('Requested — Not Yet Received', '$requested', AppColors.amber),
+        if (requestedDocs.isNotEmpty)
+          _accountAmountRow(
+              'Requested — Not Yet Received', '${requestedDocs.length}', AppColors.amber),
         if (notAvailable > 0)
           _accountAmountRow('Not Available', '$notAvailable', AppColors.error),
+        // TODO.md §3.4 (8 July 2026): auto-generated email listing
+        // outstanding requested documents — the dedicated Documentation
+        // screen with a true 3-way availability split is a larger,
+        // separate architectural item (deferred, comparable in scope to
+        // §2.18); this delivers the actually-missing email capability now
+        // from the existing case-home card.
+        if (requestedDocs.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _SendDocumentRequestButton(
+                caseId: survey.caseId, requestedDocs: requestedDocs),
+          ),
       ],
     );
   }
@@ -2519,6 +2535,201 @@ class _StatutoryRow extends StatelessWidget {
                         fontSize: 12, color: AppColors.textPrimary)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Documentation Request email (TODO.md §3.4, 8 July 2026) ────────────────
+
+class _SendDocumentRequestButton extends ConsumerWidget {
+  const _SendDocumentRequestButton({
+    required this.caseId,
+    required this.requestedDocs,
+  });
+  final String caseId;
+  final List<DocumentModel> requestedDocs;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => _openComposeSheet(context, ref),
+        icon: const Icon(Icons.mail_outline, size: 15),
+        label: const Text('Send Documentation Request',
+            style: TextStyle(fontSize: 12)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.amber,
+          side: const BorderSide(color: AppColors.amber),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openComposeSheet(BuildContext context, WidgetRef ref) async {
+    final caseModel = ref.read(caseProvider(caseId)).value;
+    if (caseModel == null) return;
+    final parties = ref.read(partiesProvider(caseId)).value;
+    final draft = buildDocumentRequestEmail(
+        caseModel: caseModel, requested: requestedDocs);
+
+    if (!context.mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DocumentRequestComposeSheet(
+        initialTo: parties?.assuredRepEmail ?? '',
+        subject: draft.subject,
+        body: draft.body,
+      ),
+    );
+  }
+}
+
+class _DocumentRequestComposeSheet extends StatefulWidget {
+  const _DocumentRequestComposeSheet({
+    required this.initialTo,
+    required this.subject,
+    required this.body,
+  });
+  final String initialTo;
+  final String subject;
+  final String body;
+
+  @override
+  State<_DocumentRequestComposeSheet> createState() =>
+      _DocumentRequestComposeSheetState();
+}
+
+class _DocumentRequestComposeSheetState
+    extends State<_DocumentRequestComposeSheet> {
+  late final TextEditingController _toCtrl;
+  late final TextEditingController _bodyCtrl;
+  bool _sending = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _toCtrl = TextEditingController(text: widget.initialTo);
+    _bodyCtrl = TextEditingController(text: widget.body);
+  }
+
+  @override
+  void dispose() {
+    _toCtrl.dispose();
+    _bodyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_toCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Recipient email is required');
+      return;
+    }
+    setState(() { _sending = true; _error = null; });
+    try {
+      await GmailService.sendMessage(
+        to: _toCtrl.text.trim(),
+        subject: widget.subject,
+        bodyText: _bodyCtrl.text,
+      );
+      if (mounted) {
+        Navigator.pop(context);
+        showSavedToast(context, label: 'Documentation request sent');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _error = 'Send failed: $e — check Gmail is connected in Settings';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Send Documentation Request',
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary)),
+              const SizedBox(height: 4),
+              const Text(
+                'Review before sending — this goes out from your connected '
+                'Gmail account.',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _toCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                    labelText: 'To', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                readOnly: true,
+                controller: TextEditingController(text: widget.subject),
+                decoration: const InputDecoration(
+                    labelText: 'Subject', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _bodyCtrl,
+                maxLines: 10,
+                decoration: const InputDecoration(
+                    labelText: 'Message', border: OutlineInputBorder()),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!,
+                    style: const TextStyle(color: AppColors.error, fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _sending ? null : () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _sending ? null : _send,
+                      icon: _sending
+                          ? const SizedBox(
+                              width: 14, height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.send_outlined, size: 15),
+                      label: const Text('Send'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
