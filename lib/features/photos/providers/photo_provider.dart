@@ -265,6 +265,33 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     return null;
   }
 
+  /// TODO.md §3.2 — matches [takenAt] against the case's survey attendances
+  /// by same calendar day. Returns the attendance id only when exactly one
+  /// attendance falls on that day; ambiguous (multiple attendances same
+  /// day) or no match both resolve to null, leaving the photo unassigned
+  /// for manual review via the existing photo-viewer picker
+  /// (`photo_detail_sheet.dart`) or the "NOT YET ASSIGNED TO A VISIT"
+  /// section in the gallery — no separate flagging mechanism needed.
+  Future<String?> _autoMatchAttendance(String caseId, DateTime takenAt) async {
+    final dateStr =
+        '${takenAt.year}-${takenAt.month.toString().padLeft(2, '0')}-'
+        '${takenAt.day.toString().padLeft(2, '0')}';
+    try {
+      final rows = await SupabaseService.client
+          .from('survey_attendances')
+          .select('attendance_id')
+          .eq('case_id', caseId)
+          .eq('attendance_date', dateStr);
+      final matches = rows as List;
+      if (matches.length == 1) {
+        return matches.first['attendance_id'] as String;
+      }
+    } catch (_) {
+      // Offline or lookup failed — leave unassigned, same as no match.
+    }
+    return null;
+  }
+
   Future<CaseModel> _fetchCaseModel(String caseId) async {
     final cached = ref.read(caseProvider(caseId)).value;
     if (cached != null) return cached;
@@ -319,6 +346,12 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     // Read EXIF date from original bytes before compression strips metadata.
     final takenAt = await _exifDate(bytes) ?? DateTime.now();
 
+    // TODO.md §3.2 — an explicit attendanceId from the caller (e.g. adding
+    // photos from within a specific attendance's gallery view) always wins;
+    // otherwise try to auto-assign by matching the EXIF date.
+    final resolvedAttendanceId =
+        attendanceId ?? await _autoMatchAttendance(caseId, takenAt);
+
     final compressed = await FlutterImageCompress.compressWithList(
       bytes,
       minWidth: 1920,
@@ -354,7 +387,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     String? thumbDriveFileId;
     try {
       final caseModel = await _fetchCaseModel(caseId);
-      final attendanceLabel = await _attendanceFolderLabel(attendanceId);
+      final attendanceLabel = await _attendanceFolderLabel(resolvedAttendanceId);
       final subFolders = attendanceLabel != null ? [attendanceLabel] : const <String>[];
       final dateStr = '${takenAt.year}-${takenAt.month.toString().padLeft(2, '0')}-'
           '${takenAt.day.toString().padLeft(2, '0')} '
@@ -404,7 +437,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       allocation: allocation,
       linkedToType: linkedToType,
       linkedToId: linkedToId,
-      attendanceId: attendanceId,
+      attendanceId: resolvedAttendanceId,
       takenAt: takenAt,
       fileSizeKb: compressed.length / 1024,
       driveFileId: driveFileId,
@@ -522,6 +555,22 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
   /// from the photo viewer.
   Future<void> updateAttendanceId(String photoId, String? attendanceId) =>
       _applyUpdate(photoId, (ph) => ph.copyWith(attendanceId: attendanceId));
+
+  /// TODO.md §3.2 bulk re-run — re-attempts EXIF-date matching for every
+  /// photo in this case that has no attendance yet (e.g. after a new
+  /// attendance is logged retroactively, covering photos already
+  /// imported). Returns how many photos were newly assigned.
+  Future<int> autoAssignUnassignedPhotos() async {
+    final current = state.value ?? [];
+    var assignedCount = 0;
+    for (final photo in current.where((ph) => ph.attendanceId == null)) {
+      final match = await _autoMatchAttendance(_caseId, photo.takenAt);
+      if (match == null) continue;
+      await _applyUpdate(photo.id, (ph) => ph.copyWith(attendanceId: match));
+      assignedCount++;
+    }
+    return assignedCount;
+  }
 
   Future<void> updateAllocation(
       String photoId, PhotoAllocation? allocation) async {

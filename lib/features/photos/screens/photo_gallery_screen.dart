@@ -455,7 +455,8 @@ class _ByVisitTab extends ConsumerWidget {
           ),
         ],
         if (unassigned.isNotEmpty) ...[
-          const _SectionLabel('NOT YET ASSIGNED TO A VISIT'),
+          _SectionLabel('NOT YET ASSIGNED TO A VISIT',
+              trailing: _AutoAssignButton(caseId: caseId)),
           _PhotoSliverGrid(
             caseId: caseId,
             photos: unassigned,
@@ -465,6 +466,59 @@ class _ByVisitTab extends ConsumerWidget {
         ],
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
+    );
+  }
+}
+
+/// TODO.md §3.2 bulk re-run — re-attempts EXIF-date matching for every
+/// unassigned photo, e.g. after logging a new attendance retroactively.
+class _AutoAssignButton extends ConsumerStatefulWidget {
+  const _AutoAssignButton({required this.caseId});
+  final String caseId;
+
+  @override
+  ConsumerState<_AutoAssignButton> createState() => _AutoAssignButtonState();
+}
+
+class _AutoAssignButtonState extends ConsumerState<_AutoAssignButton> {
+  bool _running = false;
+
+  Future<void> _run() async {
+    setState(() => _running = true);
+    try {
+      final assigned = await ref
+          .read(photosProvider(widget.caseId).notifier)
+          .autoAssignUnassignedPhotos();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(assigned == 0
+            ? 'No unassigned photos matched a visit date'
+            : 'Assigned $assigned photo${assigned == 1 ? '' : 's'} to a visit'),
+      ));
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_running) {
+      return const SizedBox(
+        width: 14,
+        height: 14,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    return GestureDetector(
+      onTap: _run,
+      child: const Text(
+        'Auto-assign',
+        style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: _kColor,
+            letterSpacing: 0.4),
+      ),
     );
   }
 }
@@ -750,21 +804,29 @@ class _DamageItemSubHeader extends StatelessWidget {
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
+  const _SectionLabel(this.text, {this.trailing});
   final String text;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-        child: Text(
-          text,
-          style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textTertiary,
-              letterSpacing: 0.8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textTertiary,
+                    letterSpacing: 0.8),
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
         ),
       ),
     );
