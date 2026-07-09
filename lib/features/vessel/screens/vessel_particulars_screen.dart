@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/vessel_provider.dart';
+import 'vessel_compliance_screen.dart';
 import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../documents/providers/document_provider.dart';
@@ -14,19 +15,12 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/loading_widget.dart';
-import '../../../shared/widgets/tri_state_row.dart';
 import '../../../shared/widgets/app_feedback.dart';
-import '../providers/certificates_provider.dart';
-import '../providers/class_conditions_provider.dart';
-import '../models/class_condition_model.dart';
-import '../widgets/certificate_card.dart';
-import '../widgets/add_certificate_sheet.dart';
 import '../widgets/machinery_card.dart';
 import '../widgets/add_machinery_sheet.dart';
 import '../widgets/section_header.dart';
 import '../widgets/survey_field.dart';
 import '../../../shared/widgets/save_bar.dart';
-import '../../survey/providers/damage_provider.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../photos/models/photo_model.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
@@ -114,16 +108,6 @@ const _propulsionDriveTypes = [
   'Electric Motor',
 ];
 
-const _breadthQualifiers = [
-  'Moulded Breadth',
-  'Extreme Breadth',
-  'Beam (OA)',
-  'Breadth',
-  'Beam',
-];
-
-const _draftQualifiers = ['Load Line Draft', 'Max Draft', 'Draft'];
-
 const _tankerTypes = {
   'oil tanker',
   'products carrier',
@@ -172,9 +156,14 @@ class _VesselParticularsScreenState
   final _dwtCtrl = TextEditingController();
   final _loaCtrl = TextEditingController();
   final _lbpCtrl = TextEditingController();
-  final _breadthCtrl = TextEditingController();
+  // Breadth/draft — independent fields per variant (§2.17 finding #12),
+  // replacing the old single value + forced-choice qualifier dropdown.
+  final _breadthMouldedCtrl = TextEditingController();
+  final _breadthExtremeCtrl = TextEditingController();
+  final _beamOaCtrl = TextEditingController();
   final _depthCtrl = TextEditingController();
-  final _draftCtrl = TextEditingController();
+  final _draftLoadLineCtrl = TextEditingController();
+  final _draftMaxCtrl = TextEditingController();
   final _yearBuiltCtrl = TextEditingController();
   final _buildYardCtrl = TextEditingController();
   final _buildCountryCtrl = TextEditingController();
@@ -200,19 +189,10 @@ class _VesselParticularsScreenState
   DateTime? _equipmentSurveyDue;
   DateTime? _hullSurveyDue;
   DateTime? _tailShaftSurveyDue;
-  // Class & Statutory tab — PSC / ISPS (ISM/Class reporting)
-  final _pscSummaryCtrl = TextEditingController();
-  bool? _ismIncidentReported;
-  bool? _classIncidentReported;
-  DateTime? _pscLastInspection;
-  PscResult? _pscLastResult;
-  IspsStatus? _ispsStatus;
 
   // Dropdown / chip selections
   String? _vesselType;
   String? _classSociety;
-  String? _breadthQualifier;
-  String? _draftQualifier;
   String? _propulsionType;
   String? _propellerType;
   String? _propulsionDriveType;
@@ -223,7 +203,7 @@ class _VesselParticularsScreenState
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -242,9 +222,12 @@ class _VesselParticularsScreenState
       _dwtCtrl,
       _loaCtrl,
       _lbpCtrl,
-      _breadthCtrl,
+      _breadthMouldedCtrl,
+      _breadthExtremeCtrl,
+      _beamOaCtrl,
       _depthCtrl,
-      _draftCtrl,
+      _draftLoadLineCtrl,
+      _draftMaxCtrl,
       _yearBuiltCtrl,
       _buildYardCtrl,
       _buildCountryCtrl,
@@ -259,7 +242,6 @@ class _VesselParticularsScreenState
       _officialNumberCtrl,
       _constructionStandardCtrl,
       _piClubCtrl,
-      _pscSummaryCtrl,
       _uviCtrl,
       _surveyCertNoCtrl,
     ]) {
@@ -285,11 +267,32 @@ class _VesselParticularsScreenState
     _tanksCtrl.text = v.tanksCount?.toString() ?? '';
     _loaCtrl.text = v.lengthOa?.toString() ?? '';
     _lbpCtrl.text = v.lengthBp?.toString() ?? '';
-    _breadthCtrl.text = v.breadth?.toString() ?? '';
-    _breadthQualifier = v.breadthQualifier;
+    // Independent breadth fields — prefer the new per-variant columns; fall
+    // back to the legacy single value/qualifier pair for vessels saved
+    // before this split (§2.17 finding #12), so old data stays visible.
+    _breadthMouldedCtrl.text = v.breadthMoulded?.toString() ??
+        (v.breadthQualifier == 'Moulded Breadth'
+            ? v.breadth?.toString() ?? ''
+            : '');
+    _breadthExtremeCtrl.text = v.breadthExtreme?.toString() ??
+        (v.breadthQualifier == 'Extreme Breadth'
+            ? v.breadth?.toString() ?? ''
+            : '');
+    _beamOaCtrl.text = v.beamOa?.toString() ??
+        (v.breadthQualifier != null &&
+                v.breadthQualifier != 'Moulded Breadth' &&
+                v.breadthQualifier != 'Extreme Breadth'
+            ? v.breadth?.toString() ?? ''
+            : '');
     _depthCtrl.text = v.depth?.toString() ?? '';
-    _draftCtrl.text = v.maxDraft?.toString() ?? '';
-    _draftQualifier = v.draftQualifier;
+    _draftLoadLineCtrl.text = v.draftLoadLine?.toString() ??
+        (v.draftQualifier == 'Load Line Draft'
+            ? v.maxDraft?.toString() ?? ''
+            : '');
+    _draftMaxCtrl.text = v.draftMax?.toString() ??
+        (v.draftQualifier != 'Load Line Draft'
+            ? v.maxDraft?.toString() ?? ''
+            : '');
     _yearBuiltCtrl.text = v.yearBuilt?.toString() ?? '';
     _buildYardCtrl.text = v.buildYard ?? '';
     _buildCountryCtrl.text = v.buildCountry ?? '';
@@ -307,12 +310,6 @@ class _VesselParticularsScreenState
     _officialNumberCtrl.text = v.officialNumber ?? '';
     _constructionStandardCtrl.text = v.constructionStandard ?? '';
     _piClubCtrl.text = v.piClub ?? '';
-    _ismIncidentReported = v.ismIncidentReported;
-    _classIncidentReported = v.classIncidentReported;
-    _pscLastInspection = v.pscLastInspection;
-    _pscLastResult = v.pscLastResult;
-    _pscSummaryCtrl.text = v.pscSummary ?? '';
-    _ispsStatus = v.ispsStatus;
     _regulatoryStandard = v.regulatoryStandard;
     _amsaVesselUseClass = v.amsaVesselUseClass;
     _amsaServiceCategory = v.amsaServiceCategory;
@@ -346,11 +343,8 @@ class _VesselParticularsScreenState
         'tanks_count': int.tryParse(_tanksCtrl.text.trim()),
         'length_oa': double.tryParse(_loaCtrl.text.trim()),
         'length_bp': double.tryParse(_lbpCtrl.text.trim()),
-        'breadth': double.tryParse(_breadthCtrl.text.trim()),
-        'breadth_qualifier': _breadthQualifier,
+        ..._collectBreadthDraftFields(),
         'depth': double.tryParse(_depthCtrl.text.trim()),
-        'max_draft': double.tryParse(_draftCtrl.text.trim()),
-        'draft_qualifier': _draftQualifier,
         'year_built': int.tryParse(_yearBuiltCtrl.text.trim()),
         'build_yard': _buildYardCtrl.text.trim().isEmpty
             ? null
@@ -382,15 +376,6 @@ class _VesselParticularsScreenState
             : _constructionStandardCtrl.text.trim(),
         'pi_club':
             _piClubCtrl.text.trim().isEmpty ? null : _piClubCtrl.text.trim(),
-        'ism_incident_reported': _ismIncidentReported,
-        'class_incident_reported': _classIncidentReported,
-        'psc_last_inspection':
-            _pscLastInspection?.toIso8601String().split('T').first,
-        'psc_last_result': _pscLastResult?.value,
-        'psc_summary': _pscSummaryCtrl.text.trim().isEmpty
-            ? null
-            : _pscSummaryCtrl.text.trim(),
-        'isps_status': _ispsStatus?.value,
         'regulatory_standard': _regulatoryStandard?.value,
         'amsa_vessel_use_class': _amsaVesselUseClass?.value,
         'amsa_service_category': _amsaServiceCategory?.value,
@@ -406,6 +391,54 @@ class _VesselParticularsScreenState
         'tail_shaft_survey_due':
             _tailShaftSurveyDue?.toIso8601String().split('T').first,
       };
+
+  /// Builds the breadth/draft columns to save: the new independent
+  /// per-variant fields, plus a derived legacy `breadth`/`breadth_qualifier`
+  /// and `max_draft`/`draft_qualifier` pair (priority order below) so
+  /// existing report-builder/AI-extraction code that only knows about the
+  /// single legacy pair keeps working unchanged (§2.17 finding #12).
+  Map<String, dynamic> _collectBreadthDraftFields() {
+    final moulded = double.tryParse(_breadthMouldedCtrl.text.trim());
+    final extreme = double.tryParse(_breadthExtremeCtrl.text.trim());
+    final beamOa = double.tryParse(_beamOaCtrl.text.trim());
+    final loadLine = double.tryParse(_draftLoadLineCtrl.text.trim());
+    final maxDraft = double.tryParse(_draftMaxCtrl.text.trim());
+
+    double? legacyBreadth;
+    String? legacyBreadthQualifier;
+    if (moulded != null) {
+      legacyBreadth = moulded;
+      legacyBreadthQualifier = 'Moulded Breadth';
+    } else if (extreme != null) {
+      legacyBreadth = extreme;
+      legacyBreadthQualifier = 'Extreme Breadth';
+    } else if (beamOa != null) {
+      legacyBreadth = beamOa;
+      legacyBreadthQualifier = 'Beam (OA)';
+    }
+
+    double? legacyDraft;
+    String? legacyDraftQualifier;
+    if (loadLine != null) {
+      legacyDraft = loadLine;
+      legacyDraftQualifier = 'Load Line Draft';
+    } else if (maxDraft != null) {
+      legacyDraft = maxDraft;
+      legacyDraftQualifier = 'Max Draft';
+    }
+
+    return {
+      'breadth_moulded': moulded,
+      'breadth_extreme': extreme,
+      'beam_oa': beamOa,
+      'breadth': legacyBreadth,
+      'breadth_qualifier': legacyBreadthQualifier,
+      'draft_load_line': loadLine,
+      'draft_max': maxDraft,
+      'max_draft': legacyDraft,
+      'draft_qualifier': legacyDraftQualifier,
+    };
+  }
 
   Future<void> _syncCaseTitle(String vesselName) async {
     try {
@@ -742,10 +775,11 @@ class _VesselParticularsScreenState
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white.withValues(alpha: 0.6),
           tabs: const [
-            Tab(text: 'Identity'),
+            Tab(text: 'Identity & Ownership'),
+            Tab(text: 'Registration'),
+            Tab(text: 'Classification'),
             Tab(text: 'Dimensions'),
             Tab(text: 'Machinery'),
-            Tab(text: 'Class & Stat.'),
           ],
         ),
       ),
@@ -757,25 +791,40 @@ class _VesselParticularsScreenState
       body: TabBarView(
         controller: _tabController,
         children: [
-          _IdentityTab(
+          _IdentityOwnershipTab(
             caseId: widget.caseId,
             nameCtrl: _nameCtrl,
             prevNameCtrl: _prevNameCtrl,
             imoCtrl: _imoCtrl,
-            callSignCtrl: _callSignCtrl,
-            mmsiCtrl: _mmsiCtrl,
             vesselType: _vesselType,
-            flagCtrl: _flagCtrl,
-            portCtrl: _portCtrl,
-            officialNumberCtrl: _officialNumberCtrl,
             ownersCtrl: _ownersCtrl,
             operatorsCtrl: _operatorsCtrl,
-            classSociety: _classSociety,
-            notationCtrl: _notationCtrl,
-            piClubCtrl: _piClubCtrl,
             yearBuiltCtrl: _yearBuiltCtrl,
             buildYardCtrl: _buildYardCtrl,
             buildCountryCtrl: _buildCountryCtrl,
+            regulatoryStandard: _regulatoryStandard,
+            onChanged: _markChanged,
+            onVesselTypeChanged: (v) {
+              setState(() {
+                _vesselType = v;
+                _hasChanges = true;
+              });
+            },
+            onRegulatoryStandardChanged: (v) {
+              setState(() {
+                _regulatoryStandard = v;
+                _hasChanges = true;
+              });
+            },
+            onEquasisFetch: _fetchFromEquasis,
+            fetchingEquasis: _fetchingEquasis,
+          ),
+          _RegistrationTab(
+            flagCtrl: _flagCtrl,
+            portCtrl: _portCtrl,
+            callSignCtrl: _callSignCtrl,
+            mmsiCtrl: _mmsiCtrl,
+            officialNumberCtrl: _officialNumberCtrl,
             regulatoryStandard: _regulatoryStandard,
             amsaVesselUseClass: _amsaVesselUseClass,
             amsaServiceCategory: _amsaServiceCategory,
@@ -786,24 +835,6 @@ class _VesselParticularsScreenState
             hullSurveyDue: _hullSurveyDue,
             tailShaftSurveyDue: _tailShaftSurveyDue,
             onChanged: _markChanged,
-            onVesselTypeChanged: (v) {
-              setState(() {
-                _vesselType = v;
-                _hasChanges = true;
-              });
-            },
-            onClassSocietyChanged: (v) {
-              setState(() {
-                _classSociety = v;
-                _hasChanges = true;
-              });
-            },
-            onRegulatoryStandardChanged: (v) {
-              setState(() {
-                _regulatoryStandard = v;
-                _hasChanges = true;
-              });
-            },
             onAmsaVesselUseClassChanged: (v) {
               setState(() {
                 _amsaVesselUseClass = v;
@@ -840,8 +871,20 @@ class _VesselParticularsScreenState
                 _hasChanges = true;
               });
             },
-            onEquasisFetch: _fetchFromEquasis,
-            fetchingEquasis: _fetchingEquasis,
+          ),
+          _ClassificationTab(
+            caseId: widget.caseId,
+            regulatoryStandard: _regulatoryStandard,
+            classSociety: _classSociety,
+            notationCtrl: _notationCtrl,
+            piClubCtrl: _piClubCtrl,
+            onChanged: _markChanged,
+            onClassSocietyChanged: (v) {
+              setState(() {
+                _classSociety = v;
+                _hasChanges = true;
+              });
+            },
           ),
           _DimensionsTab(
             gtCtrl: _gtCtrl,
@@ -852,25 +895,14 @@ class _VesselParticularsScreenState
             vesselType: _vesselType,
             loaCtrl: _loaCtrl,
             lbpCtrl: _lbpCtrl,
-            breadthCtrl: _breadthCtrl,
+            breadthMouldedCtrl: _breadthMouldedCtrl,
+            breadthExtremeCtrl: _breadthExtremeCtrl,
+            beamOaCtrl: _beamOaCtrl,
             depthCtrl: _depthCtrl,
-            draftCtrl: _draftCtrl,
+            draftLoadLineCtrl: _draftLoadLineCtrl,
+            draftMaxCtrl: _draftMaxCtrl,
             speedCtrl: _speedCtrl,
-            breadthQualifier: _breadthQualifier,
-            draftQualifier: _draftQualifier,
             onChanged: _markChanged,
-            onBreadthQualifierChanged: (v) {
-              setState(() {
-                _breadthQualifier = v;
-                _hasChanges = true;
-              });
-            },
-            onDraftQualifierChanged: (v) {
-              setState(() {
-                _draftQualifier = v;
-                _hasChanges = true;
-              });
-            },
           ),
           vessel?.vesselId != null
               ? _MachineryTab(
@@ -909,139 +941,53 @@ class _VesselParticularsScreenState
                   onChanged: _markChanged,
                 )
               : const _MachineryPlaceholder(),
-          _ClassStatutoryTab(
-            caseId: vessel?.vesselId != null ? widget.caseId : widget.caseId,
-            vesselId: vessel?.vesselId,
-            ismIncidentReported: _ismIncidentReported,
-            classIncidentReported: _classIncidentReported,
-            pscLastInspection: _pscLastInspection,
-            pscLastResult: _pscLastResult,
-            pscSummaryCtrl: _pscSummaryCtrl,
-            ispsStatus: _ispsStatus,
-            onChanged: _markChanged,
-            onIsmChanged: (v) {
-              setState(() {
-                _ismIncidentReported = v;
-                _hasChanges = true;
-              });
-            },
-            onClassReportedChanged: (v) {
-              setState(() {
-                _classIncidentReported = v;
-                _hasChanges = true;
-              });
-            },
-            onPscDateChanged: (v) {
-              setState(() {
-                _pscLastInspection = v;
-                _hasChanges = true;
-              });
-            },
-            onPscResultChanged: (v) {
-              setState(() {
-                _pscLastResult = v;
-                _hasChanges = true;
-              });
-            },
-            onIspsStatusChanged: (v) {
-              setState(() {
-                _ispsStatus = v;
-                _hasChanges = true;
-              });
-            },
-          ),
         ],
       ),
     );
   }
 }
 
-// ── Tab 1: Identity ───────────────────────────────────────────────────────────
+// ── Tab 1: Identity & Ownership ─────────────────────────────────────────────
 
-class _IdentityTab extends ConsumerStatefulWidget {
-  const _IdentityTab({
+class _IdentityOwnershipTab extends ConsumerStatefulWidget {
+  const _IdentityOwnershipTab({
     required this.caseId,
     required this.nameCtrl,
     required this.prevNameCtrl,
     required this.imoCtrl,
-    required this.callSignCtrl,
-    required this.mmsiCtrl,
     required this.vesselType,
-    required this.flagCtrl,
-    required this.portCtrl,
-    required this.officialNumberCtrl,
     required this.ownersCtrl,
     required this.operatorsCtrl,
-    required this.classSociety,
-    required this.notationCtrl,
-    required this.piClubCtrl,
     required this.yearBuiltCtrl,
     required this.buildYardCtrl,
     required this.buildCountryCtrl,
     required this.regulatoryStandard,
-    required this.amsaVesselUseClass,
-    required this.amsaServiceCategory,
-    required this.hullMaterial,
-    required this.uviCtrl,
-    required this.surveyCertNoCtrl,
-    required this.equipmentSurveyDue,
-    required this.hullSurveyDue,
-    required this.tailShaftSurveyDue,
     required this.onChanged,
     required this.onVesselTypeChanged,
-    required this.onClassSocietyChanged,
     required this.onRegulatoryStandardChanged,
-    required this.onAmsaVesselUseClassChanged,
-    required this.onAmsaServiceCategoryChanged,
-    required this.onHullMaterialChanged,
-    required this.onEquipmentSurveyDueChanged,
-    required this.onHullSurveyDueChanged,
-    required this.onTailShaftSurveyDueChanged,
     this.onEquasisFetch,
     this.fetchingEquasis = false,
   });
 
   final String caseId;
-  final TextEditingController nameCtrl,
-      prevNameCtrl,
-      imoCtrl,
-      callSignCtrl,
-      mmsiCtrl;
+  final TextEditingController nameCtrl, prevNameCtrl, imoCtrl;
   final String? vesselType;
-  final TextEditingController flagCtrl, portCtrl;
-  final TextEditingController officialNumberCtrl;
   final TextEditingController ownersCtrl, operatorsCtrl;
-  final String? classSociety;
-  final TextEditingController notationCtrl;
-  final TextEditingController piClubCtrl;
   final TextEditingController yearBuiltCtrl, buildYardCtrl, buildCountryCtrl;
   final RegulatoryStandard? regulatoryStandard;
-  final AmsaVesselUseClass? amsaVesselUseClass;
-  final AmsaServiceCategory? amsaServiceCategory;
-  final HullMaterial? hullMaterial;
-  final TextEditingController uviCtrl;
-  final TextEditingController surveyCertNoCtrl;
-  final DateTime? equipmentSurveyDue;
-  final DateTime? hullSurveyDue;
-  final DateTime? tailShaftSurveyDue;
   final VoidCallback onChanged;
   final ValueChanged<String?> onVesselTypeChanged;
-  final ValueChanged<String?> onClassSocietyChanged;
   final ValueChanged<RegulatoryStandard?> onRegulatoryStandardChanged;
-  final ValueChanged<AmsaVesselUseClass?> onAmsaVesselUseClassChanged;
-  final ValueChanged<AmsaServiceCategory?> onAmsaServiceCategoryChanged;
-  final ValueChanged<HullMaterial?> onHullMaterialChanged;
-  final ValueChanged<DateTime?> onEquipmentSurveyDueChanged;
-  final ValueChanged<DateTime?> onHullSurveyDueChanged;
-  final ValueChanged<DateTime?> onTailShaftSurveyDueChanged;
   final VoidCallback? onEquasisFetch;
   final bool fetchingEquasis;
 
   @override
-  ConsumerState<_IdentityTab> createState() => _IdentityTabState();
+  ConsumerState<_IdentityOwnershipTab> createState() =>
+      _IdentityOwnershipTabState();
 }
 
-class _IdentityTabState extends ConsumerState<_IdentityTab> {
+class _IdentityOwnershipTabState
+    extends ConsumerState<_IdentityOwnershipTab> {
   // The vessel "general view" photo is the same single case-wide cover
   // photo shared with the Photo Gallery and Report Builder — picking one
   // here updates it everywhere, and vice versa.
@@ -1286,53 +1232,6 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
         const SizedBox(height: 20),
 
         const VesselSectionHeader(
-          title: 'Registration',
-          icon: Icons.flag_outlined,
-          color: AppColors.midBlue,
-        ),
-        const SizedBox(height: 12),
-        SurveyField(
-          label: 'Flag',
-          controller: widget.flagCtrl,
-          hint: 'e.g. Australia',
-          onChanged: (_) => widget.onChanged(),
-        ),
-        SurveyField(
-          label: 'Port of Registry',
-          controller: widget.portCtrl,
-          hint: 'e.g. Dampier',
-          onChanged: (_) => widget.onChanged(),
-        ),
-        Row(children: [
-          Expanded(
-            child: SurveyField(
-              label: 'Call Sign',
-              controller: widget.callSignCtrl,
-              hint: 'e.g. VRKU6',
-              capitalization: TextCapitalization.characters,
-              onChanged: (_) => widget.onChanged(),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SurveyField(
-              label: 'MMSI',
-              controller: widget.mmsiCtrl,
-              hint: 'e.g. 477123456',
-              keyboard: TextInputType.number,
-              onChanged: (_) => widget.onChanged(),
-            ),
-          ),
-        ]),
-        SurveyField(
-          label: 'Official Number',
-          controller: widget.officialNumberCtrl,
-          hint: 'National registration number',
-          onChanged: (_) => widget.onChanged(),
-        ),
-        const SizedBox(height: 20),
-
-        const VesselSectionHeader(
           title: 'Ownership',
           icon: Icons.business_outlined,
           color: AppColors.amber,
@@ -1351,38 +1250,6 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           onChanged: (_) => widget.onChanged(),
         ),
         const SizedBox(height: 20),
-
-        // Classification (class society/notation, P&I club) applies to
-        // Convention vessels — shown by default (regulatoryStandard == null
-        // covers pre-existing vessels) and hidden once DCV is selected.
-        if (widget.regulatoryStandard != RegulatoryStandard.dcv) ...[
-          const VesselSectionHeader(
-            title: 'Classification',
-            icon: Icons.verified_outlined,
-            color: AppColors.purple,
-          ),
-          const SizedBox(height: 12),
-          _PickerField(
-            label: 'Class Society',
-            value: widget.classSociety,
-            hint: 'Select classification society',
-            options: _classSocieties,
-            onChanged: widget.onClassSocietyChanged,
-          ),
-          SurveyField(
-            label: 'Class Notation',
-            controller: widget.notationCtrl,
-            hint: 'e.g. A1, ATB, Towing vessel, AMS',
-            onChanged: (_) => widget.onChanged(),
-          ),
-          SurveyField(
-            label: 'P&I Club',
-            controller: widget.piClubCtrl,
-            hint: 'e.g. Gard, Skuld, West of England',
-            onChanged: (_) => widget.onChanged(),
-          ),
-          const SizedBox(height: 20),
-        ],
 
         const VesselSectionHeader(
           title: 'Build',
@@ -1414,10 +1281,113 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           hint: 'e.g. Hin Lee Shipyard',
           onChanged: (_) => widget.onChanged(),
         ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+}
+
+// ── Tab 2: Registration ───────────────────────────────────────────────────────
+
+class _RegistrationTab extends StatelessWidget {
+  const _RegistrationTab({
+    required this.flagCtrl,
+    required this.portCtrl,
+    required this.callSignCtrl,
+    required this.mmsiCtrl,
+    required this.officialNumberCtrl,
+    required this.regulatoryStandard,
+    required this.amsaVesselUseClass,
+    required this.amsaServiceCategory,
+    required this.hullMaterial,
+    required this.uviCtrl,
+    required this.surveyCertNoCtrl,
+    required this.equipmentSurveyDue,
+    required this.hullSurveyDue,
+    required this.tailShaftSurveyDue,
+    required this.onChanged,
+    required this.onAmsaVesselUseClassChanged,
+    required this.onAmsaServiceCategoryChanged,
+    required this.onHullMaterialChanged,
+    required this.onEquipmentSurveyDueChanged,
+    required this.onHullSurveyDueChanged,
+    required this.onTailShaftSurveyDueChanged,
+  });
+
+  final TextEditingController flagCtrl, portCtrl;
+  final TextEditingController callSignCtrl, mmsiCtrl;
+  final TextEditingController officialNumberCtrl;
+  final RegulatoryStandard? regulatoryStandard;
+  final AmsaVesselUseClass? amsaVesselUseClass;
+  final AmsaServiceCategory? amsaServiceCategory;
+  final HullMaterial? hullMaterial;
+  final TextEditingController uviCtrl;
+  final TextEditingController surveyCertNoCtrl;
+  final DateTime? equipmentSurveyDue;
+  final DateTime? hullSurveyDue;
+  final DateTime? tailShaftSurveyDue;
+  final VoidCallback onChanged;
+  final ValueChanged<AmsaVesselUseClass?> onAmsaVesselUseClassChanged;
+  final ValueChanged<AmsaServiceCategory?> onAmsaServiceCategoryChanged;
+  final ValueChanged<HullMaterial?> onHullMaterialChanged;
+  final ValueChanged<DateTime?> onEquipmentSurveyDueChanged;
+  final ValueChanged<DateTime?> onHullSurveyDueChanged;
+  final ValueChanged<DateTime?> onTailShaftSurveyDueChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const VesselSectionHeader(
+          title: 'Registration',
+          icon: Icons.flag_outlined,
+          color: AppColors.midBlue,
+        ),
+        const SizedBox(height: 12),
+        SurveyField(
+          label: 'Flag',
+          controller: flagCtrl,
+          hint: 'e.g. Australia',
+          onChanged: (_) => onChanged(),
+        ),
+        SurveyField(
+          label: 'Port of Registry',
+          controller: portCtrl,
+          hint: 'e.g. Dampier',
+          onChanged: (_) => onChanged(),
+        ),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Call Sign',
+              controller: callSignCtrl,
+              hint: 'e.g. VRKU6',
+              capitalization: TextCapitalization.characters,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SurveyField(
+              label: 'MMSI',
+              controller: mmsiCtrl,
+              hint: 'e.g. 477123456',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+        ]),
+        SurveyField(
+          label: 'Official Number',
+          controller: officialNumberCtrl,
+          hint: 'National registration number',
+          onChanged: (_) => onChanged(),
+        ),
         const SizedBox(height: 20),
 
-        // DCV — National Law only: AMSA-specific identity fields.
-        if (widget.regulatoryStandard == RegulatoryStandard.dcv) ...[
+        // DCV — National Law only: AMSA-specific registration fields.
+        if (regulatoryStandard == RegulatoryStandard.dcv) ...[
           const VesselSectionHeader(
             title: 'DCV Particulars',
             icon: Icons.anchor_outlined,
@@ -1433,22 +1403,22 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 6),
           ChipRow<HullMaterial>(
             values: HullMaterial.values,
-            selected: widget.hullMaterial,
+            selected: hullMaterial,
             label: (m) => m.label,
-            onChanged: widget.onHullMaterialChanged,
+            onChanged: onHullMaterialChanged,
           ),
           const SizedBox(height: 14),
           SurveyField(
             label: 'Unique Vessel Identifier',
-            controller: widget.uviCtrl,
+            controller: uviCtrl,
             hint: 'AMSA UVI',
-            onChanged: (_) => widget.onChanged(),
+            onChanged: (_) => onChanged(),
           ),
           SurveyField(
             label: 'Survey Certificate No.',
-            controller: widget.surveyCertNoCtrl,
+            controller: surveyCertNoCtrl,
             hint: 'e.g. COS-12345-01',
-            onChanged: (_) => widget.onChanged(),
+            onChanged: (_) => onChanged(),
           ),
           const SizedBox(height: 6),
           const Text('AMSA Vessel Use Class',
@@ -1460,9 +1430,9 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 6),
           ChipRow<AmsaVesselUseClass>(
             values: AmsaVesselUseClass.values,
-            selected: widget.amsaVesselUseClass,
+            selected: amsaVesselUseClass,
             label: (c) => c.label,
-            onChanged: widget.onAmsaVesselUseClassChanged,
+            onChanged: onAmsaVesselUseClassChanged,
           ),
           const SizedBox(height: 12),
           const Text('Service Category',
@@ -1474,17 +1444,16 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 6),
           ChipRow<AmsaServiceCategory>(
             values: AmsaServiceCategory.values,
-            selected: widget.amsaServiceCategory,
+            selected: amsaServiceCategory,
             label: (c) => c.label,
-            onChanged: widget.onAmsaServiceCategoryChanged,
+            onChanged: onAmsaServiceCategoryChanged,
           ),
-          if (widget.amsaVesselUseClass != null &&
-              widget.amsaServiceCategory != null)
+          if (amsaVesselUseClass != null && amsaServiceCategory != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                'Class ${widget.amsaVesselUseClass!.value}'
-                '${widget.amsaServiceCategory!.value.toUpperCase()}',
+                'Class ${amsaVesselUseClass!.value}'
+                '${amsaServiceCategory!.value.toUpperCase()}',
                 style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -1494,18 +1463,18 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
           const SizedBox(height: 14),
           _DatePickerField(
             label: 'Equipment Due',
-            value: widget.equipmentSurveyDue,
-            onChanged: widget.onEquipmentSurveyDueChanged,
+            value: equipmentSurveyDue,
+            onChanged: onEquipmentSurveyDueChanged,
           ),
           _DatePickerField(
             label: 'Hull Due',
-            value: widget.hullSurveyDue,
-            onChanged: widget.onHullSurveyDueChanged,
+            value: hullSurveyDue,
+            onChanged: onHullSurveyDueChanged,
           ),
           _DatePickerField(
             label: 'Tail Shaft Due',
-            value: widget.tailShaftSurveyDue,
-            onChanged: widget.onTailShaftSurveyDueChanged,
+            value: tailShaftSurveyDue,
+            onChanged: onTailShaftSurveyDueChanged,
           ),
         ],
         const SizedBox(height: 32),
@@ -1514,7 +1483,108 @@ class _IdentityTabState extends ConsumerState<_IdentityTab> {
   }
 }
 
-// ── Tab 2: Dimensions ─────────────────────────────────────────────────────────
+// ── Tab 3: Classification ─────────────────────────────────────────────────────
+
+class _ClassificationTab extends StatelessWidget {
+  const _ClassificationTab({
+    required this.caseId,
+    required this.regulatoryStandard,
+    required this.classSociety,
+    required this.notationCtrl,
+    required this.piClubCtrl,
+    required this.onChanged,
+    required this.onClassSocietyChanged,
+  });
+
+  final String caseId;
+  final RegulatoryStandard? regulatoryStandard;
+  final String? classSociety;
+  final TextEditingController notationCtrl;
+  final TextEditingController piClubCtrl;
+  final VoidCallback onChanged;
+  final ValueChanged<String?> onClassSocietyChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // Class society/notation/P&I club apply to Convention vessels — shown by
+    // default (regulatoryStandard == null covers pre-existing vessels) and
+    // not applicable once DCV (National Law) is selected.
+    final applies = regulatoryStandard != RegulatoryStandard.dcv;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const VesselSectionHeader(
+          title: 'Classification',
+          icon: Icons.verified_outlined,
+          color: AppColors.purple,
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Static identity data only — which class society and notation the '
+          'vessel holds. Certificates, conditions of class, drydocking, PSC '
+          'and ISPS (things that change during the survey) live on '
+          'Certificates & Class at case level, not here.',
+          style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textTertiary,
+              fontStyle: FontStyle.italic),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => VesselComplianceScreen(caseId: caseId))),
+            icon: const Icon(Icons.shield_outlined, size: 16),
+            label: const Text('Open Certificates & Class'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.purple,
+              side: const BorderSide(color: AppColors.purple),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (!applies)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              'Not applicable — this vessel operates under National Law '
+              '(DCV), see the Registration tab for DCV particulars.',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic),
+            ),
+          )
+        else ...[
+          _PickerField(
+            label: 'Class Society',
+            value: classSociety,
+            hint: 'Select classification society',
+            options: _classSocieties,
+            onChanged: onClassSocietyChanged,
+          ),
+          SurveyField(
+            label: 'Class Notation',
+            controller: notationCtrl,
+            hint: 'e.g. A1, ATB, Towing vessel, AMS',
+            onChanged: (_) => onChanged(),
+          ),
+          SurveyField(
+            label: 'P&I Club',
+            controller: piClubCtrl,
+            hint: 'e.g. Gard, Skuld, West of England',
+            onChanged: (_) => onChanged(),
+          ),
+        ],
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+}
+
+// ── Tab 4: Dimensions ─────────────────────────────────────────────────────────
 
 class _DimensionsTab extends StatelessWidget {
   const _DimensionsTab({
@@ -1526,31 +1596,30 @@ class _DimensionsTab extends StatelessWidget {
     required this.vesselType,
     required this.loaCtrl,
     required this.lbpCtrl,
-    required this.breadthCtrl,
+    required this.breadthMouldedCtrl,
+    required this.breadthExtremeCtrl,
+    required this.beamOaCtrl,
     required this.depthCtrl,
-    required this.draftCtrl,
+    required this.draftLoadLineCtrl,
+    required this.draftMaxCtrl,
     required this.speedCtrl,
-    required this.breadthQualifier,
-    required this.draftQualifier,
     required this.onChanged,
-    required this.onBreadthQualifierChanged,
-    required this.onDraftQualifierChanged,
   });
 
   final TextEditingController gtCtrl, ntCtrl, dwtCtrl;
   final TextEditingController holdsCtrl, tanksCtrl;
   final String? vesselType;
-  final TextEditingController loaCtrl,
-      lbpCtrl,
-      breadthCtrl,
-      depthCtrl,
-      draftCtrl;
+  final TextEditingController loaCtrl, lbpCtrl, depthCtrl;
+  // Independent breadth/draft fields (§2.17 finding #12) — the old design
+  // forced picking a single qualifier for one shared value; moulded/extreme
+  // breadth and beam (OA), and load line/max draft, are genuinely different
+  // measurements collected from different documents, so each gets its own
+  // field and is filled in as it becomes available.
+  final TextEditingController breadthMouldedCtrl, breadthExtremeCtrl;
+  final TextEditingController beamOaCtrl;
+  final TextEditingController draftLoadLineCtrl, draftMaxCtrl;
   final TextEditingController speedCtrl;
-  final String? breadthQualifier;
-  final String? draftQualifier;
   final VoidCallback onChanged;
-  final ValueChanged<String?> onBreadthQualifierChanged;
-  final ValueChanged<String?> onDraftQualifierChanged;
 
   bool get _isTanker => _tankerTypes.contains(vesselType);
   bool get _isCargo => _cargoTypes.contains(vesselType);
@@ -1636,19 +1705,36 @@ class _DimensionsTab extends StatelessWidget {
           )),
         ]),
 
-        // Breadth with qualifier
+        // Breadth — independent fields, fill in whichever were collected.
+        const Text(
+          'Fill in whichever breadth figures were collected — not every '
+          'document states all three.',
+          style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textTertiary,
+              fontStyle: FontStyle.italic),
+        ),
+        const SizedBox(height: 8),
         SurveyField(
-          label: 'Breadth (m)',
-          controller: breadthCtrl,
+          label: 'Moulded Breadth (m)',
+          controller: breadthMouldedCtrl,
           hint: 'e.g. 16.80',
           keyboard: TextInputType.number,
           onChanged: (_) => onChanged(),
         ),
-        _ChipSelector(
-          label: 'Breadth Qualifier',
-          options: _breadthQualifiers,
-          selected: breadthQualifier,
-          onSelected: onBreadthQualifierChanged,
+        SurveyField(
+          label: 'Extreme Breadth (m)',
+          controller: breadthExtremeCtrl,
+          hint: 'e.g. 17.10',
+          keyboard: TextInputType.number,
+          onChanged: (_) => onChanged(),
+        ),
+        SurveyField(
+          label: 'Beam (OA) (m)',
+          controller: beamOaCtrl,
+          hint: 'e.g. 16.80',
+          keyboard: TextInputType.number,
+          onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: 12),
 
@@ -1659,20 +1745,30 @@ class _DimensionsTab extends StatelessWidget {
           keyboard: TextInputType.number,
           onChanged: (_) => onChanged(),
         ),
+        const SizedBox(height: 12),
 
-        // Draft with qualifier
+        // Draft — independent fields, same rationale as breadth above.
+        const Text(
+          'Fill in whichever draft figures were collected.',
+          style: TextStyle(
+              fontSize: 11,
+              color: AppColors.textTertiary,
+              fontStyle: FontStyle.italic),
+        ),
+        const SizedBox(height: 8),
         SurveyField(
-          label: 'Draft (m)',
-          controller: draftCtrl,
+          label: 'Load Line Draft (m)',
+          controller: draftLoadLineCtrl,
           hint: 'e.g. 5.80',
           keyboard: TextInputType.number,
           onChanged: (_) => onChanged(),
         ),
-        _ChipSelector(
-          label: 'Draft Qualifier',
-          options: _draftQualifiers,
-          selected: draftQualifier,
-          onSelected: onDraftQualifierChanged,
+        SurveyField(
+          label: 'Max Draft (m)',
+          controller: draftMaxCtrl,
+          hint: 'e.g. 6.10',
+          keyboard: TextInputType.number,
+          onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: 20),
 
@@ -1695,7 +1791,7 @@ class _DimensionsTab extends StatelessWidget {
   }
 }
 
-// ── Tab 3: Machinery ──────────────────────────────────────────────────────────
+// ── Tab 5: Machinery ──────────────────────────────────────────────────────────
 
 class _MachineryTab extends ConsumerWidget {
   const _MachineryTab({
@@ -1882,8 +1978,9 @@ class _MachineryTab extends ConsumerWidget {
             await ref
                 .read(machineryProvider(vesselId).notifier)
                 .updateMachinery(m);
+            return m;
           } else {
-            await ref
+            return ref
                 .read(machineryProvider(vesselId).notifier)
                 .addMachinery(m);
           }
@@ -1951,756 +2048,6 @@ class _MachineryPlaceholder extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-// ── Tab 4: Class & Statutory ──────────────────────────────────────────────────
-
-class _ClassStatutoryTab extends ConsumerWidget {
-  const _ClassStatutoryTab({
-    required this.caseId,
-    required this.vesselId,
-    required this.ismIncidentReported,
-    required this.classIncidentReported,
-    required this.pscLastInspection,
-    required this.pscLastResult,
-    required this.pscSummaryCtrl,
-    required this.ispsStatus,
-    required this.onChanged,
-    required this.onIsmChanged,
-    required this.onClassReportedChanged,
-    required this.onPscDateChanged,
-    required this.onPscResultChanged,
-    required this.onIspsStatusChanged,
-  });
-
-  final String caseId;
-  final String? vesselId;
-  final bool? ismIncidentReported;
-  final bool? classIncidentReported;
-  final DateTime? pscLastInspection;
-  final PscResult? pscLastResult;
-  final TextEditingController pscSummaryCtrl;
-  final IspsStatus? ispsStatus;
-  final VoidCallback onChanged;
-  final ValueChanged<bool?> onIsmChanged;
-  final ValueChanged<bool?> onClassReportedChanged;
-  final ValueChanged<DateTime?> onPscDateChanged;
-  final ValueChanged<PscResult?> onPscResultChanged;
-  final ValueChanged<IspsStatus?> onIspsStatusChanged;
-
-  static const _purple = AppColors.navy;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final certsAsync = ref.watch(certificatesProvider(caseId));
-    final condsAsync = vesselId != null
-        ? ref.watch(classConditionsProvider(vesselId!))
-        : const AsyncData(<ClassConditionModel>[]);
-    final damageState = ref.watch(damageProvider(caseId)).value;
-    final occurrences = damageState?.occurrences ?? [];
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      children: [
-        // ── 1. Certificates ────────────────────────────────────────────
-        VesselSectionHeader(
-          title: 'Certificates',
-          icon: Icons.verified_outlined,
-          color: _purple,
-          trailing: IconButton(
-            icon: const Icon(Icons.add_circle_outline, size: 20),
-            color: _purple,
-            tooltip: 'Add certificate',
-            onPressed: () => _addCert(context, ref),
-          ),
-        ),
-        const SizedBox(height: 8),
-        certsAsync.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          error: (e, _) =>
-              Text('Error: $e', style: const TextStyle(color: AppColors.error)),
-          data: (certs) => certs.isEmpty
-              ? const _EmptyHint('No certificates — tap + to add')
-              : Column(
-                  children: certs
-                      .map((c) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: CertificateCard(
-                              cert: c,
-                              onEdit: () => _editCert(context, ref, c),
-                              onDelete: () => _deleteCert(context, ref, c),
-                            ),
-                          ))
-                      .toList(),
-                ),
-        ),
-        const SizedBox(height: 20),
-
-        // ── 2. Conditions of Class ────────────────────────────────────
-        VesselSectionHeader(
-          title: 'Conditions of Class',
-          icon: Icons.shield_outlined,
-          color: AppColors.coral,
-          trailing: vesselId != null
-              ? IconButton(
-                  icon: const Icon(Icons.add_circle_outline, size: 20),
-                  color: AppColors.coral,
-                  tooltip: 'Add condition',
-                  onPressed: () => _addCondition(context, ref, occurrences),
-                )
-              : null,
-        ),
-        const SizedBox(height: 8),
-        if (vesselId == null)
-          const _EmptyHint('Save vessel identity first')
-        else
-          condsAsync.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => Text('Error: $e',
-                style: const TextStyle(color: AppColors.error)),
-            data: (conds) => conds.isEmpty
-                ? const _EmptyHint('No conditions of class recorded')
-                : Column(
-                    children: conds
-                        .map((c) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _ConditionCard(
-                                condition: c,
-                                occurrences: occurrences,
-                                onEdit: () => _editCondition(
-                                    context, ref, c, occurrences),
-                                onDelete: () =>
-                                    _deleteCondition(context, ref, c),
-                              ),
-                            ))
-                        .toList(),
-                  ),
-          ),
-        const SizedBox(height: 20),
-
-        // ── 3. Incident Reporting ─────────────────────────────────────
-        const VesselSectionHeader(
-          title: 'Incident Reporting',
-          icon: Icons.report_problem_outlined,
-          color: AppColors.amber,
-        ),
-        const SizedBox(height: 4),
-        if (occurrences.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(children: [
-              const Icon(Icons.anchor, size: 16, color: AppColors.textTertiary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  occurrences.first.title ?? 'Primary Occurrence',
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ]),
-          ),
-        ],
-        const SizedBox(height: 12),
-        TriStateRow(
-          label: 'Reported via ISM',
-          hint: 'Set to Yes if a formal ISM incident report has been raised',
-          value: ismIncidentReported,
-          onChanged: onIsmChanged,
-        ),
-        const SizedBox(height: 10),
-        TriStateRow(
-          label: 'Reported to Class',
-          hint:
-              'Set to Yes if a Condition of Class was issued for this occurrence',
-          value: classIncidentReported,
-          onChanged: onClassReportedChanged,
-        ),
-        const SizedBox(height: 20),
-
-        // ── 4. Port State Control ─────────────────────────────────────
-        const VesselSectionHeader(
-          title: 'Port State Control',
-          icon: Icons.fact_check_outlined,
-          color: AppColors.midBlue,
-        ),
-        const SizedBox(height: 12),
-        _DatePickerField(
-          label: 'Last PSC Inspection',
-          value: pscLastInspection,
-          onChanged: onPscDateChanged,
-        ),
-        const SizedBox(height: 4),
-        _ChipSelector(
-          label: 'PSC Result',
-          options: PscResult.values.map((e) => e.label).toList(),
-          selected: pscLastResult?.label,
-          onSelected: (v) => onPscResultChanged(v == null
-              ? null
-              : PscResult.values.firstWhere((e) => e.label == v)),
-        ),
-        const SizedBox(height: 4),
-        SurveyField(
-          label: 'Deficiencies / Notes',
-          controller: pscSummaryCtrl,
-          hint: 'List any PSC deficiencies noted',
-          maxLines: 4,
-          onChanged: (_) => onChanged(),
-        ),
-        const SizedBox(height: 16),
-
-        // ── 5. ISPS ───────────────────────────────────────────────────
-        const VesselSectionHeader(
-          title: 'ISPS Security Status',
-          icon: Icons.security_outlined,
-          color: AppColors.teal,
-        ),
-        const SizedBox(height: 8),
-        _ChipSelector(
-          label: 'ISPS Compliance',
-          options: IspsStatus.values.map((e) => e.label).toList(),
-          selected: ispsStatus?.label,
-          onSelected: (v) => onIspsStatusChanged(v == null
-              ? null
-              : IspsStatus.values.firstWhere((e) => e.label == v)),
-        ),
-        const SizedBox(height: 32),
-      ],
-    );
-  }
-
-  Future<void> _addCert(BuildContext context, WidgetRef ref) =>
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => AddCertificateSheet(
-          caseId: caseId,
-          onSave: (cert) async {
-            await ref
-                .read(certificatesProvider(caseId).notifier)
-                .addCertificate(cert);
-          },
-        ),
-      );
-
-  Future<void> _editCert(
-          BuildContext context, WidgetRef ref, CertificateModel cert) =>
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => AddCertificateSheet(
-          caseId: caseId,
-          existing: cert,
-          onSave: (updated) async {
-            await ref
-                .read(certificatesProvider(caseId).notifier)
-                .updateCertificate(updated);
-          },
-        ),
-      );
-
-  Future<void> _deleteCert(
-      BuildContext context, WidgetRef ref, CertificateModel cert) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete certificate?'),
-        content: Text('Remove "${cert.certName ?? cert.certType.label}"?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ref
-          .read(certificatesProvider(caseId).notifier)
-          .deleteCertificate(cert.certId);
-    }
-  }
-
-  void _addCondition(BuildContext context, WidgetRef ref,
-          List<OccurrenceModel> occurrences) =>
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _AddConditionSheet(
-          occurrences: occurrences,
-          onSave: (ref_, desc, expiry, dur, occRel, occId) async {
-            await ref.read(classConditionsProvider(vesselId!).notifier).add(
-                  vesselId: vesselId!,
-                  reference: ref_,
-                  description: desc,
-                  expiryDate: expiry,
-                  duration: dur,
-                  occurrenceRelated: occRel,
-                  occurrenceId: occId,
-                );
-          },
-        ),
-      );
-
-  void _editCondition(BuildContext context, WidgetRef ref,
-          ClassConditionModel cond, List<OccurrenceModel> occurrences) =>
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _AddConditionSheet(
-          existing: cond,
-          occurrences: occurrences,
-          onSave: (ref_, desc, expiry, dur, occRel, occId) async {
-            await ref
-                .read(classConditionsProvider(vesselId!).notifier)
-                .updateCondition(
-                  cond.conditionId,
-                  reference: ref_,
-                  description: desc,
-                  expiryDate: expiry,
-                  duration: dur,
-                  occurrenceRelated: occRel,
-                  occurrenceId: occId,
-                );
-          },
-        ),
-      );
-
-  Future<void> _deleteCondition(
-      BuildContext context, WidgetRef ref, ClassConditionModel cond) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete condition?'),
-        content: Text(
-            'Remove "${cond.reference ?? cond.description ?? 'this condition'}"?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ref
-          .read(classConditionsProvider(vesselId!).notifier)
-          .delete(cond.conditionId);
-    }
-  }
-}
-
-// ── Condition card ─────────────────────────────────────────────────────────────
-
-class _ConditionCard extends StatelessWidget {
-  const _ConditionCard({
-    required this.condition,
-    required this.occurrences,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final ClassConditionModel condition;
-  final List<OccurrenceModel> occurrences;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final expiry = condition.expiryDate;
-    final isExpired = expiry != null && expiry.isBefore(DateTime.now());
-    final expirySoon = expiry != null &&
-        !isExpired &&
-        expiry.difference(DateTime.now()).inDays <= 90;
-    final expiryColor = isExpired
-        ? AppColors.error
-        : expirySoon
-            ? AppColors.amber
-            : AppColors.textTertiary;
-
-    OccurrenceModel? linkedOcc;
-    if (condition.occurrenceRelated && condition.occurrenceId != null) {
-      linkedOcc = occurrences
-          .where((o) => o.occurrenceId == condition.occurrenceId)
-          .firstOrNull;
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: condition.occurrenceRelated
-              ? AppColors.coral.withValues(alpha: 0.5)
-              : AppColors.border,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: AppColors.coral.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.shield_outlined,
-                size: 16, color: AppColors.coral),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (condition.reference != null)
-                Text(condition.reference!,
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                        letterSpacing: 0.3)),
-              if (condition.description != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(condition.description!,
-                      style: const TextStyle(
-                          fontSize: 13, color: AppColors.textPrimary)),
-                ),
-              const SizedBox(height: 6),
-              Wrap(spacing: 8, runSpacing: 4, children: [
-                if (condition.createdAt != null)
-                  _pill(
-                    icon: Icons.schedule_outlined,
-                    label: 'Raised: ${_fmtDate(condition.createdAt!)}',
-                    color: AppColors.textTertiary,
-                  ),
-                if (condition.duration != null &&
-                    condition.duration!.isNotEmpty)
-                  _pill(
-                    icon: Icons.hourglass_bottom_outlined,
-                    label: condition.duration!,
-                    color: AppColors.midBlue,
-                  ),
-                if (expiry != null)
-                  _pill(
-                    icon: Icons.calendar_today_outlined,
-                    label: 'Exp: ${_fmtDate(expiry)}',
-                    color: expiryColor,
-                  ),
-                if (condition.occurrenceRelated)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.coral.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      linkedOcc != null
-                          ? linkedOcc.title ?? 'Occurrence'
-                          : 'Occurrence related',
-                      style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.coral),
-                    ),
-                  ),
-              ]),
-            ]),
-          ),
-          Column(mainAxisSize: MainAxisSize.min, children: [
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 16),
-              color: AppColors.textSecondary,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              onPressed: onEdit,
-            ),
-            const SizedBox(height: 8),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 16),
-              color: AppColors.error,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              onPressed: onDelete,
-            ),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  static String _fmtDate(DateTime d) {
-    const months = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return '${d.day.toString().padLeft(2, '0')} ${months[d.month]} ${d.year}';
-  }
-
-  static Widget _pill({
-    required IconData icon,
-    required String label,
-    required Color color,
-  }) =>
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 11, color: color),
-        const SizedBox(width: 3),
-        Text(label, style: TextStyle(fontSize: 11, color: color)),
-      ]);
-}
-
-// ── Add / edit condition sheet ─────────────────────────────────────────────────
-
-class _AddConditionSheet extends StatefulWidget {
-  const _AddConditionSheet({
-    required this.occurrences,
-    required this.onSave,
-    this.existing,
-  });
-
-  final ClassConditionModel? existing;
-  final List<OccurrenceModel> occurrences;
-  final Future<void> Function(
-      String? reference,
-      String? description,
-      DateTime? expiryDate,
-      String? duration,
-      bool occurrenceRelated,
-      String? occurrenceId) onSave;
-
-  @override
-  State<_AddConditionSheet> createState() => _AddConditionSheetState();
-}
-
-class _AddConditionSheetState extends State<_AddConditionSheet> {
-  final _refCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-  final _durationCtrl = TextEditingController();
-  DateTime? _expiryDate;
-  bool _occRel = false;
-  String? _occId;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final e = widget.existing;
-    if (e != null) {
-      _refCtrl.text = e.reference ?? '';
-      _descCtrl.text = e.description ?? '';
-      _durationCtrl.text = e.duration ?? '';
-      _expiryDate = e.expiryDate;
-      _occRel = e.occurrenceRelated;
-      _occId = e.occurrenceId;
-    }
-  }
-
-  @override
-  void dispose() {
-    _refCtrl.dispose();
-    _descCtrl.dispose();
-    _durationCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await widget.onSave(
-        _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
-        _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
-        _expiryDate,
-        _durationCtrl.text.trim().isEmpty ? null : _durationCtrl.text.trim(),
-        _occRel,
-        _occRel ? _occId : null,
-      );
-      if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-        padding: EdgeInsets.only(bottom: bottomInset),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: AppColors.background,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-          child: SingleChildScrollView(
-            child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 14),
-                      decoration: BoxDecoration(
-                          color: AppColors.border,
-                          borderRadius: BorderRadius.circular(2)),
-                    ),
-                  ),
-                  Text(
-                    widget.existing == null
-                        ? 'Add Condition of Class'
-                        : 'Edit Condition of Class',
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 16),
-
-                  SurveyField(
-                    label: 'Reference No.',
-                    controller: _refCtrl,
-                    hint: 'e.g. COC 2024-001',
-                  ),
-                  SurveyField(
-                    label: 'Description',
-                    controller: _descCtrl,
-                    hint: 'Brief description of the condition',
-                    maxLines: 3,
-                  ),
-                  _DatePickerField(
-                    label: 'Due / Expiry Date',
-                    value: _expiryDate,
-                    onChanged: (v) => setState(() => _expiryDate = v),
-                  ),
-                  SurveyField(
-                    label: 'Duration',
-                    controller: _durationCtrl,
-                    hint: 'e.g. Until next class renewal, 90 days',
-                  ),
-                  const SizedBox(height: 4),
-
-                  // Occurrence related toggle
-                  InkWell(
-                    onTap: () => setState(() {
-                      _occRel = !_occRel;
-                      if (!_occRel) _occId = null;
-                    }),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(children: [
-                        Checkbox(
-                          value: _occRel,
-                          activeColor: AppColors.coral,
-                          onChanged: (v) => setState(() {
-                            _occRel = v ?? false;
-                            if (!_occRel) _occId = null;
-                          }),
-                        ),
-                        const SizedBox(width: 4),
-                        const Expanded(
-                          child: Text('Related to a case occurrence',
-                              style: TextStyle(fontSize: 13)),
-                        ),
-                      ]),
-                    ),
-                  ),
-
-                  if (_occRel && widget.occurrences.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: _occId,
-                      decoration: InputDecoration(
-                        labelText: 'Select Occurrence',
-                        labelStyle: const TextStyle(
-                            fontSize: 13, color: AppColors.textSecondary),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                const BorderSide(color: AppColors.border)),
-                        enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                const BorderSide(color: AppColors.border)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        isDense: true,
-                      ),
-                      items: widget.occurrences
-                          .map((o) => DropdownMenuItem(
-                                value: o.occurrenceId,
-                                child: Text(
-                                  o.title ?? 'Occurrence ${o.occurrenceNo}',
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              ))
-                          .toList(),
-                      onChanged: (v) => setState(() => _occId = v),
-                    ),
-                  ],
-
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _saving ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.coral,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                    child: _saving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : Text(
-                            widget.existing == null
-                                ? 'Add Condition'
-                                : 'Save Changes',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                  ),
-                ]),
-          ),
-        ));
   }
 }
 
@@ -2788,23 +2135,6 @@ class _DatePickerField extends StatelessWidget {
         'Nov',
         'Dec'
       ][m];
-}
-
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Center(
-          child: Text(text,
-              style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textTertiary,
-                  fontStyle: FontStyle.italic)),
-        ),
-      );
 }
 
 // ── Helper widgets ─────────────────────────────────────────────────────────────

@@ -222,8 +222,14 @@ enum CaseSection {
   /// Services & Access both belong to whichever repair period they occur
   /// in. A cue in one of these sections may still have no period link
   /// (shown as "not allocated to a period" rather than being blocked).
+  /// Extended to Repairs/Repair Times (docs/TODO.md §3.9, 9 July 2026) — the
+  /// Repair Periods screen embeds a per-period ContextCuesPanel on each
+  /// period card, same two-level pattern.
   bool get isRepairPeriodScoped =>
-      this == notAverage || this == generalExpenses;
+      this == notAverage ||
+      this == generalExpenses ||
+      this == repairs ||
+      this == repairTimes;
 }
 
 // ── SurveyorNote model ────────────────────────────────────────────────────

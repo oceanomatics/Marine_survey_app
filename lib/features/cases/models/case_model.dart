@@ -567,9 +567,14 @@ class VesselModel {
     this.lengthBp,
     this.breadth,
     this.breadthQualifier,
+    this.breadthMoulded,
+    this.breadthExtreme,
+    this.beamOa,
     this.depth,
     this.maxDraft,
     this.draftQualifier,
+    this.draftLoadLine,
+    this.draftMax,
     this.yearBuilt,
     this.buildYard,
     this.buildCountry,
@@ -629,9 +634,24 @@ class VesselModel {
   final double? lengthBp;
   final double? breadth;
   final String? breadthQualifier;
+  /// Independently-collected breadth measurements (§2.17 finding #12) — the
+  /// surveyor may only have some of these at a given point in the survey, so
+  /// each is optional and fills in as documents/data become available,
+  /// rather than forcing a single value + qualifier choice. [breadth]/
+  /// [breadthQualifier] above are still written on save (derived, priority
+  /// Moulded > Extreme > Beam (OA)) purely so existing report-builder/AI
+  /// extraction code that reads the single legacy pair keeps working.
+  final double? breadthMoulded;
+  final double? breadthExtreme;
+  final double? beamOa;
   final double? depth;
   final double? maxDraft;
   final String? draftQualifier;
+  /// Independently-collected draft measurements — same rationale as the
+  /// breadth fields above. [maxDraft]/[draftQualifier] are still written on
+  /// save (derived, priority Load Line > Max Draft).
+  final double? draftLoadLine;
+  final double? draftMax;
   final int? yearBuilt;
   final String? buildYard;
   final String? buildCountry;
@@ -699,9 +719,14 @@ class VesselModel {
       lengthBp:            (json['length_bp'] as num?)?.toDouble(),
       breadth:             (json['breadth'] as num?)?.toDouble(),
       breadthQualifier:    json['breadth_qualifier'] as String?,
+      breadthMoulded:      (json['breadth_moulded'] as num?)?.toDouble(),
+      breadthExtreme:      (json['breadth_extreme'] as num?)?.toDouble(),
+      beamOa:              (json['beam_oa'] as num?)?.toDouble(),
       depth:               (json['depth'] as num?)?.toDouble(),
       maxDraft:            (json['max_draft'] as num?)?.toDouble(),
       draftQualifier:      json['draft_qualifier'] as String?,
+      draftLoadLine:       (json['draft_load_line'] as num?)?.toDouble(),
+      draftMax:            (json['draft_max'] as num?)?.toDouble(),
       yearBuilt:           json['year_built'] as int?,
       buildYard:           json['build_yard'] as String?,
       buildCountry:        json['build_country'] as String?,
@@ -789,9 +814,14 @@ class VesselModel {
     if (lengthBp != null)             'length_bp':             lengthBp,
     if (breadth != null)              'breadth':               breadth,
     if (breadthQualifier != null)     'breadth_qualifier':     breadthQualifier,
+    if (breadthMoulded != null)       'breadth_moulded':       breadthMoulded,
+    if (breadthExtreme != null)       'breadth_extreme':       breadthExtreme,
+    if (beamOa != null)               'beam_oa':               beamOa,
     if (depth != null)                'depth':                 depth,
     if (maxDraft != null)             'max_draft':             maxDraft,
     if (draftQualifier != null)       'draft_qualifier':       draftQualifier,
+    if (draftLoadLine != null)        'draft_load_line':       draftLoadLine,
+    if (draftMax != null)             'draft_max':             draftMax,
     if (yearBuilt != null)            'year_built':            yearBuilt,
     if (buildYard != null)            'build_yard':            buildYard,
     if (buildCountry != null)         'build_country':         buildCountry,
@@ -856,9 +886,15 @@ class VesselModel {
       lengthBp:      (extracted['length_bp']     as num?)?.toDouble() ?? lengthBp,
       breadth:       (extracted['breadth']       as num?)?.toDouble() ?? breadth,
       breadthQualifier: extracted['breadth_qualifier'] as String? ?? breadthQualifier,
+      // Not part of the AI extraction schema — preserved as-is.
+      breadthMoulded: breadthMoulded,
+      breadthExtreme: breadthExtreme,
+      beamOa:         beamOa,
       depth:         (extracted['depth']         as num?)?.toDouble() ?? depth,
       maxDraft:      (extracted['max_draft']     as num?)?.toDouble() ?? maxDraft,
       draftQualifier: extracted['draft_qualifier'] as String? ?? draftQualifier,
+      draftLoadLine:  draftLoadLine,
+      draftMax:       draftMax,
       yearBuilt:     extracted['year_built']   as int? ?? yearBuilt,
       buildYard:     extracted['build_yard']   as String? ?? buildYard,
       buildCountry:  extracted['build_country'] as String? ?? buildCountry,

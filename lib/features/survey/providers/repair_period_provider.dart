@@ -66,6 +66,24 @@ class RepairPeriodsNotifier
     return created;
   }
 
+  /// Persists edits to a period's header fields (title, dates, location,
+  /// port context, repair phase, notes, services/hot-work) — previously
+  /// these were only ever set at creation via [addPeriod] and the UI had
+  /// no way to change them afterward (docs/TODO.md §3.9). Assignments,
+  /// repair times, and budget items have their own dedicated mutation
+  /// methods below and are untouched here.
+  Future<void> updatePeriod(RepairPeriodModel period) async {
+    await SupabaseService.client
+        .from('repair_periods')
+        .update(period.toUpdateJson())
+        .eq('period_id', period.periodId);
+    state = AsyncData(
+      (state.value ?? [])
+          .map((p) => p.periodId == period.periodId ? period : p)
+          .toList(),
+    );
+  }
+
   Future<void> deletePeriod(String periodId) async {
     await SupabaseService.client
         .from('repair_periods')

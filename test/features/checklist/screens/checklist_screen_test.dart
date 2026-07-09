@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
 import 'package:marine_survey_app/features/checklist/screens/checklist_screen.dart';
 
 import '../../../support/fakes/fake_checklist_notifier.dart';
+import '../../../support/pump_with_router.dart';
 
 const _caseId = 'case-1';
 
@@ -27,17 +27,13 @@ ChecklistItem _item({
     );
 
 Future<void> _pump(WidgetTester tester, List<ChecklistItem> seed) async {
-  await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        checklistProvider.overrideWith(() => FakeChecklistNotifier(seed)),
-      ],
-      child: const MaterialApp(
-        home: ChecklistScreen(caseId: _caseId),
-      ),
-    ),
+  await pumpWithRouter(
+    tester,
+    overrides: [
+      checklistProvider.overrideWith(() => FakeChecklistNotifier(seed)),
+    ],
+    child: const ChecklistScreen(caseId: _caseId),
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {

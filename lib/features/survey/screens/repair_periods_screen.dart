@@ -71,6 +71,7 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
             ds: ds,
             onAddPeriod: () =>
                 _showAddRepairPeriod(context, periods.length),
+            onEditPeriod: (period) => _showEditRepairPeriod(context, period),
             onDeletePeriod: (periodId) => ref
                 .read(repairPeriodsProvider(caseId).notifier)
                 .deletePeriod(periodId),
@@ -94,6 +95,26 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
           await ref
               .read(repairPeriodsProvider(caseId).notifier)
               .addPeriod(period);
+          if (context.mounted) showSavedToast(context);
+        },
+      ),
+    );
+  }
+
+  void _showEditRepairPeriod(BuildContext context, RepairPeriodModel period) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddRepairPeriodSheet(
+        caseId: caseId,
+        nextPeriodNo: period.periodNo,
+        existing: period,
+        onSave: (updated) async {
+          await ref
+              .read(repairPeriodsProvider(caseId).notifier)
+              .updatePeriod(updated);
+          if (context.mounted) showSavedToast(context);
         },
       ),
     );
@@ -127,6 +148,7 @@ class _RepairPeriodsBody extends StatelessWidget {
     required this.periods,
     required this.ds,
     required this.onAddPeriod,
+    required this.onEditPeriod,
     required this.onDeletePeriod,
     required this.onAssignItems,
   });
@@ -135,19 +157,29 @@ class _RepairPeriodsBody extends StatelessWidget {
   final List<RepairPeriodModel> periods;
   final DamageState ds;
   final VoidCallback onAddPeriod;
+  final ValueChanged<RepairPeriodModel> onEditPeriod;
   final ValueChanged<String> onDeletePeriod;
   final ValueChanged<RepairPeriodModel> onAssignItems;
 
   @override
   Widget build(BuildContext context) {
     if (periods.isEmpty) {
+      // No periods exist yet, so every 'repairs'/'repairTimes' cue is
+      // necessarily unallocated — same "not allocated to a period" bucket
+      // semantics as WNCA/General Services & Access
+      // (docs/context_cue_system_review.md §3.1/§3.2), now extended here
+      // (docs/TODO.md §3.9).
       return Column(
         children: [
           Expanded(child: _EmptyRepairs(onAdd: onAddPeriod)),
-          ContextCuesPanel(caseId: caseId, section: CaseSection.repairs),
+          ContextCuesPanel(
+              caseId: caseId,
+              section: CaseSection.repairs,
+              periodScope: const RepairPeriodScope.unassigned()),
           ContextCuesPanel(
               caseId: caseId,
               section: CaseSection.repairTimes,
+              periodScope: const RepairPeriodScope.unassigned(),
               initiallyExpanded: false),
         ],
       );
@@ -166,15 +198,25 @@ class _RepairPeriodsBody extends StatelessWidget {
                 period: periods[i],
                 ds: ds,
                 onDelete: () => _confirmDelete(context, periods[i]),
+                onEdit: () => onEditPeriod(periods[i]),
                 onAssign: () => onAssignItems(periods[i]),
               ),
             ),
           ),
         ),
-        ContextCuesPanel(caseId: caseId, section: CaseSection.repairs),
+        // Bucket for 'repairs'/'repairTimes' cues not tied to any specific
+        // period — collapsed by default now that each period card carries
+        // its own scoped panel below (the primary entry point once at
+        // least one period exists).
+        ContextCuesPanel(
+            caseId: caseId,
+            section: CaseSection.repairs,
+            periodScope: const RepairPeriodScope.unassigned(),
+            initiallyExpanded: false),
         ContextCuesPanel(
             caseId: caseId,
             section: CaseSection.repairTimes,
+            periodScope: const RepairPeriodScope.unassigned(),
             initiallyExpanded: false),
       ],
     );
@@ -214,6 +256,7 @@ class _PeriodCard extends ConsumerStatefulWidget {
     required this.period,
     required this.ds,
     required this.onDelete,
+    required this.onEdit,
     required this.onAssign,
   });
 
@@ -221,6 +264,7 @@ class _PeriodCard extends ConsumerStatefulWidget {
   final RepairPeriodModel period;
   final DamageState ds;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
   final VoidCallback onAssign;
 
   @override
@@ -334,16 +378,44 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
                             ),
                           ),
                         ]),
+                        if (period.repairPhase != null) ...[
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _kRepairColor.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(
+                                    color:
+                                        _kRepairColor.withValues(alpha: 0.25)),
+                              ),
+                              child: Text(
+                                period.repairPhase!.label,
+                                style: const TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: _kRepairColor,
+                                    letterSpacing: 0.3),
+                              ),
+                            ),
+                          ),
+                        ],
                         if (dateStr.isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Row(children: [
                             const Icon(Icons.date_range_outlined,
                                 size: 12, color: AppColors.textTertiary),
                             const SizedBox(width: 4),
-                            Text(dateStr,
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textSecondary)),
+                            Expanded(
+                              child: Text(dateStr,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.textSecondary)),
+                            ),
                           ]),
                         ],
                         if (period.location != null &&
@@ -371,18 +443,34 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
                         icon: const Icon(Icons.more_vert,
                             size: 18, color: AppColors.textTertiary),
                         onSelected: (v) {
+                          if (v == 'edit') widget.onEdit();
                           if (v == 'delete') widget.onDelete();
                         },
                         itemBuilder: (_) => [
+                          const PopupMenuItem(
+                              value: 'edit',
+                              child: Row(children: [
+                                Icon(Icons.edit_outlined,
+                                    color: _kRepairColor, size: 16),
+                                SizedBox(width: 8),
+                                Flexible(
+                                  child: Text('Edit period details',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 13)),
+                                ),
+                              ])),
                           const PopupMenuItem(
                               value: 'delete',
                               child: Row(children: [
                                 Icon(Icons.delete_outline,
                                     color: AppColors.error, size: 16),
                                 SizedBox(width: 8),
-                                Text('Delete period',
-                                    style: TextStyle(
-                                        color: AppColors.error, fontSize: 13)),
+                                Flexible(
+                                  child: Text('Delete period',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          color: AppColors.error, fontSize: 13)),
+                                ),
                               ])),
                         ],
                       ),
@@ -478,6 +566,27 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
             _BudgetSection(
               caseId: widget.caseId,
               period: period,
+            ),
+
+            // ── Context cues, scoped to this specific period ──────────
+            // Same two-level allocation mechanism already proven for
+            // WNCA/General Services & Access (docs/context_cue_system_
+            // review.md §3.1/§3.2), now extended to the Repair Periods
+            // screen itself (docs/TODO.md §3.9) instead of the flat
+            // case-wide panel this screen used to show only once at the
+            // bottom, with no way to tell which period a cue related to.
+            const Divider(height: 1, thickness: 0.5),
+            ContextCuesPanel(
+              caseId: widget.caseId,
+              section: CaseSection.repairs,
+              periodScope: RepairPeriodScope.forPeriod(period.periodId),
+              initiallyExpanded: false,
+            ),
+            ContextCuesPanel(
+              caseId: widget.caseId,
+              section: CaseSection.repairTimes,
+              periodScope: RepairPeriodScope.forPeriod(period.periodId),
+              initiallyExpanded: false,
             ),
           ],
         ],

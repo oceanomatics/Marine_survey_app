@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:marine_survey_app/features/cases/models/case_model.dart';
 import 'package:marine_survey_app/features/cases/providers/cases_provider.dart';
 import 'package:marine_survey_app/features/photos/models/photo_model.dart';
@@ -32,6 +33,16 @@ Future<void> _pump(
   // surface so everything is built without needing to scroll.
   await tester.binding.setSurfaceSize(const Size(1000, 6000));
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  // ReportBuilderScreen uses BackAppBar (Cluster A, 9 July 2026), which
+  // calls GoRouterState.of(context)/context.canPop() during build — a bare
+  // MaterialApp(home: ...) has no GoRouter ancestor and throws. Wrap in a
+  // single-route GoRouter + MaterialApp.router instead (see also
+  // test/support/pump_with_router.dart, used by other screen tests; this
+  // one is inlined because it also needs setSurfaceSize before pumping).
+  final router = GoRouter(
+    initialLocation: '/test',
+    routes: [GoRoute(path: '/test', builder: (_, __) => const ReportBuilderScreen(caseId: _caseId))],
+  );
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -44,7 +55,7 @@ Future<void> _pump(
           (ref, key) => FakeSectionDraftNotifier(key.caseId, key.outputId, seedSections),
         ),
       ],
-      child: const MaterialApp(home: ReportBuilderScreen(caseId: _caseId)),
+      child: MaterialApp.router(routerConfig: router),
     ),
   );
   await tester.pumpAndSettle();
