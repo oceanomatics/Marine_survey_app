@@ -37,6 +37,7 @@ class TimelineEventModel {
     this.title,
     this.location,
     this.description,
+    this.sourceKey,
     this.createdAt,
   });
 
@@ -47,6 +48,11 @@ class TimelineEventModel {
   final String? title;
   final String? location;
   final String? description;
+  /// When this row was promoted into the chronology from an aggregated Full
+  /// Event Log entry (occurrence/attendance/repair), the origin event's stable
+  /// key ("<source>:<source_id>"). NULL for manually-typed timeline events.
+  /// See TODO.md §3.16 and timeline_entry.dart.
+  final String? sourceKey;
   final DateTime? createdAt;
 
   factory TimelineEventModel.fromJson(Map<String, dynamic> j) =>
@@ -61,6 +67,7 @@ class TimelineEventModel {
         title:       j['title'] as String?,
         location:    j['location'] as String?,
         description: j['description'] as String?,
+        sourceKey:   j['source_key'] as String?,
         createdAt:   j['created_at'] != null
             ? DateTime.tryParse(j['created_at'] as String)
             : null,
@@ -75,6 +82,7 @@ class TimelineEventModel {
         if (location != null && location!.isNotEmpty) 'location':    location,
         if (description != null && description!.isNotEmpty)
           'description': description,
+        if (sourceKey != null && sourceKey!.isNotEmpty) 'source_key': sourceKey,
       };
 
   static String _fmtDate(DateTime d) =>

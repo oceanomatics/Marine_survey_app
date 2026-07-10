@@ -1723,6 +1723,86 @@ $rawText''',
     return _extractText(response.data).trim();
   }
 
+  // ── Timeline Event Relevance Rating (TODO.md §3.16) ──────────────────────
+
+  /// Suggest a relevance rating (important | normal | ignore) for each event in
+  /// a case's Full Event Log, so the surveyor curates from an AI first draft
+  /// rather than rating everything from scratch. Same judgement-over-content
+  /// class of task as the context-cue auto-classification, and — like it —
+  /// every suggestion is treated as pending review, never silently trusted.
+  ///
+  /// [events] items must carry `event_key`, and any of `date`, `title`,
+  /// `description`. Returns a JSON list of `{event_key, relevance, reason}`;
+  /// unknown/omitted events simply get no suggestion.
+  static Future<List<Map<String, dynamic>>> rateTimelineEvents({
+    required List<Map<String, dynamic>> events,
+    String? caseId,
+  }) async {
+    if (events.isEmpty) return const [];
+    final lines = events.map((e) {
+      final key = e['event_key'] ?? '';
+      final date = (e['date'] as String?)?.trim();
+      final title = (e['title'] as String?)?.trim() ?? '';
+      final desc = (e['description'] as String?)?.trim();
+      final parts = [
+        if (date != null && date.isNotEmpty) date,
+        if (title.isNotEmpty) title,
+        if (desc != null && desc.isNotEmpty) desc,
+      ].join(' — ');
+      return '- [$key] $parts';
+    }).join('\n');
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {
+        'feature': 'timeline_event_rating',
+        if (caseId != null) 'case_id': caseId,
+        if (caseId != null) 'call_type': 'classification',
+      }),
+      data: {
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 1500,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''You are assisting a marine insurance surveyor building the Chronology of Events for a hull & machinery claim report. Rate how relevant each event below is to that formal chronology.
+
+Use exactly one of:
+- "important" — a pivotal claim event (the casualty/occurrence itself, a key survey attendance, drydock entry/exit, commencement or completion of repairs, a decisive inspection).
+- "normal" — a genuine dated event worth keeping but not pivotal.
+- "ignore" — routine, administrative, duplicative or immaterial to the claim narrative.
+
+For each event return an object with:
+- "event_key": the exact bracketed key
+- "relevance": important | normal | ignore
+- "reason": a very short (max ~12 words) justification
+
+Return ONLY a JSON array, no preamble.
+
+EVENTS:
+$lines''',
+          },
+        ],
+      },
+    );
+
+    final text = _extractText(response.data).trim();
+    try {
+      var clean = text
+          .replaceAll(RegExp(r'```json\s*'), '')
+          .replaceAll(RegExp(r'```\s*'), '')
+          .trim();
+      final start = clean.indexOf('[');
+      final end = clean.lastIndexOf(']');
+      if (start < 0 || end < 0) return const [];
+      clean = clean.substring(start, end + 1);
+      return (jsonDecode(clean) as List).cast<Map<String, dynamic>>();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   static String _extractText(dynamic responseData) {
