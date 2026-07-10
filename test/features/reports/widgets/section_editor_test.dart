@@ -1,7 +1,8 @@
-// §2.18: proves the auto-populated-section pattern on one representative
-// type (vesselParticulars) — the same branch drives all 6 types in
-// autoPopulatedSectionTypes, so one widget test is enough to cover the
-// mechanism (see docs/TODO.md §2.18 for the full section-by-section list).
+// §2.18: proves the auto-populated-section pattern on two representative
+// types — vesselParticulars (table-mode, Slice 1) and occurrence
+// (prose-mode, Slice 2) — the same two branches drive every type in
+// autoPopulatedSectionTypes, so this is enough to cover the mechanism (see
+// docs/TODO.md §2.18 for the full section-by-section list).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -37,6 +38,11 @@ Future<void> _pump(
         path: '/cases/:caseId/vessel',
         builder: (context, state) =>
             Scaffold(body: Text('Vessel screen for ${state.pathParameters['caseId']}')),
+      ),
+      GoRoute(
+        path: '/cases/:caseId/occurrence',
+        builder: (context, state) => Scaffold(
+            body: Text('Occurrence screen for ${state.pathParameters['caseId']}')),
       ),
     ],
   );
@@ -136,6 +142,87 @@ void main() {
     });
   });
 
+  group('SectionEditor — prose-mode auto-populated sections (§2.18 Slice 2)',
+      () {
+    const occurrenceAssembled = AssembledReportData(
+      caseData: {},
+      vessel: null,
+      occurrences: [
+        {
+          'brief_description': 'Engine room fire during passage.',
+          'vessel_status_at_casualty': 'at_sea',
+          'aftermath_status': 'own_power',
+        },
+      ],
+      damageItems: [],
+      attendees: [],
+      attendances: [],
+      certificates: [],
+      repairPeriods: [],
+      clauses: [],
+      outputFormat: 'oceano_services',
+      repairDocuments: [],
+      timelineEvents: [],
+      surveyorNotes: [],
+      machinery: [],
+      classConditions: [],
+      caseDocuments: [],
+      requestedDocuments: [],
+      aiGenerationLog: [],
+      allReportOutputs: [],
+    );
+
+    testWidgets(
+        'shows the full computed text read-only, not a free-text box',
+        (tester) async {
+      const section = ReportSection(
+        type: SectionType.occurrence,
+        title: 'Occurrence',
+        content: 'Engine room fire during passage.',
+      );
+      await _pump(tester, section: section, assembled: occurrenceAssembled);
+
+      // Remarks TextField is the only TextField — content itself is
+      // read-only. The text appears twice: the primary read-only content
+      // block, and the supplementary reference panel's own occurrence row
+      // (same underlying brief_description) — both expected, see the next
+      // test for the reference-panel assertion specifically.
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Engine room fire during passage.'), findsWidgets);
+    });
+
+    testWidgets(
+        'keeps the supplementary reference panel (unlike table-mode types)',
+        (tester) async {
+      const section = ReportSection(
+        type: SectionType.occurrence,
+        title: 'Occurrence',
+        content: 'Engine room fire during passage.',
+      );
+      await _pump(tester, section: section, assembled: occurrenceAssembled);
+
+      // section_reference_panel.dart's occurrence case surfaces the raw
+      // brief_description as a labelled reference row too — proves the
+      // panel is still rendered as supplementary context, not suppressed.
+      expect(find.text('Occurrence data on file'), findsOneWidget);
+    });
+
+    testWidgets('Edit button deep-links to the Occurrence screen',
+        (tester) async {
+      const section = ReportSection(
+        type: SectionType.occurrence,
+        title: 'Occurrence',
+        content: 'Engine room fire during passage.',
+      );
+      await _pump(tester, section: section, assembled: occurrenceAssembled);
+
+      await tester.tap(find.text('Edit in Occurrence →'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Occurrence screen for $_caseId'), findsOneWidget);
+    });
+  });
+
   group('autoPopulatedSectionTypes / autoPopulatedEditRoute', () {
     test('every auto-populated type has a route entry', () {
       for (final type in autoPopulatedSectionTypes) {
@@ -151,10 +238,10 @@ void main() {
       }
     });
 
-    test('exactly the 6 confirmed-dead-weight-content types are included',
+    test('table-mode is exactly the 6 confirmed-dead-weight-content types',
         () {
       expect(
-        autoPopulatedSectionTypes,
+        autoPopulatedTableModeTypes,
         {
           SectionType.vesselParticulars,
           SectionType.attendees,
@@ -164,6 +251,26 @@ void main() {
           SectionType.documentsOnFile,
         },
       );
+    });
+
+    test(
+        'prose-mode adds exactly the 3 verified-safe live-prose types '
+        '(damageDescription excluded — no faithful read-only rendering '
+        'exists yet, see report_provider.dart comment)', () {
+      expect(
+        autoPopulatedSectionTypes.difference(autoPopulatedTableModeTypes),
+        {
+          SectionType.occurrence,
+          SectionType.natureOfRepairs,
+          SectionType.documentsRequested,
+        },
+      );
+    });
+
+    test('table-mode is a subset of the full auto-populated set', () {
+      expect(
+          autoPopulatedTableModeTypes.every(autoPopulatedSectionTypes.contains),
+          isTrue);
     });
   });
 }

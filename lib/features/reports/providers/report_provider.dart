@@ -133,24 +133,60 @@ int? oceanoSectionNumber(SectionType type) {
 
 // ── §2.18 Section Editor redesign — auto-populated sections ────────────────
 //
-// The section types where `content` was confirmed (2026-07-10) to be dead
-// weight or actively drifting in the real rendered output — both
-// report_preview.dart and docx_export_service.dart already build these
-// entirely from case data via section_table_rows.dart / SectionReferencePanel,
-// never reading `content`. The Editor no longer offers a free-text override
-// for these; `remarks` is the only free-text field. Deliberately NOT
-// including occurrence/natureOfRepairs/documentsRequested (content there is
-// genuinely the live exported prose, no table exists) or the hybrid
-// classStatutory/informationSources/repairs (prose + trailing table, both
-// already legitimately in use) — see docs/TODO.md §2.18 for the full
-// section-by-section rationale.
-const autoPopulatedSectionTypes = {
+// The section types where `content` is deterministically computed from case
+// data (no AI, no genuinely free surveyor narrative) — the Editor no longer
+// offers a free-text override for these; `remarks` is the only free-text
+// field. Two presentation modes, both sharing the same overlay-skip/Edit-
+// link/Remarks mechanism:
+//
+// - autoPopulatedTableModeTypes (Slice 1, 2026-07-10): content was confirmed
+//   dead weight or actively drifting — Preview/docx already build these
+//   entirely from case data via section_table_rows.dart, never reading
+//   `content` at all. Shown as SectionReferencePanel's table, replacing the
+//   free-text box outright.
+// - The remaining autoPopulatedSectionTypes (Slice 2, 2026-07-10):
+//   occurrence/natureOfRepairs/documentsRequested — here `content`
+//   genuinely IS the live exported prose (no table exists in Preview/docx
+//   for these), so it stays visible as read-only text (not replaced by a
+//   table) with SectionReferencePanel/SectionCuesPanel kept as
+//   supplementary context exactly as before — only the free-text edit
+//   capability is removed. Confirmed safe via live data before converting:
+//   only 1 of these 3 types had any persisted content in report_sections at
+//   all (occurrence, 1 row, never surveyor-reviewed), and it was verified
+//   byte-for-byte reproducible by the deterministic generator from the
+//   occurrence record's own fields — nothing was actually at risk of being
+//   discarded.
+//
+// Deliberately NOT included: classStatutory/informationSources/repairs
+// (hybrid — live prose *and* an already-existing trailing table, both
+// legitimately in use, no gap to fix); genuinely narrative/cue-drafted/
+// clause-locked sections; or damageDescription — looked like a Slice-2
+// candidate at first (section_reference_panel.dart already has a simple
+// damage-items case) but direct code-reading of docx_export_service.dart's
+// "EXTENT OF DAMAGE"/"DAMAGE SCHEDULE" blocks found they build an entirely
+// custom grouped structure (by machinery, with inline photos and
+// confirmation-clause text) directly from `assembled.damageItems` — never
+// reading `content`/`sections[SectionType.damageDescription]` at all, and
+// NOT matching what the existing reference-panel case or Preview's
+// free-text fallback show either. Converting it via the same prose-mode
+// pattern would display something that doesn't match the real exported
+// report — worse than leaving it alone. Needs a proper dedicated table
+// builder mirroring that grouped logic, not a quick reuse — see
+// docs/TODO.md §2.18 for the full section-by-section rationale.
+const autoPopulatedTableModeTypes = {
   SectionType.vesselParticulars,
   SectionType.attendees,
   SectionType.machineryParticulars,
   SectionType.accounts,
   SectionType.repairTimes,
   SectionType.documentsOnFile,
+};
+
+const autoPopulatedSectionTypes = {
+  ...autoPopulatedTableModeTypes,
+  SectionType.occurrence,
+  SectionType.natureOfRepairs,
+  SectionType.documentsRequested,
 };
 
 /// (route segment under `/cases/:caseId/...`, display label for the Edit
@@ -165,6 +201,9 @@ const autoPopulatedEditRoute = {
   SectionType.accounts: ('accounts', 'Accounts'),
   SectionType.repairTimes: ('repairs', 'Repair Periods'),
   SectionType.documentsOnFile: ('documents', 'Document Vault'),
+  SectionType.occurrence: ('occurrence', 'Occurrence'),
+  SectionType.natureOfRepairs: ('nature-of-repairs', 'Nature of the Repairs'),
+  SectionType.documentsRequested: ('documents', 'Document Vault'),
 };
 
 // ── Clause model ───────────────────────────────────────────────────────────

@@ -233,6 +233,16 @@ class _SectionEditorState extends State<SectionEditor> {
                       caseId: widget.caseId,
                       assembled: widget.assembled,
                       fallbackText: section.content,
+                      // Table-mode types (§2.18 Slice 1) show
+                      // SectionReferencePanel's table as the content itself
+                      // — it's what Preview/docx actually render, `content`
+                      // is dead weight. Prose-mode types (Slice 2) show the
+                      // full computed text instead — that IS what Preview/
+                      // docx render, no table exists — with the reference
+                      // panel kept as separate supplementary context below
+                      // (unchanged from how it already behaved).
+                      preferReferencePanel:
+                          autoPopulatedTableModeTypes.contains(section.type),
                     )
                   : section.isLocked || widget.isLocked
                   // Locked — read-only display
@@ -350,15 +360,20 @@ class _SectionEditorState extends State<SectionEditor> {
               ),
 
             // ── Structured reference panel (tables/blocks matching the
-            // spec's suggested layout) — auto-populated sections already
-            // show this as their primary content above, so it isn't
-            // repeated here for them. ────────────────────────────
-            if (widget.assembled != null && !isAutoPopulated)
+            // spec's suggested layout) — table-mode auto-populated sections
+            // (§2.18 Slice 1) already show this as their primary content
+            // above, so it isn't repeated here for them. Prose-mode
+            // auto-populated sections (Slice 2) keep it as supplementary
+            // context below the read-only text, same as narrative
+            // sections always have. ────────────────────────────
+            if (widget.assembled != null &&
+                !autoPopulatedTableModeTypes.contains(section.type))
               SectionReferencePanel(
                   type: section.type, assembled: widget.assembled!),
 
             // ── Available context cues (§1.9, 9 July 2026) ─────────
-            if (widget.assembled != null && !isAutoPopulated)
+            if (widget.assembled != null &&
+                !autoPopulatedTableModeTypes.contains(section.type))
               SectionCuesPanel(
                   type: section.type, assembled: widget.assembled!),
 
@@ -529,24 +544,34 @@ class _StyleFlagsBanner extends StatelessWidget {
 
 // ── Auto-populated section content (§2.18) ──────────────────────────────────
 //
-// Replaces the free-text box for autoPopulatedSectionTypes: the same
-// read-only structured table SectionReferencePanel already builds from case
-// data (matching what the real report renders), plus a deep-link to the
-// case screen that owns the underlying data. Falls back to plain read-only
-// text of the last-computed content on the rare path where `assembled`
-// wasn't passed in, so this never renders a dead end.
+// Replaces the free-text box for autoPopulatedSectionTypes with a deep-link
+// to the case screen that owns the underlying data, plus one of two
+// read-only content presentations:
+// - table-mode (preferReferencePanel: true, Slice 1) — the same structured
+//   table SectionReferencePanel already builds from case data, matching
+//   what Preview/docx actually render (content is dead weight for these).
+// - prose-mode (preferReferencePanel: false, Slice 2) — the full computed
+//   `content` text, since that IS what Preview/docx render for these types
+//   (no table exists) — SectionReferencePanel is kept as separate
+//   supplementary context below instead (see section_editor.dart's trailing
+//   panels), not shown here.
+// Falls back to plain read-only fallbackText whenever assembled is null or
+// (table-mode) the panel has nothing to show, so this never renders a dead
+// end.
 class _AutoPopulatedSectionContent extends StatelessWidget {
   const _AutoPopulatedSectionContent({
     required this.type,
     required this.caseId,
     required this.assembled,
     required this.fallbackText,
+    required this.preferReferencePanel,
   });
 
   final SectionType type;
   final String caseId;
   final AssembledReportData? assembled;
   final String fallbackText;
+  final bool preferReferencePanel;
 
   @override
   Widget build(BuildContext context) {
@@ -562,7 +587,7 @@ class _AutoPopulatedSectionContent extends StatelessWidget {
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: AppColors.border),
           ),
-          child: assembled != null
+          child: preferReferencePanel && assembled != null
               ? SectionReferencePanel(type: type, assembled: assembled!)
               : Text(
                   fallbackText.isNotEmpty
