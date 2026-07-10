@@ -83,6 +83,7 @@ class DocumentModel {
     this.annexureAssignment,
     this.surveyorConfirmed = false,
     this.isCoverPhoto = false,
+    this.includedInReport = true,
   });
 
   final String docId;
@@ -109,6 +110,12 @@ class DocumentModel {
   final String? annexureAssignment;
   final bool surveyorConfirmed;
   final bool isCoverPhoto;
+
+  /// §3.4/§2.15 (10 July 2026): distinguishes "enclosed in the exported
+  /// report" from "retained on file but not enclosed" — only meaningful
+  /// when [availability] == [DocAvailability.enclosed]; ignored (harmless)
+  /// otherwise. Migration 034, defaults true.
+  final bool includedInReport;
 
   bool get hasFile => filePath != null && filePath!.isNotEmpty;
   bool get isImage =>
@@ -157,6 +164,7 @@ class DocumentModel {
         annexureAssignment: j['annexure_assignment'] as String?,
         surveyorConfirmed: j['surveyor_confirmed'] as bool? ?? false,
         isCoverPhoto: j['is_cover_photo'] as bool? ?? false,
+        includedInReport: j['included_in_report'] as bool? ?? true,
       );
 
   DocumentModel copyWith({
@@ -170,6 +178,8 @@ class DocumentModel {
     Object? annexureAssignment = _sentinel,
     bool? surveyorConfirmed,
     bool? isCoverPhoto,
+    DocAvailability? availability,
+    bool? includedInReport,
   }) =>
       DocumentModel(
         docId: docId,
@@ -184,7 +194,7 @@ class DocumentModel {
         filePath: filePath,
         fileType: fileType,
         fileSizeKb: fileSizeKb,
-        availability: availability,
+        availability: availability ?? this.availability,
         aiExtracted: aiExtracted ?? this.aiExtracted,
         extractionStatus: extractionStatus ?? this.extractionStatus,
         extractedData: extractedData ?? this.extractedData,
@@ -196,6 +206,7 @@ class DocumentModel {
             : annexureAssignment as String?,
         surveyorConfirmed: surveyorConfirmed ?? this.surveyorConfirmed,
         isCoverPhoto: isCoverPhoto ?? this.isCoverPhoto,
+        includedInReport: includedInReport ?? this.includedInReport,
       );
 }
 
@@ -315,6 +326,7 @@ class DocumentNotifier
           'file_type': ext,
           'file_size_kb': (bytes.length / 1024).roundToDouble(),
           'availability': 'enclosed',
+          'included_in_report': true,
           'received_date': DateTime.now().toIso8601String().split('T').first,
           'ai_extracted': false,
           'extraction_status': willExtract ? 'pending' : 'not_applicable',
@@ -598,6 +610,8 @@ class DocumentNotifier
     Object? annexureAssignment = _sentinel,
     bool? surveyorConfirmed,
     bool? isCoverPhoto,
+    DocAvailability? availability,
+    bool? includedInReport,
   }) async {
     final updates = <String, dynamic>{
       if (title != null) 'title': title,
@@ -606,6 +620,8 @@ class DocumentNotifier
         'annexure_assignment': annexureAssignment as String?,
       if (surveyorConfirmed != null) 'surveyor_confirmed': surveyorConfirmed,
       if (isCoverPhoto != null) 'is_cover_photo': isCoverPhoto,
+      if (availability != null) 'availability': availability.value,
+      if (includedInReport != null) 'included_in_report': includedInReport,
     };
     if (updates.isEmpty) return;
     await SupabaseService.client
@@ -621,6 +637,8 @@ class DocumentNotifier
         annexureAssignment: annexureAssignment,
         surveyorConfirmed: surveyorConfirmed,
         isCoverPhoto: isCoverPhoto,
+        availability: availability,
+        includedInReport: includedInReport,
       );
     }).toList());
   }
