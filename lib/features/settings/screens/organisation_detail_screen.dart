@@ -1,9 +1,13 @@
 // lib/features/settings/screens/organisation_detail_screen.dart
 
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/organisation_model.dart';
 import '../providers/organisations_provider.dart';
+import '../../../core/api/supabase_client.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/save_bar.dart';
 
@@ -168,6 +172,7 @@ class _OrganisationDetailScreenState
             controller: _tabs,
             children: [
               _DetailsTab(
+                org: org,
                 nameCtrl: _nameCtrl,
                 abnCtrl: _abnCtrl,
                 addressCtrl: _addressCtrl,
@@ -205,6 +210,7 @@ class _OrganisationDetailScreenState
 
 class _DetailsTab extends StatelessWidget {
   const _DetailsTab({
+    required this.org,
     required this.nameCtrl,
     required this.abnCtrl,
     required this.addressCtrl,
@@ -216,6 +222,7 @@ class _DetailsTab extends StatelessWidget {
     required this.onChanged,
   });
 
+  final OrganisationModel org;
   final TextEditingController nameCtrl;
   final TextEditingController abnCtrl;
   final TextEditingController addressCtrl;
@@ -248,12 +255,15 @@ class _DetailsTab extends StatelessWidget {
         _ColourField(label: 'Primary colour', ctrl: primaryColourCtrl, onChanged: onChanged),
         const SizedBox(height: 12),
         _ColourField(label: 'Secondary colour', ctrl: secondaryColourCtrl, onChanged: onChanged),
-        const SizedBox(height: 8),
+        const SizedBox(height: 24),
+        _sectionHeader('Logos'),
         const Text(
-          'Logo upload will be available in a future update. '
-          'Place your logo file at org-assets/<org-id>/logo.png in Supabase Storage for now.',
+          'The first logo is the primary letterhead logo, embedded in the '
+          'report running header. Add a second for co-branding.',
           style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
         ),
+        const SizedBox(height: 12),
+        _LogoManager(org: org),
       ],
     );
   }
@@ -328,6 +338,19 @@ class _ColourFieldState extends State<_ColourField> {
     return value != null ? Color(value) : null;
   }
 
+  Future<void> _pickSwatch() async {
+    final picked = await showDialog<Color>(
+      context: context,
+      builder: (ctx) => _SwatchPickerDialog(
+        title: widget.label,
+        current: _preview,
+      ),
+    );
+    if (picked != null) {
+      widget.ctrl.text = '#${colourToHex6(picked)}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -342,16 +365,336 @@ class _ColourFieldState extends State<_ColourField> {
           ),
         ),
         const SizedBox(width: 12),
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _preview ?? Colors.grey[200],
+        Tooltip(
+          message: 'Pick from swatches',
+          child: InkWell(
+            onTap: _pickSwatch,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _preview ?? Colors.grey[200],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Icon(
+                Icons.palette_outlined,
+                size: 18,
+                color: _preview == null
+                    ? AppColors.textSecondary
+                    : (_preview!.computeLuminance() > 0.5
+                        ? Colors.black54
+                        : Colors.white70),
+              ),
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Swatch picker dialog ──────────────────────────────────────────────────────
+// A dependency-free colour picker: a grid of curated preset swatches. Manual
+// hex entry remains available in the field for fully custom colours.
+
+class _SwatchPickerDialog extends StatelessWidget {
+  const _SwatchPickerDialog({required this.title, required this.current});
+  final String title;
+  final Color? current;
+
+  // Curated palette — corporate/marine tones plus neutrals and accents.
+  static const List<int> _swatches = [
+    0xFF1A3A5C, 0xFF13293D, 0xFF006494, 0xFF247BA0, 0xFF1B98E0,
+    0xFF0B7A75, 0xFF00A896, 0xFF2A9D8F, 0xFF264653, 0xFF3D5A80,
+    0xFF6A4C93, 0xFF8E44AD, 0xFFC0392B, 0xFFD62828, 0xFFE76F51,
+    0xFFEE964B, 0xFFF4A261, 0xFFE9C46A, 0xFF457B9D, 0xFF1D3557,
+    0xFF212529, 0xFF495057, 0xFF6C757D, 0xFFADB5BD, 0xFFFFFFFF,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(title),
+      content: SizedBox(
+        width: 300,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _swatches.map((v) {
+            final c = Color(v);
+            final selected = current != null &&
+                colourToHex6(current!) == colourToHex6(c);
+            return InkWell(
+              onTap: () => Navigator.of(context).pop(c),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: c,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: selected ? AppColors.navy : AppColors.border,
+                    width: selected ? 2.5 : 1,
+                  ),
+                ),
+                child: selected
+                    ? Icon(Icons.check,
+                        size: 18,
+                        color: c.computeLuminance() > 0.5
+                            ? Colors.black54
+                            : Colors.white)
+                    : null,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Uppercase 6-digit RRGGBB hex (no leading '#') for a [Color], using the
+/// non-deprecated component accessors (0.0–1.0 doubles).
+String colourToHex6(Color c) {
+  String h(double x) => (x * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+  return '${h(c.r)}${h(c.g)}${h(c.b)}'.toUpperCase();
+}
+
+// ── Logo Manager ──────────────────────────────────────────────────────────────
+// Picks an image file, uploads it to the `organisation_assets` Supabase Storage
+// bucket, and appends its path to the organisation's ordered logo list. The
+// first logo is the primary letterhead logo embedded in the report header.
+
+class _LogoManager extends ConsumerStatefulWidget {
+  const _LogoManager({required this.org});
+  final OrganisationModel org;
+
+  @override
+  ConsumerState<_LogoManager> createState() => _LogoManagerState();
+}
+
+class _LogoManagerState extends ConsumerState<_LogoManager> {
+  static const _bucket = 'organisation_assets';
+  bool _busy = false;
+
+  List<String> get _paths => widget.org.logoStoragePaths;
+
+  Future<void> _addLogo() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      _snack('Could not read the selected file.');
+      return;
+    }
+    final ext = (file.extension ?? 'png').toLowerCase();
+    final path =
+        '${widget.org.organisationId}/logo_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+    setState(() => _busy = true);
+    try {
+      await SupabaseService.uploadFile(
+        bucket: _bucket,
+        path: path,
+        bytes: bytes,
+        mimeType: _mimeFor(ext),
+      );
+      final updated =
+          widget.org.copyWith(logoStoragePaths: [..._paths, path]);
+      await ref.read(organisationsProvider.notifier).saveOrganisation(updated);
+    } catch (e) {
+      _snack('Upload failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _removeLogo(String path) async {
+    setState(() => _busy = true);
+    try {
+      // Remove from the list first (source of truth for the report). Deleting
+      // the storage object is best-effort — orphaned bytes are harmless.
+      final remaining = _paths.where((p) => p != path).toList();
+      final updated = widget.org.copyWith(logoStoragePaths: remaining);
+      await ref.read(organisationsProvider.notifier).saveOrganisation(updated);
+      try {
+        await SupabaseService.client.storage.from(_bucket).remove([path]);
+      } catch (_) {/* best-effort */}
+    } catch (e) {
+      _snack('Remove failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _mimeFor(String ext) {
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'svg':
+        return 'image/svg+xml';
+      default:
+        return 'image/png';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_paths.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(children: [
+              Icon(Icons.image_outlined, size: 20, color: AppColors.textTertiary),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('No logos uploaded yet.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ),
+            ]),
+          )
+        else
+          ...List.generate(_paths.length, (i) => _LogoTile(
+                bucket: _bucket,
+                path: _paths[i],
+                isPrimary: i == 0,
+                onRemove: _busy ? null : () => _removeLogo(_paths[i]),
+              )),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _addLogo,
+          icon: _busy
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.upload_outlined, size: 18),
+          label: Text(_paths.isEmpty ? 'Upload logo' : 'Add another logo'),
+        ),
+      ],
+    );
+  }
+}
+
+class _LogoTile extends StatelessWidget {
+  const _LogoTile({
+    required this.bucket,
+    required this.path,
+    required this.isPrimary,
+    required this.onRemove,
+  });
+  final String bucket;
+  final String path;
+  final bool isPrimary;
+  final VoidCallback? onRemove;
+
+  Future<Uint8List?> _download() async {
+    try {
+      return await SupabaseService.client.storage.from(bucket).download(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppColors.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: FutureBuilder<Uint8List?>(
+            future: _download(),
+            builder: (_, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+              final data = snap.data;
+              if (data == null) {
+                return const Icon(Icons.broken_image_outlined,
+                    size: 20, color: AppColors.textTertiary);
+              }
+              return Image.memory(data, fit: BoxFit.contain);
+            },
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isPrimary ? 'Primary (letterhead)' : 'Secondary',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                path.split('/').last,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, color: AppColors.error),
+          onPressed: onRemove,
+          tooltip: 'Remove logo',
+        ),
+      ]),
     );
   }
 }
