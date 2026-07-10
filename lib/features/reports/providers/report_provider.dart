@@ -9,6 +9,9 @@ import '../../../core/models/ai_generation_log_model.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/damage_provider.dart'
     show ConditionStatus, ConfirmedByRole, CertaintyLevel;
+import '../../timeline/models/timeline_entry.dart';
+import '../../timeline/models/timeline_event_rating.dart';
+import '../../timeline/models/timeline_aggregation.dart';
 
 // ── Report output types ────────────────────────────────────────────────────
 
@@ -629,7 +632,14 @@ final assembledDataProvider =
     repairDocuments = (repairDocData as List).cast<Map<String, dynamic>>();
   } catch (_) {}
 
-  // Fetch timeline events ordered by date
+  // Fetch timeline events ordered by date, then apply the surveyor's
+  // Chronology curation (TODO.md §3.16). Each timeline_events row is keyed
+  // "manual:<event_id>"; a rating may down-rank it to "ignore" or exclude it
+  // from the Chronology. Events with no rating stay included — preserving the
+  // report builder's long-standing "list every timeline row" behaviour for
+  // un-curated cases. The include rule lives in one shared place
+  // (chronologyIncludeForRating) so the in-app selection and the rendered
+  // report can never disagree.
   List<Map<String, dynamic>> timelineEvents = [];
   try {
     final timelineData = await SupabaseService.client
@@ -637,7 +647,27 @@ final assembledDataProvider =
         .select()
         .eq('case_id', caseId)
         .order('event_date');
-    timelineEvents = (timelineData as List).cast<Map<String, dynamic>>();
+    final allTimeline = (timelineData as List).cast<Map<String, dynamic>>();
+
+    final ratingsByKey = <String, TimelineEventRating>{};
+    try {
+      final ratingRows = await SupabaseService.client
+          .from('timeline_event_ratings')
+          .select()
+          .eq('case_id', caseId);
+      for (final row in (ratingRows as List)) {
+        final r = TimelineEventRating.fromMap(row as Map<String, dynamic>);
+        ratingsByKey[r.eventKey] = r;
+      }
+    } catch (_) {}
+
+    timelineEvents = allTimeline.where((e) {
+      final key = 'manual:${e['event_id']}';
+      return chronologyIncludeForRating(
+        sourceType: TimelineSourceType.manual,
+        rating: ratingsByKey[key],
+      );
+    }).toList();
   } catch (_) {}
 
   // Fetch supplementary data in parallel
