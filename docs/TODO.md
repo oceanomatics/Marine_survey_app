@@ -249,6 +249,49 @@ Current state: all major sections coded. Re-audit against spec:
 - [ ] Auto-generate an email listing all outstanding requested documents (to Owners/Repairers), from the same data — **MISSING, confirmed** (grepped for "document request"/"requestEmail"/"generateEmail"/"mailto" — no hits)
 - [ ] See `docs/legal_clauses.md` Part K (K-2) for the report-side rendering, already implemented
 
+### 3.16 Timeline — Full Event Log Tab + AI Relevance Rating
+**Built 10 July 2026.** (This item had no prior checkbox in this file — added here as
+it was completed. Before starting, the existing Timeline was verified to be a single
+merged card view with no ratings/tabs/AI, so this was genuinely unbuilt.)
+- [✓] Second tab — a **Full Event Log** aggregating every dated case source (occurrences,
+  attendances, completed repairs, manual timeline events) alongside the existing condensed
+  Timeline — **DONE**. `TimelineScreen` reworked into a 3-tab `TabController`
+  (`lib/features/timeline/screens/timeline_screen.dart`). Aggregation is a single pure
+  function `aggregateTimelineEntries` (`lib/features/timeline/models/timeline_aggregation.dart`)
+  producing stable-keyed `TimelineEntry`s (`.../models/timeline_entry.dart`), event key
+  `"<source>:<source_id>"`.
+- [✓] Per-event relevance **Important / Normal / Ignore**; ignored events grey out and leave
+  the condensed view — **DONE** (`EventRelevance`, `.../models/timeline_event_rating.dart`;
+  persisted in new table `timeline_event_ratings`, `docs/migrations/027_timeline_event_ratings.sql`,
+  applied; provider `.../providers/timeline_ratings_provider.dart`).
+- [✓] Relevance **AI-suggested**, mirroring the cue `pendingReview` review pattern — **DONE**.
+  `ClaudeApi.rateTimelineEvents` (Haiku, one batched call) suggests a relevance + short reason
+  per un-rated event, stored `pending_review = true`; a "Suggest (AI)" action classifies only
+  events that have no rating yet (cost/annotation safety — never re-classifies, never
+  overwrites a surveyor decision). Suggestions show a "Suggested" chip + one-tap Confirm.
+  *Parallel-but-separate implementation of the cue pattern* — the data shapes (aggregated
+  event vs. `SurveyorNote`) don't fit a shared abstraction, so a shared one was deliberately
+  NOT forced (as the TODO note allowed).
+- [✓] **Ignored** tab so nothing is silently hidden — ignored events are reviewable and
+  restorable (**DONE**, `_IgnoredTab`).
+- [✓] **Core purpose — curation drives the report Chronology** — **DONE**. Manual timeline
+  events default into the chronology (preserving prior behaviour) and can be excluded;
+  aggregated occurrences/attendances/repairs are one-tap **promoted** into a real
+  `timeline_events` row (stamped `source_key`, new nullable column in migration 027) so they
+  flow through the *unchanged* report pipeline. `report_provider.dart`'s timeline fetch now
+  filters by the ratings via one shared rule `chronologyIncludeForRating` (the same rule
+  `TimelineEntry.includedInChronology` uses — no in-app/report drift). `buildChronologyRows`
+  and `docx_export_service.dart` were left untouched.
+- Tests: `test/features/timeline/models/timeline_aggregation_test.dart` (9 pure) +
+  `test/features/timeline/screens/timeline_screen_test.dart` (4 widget). `flutter analyze
+  lib/ test/` clean (no new issues); full suite green except the unrelated stock
+  `widget_test.dart` placeholder.
+- **Not done / deferred:** correspondence, documents and report-generation events are named
+  in the ask's "etc." but are NOT yet aggregated — only the four dated sources the Timeline
+  already knew about are. Live end-to-end verification of the AI `rateTimelineEvents` call
+  against the paid API was not run (analyze-clean + widget-tested only), same posture as the
+  cue system's step-5 verification gap.
+
 ---
 
 ## PHASE 2 — Pre-Launch (Commercial Deployment)
