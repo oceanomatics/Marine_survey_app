@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
 import 'package:marine_survey_app/features/checklist/screens/checklist_screen.dart';
@@ -27,11 +28,13 @@ ChecklistItem _item({
     );
 
 Future<void> _pump(WidgetTester tester, List<ChecklistItem> seed) async {
+  final container = ProviderContainer(overrides: [
+    checklistProvider.overrideWith(() => FakeChecklistNotifier(seed)),
+  ]);
+  addTearDown(container.dispose);
   await pumpWithRouter(
     tester,
-    overrides: [
-      checklistProvider.overrideWith(() => FakeChecklistNotifier(seed)),
-    ],
+    container: container,
     child: const ChecklistScreen(caseId: _caseId),
   );
 }
