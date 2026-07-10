@@ -1,4 +1,4 @@
--- 027_org_multi_logo_and_assets_bucket.sql
+-- 031_org_multi_logo_and_assets_bucket.sql
 -- §2.1 / §2.16 — Firm branding: multi-logo support + real logo upload.
 --
 -- 1. Multi-logo data model: organisations previously had a single
