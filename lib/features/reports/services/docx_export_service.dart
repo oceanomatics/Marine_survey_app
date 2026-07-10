@@ -316,6 +316,17 @@ class DocxExportService {
       doc.addSpacer();
     }
 
+    // §2.18: Remarks is the only free-text field left on autoPopulatedSection
+    // Types (Vessel Particulars, Attendees, Machinery Particulars, Accounts,
+    // Repair Times, Documents on File) — rendered as a labeled paragraph
+    // right after that section's table, omitted entirely when empty.
+    void renderRemarks(SectionType type) {
+      final remarks = sections[type]?.remarks?.trim();
+      if (remarks == null || remarks.isEmpty) return;
+      doc.addParagraph('Remarks: $remarks', italic: true);
+      doc.addSpacer();
+    }
+
     // ── Page 2: title block → Advice Summary → Legal Designations → AI
     // Declaration → Document Control ─────────────────────────────────
     // Per surveyor direction (4 July 2026): the title block renders as an
@@ -459,6 +470,7 @@ class DocxExportService {
             colWidths: [3100, 3100, 3155]);
         doc.addSpacer();
       }
+      renderRemarks(SectionType.attendees);
     }
 
     // ── Section 3: Vessel Particulars ────────────────────────────────
@@ -467,6 +479,7 @@ class DocxExportService {
       doc.addHeading('VESSEL PARTICULARS', 2);
       doc.addTable(vpRows, colWidths: [3000, 6355]);
       doc.addSpacer();
+      renderRemarks(SectionType.vesselParticulars);
     }
 
     // ── Section 4: Machinery & Equipment Particulars (if applicable) ──
@@ -493,6 +506,7 @@ class DocxExportService {
         }
         doc.addSpacer();
       }
+      renderRemarks(SectionType.machineryParticulars);
     }
 
     // ── Section 5: Class & Statutory Certification ────────────────────
@@ -955,39 +969,25 @@ class DocxExportService {
         doc.addSpacer();
       }
     }
+    renderRemarks(SectionType.accounts);
 
     // ── Section 14: Repair Times ──────────────────────────────────────
-    if (repairPeriodModels.isNotEmpty) {
-      final hasTime = repairPeriodModels.any((p) =>
-          p.drydockDaysTotal > 0 || p.alongsideDaysTotal > 0 || p.ownerDaysTotal > 0);
-      if (hasTime) {
-        doc.addHeading('REPAIR TIMES', 2);
-        // Clause I-1: fixed guidance statement ahead of the times table.
-        final guidance =
-            assembled.clauseByType('repair_times_guidance')?.clauseText;
-        if (guidance != null && guidance.isNotEmpty) {
-          doc.addParagraph(guidance);
-          doc.addSpacer();
-        }
-        final rtRows = [
-          ['Repair', 'Drydock Days', 'Afloat Days', "Owner's Days", 'Total'],
-          ...repairPeriodModels.map((p) {
-            final dd = p.drydockDaysTotal;
-            final ad = p.alongsideDaysTotal;
-            final od = p.ownerDaysTotal;
-            return [
-              p.displayTitle,
-              dd > 0 ? dd.toStringAsFixed(1) : '—',
-              ad > 0 ? ad.toStringAsFixed(1) : '—',
-              od > 0 ? od.toStringAsFixed(1) : '—',
-              (dd + ad).toStringAsFixed(1),
-            ];
-          }),
-        ];
-        doc.addTable(rtRows, boldFirstRow: true,
-            colWidths: [3200, 1200, 1200, 1200, 1555]);
+    // Row-building shared with the Preview tab / Editor reference panel —
+    // see buildRepairTimesRows (section_table_rows.dart).
+    final rtRows = buildRepairTimesRows(assembled.repairPeriods);
+    if (rtRows.isNotEmpty) {
+      doc.addHeading('REPAIR TIMES', 2);
+      // Clause I-1: fixed guidance statement ahead of the times table.
+      final guidance =
+          assembled.clauseByType('repair_times_guidance')?.clauseText;
+      if (guidance != null && guidance.isNotEmpty) {
+        doc.addParagraph(guidance);
         doc.addSpacer();
       }
+      doc.addTable(rtRows, boldFirstRow: true,
+          colWidths: [3200, 1200, 1200, 1200, 1555]);
+      doc.addSpacer();
+      renderRemarks(SectionType.repairTimes);
     }
 
     // ── Section 15: Advice to Assured (optional) ───────────────────────
@@ -1004,7 +1004,10 @@ class DocxExportService {
     renderTextSection(SectionType.surveyorNotes, 'ADVICE TO ASSURED');
 
     // ── Section 16: Documents Retained on File ────────────────────────
-    if (assembled.caseDocuments.isNotEmpty) {
+    // Row-building shared with the Preview tab / Editor reference panel —
+    // see buildDocumentsOnFileRows (section_table_rows.dart).
+    final docRows = buildDocumentsOnFileRows(assembled.caseDocuments);
+    if (docRows.isNotEmpty) {
       doc.addHeading('DOCUMENTS RETAINED ON FILE', 2);
       // Clause K-1: fixed lead-in sentence ahead of the documents table.
       final docsHeader =
@@ -1013,18 +1016,10 @@ class DocxExportService {
         doc.addParagraph(docsHeader);
         doc.addSpacer();
       }
-      final docRows = [
-        ['#', 'Document', 'Category', 'Date'],
-        ...assembled.caseDocuments.asMap().entries.map((e) => [
-              '${e.key + 1}',
-              e.value['title']        as String? ?? '',
-              (e.value['doc_category'] as String? ?? '').replaceAll('_', ' '),
-              _formatDate(e.value['doc_date'] as String? ?? ''),
-            ]),
-      ];
       doc.addTable(docRows, boldFirstRow: true,
           colWidths: [400, 5200, 2000, 1755]);
       doc.addSpacer();
+      renderRemarks(SectionType.documentsOnFile);
     }
 
     // ── Section 17: Documents Requested / Outstanding ─────────────────

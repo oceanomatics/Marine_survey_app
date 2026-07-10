@@ -15,6 +15,7 @@
 
 import '../providers/report_provider.dart';
 import '../../survey/providers/damage_provider.dart' show CertaintyLevel;
+import '../../survey/models/repair_period_model.dart';
 
 String formatSectionDate(String iso) {
   if (iso.isEmpty) return '';
@@ -550,6 +551,55 @@ List<List<String>> buildAvailableInformationRows(
     ['Document', 'Status'],
     ...caseDocuments.map((d) => [label(d), 'Available']),
     ...requestedDocuments.map((d) => [label(d), 'Requested']),
+  ];
+}
+
+// ── Section 14: Repair Times — §2.18 (10 July 2026) ───────────────────────
+//
+// Extracted from docx_export_service.dart's previously-inline table
+// construction so report_preview.dart / section_reference_panel.dart can
+// share it too — before this, Preview rendered the section's free-text
+// `content` (AI-generated prose) while docx built this table directly from
+// `repairPeriods`, and the two had quietly diverged (whatever the surveyor
+// typed into the Editor's free-text box never actually reached the export).
+List<List<String>> buildRepairTimesRows(
+    List<Map<String, dynamic>> repairPeriods) {
+  final periods = repairPeriods.map(RepairPeriodModel.fromJson).toList();
+  final hasTime = periods.any((p) =>
+      p.drydockDaysTotal > 0 || p.alongsideDaysTotal > 0 || p.ownerDaysTotal > 0);
+  if (!hasTime) return const [];
+  return [
+    ['Repair', 'Drydock Days', 'Afloat Days', "Owner's Days", 'Total'],
+    ...periods.map((p) {
+      final dd = p.drydockDaysTotal;
+      final ad = p.alongsideDaysTotal;
+      final od = p.ownerDaysTotal;
+      return [
+        p.displayTitle,
+        dd > 0 ? dd.toStringAsFixed(1) : '—',
+        ad > 0 ? ad.toStringAsFixed(1) : '—',
+        od > 0 ? od.toStringAsFixed(1) : '—',
+        (dd + ad).toStringAsFixed(1),
+      ];
+    }),
+  ];
+}
+
+// ── Section 16: Documents Retained on File — §2.18 (10 July 2026) ────────
+//
+// Same extraction as [buildRepairTimesRows], same reason — this table was
+// previously only built inline in docx_export_service.dart.
+List<List<String>> buildDocumentsOnFileRows(
+    List<Map<String, dynamic>> caseDocuments) {
+  if (caseDocuments.isEmpty) return const [];
+  return [
+    ['#', 'Document', 'Category', 'Date'],
+    ...caseDocuments.asMap().entries.map((e) => [
+          '${e.key + 1}',
+          e.value['title'] as String? ?? '',
+          (e.value['doc_category'] as String? ?? '').replaceAll('_', ' '),
+          formatSectionDate(e.value['doc_date'] as String? ?? ''),
+        ]),
   ];
 }
 

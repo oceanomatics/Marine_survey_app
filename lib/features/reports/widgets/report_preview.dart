@@ -2092,6 +2092,27 @@ List<Widget> _trailingTables(
   return widgets;
 }
 
+/// §2.18: appends the section's Remarks (the only free-text field left on
+/// autoPopulatedSectionTypes) below its structured table, omitted entirely
+/// when empty — matches docx_export_service.dart's renderRemarks convention.
+Widget _withRemarks(Widget table, ReportSection section, _Brand brand) {
+  final remarks = section.remarks?.trim();
+  if (remarks == null || remarks.isEmpty) return table;
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      table,
+      const SizedBox(height: 8),
+      Text('Remarks: $remarks',
+          style: TextStyle(
+              fontSize: 9.5,
+              fontStyle: FontStyle.italic,
+              color: brand.bodyText,
+              height: 1.5)),
+    ],
+  );
+}
+
 class _SectionBody extends StatelessWidget {
   const _SectionBody({
     required this.section,
@@ -2112,29 +2133,61 @@ class _SectionBody extends StatelessWidget {
     // free-text rendering below if there's no structured data yet.
     if (section.type == SectionType.vesselParticulars) {
       final rows = buildVesselParticularsRows(assembled.vessel ?? {});
-      if (rows.isNotEmpty) return _KeyValueTable(rows: rows, brand: brand);
+      if (rows.isNotEmpty) {
+        return _withRemarks(
+            _KeyValueTable(rows: rows, brand: brand), section, brand);
+      }
     }
     if (section.type == SectionType.attendees) {
       final blocks =
           buildAttendanceBlocks(assembled.attendances, assembled.attendees);
       if (blocks.isNotEmpty) {
-        return _AttendanceBlocksView(blocks: blocks, brand: brand);
+        return _withRemarks(
+            _AttendanceBlocksView(blocks: blocks, brand: brand),
+            section,
+            brand);
       }
     }
     if (section.type == SectionType.machineryParticulars) {
       final blocks = buildMachineryBlocks(assembled.machinery);
       if (blocks.isNotEmpty) {
-        return _MachineryBlocksView(blocks: blocks, brand: brand);
+        return _withRemarks(
+            _MachineryBlocksView(blocks: blocks, brand: brand),
+            section,
+            brand);
       }
     }
     if (section.type == SectionType.accounts) {
       final summaries = buildAccountSummaries(assembled);
       if (summaries.isNotEmpty) {
-        return _CostSummaryView(
-          summaries: summaries,
-          totalsRows: buildAccountTotalsRows(assembled),
-          brand: brand,
-        );
+        return _withRemarks(
+            _CostSummaryView(
+              summaries: summaries,
+              totalsRows: buildAccountTotalsRows(assembled),
+              brand: brand,
+            ),
+            section,
+            brand);
+      }
+    }
+    // §2.18 (10 July 2026): previously these two fell through to the
+    // generic free-text rendering below (plain `content` paragraphs) while
+    // docx already built them as tables — a real drift, since whatever the
+    // surveyor typed into the Editor's now-removed free-text box never
+    // actually reached the export. Now shares the same row-builders as
+    // docx_export_service.dart / the Editor's reference panel.
+    if (section.type == SectionType.repairTimes) {
+      final rows = buildRepairTimesRows(assembled.repairPeriods);
+      if (rows.isNotEmpty) {
+        return _withRemarks(
+            _RegisterTable(rows: rows, brand: brand), section, brand);
+      }
+    }
+    if (section.type == SectionType.documentsOnFile) {
+      final rows = buildDocumentsOnFileRows(assembled.caseDocuments);
+      if (rows.isNotEmpty) {
+        return _withRemarks(
+            _RegisterTable(rows: rows, brand: brand), section, brand);
       }
     }
 
