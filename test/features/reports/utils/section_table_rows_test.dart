@@ -48,6 +48,29 @@ void main() {
       expect(rows, contains(equals(['Breadth', '12.5 m'])));
     });
 
+    test(
+        'prefers independent breadth/draft fields over the legacy '
+        'qualifier pair when set (TODO.md §2.17)', () {
+      final rows = buildVesselParticularsRows({
+        'name': 'MV Star',
+        'breadth': 20.0,
+        'breadth_qualifier': 'Moulded Breadth',
+        'breadth_moulded': 18.5,
+        'beam_oa': 19.2,
+        'max_draft': 8.0,
+        'draft_qualifier': 'Load Line Draft',
+        'draft_load_line': 7.4,
+      });
+      expect(rows, contains(equals(['Breadth (Moulded)', '18.5 m'])));
+      expect(rows, contains(equals(['Beam (OA)', '19.2 m'])));
+      expect(rows, contains(equals(['Draft (Load Line)', '7.4 m'])));
+      // The legacy single-value rows must not also appear once the new
+      // fields are populated — would double up the same information.
+      expect(rows.where((r) => r[0] == 'Moulded Breadth'), isEmpty);
+      expect(rows.where((r) => r[0] == 'Breadth'), isEmpty);
+      expect(rows.where((r) => r[0] == 'Draft'), isEmpty);
+    });
+
     test('includes registered_owner distinct from owners (TODO.md §2.11)', () {
       final rows = buildVesselParticularsRows({
         'name': 'MV Star',

@@ -34,6 +34,40 @@ String formatSectionDate(String iso) {
 /// row. Rows with no data are omitted so Convention-only or DCV-only
 /// fields don't show up as blank for the other vessel type.
 List<List<String>> buildVesselParticularsRows(Map<String, dynamic> v) {
+  // Breadth/draft — TODO.md §2.17: the old model forced one value + a
+  // qualifier dropdown; replaced with independent per-variant fields
+  // (populated as collected) so more than one can be on record at once.
+  // Prefer those; fall back to the legacy single value+qualifier pair for
+  // vessels never re-saved since the split, so old data stays visible.
+  // This was wired into the vessel-particulars editor at the split but
+  // never into the report table until now (found + fixed 10 July 2026).
+  final hasNewBreadth = v['breadth_moulded'] != null ||
+      v['breadth_extreme'] != null ||
+      v['beam_oa'] != null;
+  final breadthRows = hasNewBreadth
+      ? [
+          if (v['breadth_moulded'] != null)
+            ['Breadth (Moulded)', '${v['breadth_moulded']} m'],
+          if (v['breadth_extreme'] != null)
+            ['Breadth (Extreme)', '${v['breadth_extreme']} m'],
+          if (v['beam_oa'] != null) ['Beam (OA)', '${v['beam_oa']} m'],
+        ]
+      : [
+          [v['breadth_qualifier'] as String? ?? 'Breadth',
+           v['breadth'] != null ? '${v['breadth']} m' : ''],
+        ];
+  final hasNewDraft = v['draft_load_line'] != null || v['draft_max'] != null;
+  final draftRows = hasNewDraft
+      ? [
+          if (v['draft_load_line'] != null)
+            ['Draft (Load Line)', '${v['draft_load_line']} m'],
+          if (v['draft_max'] != null) ['Draft (Max)', '${v['draft_max']} m'],
+        ]
+      : [
+          [v['draft_qualifier'] as String? ?? 'Draft',
+           v['max_draft'] != null ? '${v['max_draft']} m' : ''],
+        ];
+
   return [
     ['Vessel Name', v['name'] ?? ''],
     ['IMO Number', v['imo_number'] ?? ''],
@@ -44,10 +78,8 @@ List<List<String>> buildVesselParticularsRows(Map<String, dynamic> v) {
     ['Net Tonnage', v['net_tonnage']?.toString() ?? ''],
     ['Deadweight', v['deadweight']?.toString() ?? ''],
     ['LOA', v['length_oa']?.toString() ?? ''],
-    [v['breadth_qualifier'] as String? ?? 'Breadth',
-     v['breadth'] != null ? '${v['breadth']} m' : ''],
-    [v['draft_qualifier'] as String? ?? 'Draft',
-     v['max_draft'] != null ? '${v['max_draft']} m' : ''],
+    ...breadthRows,
+    ...draftRows,
     ['Propeller Type', v['propeller_type'] ?? ''],
     ['Propulsion Drive', v['propulsion_drive_type'] ?? ''],
     ['Year Built', v['year_built']?.toString() ?? ''],
