@@ -4,7 +4,7 @@ Status: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken · `[�
 
 Auto: `Unit` pure-logic unit test (no UI/network, could write today) · `Widget` widget test w/ mocked providers (moderate setup, no external service) · `Integ` integration_test w/ faked backend (bigger investment) · `Manual` needs a real external service (Google OAuth/Gmail/Drive/Photos, camera/mic hardware, a second real device/email) or subjective/visual judgement — not practically automatable in this stack.
 
-**Automation status (2026-07-06):** all 9 `Unit`-tagged rows are automated (`test/features/...`, `test/core/...` — pure-logic tests, no mocking needed). Of the 142 `Widget`-tagged rows, two areas are automated so far: Checklist (rows 144-147, the harness pilot) and Reports (rows 158-175, 12 of 14 fully covered + 2 partial — see below), both using the same pattern: override the Riverpod provider directly with a fake `Notifier` subclass in `test/support/fakes/` (no mocktail, no fake Supabase client needed — confirmed this scales even to Reports' 5-provider dependency graph). 124 Widget rows and the 1 `Integ` row are still unautomated. `Manual` rows are tracked separately in `MANUAL_QA_CHECKLIST.md` (39 rows) since they need real external services or human judgement and can't be automated in this stack. Test count: 116 automated tests total (`flutter test`), all passing except the pre-existing unrelated `test/widget_test.dart` placeholder (default counter-app smoke test, predates this work).
+**Automation status (2026-07-10):** all 9 `Unit`-tagged rows are automated (`test/features/...`, `test/core/...` — pure-logic tests, no mocking needed). Widget coverage now spans seven areas, all using the same pattern: override the Riverpod provider directly with a fake `Notifier` subclass in `test/support/fakes/` (no mocktail, no fake Supabase client needed): Checklist (rows 144-147, the harness pilot), Reports (rows 158-175, 12 of 14 fully covered + 2 partial), Vessel Particulars (rows 11-20 covered — see note on rows 21/22/24 below, they're stale against a screen restructure, not yet re-targeted), Occurrences (rows 25-28, all covered), Damage Register (rows 29-33, all covered), Repairs (rows 36-38 covered, row 41 partial — panel renders but add/edit-cue interaction untested; rows 39-40 are separate screens, not covered), Attendees (rows 42-45 covered; row 46 not covered). Roughly 100 Widget rows and the 1 `Integ` row are still unautomated. `Manual` rows are tracked separately in `MANUAL_QA_CHECKLIST.md` (39 rows) since they need real external services or human judgement and can't be automated in this stack. Test count: 172 automated tests total (`flutter test`), 171 passing — sole failure is the pre-existing unrelated `test/widget_test.dart` placeholder (default counter-app smoke test, predates this work, confirmed independent of it).
 
 Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, not test failures — they exist so the sheet doubles as a punch list toward a finished product.
 
@@ -38,20 +38,20 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 11 | Identity tab shows existing vessel data | Widget | `[ ]` | |
-| 12 | Edit identity fields → Save → persists | Widget | `[ ]` | |
-| 13 | Dimensions tab saves correctly | Widget | `[ ]` | |
-| 14 | New case: create vessel from scratch | Widget | `[ ]` | |
-| 15 | Machinery tab: add item | Widget | `[ ]` | |
-| 16 | Machinery: delete with confirm dialog | Widget | `[ ]` | |
-| 17 | Globe icon appears when IMO is filled | Widget | `[ ]` | |
-| 18 | Globe → no credentials → snackbar + Account link | Widget | `[ ]` | |
+| 11 | Identity tab shows existing vessel data | Widget | `[✓]` | |
+| 12 | Edit identity fields → Save → persists | Widget | `[✓]` | |
+| 13 | Dimensions tab saves correctly | Widget | `[✓]` | tested as tonnage fields |
+| 14 | New case: create vessel from scratch | Widget | `[✓]` | incl. empty-name validation snackbar |
+| 15 | Machinery tab: add item | Widget | `[✓]` | |
+| 16 | Machinery: delete with confirm dialog | Widget | `[✓]` | |
+| 17 | Globe icon appears when IMO is filled | Widget | `[ ]` | Equasis-tap behavior tested (no-IMO / no-credentials snackbars), icon-visibility-conditional-on-IMO itself is not |
+| 18 | Globe → no credentials → snackbar + Account link | Widget | `[✓]` | |
 | 19 | Globe → valid credentials → Equasis PDF fetched | Manual | `[ ]` | |
 | 20 | Equasis PDF appears in Document Vault | Manual | `[ ]` | |
-| 21 | Class/Statutory tab: certificate list, add certificate, delete (confirm dialog) | Widget | `[ ]` | |
-| 22 | Class/Statutory tab: conditions of class — empty-state hint, add condition, delete (confirm dialog) | Widget | `[ ]` | new since last sheet |
+| 21 | Class/Statutory tab: certificate list, add certificate, delete (confirm dialog) | Widget | `[⛔]` | **stale row** — Cluster B (§2.17 row 11, 9 July 2026) moved certificates off this screen onto a case-level `VesselComplianceScreen`; no test for that screen exists yet |
+| 22 | Class/Statutory tab: conditions of class — empty-state hint, add condition, delete (confirm dialog) | Widget | `[⛔]` | same restructure as row 21 — moved to `VesselComplianceScreen`, untested there |
 | 23 | "Add vessel general view" photo picker sets the shared case cover photo (same photo used in Gallery/Report cover) | Manual | `[ ]` | |
-| 24 | Vessel statutory fields (psc_last_inspection, last_drydock_date, pi_club, isps_status) present and saved | Widget | `[ ]` | flagged open in last audit — verify actually implemented, not just planned |
+| 24 | Vessel statutory fields (psc_last_inspection, last_drydock_date, pi_club, isps_status) present and saved | Widget | `[⛔]` | same restructure as row 21 — also moved to `VesselComplianceScreen`; this screen now only shows static class-society/notation/P&I fields + a deep link, which is covered |
 
 ---
 
@@ -59,10 +59,10 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 25 | Occurrence list loads | Widget | `[ ]` | |
-| 26 | Add occurrence (title, date, location, description) | Widget | `[ ]` | |
-| 27 | Edit occurrence → changes saved | Widget | `[ ]` | |
-| 28 | Delete occurrence: confirm dialog → cascade removes damage & repairs | Widget | `[ ]` | |
+| 25 | Occurrence list loads | Widget | `[✓]` | |
+| 26 | Add occurrence (title, date, location, description) | Widget | `[✓]` | |
+| 27 | Edit occurrence → changes saved | Widget | `[✓]` | |
+| 28 | Delete occurrence: confirm dialog → cascade removes damage & repairs | Widget | `[✓]` | |
 
 ---
 
@@ -70,11 +70,11 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 29 | Damage register grouped by occurrence | Widget | `[ ]` | |
-| 30 | Add damage item under an occurrence | Widget | `[ ]` | |
-| 31 | Edit damage item | Widget | `[ ]` | |
-| 32 | Delete damage item (with confirm) | Widget | `[ ]` | |
-| 33 | Delete occurrence from damage register (header popup) | Widget | `[ ]` | |
+| 29 | Damage register grouped by occurrence | Widget | `[✓]` | |
+| 30 | Add damage item under an occurrence | Widget | `[✓]` | |
+| 31 | Edit damage item | Widget | `[✓]` | |
+| 32 | Delete damage item (with confirm) | Widget | `[✓]` | |
+| 33 | Delete occurrence from damage register (header popup) | Widget | `[✓]` | |
 
 ---
 
@@ -91,12 +91,12 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 36 | Repair periods screen loads | Widget | `[ ]` | |
-| 37 | Add repair record | Widget | `[ ]` | |
-| 38 | Edit repair record | Widget | `[ ]` | |
-| 39 | Nature of Repairs screen loads and saves | Widget | `[ ]` | not in prior sheet |
-| 40 | Additional Information screen loads and saves | Widget | `[ ]` | not in prior sheet |
-| 41 | Repair-period-scoped Context Cues: add/edit a cue tied to a specific repair period | Widget | `[ ]` | not in prior sheet |
+| 36 | Repair periods screen loads | Widget | `[✓]` | |
+| 37 | Add repair record | Widget | `[✓]` | incl. diversion port-call context |
+| 38 | Edit repair record | Widget | `[✓]` | |
+| 39 | Nature of Repairs screen loads and saves | Widget | `[ ]` | not in prior sheet; separate screen, not covered by the Repair Periods test file |
+| 40 | Additional Information screen loads and saves | Widget | `[ ]` | not in prior sheet; separate screen, not covered by the Repair Periods test file |
+| 41 | Repair-period-scoped Context Cues: add/edit a cue tied to a specific repair period | Widget | `[~]` | partial — confirms the panel renders, doesn't exercise add/edit-cue interaction. Also surfaced a real (cosmetic) pre-existing bug: this panel's collapsed height is a couple of px short of its own header's content height, logging a RenderFlex overflow on every relayout |
 
 ---
 
@@ -104,11 +104,11 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 42 | Attendees list loads | Widget | `[ ]` | |
-| 43 | Add attendee | Widget | `[ ]` | |
-| 44 | Edit attendee | Widget | `[ ]` | |
-| 45 | Delete attendee (with confirm) | Widget | `[ ]` | |
-| 46 | Create attendance record | Widget | `[ ]` | |
+| 42 | Attendees list loads | Widget | `[✓]` | |
+| 43 | Add attendee | Widget | `[✓]` | |
+| 44 | Edit attendee | Widget | `[✓]` | |
+| 45 | Delete attendee (with confirm) | Widget | `[✓]` | |
+| 46 | Create attendance record | Widget | `[ ]` | not covered |
 
 ---
 
