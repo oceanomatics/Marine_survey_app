@@ -211,6 +211,27 @@ const autoPopulatedEditRoute = {
   SectionType.documentsRequested: ('documents', 'Document Vault'),
 };
 
+// ── §3.4/§2.15 (10 July 2026): documents feeding K-1/K-2 ────────────────────
+//
+// Clause K-1 vs K-2: split by availability rather than fetching twice.
+// `included_in_report` (migration 034) further narrows K-1 to documents
+// actually enclosed in this report — 'enclosed' alone now only means
+// "retained on file", not necessarily "shipped in this export"; defaults
+// true so pre-migration data's report output is unchanged until the
+// surveyor explicitly un-enrols one. Pure/extracted so this filtering is
+// unit-testable independent of the live Supabase fetch.
+List<Map<String, dynamic>> filterEnclosedInReportDocuments(
+        List<Map<String, dynamic>> allDocuments) =>
+    allDocuments
+        .where((d) =>
+            d['availability'] == 'enclosed' &&
+            (d['included_in_report'] as bool? ?? true))
+        .toList();
+
+List<Map<String, dynamic>> filterRequestedDocuments(
+        List<Map<String, dynamic>> allDocuments) =>
+    allDocuments.where((d) => d['availability'] == 'requested').toList();
+
 // ── Clause model ───────────────────────────────────────────────────────────
 
 @immutable
@@ -802,19 +823,8 @@ final assembledDataProvider =
   final machinery = List<Map<String, dynamic>>.from(supplementary[1]);
   final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
   final allDocuments = List<Map<String, dynamic>>.from(supplementary[3]);
-  // Clause K-1 vs K-2: split by availability rather than fetching twice.
-  // §3.4/§2.15 (10 July 2026): `included_in_report` (migration 034)
-  // further narrows K-1 to documents actually enclosed in this report —
-  // 'enclosed' alone now only means "retained on file", not necessarily
-  // "shipped in this export"; defaults true so pre-migration data's report
-  // output is unchanged until the surveyor explicitly un-enrols one.
-  final caseDocuments = allDocuments
-      .where((d) =>
-          d['availability'] == 'enclosed' &&
-          (d['included_in_report'] as bool? ?? true))
-      .toList();
-  final requestedDocuments =
-      allDocuments.where((d) => d['availability'] == 'requested').toList();
+  final caseDocuments = filterEnclosedInReportDocuments(allDocuments);
+  final requestedDocuments = filterRequestedDocuments(allDocuments);
 
   // Fetch org config and AI generation log in parallel
   Map<String, dynamic>? organisation;
