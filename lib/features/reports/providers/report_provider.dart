@@ -131,6 +131,42 @@ int? oceanoSectionNumber(SectionType type) {
   return idx > 0 ? idx : null;
 }
 
+// ── §2.18 Section Editor redesign — auto-populated sections ────────────────
+//
+// The section types where `content` was confirmed (2026-07-10) to be dead
+// weight or actively drifting in the real rendered output — both
+// report_preview.dart and docx_export_service.dart already build these
+// entirely from case data via section_table_rows.dart / SectionReferencePanel,
+// never reading `content`. The Editor no longer offers a free-text override
+// for these; `remarks` is the only free-text field. Deliberately NOT
+// including occurrence/natureOfRepairs/documentsRequested (content there is
+// genuinely the live exported prose, no table exists) or the hybrid
+// classStatutory/informationSources/repairs (prose + trailing table, both
+// already legitimately in use) — see docs/TODO.md §2.18 for the full
+// section-by-section rationale.
+const autoPopulatedSectionTypes = {
+  SectionType.vesselParticulars,
+  SectionType.attendees,
+  SectionType.machineryParticulars,
+  SectionType.accounts,
+  SectionType.repairTimes,
+  SectionType.documentsOnFile,
+};
+
+/// (route segment under `/cases/:caseId/...`, display label for the Edit
+/// button) for each auto-populated section type.
+const autoPopulatedEditRoute = {
+  SectionType.vesselParticulars: ('vessel', 'Vessel Particulars'),
+  SectionType.attendees: ('attendees', 'Attendees'),
+  SectionType.machineryParticulars: (
+    'vessel',
+    'Vessel Particulars (Machinery tab)'
+  ),
+  SectionType.accounts: ('accounts', 'Accounts'),
+  SectionType.repairTimes: ('repairs', 'Repair Periods'),
+  SectionType.documentsOnFile: ('documents', 'Document Vault'),
+};
+
 // ── Clause model ───────────────────────────────────────────────────────────
 
 @immutable
@@ -183,6 +219,7 @@ class ReportSection {
     this.surveyorReview,
     this.sectionId,
     this.carriedForwardContent,
+    this.remarks,
   });
 
   final SectionType type;
@@ -194,6 +231,11 @@ class ReportSection {
   /// [carriedForwardContent], frozen and read-only. On a first report, or
   /// any section type not eligible for carry-forward, this is the entire
   /// section content, same as before this feature existed.
+  ///
+  /// For [autoPopulatedSectionTypes], this is always the freshly computed
+  /// value — no longer surveyor-editable (see [SectionDraftNotifier.
+  /// buildSections]'s overlay logic); [remarks] is the free-text outlet
+  /// for those types instead.
   final String content;
   final String? clauseId;
   final bool isLocked; // clause text — cannot be edited by surveyor
@@ -202,6 +244,11 @@ class ReportSection {
   /// GPN-AI: surveyor must set this before export is allowed.
   final SurveyorReview? surveyorReview;
   final String? sectionId;
+
+  /// Free-text surveyor commentary, separate from [content]. The only
+  /// genuinely free-text field for [autoPopulatedSectionTypes] (§2.18);
+  /// null/unused for every other section type in this slice.
+  final String? remarks;
 
   /// Frozen copy of the prior report output's approved text for this
   /// section (spec: "Successive Report Behaviour" — docs/report_builder_
@@ -235,6 +282,7 @@ class ReportSection {
     String? sectionId,
     bool? aiDrafted,
     Object? carriedForwardContent = _sentinel,
+    Object? remarks = _sentinel,
   }) =>
       ReportSection(
         type: type,
@@ -250,6 +298,7 @@ class ReportSection {
         carriedForwardContent: carriedForwardContent == _sentinel
             ? this.carriedForwardContent
             : carriedForwardContent as String?,
+        remarks: remarks == _sentinel ? this.remarks : remarks as String?,
       );
 }
 
@@ -803,11 +852,13 @@ class _PersistedSection {
     required this.aiDrafted,
     required this.surveyorReview,
     this.carriedForwardContent,
+    this.remarks,
   });
   final String content;
   final bool aiDrafted;
   final SurveyorReview? surveyorReview;
   final String? carriedForwardContent;
+  final String? remarks;
 
   /// Same seamless concatenation as [ReportSection.fullContent] — used
   /// when reading a *prior* output's section as the carry-forward base for
@@ -852,6 +903,20 @@ class SectionDraftNotifier
     }
   }
 
+  /// §2.18: the only free-text field for [autoPopulatedSectionTypes] — same
+  /// debounced-persist pattern as [updateContent], kept separate since the
+  /// two fields are independent (content is never surveyor-edited for these
+  /// types any more).
+  void updateRemarks(SectionType type, String remarks) {
+    final existing = state[type];
+    if (existing != null) {
+      state = {...state, type: existing.copyWith(remarks: remarks)};
+      _saveTimers[type]?.cancel();
+      _saveTimers[type] =
+          Timer(const Duration(milliseconds: 700), () => _persist(type));
+    }
+  }
+
   void setSurveyorReview(SectionType type, SurveyorReview review) {
     final existing = state[type];
     if (existing != null) {
@@ -879,6 +944,7 @@ class SectionDraftNotifier
         'ai_drafted': section.aiDrafted,
         'surveyor_review': section.surveyorReview?.name,
         'carried_forward_content': section.carriedForwardContent,
+        'remarks': section.remarks,
       }, onConflict: 'output_id,section_type');
     } catch (_) {
       // Persistence failure must never break the editor.
@@ -1772,11 +1838,21 @@ class SectionDraftNotifier
     for (final entry in persisted.entries) {
       final base = sections[entry.key];
       if (base == null || base.isLocked) continue;
+      // §2.18: auto-populated sections ignore any persisted `content`
+      // override — it's always freshly computed from case data now, and
+      // the free-text box that used to write it no longer exists. Any old
+      // override sitting in the DB from before this change becomes inert,
+      // not deleted (fully reversible). `remarks`/`surveyorReview` always
+      // overlay regardless, since those stay genuinely surveyor-authored.
+      final isAuto = autoPopulatedSectionTypes.contains(entry.key);
       sections[entry.key] = base.copyWith(
-        content: entry.value.content,
+        content: isAuto ? base.content : entry.value.content,
         surveyorReview: entry.value.surveyorReview,
-        aiDrafted: entry.value.aiDrafted,
-        carriedForwardContent: entry.value.carriedForwardContent,
+        aiDrafted: isAuto ? base.aiDrafted : entry.value.aiDrafted,
+        carriedForwardContent: isAuto
+            ? base.carriedForwardContent
+            : entry.value.carriedForwardContent,
+        remarks: entry.value.remarks,
       );
     }
 
@@ -1831,6 +1907,7 @@ class SectionDraftNotifier
               .where((r) => r.name == row['surveyor_review'])
               .firstOrNull,
           carriedForwardContent: row['carried_forward_content'] as String?,
+          remarks: row['remarks'] as String?,
         );
       }
       return map;
