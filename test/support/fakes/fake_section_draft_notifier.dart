@@ -29,6 +29,14 @@ class FakeSectionDraftNotifier extends SectionDraftNotifier {
   }
 
   @override
+  void updateRemarks(SectionType type, String remarks) {
+    final existing = state[type];
+    if (existing != null) {
+      state = {...state, type: existing.copyWith(remarks: remarks)};
+    }
+  }
+
+  @override
   void setSurveyorReview(SectionType type, SurveyorReview review) {
     final existing = state[type];
     if (existing != null) {
