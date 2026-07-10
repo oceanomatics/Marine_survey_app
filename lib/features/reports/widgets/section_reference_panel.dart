@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import '../providers/report_provider.dart';
 import '../utils/section_table_rows.dart';
 import '../../../shared/theme/app_theme.dart';
+import '../../survey/models/repair_period_model.dart';
 
 class SectionReferencePanel extends StatelessWidget {
   const SectionReferencePanel({
@@ -267,6 +268,50 @@ class SectionReferencePanel extends StatelessWidget {
                           fontSize: 10.5, color: AppColors.textPrimary)),
                 ),
             ]));
+
+      // §2.18 (10 July 2026): repairTimes and documentsOnFile previously had
+      // no reference-panel case (fell to `default: return null`) even
+      // though both already render as pure tables — not `content` — in the
+      // real docx export (docx_export_service.dart:959-991, :1006-1028).
+      // Mirrors that table-building logic exactly so the Editor tab shows
+      // what actually ships.
+      case SectionType.repairTimes:
+        final periods =
+            assembled.repairPeriods.map(RepairPeriodModel.fromJson).toList();
+        final hasTime = periods.any((p) =>
+            p.drydockDaysTotal > 0 ||
+            p.alongsideDaysTotal > 0 ||
+            p.ownerDaysTotal > 0);
+        if (!hasTime) return null;
+        final rows = [
+          const ['Repair', 'Drydock Days', 'Afloat Days', "Owner's Days", 'Total'],
+          ...periods.map((p) {
+            final dd = p.drydockDaysTotal;
+            final ad = p.alongsideDaysTotal;
+            final od = p.ownerDaysTotal;
+            return [
+              p.displayTitle,
+              dd > 0 ? dd.toStringAsFixed(1) : '—',
+              ad > 0 ? ad.toStringAsFixed(1) : '—',
+              od > 0 ? od.toStringAsFixed(1) : '—',
+              (dd + ad).toStringAsFixed(1),
+            ];
+          }),
+        ];
+        return _panel('Repair times on file', _RegisterTable(rows: rows));
+
+      case SectionType.documentsOnFile:
+        if (assembled.caseDocuments.isEmpty) return null;
+        final rows = [
+          const ['#', 'Document', 'Category', 'Date'],
+          ...assembled.caseDocuments.asMap().entries.map((e) => [
+                '${e.key + 1}',
+                e.value['title'] as String? ?? '',
+                (e.value['doc_category'] as String? ?? '').replaceAll('_', ' '),
+                (e.value['doc_date'] as String?) ?? '',
+              ]),
+        ];
+        return _panel('Documents retained on file', _RegisterTable(rows: rows));
 
       default:
         return null;
