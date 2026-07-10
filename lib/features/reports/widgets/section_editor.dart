@@ -1,6 +1,7 @@
 // lib/features/reports/widgets/section_editor.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../providers/report_provider.dart';
 import '../utils/writing_style_lint.dart';
 import 'section_reference_panel.dart';
@@ -13,6 +14,8 @@ class SectionEditor extends StatefulWidget {
     required this.isLocked,
     required this.onContentChanged,
     required this.onSurveyorReviewChanged,
+    required this.caseId,
+    required this.onRemarksChanged,
     this.sectionNumber,
     this.onDraftWithAi,
     this.assembled,
@@ -31,6 +34,12 @@ class SectionEditor extends StatefulWidget {
   /// docs/report_builder_editor_notes.md line 486 onward) above the
   /// free-text box, for section types that have one.
   final AssembledReportData? assembled;
+  /// Needed for §2.18's "Edit in case screen" deep-link on auto-populated
+  /// sections — `context.go('/cases/$caseId/<segment>')`.
+  final String caseId;
+  /// §2.18: the Remarks field's own change callback, separate from
+  /// [onContentChanged] — only used for [autoPopulatedSectionTypes].
+  final ValueChanged<String> onRemarksChanged;
 
   @override
   State<SectionEditor> createState() => _SectionEditorState();
@@ -38,12 +47,14 @@ class SectionEditor extends StatefulWidget {
 
 class _SectionEditorState extends State<SectionEditor> {
   late TextEditingController _ctrl;
+  late TextEditingController _remarksCtrl;
   bool _expanded = true;
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.section.content);
+    _remarksCtrl = TextEditingController(text: widget.section.remarks ?? '');
   }
 
   @override
@@ -53,11 +64,17 @@ class _SectionEditorState extends State<SectionEditor> {
         _ctrl.text != widget.section.content) {
       _ctrl.text = widget.section.content;
     }
+    final remarks = widget.section.remarks ?? '';
+    if (old.section.remarks != widget.section.remarks &&
+        _remarksCtrl.text != remarks) {
+      _remarksCtrl.text = remarks;
+    }
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _remarksCtrl.dispose();
     super.dispose();
   }
 
@@ -66,6 +83,7 @@ class _SectionEditorState extends State<SectionEditor> {
     final section  = widget.section;
     final approved = section.approved;
     final locked   = section.isLocked || widget.isLocked;
+    final isAutoPopulated = autoPopulatedSectionTypes.contains(section.type);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
@@ -204,7 +222,19 @@ class _SectionEditorState extends State<SectionEditor> {
 
             Padding(
               padding: const EdgeInsets.all(12),
-              child: section.isLocked || widget.isLocked
+              child: isAutoPopulated
+                  // §2.18 — auto-populated from case data; content is no
+                  // longer surveyor-editable (see buildSections()'s overlay
+                  // logic). Show the same structured table the real report
+                  // renders, plus a deep-link to the case screen that owns
+                  // the underlying data.
+                  ? _AutoPopulatedSectionContent(
+                      type: section.type,
+                      caseId: widget.caseId,
+                      assembled: widget.assembled,
+                      fallbackText: section.content,
+                    )
+                  : section.isLocked || widget.isLocked
                   // Locked — read-only display
                   ? Container(
                       width: double.infinity,
@@ -276,22 +306,70 @@ class _SectionEditorState extends State<SectionEditor> {
                     ),
             ),
 
+            // ── Remarks (§2.18) — the only free-text field for
+            // auto-populated sections; content itself is shown above.
+            if (isAutoPopulated)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: TextField(
+                  controller: _remarksCtrl,
+                  maxLines: null,
+                  minLines: 2,
+                  onChanged: widget.onRemarksChanged,
+                  style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textPrimary,
+                      height: 1.4),
+                  decoration: InputDecoration(
+                    labelText: 'Remarks (optional)',
+                    labelStyle: const TextStyle(
+                        fontSize: 10.5, color: AppColors.textTertiary),
+                    hintText:
+                        'Anything worth noting about this section that '
+                        "isn't part of the case data above...",
+                    hintStyle: const TextStyle(
+                        fontSize: 11, color: AppColors.textTertiary),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    contentPadding: const EdgeInsets.all(10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: const BorderSide(
+                          color: AppColors.midBlue, width: 1.5),
+                    ),
+                  ),
+                ),
+              ),
+
             // ── Structured reference panel (tables/blocks matching the
-            // spec's suggested layout) ────────────────────────────
-            if (widget.assembled != null)
+            // spec's suggested layout) — auto-populated sections already
+            // show this as their primary content above, so it isn't
+            // repeated here for them. ────────────────────────────
+            if (widget.assembled != null && !isAutoPopulated)
               SectionReferencePanel(
                   type: section.type, assembled: widget.assembled!),
 
             // ── Available context cues (§1.9, 9 July 2026) ─────────
-            if (widget.assembled != null)
+            if (widget.assembled != null && !isAutoPopulated)
               SectionCuesPanel(
                   type: section.type, assembled: widget.assembled!),
 
-            // ── Writing style rulebook advisory ───────────────────
-            if (!locked) _StyleFlagsBanner(type: section.type, text: section.content),
+            // ── Writing style rulebook advisory — doesn't apply once
+            // content isn't surveyor-authored prose (§2.18). ────────
+            if (!locked && !isAutoPopulated)
+              _StyleFlagsBanner(type: section.type, text: section.content),
 
-            // ── Surveyor review chips ─────────────────────────────
-            if (!locked)
+            // ── Surveyor review chips — doesn't apply once content isn't
+            // surveyor-authored/AI-drafted prose (§2.18). ─────────────
+            if (!locked && !isAutoPopulated)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: _ReviewChips(
@@ -445,6 +523,74 @@ class _StyleFlagsBanner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Auto-populated section content (§2.18) ──────────────────────────────────
+//
+// Replaces the free-text box for autoPopulatedSectionTypes: the same
+// read-only structured table SectionReferencePanel already builds from case
+// data (matching what the real report renders), plus a deep-link to the
+// case screen that owns the underlying data. Falls back to plain read-only
+// text of the last-computed content on the rare path where `assembled`
+// wasn't passed in, so this never renders a dead end.
+class _AutoPopulatedSectionContent extends StatelessWidget {
+  const _AutoPopulatedSectionContent({
+    required this.type,
+    required this.caseId,
+    required this.assembled,
+    required this.fallbackText,
+  });
+
+  final SectionType type;
+  final String caseId;
+  final AssembledReportData? assembled;
+  final String fallbackText;
+
+  @override
+  Widget build(BuildContext context) {
+    final route = autoPopulatedEditRoute[type];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: assembled != null
+              ? SectionReferencePanel(type: type, assembled: assembled!)
+              : Text(
+                  fallbackText.isNotEmpty
+                      ? fallbackText
+                      : 'No data on file yet.',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textPrimary,
+                      height: 1.5),
+                ),
+        ),
+        if (route != null) ...[
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => context.go('/cases/$caseId/${route.$1}'),
+            icon: const Icon(Icons.open_in_new, size: 13),
+            label: Text('Edit in ${route.$2} →',
+                style: const TextStyle(
+                    fontSize: 10.5, fontWeight: FontWeight.w600)),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.midBlue,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

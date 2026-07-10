@@ -511,6 +511,7 @@ class _EditorTab extends ConsumerWidget {
             section: section,
             isLocked: isLocked,
             assembled: assembled,
+            caseId: caseId,
             // TODO.md row 73 (9 July 2026): Disclaimer is unnumbered back
             // matter, same as in the Preview tab/docx export — everything
             // else still uses the static section-list position (this list
@@ -519,6 +520,7 @@ class _EditorTab extends ConsumerWidget {
             sectionNumber:
                 key == SectionType.closing ? null : oceanoSectionNumber(key),
             onContentChanged: (content) => notifier.updateContent(key, content),
+            onRemarksChanged: (remarks) => notifier.updateRemarks(key, remarks),
             onSurveyorReviewChanged: (review) =>
                 notifier.setSurveyorReview(key, review),
             onDraftWithAi: canAiDraft
