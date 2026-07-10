@@ -14,7 +14,8 @@
 // underlying data — the two had quietly diverged.
 
 import '../providers/report_provider.dart';
-import '../../survey/providers/damage_provider.dart' show CertaintyLevel;
+import '../../survey/providers/damage_provider.dart'
+    show CertaintyLevel, ConditionStatus;
 import '../../survey/models/repair_period_model.dart';
 
 String formatSectionDate(String iso) {
@@ -600,6 +601,46 @@ List<List<String>> buildDocumentsOnFileRows(
           (e.value['doc_category'] as String? ?? '').replaceAll('_', ' '),
           formatSectionDate(e.value['doc_date'] as String? ?? ''),
         ]),
+  ];
+}
+
+// ── Section 9: Damage Description — "DAMAGE SCHEDULE" table (§2.18,
+// 10 July 2026) ────────────────────────────────────────────────────────
+//
+// Extracted from docx_export_service.dart's previously-inline table
+// construction, same reason as buildRepairTimesRows/buildDocumentsOnFileRows.
+// This covers only the docx export's "DAMAGE SCHEDULE" table — the
+// separate "EXTENT OF DAMAGE" block (grouped by machinery, with inline
+// photos and confirmation-clause prose) is genuinely richer than a table
+// and isn't reproduced here; this is still a faithful, useful summary of
+// the same underlying damageItems, and — like the other auto-populated
+// types — strictly better than the disconnected free-text `content` this
+// replaces (which had no relationship to either exported block at all).
+List<List<String>> buildDamageScheduleRows(
+    List<Map<String, dynamic>> damageItems) {
+  if (damageItems.isEmpty) return const [];
+  return [
+    ['Component', 'Description', 'Condition', 'Average'],
+    ...damageItems.map((d) {
+      final averageStatusRaw = d['average_status'] as String?;
+      final averageLabel = switch (averageStatusRaw) {
+        'no' => "Owner's",
+        'partial' => 'Partial',
+        'yes' => 'Average',
+        _ => (d['is_concerning_average'] as bool? ?? true)
+            ? 'Average'
+            : "Owner's",
+      };
+      final conditionStatusRaw = d['condition_status'] as String?;
+      return [
+        d['component_name'] as String? ?? '',
+        d['damage_description'] as String? ?? '',
+        conditionStatusRaw != null
+            ? ConditionStatus.fromValue(conditionStatusRaw).label
+            : '',
+        averageLabel,
+      ];
+    }),
   ];
 }
 

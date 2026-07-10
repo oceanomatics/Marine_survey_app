@@ -157,22 +157,25 @@ int? oceanoSectionNumber(SectionType type) {
 //   occurrence record's own fields — nothing was actually at risk of being
 //   discarded.
 //
+// - damageDescription (Slice 3, 2026-07-10): initially excluded from
+//   Slice 2 — docx_export_service.dart's "EXTENT OF DAMAGE"/"DAMAGE
+//   SCHEDULE" blocks build an entirely custom grouped structure (by
+//   machinery, with inline photos and confirmation-clause text) directly
+//   from `assembled.damageItems`, never reading `content` at all, so
+//   converting via the prose-mode pattern would have shown something
+//   unrelated to the real report. Now table-mode instead: added
+//   `buildDamageScheduleRows()` (section_table_rows.dart, extracted from
+//   docx's "DAMAGE SCHEDULE" table specifically — the "EXTENT OF DAMAGE"
+//   narrative-with-photos block isn't reproducible as a table and isn't
+//   attempted here) and used it in Preview/reference-panel/docx alike.
+//   `content` was already 100% dead weight in docx for this type (like the
+//   original 6 table-mode types), so this is zero-risk the same way.
+//
 // Deliberately NOT included: classStatutory/informationSources/repairs
 // (hybrid — live prose *and* an already-existing trailing table, both
 // legitimately in use, no gap to fix); genuinely narrative/cue-drafted/
-// clause-locked sections; or damageDescription — looked like a Slice-2
-// candidate at first (section_reference_panel.dart already has a simple
-// damage-items case) but direct code-reading of docx_export_service.dart's
-// "EXTENT OF DAMAGE"/"DAMAGE SCHEDULE" blocks found they build an entirely
-// custom grouped structure (by machinery, with inline photos and
-// confirmation-clause text) directly from `assembled.damageItems` — never
-// reading `content`/`sections[SectionType.damageDescription]` at all, and
-// NOT matching what the existing reference-panel case or Preview's
-// free-text fallback show either. Converting it via the same prose-mode
-// pattern would display something that doesn't match the real exported
-// report — worse than leaving it alone. Needs a proper dedicated table
-// builder mirroring that grouped logic, not a quick reuse — see
-// docs/TODO.md §2.18 for the full section-by-section rationale.
+// clause-locked sections — see docs/TODO.md §2.18 for the full
+// section-by-section rationale.
 const autoPopulatedTableModeTypes = {
   SectionType.vesselParticulars,
   SectionType.attendees,
@@ -180,6 +183,7 @@ const autoPopulatedTableModeTypes = {
   SectionType.accounts,
   SectionType.repairTimes,
   SectionType.documentsOnFile,
+  SectionType.damageDescription,
 };
 
 const autoPopulatedSectionTypes = {
@@ -201,6 +205,7 @@ const autoPopulatedEditRoute = {
   SectionType.accounts: ('accounts', 'Accounts'),
   SectionType.repairTimes: ('repairs', 'Repair Periods'),
   SectionType.documentsOnFile: ('documents', 'Document Vault'),
+  SectionType.damageDescription: ('damage', 'Damage Register'),
   SectionType.occurrence: ('occurrence', 'Occurrence'),
   SectionType.natureOfRepairs: ('nature-of-repairs', 'Nature of the Repairs'),
   SectionType.documentsRequested: ('documents', 'Document Vault'),

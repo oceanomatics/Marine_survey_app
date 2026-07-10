@@ -227,20 +227,9 @@ class SectionReferencePanel extends StatelessWidget {
         return _panel('Occurrence data on file', _KeyValueTable(rows: rows));
 
       case SectionType.damageDescription:
-        if (assembled.damageItems.isEmpty) return null;
-        final rows = assembled.damageItems
-            .map((d) => [
-                  d['component_name'] as String? ?? 'Unnamed component',
-                  (d['damage_description'] as String?)?.isNotEmpty == true
-                      ? d['damage_description'] as String
-                      : ((d['condition_found'] as String?) ?? '—'),
-                ])
-            .toList();
-        return _panel('Damage items on file',
-            _RegisterTable(rows: [
-              const ['Component', 'Description / Condition'],
-              ...rows,
-            ]));
+        final rows = buildDamageScheduleRows(assembled.damageItems);
+        if (rows.isEmpty) return null;
+        return _panel('Damage schedule on file', _RegisterTable(rows: rows));
 
       case SectionType.natureOfRepairs:
         final n = assembled.natureOfRepairs;

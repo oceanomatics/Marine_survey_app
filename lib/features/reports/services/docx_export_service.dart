@@ -648,31 +648,11 @@ class DocxExportService {
       }
     }
 
-    if (assembled.damageItems.isNotEmpty) {
+    // Row-building shared with the Preview tab / Editor reference panel —
+    // see buildDamageScheduleRows (section_table_rows.dart).
+    final dmgRows = buildDamageScheduleRows(assembled.damageItems);
+    if (dmgRows.isNotEmpty) {
       doc.addHeading('DAMAGE SCHEDULE', 2);
-      final dmgRows = [
-        ['Component', 'Description', 'Condition', 'Average'],
-        ...assembled.damageItems.map((d) {
-          final averageStatusRaw = d['average_status'] as String?;
-          final averageLabel = switch (averageStatusRaw) {
-            'no' => "Owner's",
-            'partial' => 'Partial',
-            'yes' => 'Average',
-            _ => (d['is_concerning_average'] as bool? ?? true)
-                ? 'Average'
-                : "Owner's",
-          };
-          final conditionStatusRaw = d['condition_status'] as String?;
-          return [
-            d['component_name']     as String? ?? '',
-            d['damage_description'] as String? ?? '',
-            conditionStatusRaw != null
-                ? ConditionStatus.fromValue(conditionStatusRaw).label
-                : '',
-            averageLabel,
-          ];
-        }),
-      ];
       doc.addTable(dmgRows, boldFirstRow: true,
           colWidths: [2500, 3200, 1700, 1455]);
       doc.addSpacer();

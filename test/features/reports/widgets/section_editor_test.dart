@@ -44,6 +44,11 @@ Future<void> _pump(
         builder: (context, state) => Scaffold(
             body: Text('Occurrence screen for ${state.pathParameters['caseId']}')),
       ),
+      GoRoute(
+        path: '/cases/:caseId/damage',
+        builder: (context, state) => Scaffold(
+            body: Text('Damage screen for ${state.pathParameters['caseId']}')),
+      ),
     ],
   );
   await tester.pumpWidget(MaterialApp.router(routerConfig: router));
@@ -139,6 +144,74 @@ void main() {
 
       expect(find.byType(TextField), findsOneWidget);
       expect(find.text('Edit in Vessel Particulars →'), findsNothing);
+    });
+  });
+
+  group('SectionEditor — damageDescription (§2.18 Slice 3, table-mode)', () {
+    const damageAssembled = AssembledReportData(
+      caseData: {},
+      vessel: null,
+      occurrences: [],
+      damageItems: [
+        {
+          'component_name': 'Generator 3',
+          'damage_description': 'Cracked block, ejected rods.',
+          'condition_status': 'damaged',
+          'average_status': 'yes',
+        },
+      ],
+      attendees: [],
+      attendances: [],
+      certificates: [],
+      repairPeriods: [],
+      clauses: [],
+      outputFormat: 'oceano_services',
+      repairDocuments: [],
+      timelineEvents: [],
+      surveyorNotes: [],
+      machinery: [],
+      classConditions: [],
+      caseDocuments: [],
+      requestedDocuments: [],
+      aiGenerationLog: [],
+      allReportOutputs: [],
+    );
+
+    testWidgets(
+        'shows the Damage Schedule table, not a free-text box, and no '
+        'duplicate reference panel', (tester) async {
+      const section = ReportSection(
+        type: SectionType.damageDescription,
+        title: 'Extent of Damage',
+        content: 'Stale disconnected free text, never actually exported.',
+      );
+      await _pump(tester, section: section, assembled: damageAssembled);
+
+      expect(find.byType(TextField), findsOneWidget); // Remarks only
+      expect(find.text('Generator 3'), findsOneWidget);
+      expect(find.text('Cracked block, ejected rods.'), findsOneWidget);
+      expect(
+          find.text(
+              'Stale disconnected free text, never actually exported.'),
+          findsNothing);
+      // Table-mode types show the reference panel as primary content —
+      // exactly once, not repeated again as supplementary context below it.
+      expect(find.text('Damage schedule on file'), findsOneWidget);
+    });
+
+    testWidgets('Edit button deep-links to the Damage Register screen',
+        (tester) async {
+      const section = ReportSection(
+        type: SectionType.damageDescription,
+        title: 'Extent of Damage',
+        content: '',
+      );
+      await _pump(tester, section: section, assembled: damageAssembled);
+
+      await tester.tap(find.text('Edit in Damage Register →'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Damage screen for $_caseId'), findsOneWidget);
     });
   });
 
@@ -238,7 +311,7 @@ void main() {
       }
     });
 
-    test('table-mode is exactly the 6 confirmed-dead-weight-content types',
+    test('table-mode is exactly the 7 confirmed-dead-weight-content types',
         () {
       expect(
         autoPopulatedTableModeTypes,
@@ -249,14 +322,16 @@ void main() {
           SectionType.accounts,
           SectionType.repairTimes,
           SectionType.documentsOnFile,
+          SectionType.damageDescription,
         },
       );
     });
 
     test(
         'prose-mode adds exactly the 3 verified-safe live-prose types '
-        '(damageDescription excluded — no faithful read-only rendering '
-        'exists yet, see report_provider.dart comment)', () {
+        '(occurrence/natureOfRepairs/documentsRequested — no table exists '
+        'for these, unlike damageDescription which moved to table-mode)',
+        () {
       expect(
         autoPopulatedSectionTypes.difference(autoPopulatedTableModeTypes),
         {

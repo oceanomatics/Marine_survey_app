@@ -2190,6 +2190,22 @@ class _SectionBody extends StatelessWidget {
             _RegisterTable(rows: rows, brand: brand), section, brand);
       }
     }
+    // §2.18 (10 July 2026): damageDescription previously fell through to
+    // the generic free-text rendering (plain `content` paragraphs) with no
+    // relationship at all to what docx actually exports — docx builds two
+    // separate blocks directly from damageItems (a narrative "EXTENT OF
+    // DAMAGE" grouped by machinery with inline photos, and a "DAMAGE
+    // SCHEDULE" table), neither reading `content`. This shows the same
+    // Damage Schedule table docx renders — a faithful (if partial, the
+    // photo-grouped narrative isn't reproducible as a table) improvement
+    // over showing disconnected free text.
+    if (section.type == SectionType.damageDescription) {
+      final rows = buildDamageScheduleRows(assembled.damageItems);
+      if (rows.isNotEmpty) {
+        return _withRemarks(
+            _RegisterTable(rows: rows, brand: brand), section, brand);
+      }
+    }
 
     // fullContent seamlessly joins any carried-forward prior-report text
     // with this report's new delta (spec gap #10 — "no visible breaks" in
