@@ -15,6 +15,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 import '../../../shared/widgets/app_feedback.dart';
 
@@ -77,13 +78,15 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
                 .deletePeriod(periodId),
             onAssignItems: (period) =>
                 _showAssignItems(context, period, ds),
+            onPromoteCue: (note) => _promoteCue(context, note, periods),
           ),
         ),
       ),
     );
   }
 
-  void _showAddRepairPeriod(BuildContext context, int existingCount) {
+  void _showAddRepairPeriod(BuildContext context, int existingCount,
+      {SurveyorNote? sourceCue}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -91,17 +94,21 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
       builder: (_) => AddRepairPeriodSheet(
         caseId: caseId,
         nextPeriodNo: existingCount + 1,
+        sourceCue: sourceCue,
         onSave: (period) async {
-          await ref
+          final saved = await ref
               .read(repairPeriodsProvider(caseId).notifier)
               .addPeriod(period);
+          if (sourceCue != null) await _linkCueToPeriod(sourceCue, saved.periodId);
           if (context.mounted) showSavedToast(context);
+          return saved;
         },
       ),
     );
   }
 
-  void _showEditRepairPeriod(BuildContext context, RepairPeriodModel period) {
+  void _showEditRepairPeriod(BuildContext context, RepairPeriodModel period,
+      {SurveyorNote? sourceCue}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -110,12 +117,151 @@ class _RepairPeriodsScreenState extends ConsumerState<RepairPeriodsScreen> {
         caseId: caseId,
         nextPeriodNo: period.periodNo,
         existing: period,
+        sourceCue: sourceCue,
         onSave: (updated) async {
           await ref
               .read(repairPeriodsProvider(caseId).notifier)
               .updatePeriod(updated);
+          if (sourceCue != null) {
+            await _linkCueToPeriod(sourceCue, updated.periodId);
+          }
           if (context.mounted) showSavedToast(context);
+          return updated;
         },
+      ),
+    );
+  }
+
+  /// Re-tags [note] onto [periodId] via the same polymorphic
+  /// linked_to_type/linked_to_id mechanism used for damage items/
+  /// occurrences/machinery nameplates — no schema change. Unlike Damage
+  /// Register's cue promotion, there's no single narrative field to
+  /// append to here: a repair period's cues are just organised by period
+  /// (the same scoping `ContextCuesPanel.periodScope` already provides),
+  /// so "merge into existing" is just re-linking, not a text merge.
+  Future<void> _linkCueToPeriod(SurveyorNote note, String periodId) =>
+      ref.read(surveyorNotesProvider(caseId).notifier).editNote(
+            note.id,
+            content: note.content,
+            natureOfContent: note.natureOfContent,
+            evidentiaryWeight: note.evidentiaryWeight,
+            origin: note.origin,
+            caseSection: note.caseSection,
+            priority: note.priority,
+            linkedToType: repairPeriodLinkType,
+            linkedToId: periodId,
+          );
+
+  // Row 17/§3.9: cue -> repair period promotion (create new, or merge into
+  // an existing period), the same standing cue-action principle already
+  // applied to Damage Register (§3.8), docs/context_cue_system_review.md.
+  void _promoteCue(BuildContext context, SurveyorNote note,
+      List<RepairPeriodModel> periods) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Promote Context Cue',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 4),
+            Text('"${note.content}"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    fontStyle: FontStyle.italic)),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.add_box_outlined, color: _kRepairColor),
+              title: const Text('Create new repair period'),
+              subtitle: const Text('Prefills notes from this cue',
+                  style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _showAddRepairPeriod(context, periods.length, sourceCue: note);
+              },
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.merge_type_outlined, color: _kRepairColor),
+              title: const Text('Merge into existing period'),
+              subtitle: const Text('Links this cue to a chosen period',
+                  style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                _pickExistingPeriod(context, periods).then((picked) {
+                  if (picked != null) {
+                    _linkCueToPeriod(note, picked.periodId);
+                    if (context.mounted) showSavedToast(context);
+                  }
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<RepairPeriodModel?> _pickExistingPeriod(
+      BuildContext context, List<RepairPeriodModel> periods) {
+    return showModalBottomSheet<RepairPeriodModel>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.of(sheetCtx).size.height * 0.6),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Select Repair Period',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 12),
+            if (periods.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No repair periods yet — create one instead.',
+                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              )
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: periods.length,
+                  itemBuilder: (_, i) {
+                    final p = periods[i];
+                    return ListTile(
+                      title: Text(p.displayTitle),
+                      onTap: () => Navigator.pop(sheetCtx, p),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -151,6 +297,7 @@ class _RepairPeriodsBody extends StatelessWidget {
     required this.onEditPeriod,
     required this.onDeletePeriod,
     required this.onAssignItems,
+    required this.onPromoteCue,
   });
 
   final String caseId;
@@ -160,6 +307,7 @@ class _RepairPeriodsBody extends StatelessWidget {
   final ValueChanged<RepairPeriodModel> onEditPeriod;
   final ValueChanged<String> onDeletePeriod;
   final ValueChanged<RepairPeriodModel> onAssignItems;
+  final ValueChanged<SurveyorNote> onPromoteCue;
 
   @override
   Widget build(BuildContext context) {
@@ -175,12 +323,14 @@ class _RepairPeriodsBody extends StatelessWidget {
           ContextCuesPanel(
               caseId: caseId,
               section: CaseSection.repairs,
-              periodScope: const RepairPeriodScope.unassigned()),
+              periodScope: const RepairPeriodScope.unassigned(),
+              onPromote: onPromoteCue),
           ContextCuesPanel(
               caseId: caseId,
               section: CaseSection.repairTimes,
               periodScope: const RepairPeriodScope.unassigned(),
-              initiallyExpanded: false),
+              initiallyExpanded: false,
+              onPromote: onPromoteCue),
         ],
       );
     }
@@ -212,12 +362,14 @@ class _RepairPeriodsBody extends StatelessWidget {
             caseId: caseId,
             section: CaseSection.repairs,
             periodScope: const RepairPeriodScope.unassigned(),
-            initiallyExpanded: false),
+            initiallyExpanded: false,
+            onPromote: onPromoteCue),
         ContextCuesPanel(
             caseId: caseId,
             section: CaseSection.repairTimes,
             periodScope: const RepairPeriodScope.unassigned(),
-            initiallyExpanded: false),
+            initiallyExpanded: false,
+            onPromote: onPromoteCue),
       ],
     );
   }

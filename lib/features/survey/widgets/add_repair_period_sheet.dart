@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/repair_period_model.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../../shared/theme/app_theme.dart';
 
 const _kColor = Color(0xFF1A6B9E);
@@ -31,15 +32,22 @@ class AddRepairPeriodSheet extends StatefulWidget {
     required this.nextPeriodNo,
     required this.onSave,
     this.existing,
+    this.sourceCue,
   });
 
   final String caseId;
   final int nextPeriodNo;
-  final Future<void> Function(RepairPeriodModel) onSave;
+  final Future<RepairPeriodModel> Function(RepairPeriodModel) onSave;
   /// When set, the sheet edits this existing period in place instead of
   /// creating a new one (docs/TODO.md §3.9 — "fields become read-only
   /// after the period is created").
   final RepairPeriodModel? existing;
+  /// Set when opened via cue promotion (§3.9, standing cue-action
+  /// principle) — prefills Notes from the cue's content on create, appends
+  /// on edit. The cue itself is linked to the saved period by the caller
+  /// after [onSave] resolves (needs the period's real ID, which only
+  /// exists post-save for a brand-new period).
+  final SurveyorNote? sourceCue;
 
   @override
   State<AddRepairPeriodSheet> createState() => _AddRepairPeriodSheetState();
@@ -78,6 +86,12 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
       _repairPhase = e.repairPhase;
       _servicesProvided.addAll(e.servicesProvided);
       _hotWorkStatus = e.hotWorkStatus;
+    }
+    final cue = widget.sourceCue;
+    if (cue != null) {
+      _notesCtrl.text = _notesCtrl.text.trim().isEmpty
+          ? cue.content
+          : '${_notesCtrl.text.trim()}\n\n${cue.content}';
     }
   }
 
@@ -153,6 +167,9 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
       );
       await widget.onSave(period);
       if (mounted) Navigator.pop(context);
+      // Cue-linking (when opened via promotion) happens in the caller's
+      // onSave, which has both `ref` and the source cue in scope — this
+      // sheet is a plain StatefulWidget, not Consumer-based.
     } catch (e) {
       setState(() { _error = e.toString(); _saving = false; });
     }
