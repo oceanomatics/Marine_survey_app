@@ -15,6 +15,7 @@ class OrganisationModel {
     this.primaryColour,
     this.secondaryColour,
     this.logoStoragePath,
+    this.logoStoragePaths = const [],
     this.wpHeaderText,
     this.wpCoverText,
     this.wpCostSectionText,
@@ -37,7 +38,20 @@ class OrganisationModel {
   // Branding
   final String? primaryColour;    // hex e.g. '#1A3A5C'
   final String? secondaryColour;
-  final String? logoStoragePath;  // path in Supabase Storage 'org-assets' bucket
+
+  /// Legacy single logo path. Retained for backward compatibility and kept in
+  /// sync as a mirror of [logoStoragePaths] element 0. Prefer [primaryLogoPath].
+  final String? logoStoragePath;
+
+  /// Ordered list of logo paths in the Supabase Storage 'organisation_assets'
+  /// bucket. Element 0 is the primary letterhead logo (used wherever the
+  /// single logo is used today); further entries are secondary/co-brand logos.
+  final List<String> logoStoragePaths;
+
+  /// The primary logo path — first of [logoStoragePaths], falling back to the
+  /// legacy single [logoStoragePath]. This is the one embedded in the report.
+  String? get primaryLogoPath =>
+      logoStoragePaths.isNotEmpty ? logoStoragePaths.first : logoStoragePath;
 
   // WITHOUT PREJUDICE / legal text blocks
   final String? wpHeaderText;       // running page header notice
@@ -66,6 +80,10 @@ class OrganisationModel {
       primaryColour:    json['primary_colour'] as String?,
       secondaryColour:  json['secondary_colour'] as String?,
       logoStoragePath:  json['logo_storage_path'] as String?,
+      logoStoragePaths: (json['logo_storage_paths'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
       wpHeaderText:     json['wp_header_text'] as String?,
       wpCoverText:      json['wp_cover_text'] as String?,
       wpCostSectionText: json['wp_cost_section_text'] as String?,
@@ -91,7 +109,10 @@ class OrganisationModel {
     if (website != null)          'website':            website,
     if (primaryColour != null)    'primary_colour':     primaryColour,
     if (secondaryColour != null)  'secondary_colour':   secondaryColour,
-    if (logoStoragePath != null)  'logo_storage_path':  logoStoragePath,
+    // Always written (incl. when empty/null) so logos can be removed, not just
+    // added. The legacy single column mirrors element 0 for backward compat.
+    'logo_storage_paths': logoStoragePaths,
+    'logo_storage_path':  primaryLogoPath,
     if (wpHeaderText != null)     'wp_header_text':     wpHeaderText,
     if (wpCoverText != null)      'wp_cover_text':      wpCoverText,
     if (wpCostSectionText != null) 'wp_cost_section_text': wpCostSectionText,
@@ -110,6 +131,7 @@ class OrganisationModel {
     String? primaryColour,
     String? secondaryColour,
     String? logoStoragePath,
+    List<String>? logoStoragePaths,
     String? wpHeaderText,
     String? wpCoverText,
     String? wpCostSectionText,
@@ -129,6 +151,7 @@ class OrganisationModel {
         primaryColour:     primaryColour     ?? this.primaryColour,
         secondaryColour:   secondaryColour   ?? this.secondaryColour,
         logoStoragePath:   logoStoragePath   ?? this.logoStoragePath,
+        logoStoragePaths:  logoStoragePaths  ?? this.logoStoragePaths,
         wpHeaderText:      wpHeaderText      ?? this.wpHeaderText,
         wpCoverText:       wpCoverText       ?? this.wpCoverText,
         wpCostSectionText: wpCostSectionText ?? this.wpCostSectionText,

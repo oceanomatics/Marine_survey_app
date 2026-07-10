@@ -45,10 +45,18 @@ class DocxExportService {
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
     Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
   }) async {
-    // Fetch org logo from Supabase Storage (non-fatal)
+    // Fetch org logo from Supabase Storage (non-fatal). The primary (element 0)
+    // of the multi-logo array is embedded, falling back to the legacy single
+    // `logo_storage_path` column. NB: the DB column is `logo_storage_path(s)`,
+    // not `logo_path` — reading the wrong key here previously meant the logo
+    // never actually embedded.
     Uint8List? logoBytes;
     String logoExt = 'png';
-    final logoPath = assembled.organisation?['logo_path'] as String?;
+    final logoPaths = (assembled.organisation?['logo_storage_paths'] as List?)
+        ?.cast<String>();
+    final logoPath = (logoPaths != null && logoPaths.isNotEmpty)
+        ? logoPaths.first
+        : assembled.organisation?['logo_storage_path'] as String?;
     if (logoPath != null && logoPath.isNotEmpty) {
       try {
         final parts = logoPath.split('.');
