@@ -119,7 +119,8 @@ Surveyor is offline until tomorrow morning. Working unsupervised on branch `over
      - `docs/migrations/` now has no duplicate numbers: `027_repair_period_phase.sql` (unchanged, landed first), `028_vessel_breadth_draft_variants.sql`, `029_cost_estimate_items.sql`, `030_invoice_status_auto_derive.sql`, `031_org_multi_logo_and_assets_bucket.sql`, `032_timeline_event_ratings.sql`.
      - **Still deliberately not started, per the surveyor's own scoping call earlier this session:** §2.18 (Section Editor redesign) and §3.4 (dedicated Documentation screen) — both legally-sensitive/architecturally large, held back from the agent batch on purpose, meant to be tackled directly rather than delegated.
   9. **Resumed later 10 July, autonomously (surveyor asked to "start with the editor, and everything that does not require my presence") — §2.18 Slice 1, done.** Full detail in §2.18 above. Researched the actual current state before writing any code (a `SectionEditor`/`section_reference_panel.dart`/`report_preview.dart`/`docx_export_service.dart` trace) rather than building blind against the TODO note's assumptions — found the real gap was narrower than assumed, and found a genuine live Preview/docx drift bug (`repairTimes`/`documentsOnFile`) as a side effect. Converted exactly the 6 section types where `content` was provably unused in the real exported document (Vessel Particulars, Attendees, Machinery Particulars, Accounts, Repair Times, Documents on File) to read-only + Edit deep-link + Remarks; deliberately left `occurrence`/`natureOfRepairs`/`documentsRequested` (content there is genuinely live/exported, converting risks discarding real surveyor edits) and the hybrid/already-correct/narrative sections untouched — a case for the surveyor to weigh in on, not guessed blind. 6 commits, each independently revertable (migration; model/provider; reference panel; editor UI; Preview/docx rendering + drift fix; tests). `flutter analyze lib/ test/`: 12 pre-existing issues throughout, no new ones. `flutter test`: 233/234 passing (sole failure the pre-existing unrelated placeholder), 7 new tests added. **Not live-verified** — no surveyor present; flagged explicitly in §2.18 above for a spot-check next session.
-  10. **Genuinely still open:** §2.18 Slices 2+ (`occurrence`/`natureOfRepairs`/`documentsRequested` — needs the surveyor's call; `damageDescription` — needs a new table builder, bigger lift); §3.4 dedicated Documentation screen (large, still deliberately not started); §1.8 S5 wording needs the surveyor's real text; §3.14's remaining automate-import item and §4.1 need a supervised session (OAuth/API-cost risk); C-6f needs the surveyor to clarify the actual complaint.
+  10. **Resumed same session — surveyor said "finish the last things."** §2.18 Slice 2, done: `occurrence`/`natureOfRepairs`/`documentsRequested` converted using a new prose-mode presentation (full computed text read-only, reference panel kept as supplementary — distinct from Slice 1's table-mode). Rather than stop and ask whether converting risked discarding real surveyor edits (the open question Slice 1 had flagged), checked live Supabase data first: only 1 row existed across all 4 remaining candidate types, never reviewed, and verified byte-for-byte reproducible by the deterministic generator — genuinely nothing at risk, resolved empirically instead of guessed or asked. `damageDescription` was investigated as a 4th candidate and specifically excluded after direct code-reading found its real docx export builds an entirely custom grouped/photo structure that never reads `content` at all — converting it via the same pattern would have shown the surveyor something that doesn't match the real report, caught before shipping. 1 commit, independently revertable. `flutter analyze lib/ test/`: 12 pre-existing issues, unchanged. `flutter test`: 238/239 passing, 6 more new tests. **Not live-verified**, same flag as Slice 1.
+  11. **Genuinely still open:** `damageDescription` (needs a dedicated table builder mirroring the docx export's grouped/photo logic — its own session); §3.4 dedicated Documentation screen (large, still deliberately not started); §1.8 S5 wording needs the surveyor's real text; §3.14's remaining automate-import item and §4.1 need a supervised session (OAuth/API-cost risk); C-6f needs the surveyor to clarify the actual complaint.
 <!-- OVERNIGHT_LOG_END -->
 
 **Execution plan (clusters, in order):**
@@ -529,34 +530,68 @@ before touching anything, since this is legally-sensitive code:
   `app_router.dart`'s actual routes. Machinery has no separate tab
   deep-link in v1 — goes to the Vessel screen, surveyor taps the Machinery
   tab themselves (acceptable simplification, not an oversight).
-- [ ] **Deliberately NOT converted this slice** — a case for the surveyor
-  to weigh in on, not a same-session call:
-  - `occurrence`, `natureOfRepairs`, `documentsRequested` — `content` is
-    genuinely the live exported prose here (no table exists); converting
-    to read-only risks silently discarding real surveyor edits already
-    saved on in-flight cases.
-  - `classStatutory`, `informationSources`, `repairs` — hybrid (live prose
-    *and* an already-existing trailing table) — working as designed.
-  - Genuinely narrative sections (background, causation, allegation, the
-    four cue-driven-AI-draft sections, Advice to Assured) and
-    clause-locked/already-fully-auto sections (opening, waiver, closing,
-    executiveSummary) — already correct, untouched.
-- Verified: `flutter analyze lib/ test/` 12 pre-existing issues, unchanged.
-  `flutter test` 233/234 passing (sole failure the pre-existing unrelated
-  placeholder). 7 new tests
-  (`test/features/reports/widgets/section_editor_test.dart`) prove the
-  pattern on `vesselParticulars` plus a narrative-section control case.
+**Slice 2 done 10 July 2026 (same session, resumed after the surveyor said
+"finish the last things")** — extended the pattern to `occurrence`/
+`natureOfRepairs`/`documentsRequested`, the 3 types where `content`
+genuinely is the live exported prose (no table exists in Preview/docx).
+Rather than guess whether converting these was safe, checked live
+Supabase data first: **only 1 row existed across all 4 candidate types**
+(`occurrence`, on case ODIN's generator failure — `natureOfRepairs`/
+`documentsRequested`/`damageDescription` had zero persisted rows at all),
+never surveyor-reviewed, and its text was confirmed byte-for-byte
+reproducible by the deterministic generator from the occurrence record's
+own fields (`brief_description` + clause text for `vessel_status_at_casualty`/
+`aftermath_status`) — i.e. nothing was actually at risk of being discarded.
+That resolved the "surveyor's call" concern empirically rather than needing
+to ask.
+- [✓] `occurrence`, `natureOfRepairs`, `documentsRequested` — content shown
+  read-only (prose-mode: the full computed text, not a table — no table
+  exists for these in Preview/docx, so showing one would misrepresent the
+  real report) instead of an editable box, with `SectionReferencePanel`/
+  `SectionCuesPanel` kept exactly as they already were (supplementary
+  context below, not suppressed — unlike Slice 1's table-mode types) — same
+  Edit-deep-link/Remarks mechanism. New `autoPopulatedTableModeTypes`
+  const (the original 6) distinguishes the two presentation modes within
+  `autoPopulatedSectionTypes`.
+- [ ] **`damageDescription` investigated, deliberately excluded — genuinely
+  needs its own session, not a same-session extension.** Looked like a
+  natural 4th prose-mode candidate (data-safety-wise it's zero-risk too —
+  0 persisted rows) until direct code-reading of `docx_export_service.dart`
+  found its "EXTENT OF DAMAGE"/"DAMAGE SCHEDULE" blocks build an entirely
+  custom grouped structure (by machinery, with inline photos and
+  confirmation-clause text) directly from `damageItems` — **never reading
+  `content` at all**, and not matching either the existing reference-panel
+  case or Preview's free-text fallback (which is itself a pre-existing,
+  separate Preview/docx drift, same class of bug as the repairTimes/
+  documentsOnFile one Slice 1 fixed, just not fixed here). Converting via
+  the prose-mode pattern would have displayed something that doesn't match
+  the real report — worse than leaving it alone. Needs a proper dedicated
+  table builder mirroring that grouped/photo logic first.
+- `classStatutory`, `informationSources`, `repairs` — hybrid (live prose
+  *and* an already-existing trailing table) — working as designed, left
+  unchanged.
+- Genuinely narrative sections (background, causation, allegation, the
+  four cue-driven-AI-draft sections, Advice to Assured) and
+  clause-locked/already-fully-auto sections (opening, waiver, closing,
+  executiveSummary) — already correct, untouched.
+- Verified (both slices): `flutter analyze lib/ test/` 12 pre-existing
+  issues throughout, unchanged. `flutter test` 238/239 passing (sole
+  failure the pre-existing unrelated placeholder). 13 new tests total
+  (`test/features/reports/widgets/section_editor_test.dart`) prove both
+  the table-mode pattern (`vesselParticulars`) and the prose-mode pattern
+  (`occurrence`), plus a narrative-section control case and data-table
+  checks on the classification consts.
   **Not live-verified** — no surveyor present this session. Next time
-  online: open Report Builder → Editor tab on a real case, confirm Vessel
-  Particulars/Attendees/Machinery/Accounts/Repair Times/Documents on File
-  all show the read-only table (no text box), each Edit button opens the
-  right case screen, and a typed Remarks note persists after navigating
-  away and back.
-- **Not started — large, still needs its own pass:** extending the same
-  pattern to `occurrence`/`natureOfRepairs`/`documentsRequested` (needs the
-  surveyor's call on existing edits first) and `damageDescription` (no
-  table builder exists yet for Extent of Damage — bigger lift, its own
-  session).
+  online: open Report Builder → Editor tab on a real case, confirm all 9
+  converted types (Vessel Particulars/Attendees/Machinery/Accounts/Repair
+  Times/Documents on File/Occurrence/Nature of Repairs/Documents Requested)
+  show the correct read-only presentation (table or full text per mode, no
+  edit box), each Edit button opens the right case screen, and a typed
+  Remarks note persists after navigating away and back.
+- **§2.18 now effectively done except `damageDescription`** (needs a
+  dedicated table builder — its own session, see above) and §2.18's
+  originally-listed `2.12`/large editor-architecture ambitions beyond
+  auto-population (out of scope for this redesign, never asked for).
 
 ### 2.12 Section Sub-Paragraphs (Oceanoservices format only)
 **Re-verified 3 July 2026: confirmed still fully missing** — no sub-paragraph/child-section model, numbering scheme, editor UI, or TOC-indent logic found anywhere in `lib/features/reports/`. The "1 July 2026" header note claiming this was added is inaccurate (see top-of-file note).
