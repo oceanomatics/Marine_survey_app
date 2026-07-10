@@ -636,14 +636,48 @@ WNCA and General Services & Access share the same underlying `RepairPeriodScoped
 
 **Relates to:** §3.2 (EXIF assignment), §2.4 (Photo Register/Annexure E caption format), §4.1 (background AI queue)
 
-### 3.16 Timeline — Full Event Log Tab + AI Relevance Rating (scope added 8 July 2026)
-- [ ] Add a second tab alongside the existing condensed Timeline view: a **full event log** aggregating every dated/timestamped item collected throughout the case — attendances, damage items, logs, correspondence, documents, report generation events, etc. — not just the curated subset shown today
-- [ ] Each event gets a relevance rating: **Important / Normal / Ignore** (ignored events disappear or grey out from the main view)
-- [ ] Relevance should be **AI-suggested automatically**, not manually rated from scratch by the surveyor — directly reuse the pattern already built for context cues (`SurveyorNote.pendingReview`, priority field, `docs/context_cue_system_review.md` Step 5) rather than building a parallel classification system
-- [ ] Add an **Ignored** tab (mirrors the cues "Suggested"/review-tab pattern) so ignored events can be double-checked and un-ignored if the AI/surveyor got it wrong — nothing should be silently hidden with no way back
-- [ ] **Core purpose:** let the surveyor select specific events from this full log so they appear in the report's actual Chronology section — a curation step feeding report content, not just a case-side view. Ties into the existing Chronology table (`docs/legal_clauses.md`/§2.3, already rendered as a formal Date\|Event table in the docx export) — the selection here should drive what populates that table, rather than it auto-building from all `timeline_events` indiscriminately as it does today
-
-**Relates to:** `docs/context_cue_system_review.md` — same relevance-rating/review-tab architecture as context cues, applied to timeline events instead of surveyor notes. Worth checking if the two could share more implementation than just the pattern (e.g. a shared "rateable item" abstraction) when scoping.
+### 3.16 Timeline — Full Event Log Tab + AI Relevance Rating
+**Built 10 July 2026.** (This item had no prior checkbox in this file — added here as
+it was completed. Before starting, the existing Timeline was verified to be a single
+merged card view with no ratings/tabs/AI, so this was genuinely unbuilt.)
+- [✓] Second tab — a **Full Event Log** aggregating every dated case source (occurrences,
+  attendances, completed repairs, manual timeline events) alongside the existing condensed
+  Timeline — **DONE**. `TimelineScreen` reworked into a 3-tab `TabController`
+  (`lib/features/timeline/screens/timeline_screen.dart`). Aggregation is a single pure
+  function `aggregateTimelineEntries` (`lib/features/timeline/models/timeline_aggregation.dart`)
+  producing stable-keyed `TimelineEntry`s (`.../models/timeline_entry.dart`), event key
+  `"<source>:<source_id>"`.
+- [✓] Per-event relevance **Important / Normal / Ignore**; ignored events grey out and leave
+  the condensed view — **DONE** (`EventRelevance`, `.../models/timeline_event_rating.dart`;
+  persisted in new table `timeline_event_ratings`, `docs/migrations/032_timeline_event_ratings.sql`,
+  applied; provider `.../providers/timeline_ratings_provider.dart`).
+- [✓] Relevance **AI-suggested**, mirroring the cue `pendingReview` review pattern — **DONE**.
+  `ClaudeApi.rateTimelineEvents` (Haiku, one batched call) suggests a relevance + short reason
+  per un-rated event, stored `pending_review = true`; a "Suggest (AI)" action classifies only
+  events that have no rating yet (cost/annotation safety — never re-classifies, never
+  overwrites a surveyor decision). Suggestions show a "Suggested" chip + one-tap Confirm.
+  *Parallel-but-separate implementation of the cue pattern* — the data shapes (aggregated
+  event vs. `SurveyorNote`) don't fit a shared abstraction, so a shared one was deliberately
+  NOT forced (as the TODO note allowed).
+- [✓] **Ignored** tab so nothing is silently hidden — ignored events are reviewable and
+  restorable (**DONE**, `_IgnoredTab`).
+- [✓] **Core purpose — curation drives the report Chronology** — **DONE**. Manual timeline
+  events default into the chronology (preserving prior behaviour) and can be excluded;
+  aggregated occurrences/attendances/repairs are one-tap **promoted** into a real
+  `timeline_events` row (stamped `source_key`, new nullable column in migration 032) so they
+  flow through the *unchanged* report pipeline. `report_provider.dart`'s timeline fetch now
+  filters by the ratings via one shared rule `chronologyIncludeForRating` (the same rule
+  `TimelineEntry.includedInChronology` uses — no in-app/report drift). `buildChronologyRows`
+  and `docx_export_service.dart` were left untouched.
+- Tests: `test/features/timeline/models/timeline_aggregation_test.dart` (9 pure) +
+  `test/features/timeline/screens/timeline_screen_test.dart` (4 widget). `flutter analyze
+  lib/ test/` clean (no new issues); full suite green except the unrelated stock
+  `widget_test.dart` placeholder.
+- **Not done / deferred:** correspondence, documents and report-generation events are named
+  in the ask's "etc." but are NOT yet aggregated — only the four dated sources the Timeline
+  already knew about are. Live end-to-end verification of the AI `rateTimelineEvents` call
+  against the paid API was not run (analyze-clean + widget-tested only), same posture as the
+  cue system's step-5 verification gap.
 
 ### 3.5 Inbox Screen — Case-Relevance Email Triage
 **Built 10 July 2026.** (This section did not exist in this worktree's TODO.md — added here to reconcile with the numbering used in the task brief / overnight branch.) `inbox_screen.dart` was a literal `"Coming next session"` stub before this; verified via git before building.

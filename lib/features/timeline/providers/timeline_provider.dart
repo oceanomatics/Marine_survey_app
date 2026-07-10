@@ -2,6 +2,7 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/timeline_event_model.dart';
+import '../models/timeline_entry.dart';
 import '../../../core/api/supabase_client.dart';
 
 final timelineProvider = AsyncNotifierProviderFamily<TimelineNotifier,
@@ -34,6 +35,36 @@ class TimelineNotifier
     final created = TimelineEventModel.fromJson(inserted);
     final next = <TimelineEventModel>[...(state.value ?? []), created]..sort(_byDate);
     state = AsyncData(next);
+  }
+
+  /// Promote a non-timeline Full Event Log entry into a real `timeline_events`
+  /// row so it feeds the report Chronology (which reads only that table). The
+  /// origin is stamped in `source_key` so the log can show it as already
+  /// promoted and avoid listing it twice (TODO.md §3.16).
+  Future<void> promote(TimelineEntry entry) async {
+    if (entry.sourceType == TimelineSourceType.manual) return;
+    final model = TimelineEventModel(
+      eventId:     '',
+      caseId:      arg,
+      eventType:   TimelineEventType.custom,
+      eventDate:   entry.date,
+      title:       entry.title,
+      location:    entry.subtitle,
+      description: entry.description,
+      sourceKey:   entry.eventKey,
+    );
+    await add(model);
+  }
+
+  /// Reverse [promote]: remove the promoted row for an aggregated event.
+  Future<void> unpromoteByKey(String sourceKey) async {
+    await SupabaseService.client
+        .from('timeline_events')
+        .delete()
+        .eq('case_id', arg)
+        .eq('source_key', sourceKey);
+    state = AsyncData(
+        (state.value ?? []).where((e) => e.sourceKey != sourceKey).toList());
   }
 
   Future<void> delete(String eventId) async {
