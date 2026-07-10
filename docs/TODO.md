@@ -227,7 +227,7 @@ Nothing here is optional. A report that misses these items is not professionally
 - [✓] `signed_off_attending`, `signed_off_reviewing`, `signed_off_at`, `dualSignOffComplete` on `CaseModel` — **DONE**
 - [✓] Export button (`export_button.dart`) hard-blocks Final export unless both flags true — **DONE**
 - [✓] Sign-Off UI screen: drawn signature (touch, `CustomPaint`) / PNG upload (desktop) — **DONE** (`lib/features/reports/widgets/sign_off_sheet.dart` — `_SignaturePad`/`_SignaturePainter` for drawing, `_uploadPng()` for PNG upload, uploaded to `exports` storage bucket)
-- [ ] Notification to reviewing surveyor when attending surveyor submits for QC — **MISSING** (confirmed: no email/notification/push code anywhere in `lib/features/reports/`, `lib/core/services/`, or `supabase/functions/` — only `supabase/functions/case-analyst` exists, unrelated)
+- [ ] Notification to reviewing surveyor when attending surveyor submits for QC — **still missing, and blocked on Q3, not just unbuilt (checked 10 July 2026).** `signedOffReviewingName` is a plain string typed in at sign-off time (`sign_off_sheet.dart:322`) — there's no email/contact/user-account behind it, and the app is confirmed single-user today (no multi-tenancy, no invite flow). There's no reliable address to notify until Q3 is answered: is "reviewing surveyor" going to be a real second platform user (needs the Phase 2 multi-tenancy/user model first), or just a name+signature forever (in which case this notification item may not even apply — a solo user doesn't need to notify themselves)? Don't build an email/push mechanism against a field that isn't actually an identity yet.
 - [✓] Surveyor declaration text embedded in sign-off block — **DONE** (`sign_off_sheet.dart:441` — "By signing, I confirm that the professional opinions and…")
 
 **Spec:** §2.1, §4.10, §5.4
@@ -251,10 +251,11 @@ Nothing here is optional. A report that misses these items is not professionally
 **Spec:** §3.3, §8.1
 
 ### 1.4 AI Disclosure Paragraph + Annexure I (AI Audit Record)
-- [ ] Auto-generate disclosure paragraph on export — **MISSING**
-- [ ] Auto-build Annexure I table from `ai_generation_log` at export — **MISSING**
-- [ ] Snapshot `ai_generation_log` entries into JSON field on `report_outputs` at sign-off (per decision C4) — **MISSING**
-- [ ] Suppress if all sections are `surveyor_authored` — **MISSING**
+**Corrected 10 July 2026 — 3 of 4 checkboxes were stale/wrong** (this section directly contradicted the Spec Compliance Scorecard below, which had it right; re-verified against actual code before trusting either).
+- [✓] Auto-generate disclosure paragraph on export — **DONE** (`page2_legal_text.dart` `buildAiUsageDeclaration()`, `docx_export_service.dart:362-368`)
+- [✓] Auto-build Annexure I table from `ai_generation_log` at export — **DONE** (`docx_export_service.dart:1101-1114`)
+- [✓] Snapshot `ai_generation_log` entries into JSON field on `report_outputs` at sign-off — **DONE** (`docx_export_service.dart:124-131`, `ai_log_snapshot`)
+- [ ] Suppress if all sections are `surveyor_authored` — **genuinely still open, and more subtle than it looks.** Current suppression condition is "no AI calls were ever made this report" (`aiGenerationLog.isEmpty`), not "every section's final `surveyor_review` ended up `surveyorAuthored`." Those differ: if AI drafted a section but the surveyor discarded it entirely and wrote fresh text, the call still sits in the audit log (correctly, as a compliance record) — but should the reader-facing declaration still say "AI assistance was used"? Arguable either way for a GPN-AI compliance paragraph; **needs a decision, not a guess** before changing it.
 
 **Spec:** §3.4, §3.5, §4.1 item 33
 
@@ -311,11 +312,13 @@ Section-by-section review with the surveyor. **S1/S2/S4/S6, back matter, and S5 
 **S6 — done 9 July 2026:**
 - [✓] "Available Information Sources" was rendering the same document list twice (free-text bullet dump + table); fixed at the source (`_buildInfoSourcesText` now returns a short intro sentence)
 
-**Repair Cost:** not attempted — depends on §3.12's cost-estimate-status automation, which only landed in parallel (Cluster D, same day). Do next.
+**Repair Cost — confirmed already done, 10 July 2026.** `docx_export_service.dart:723-748` already reads `cases.cost_estimate_status` (Clause G-1) directly, including the no-invoices-yet case (line 923-935, the documented `else` branch). This was written 3 July, before §3.12's auto-derivation existed — it just needed §3.12 to land (9 July) to actually reflect real data instead of a manually-set status. Nothing left to build.
 
-**Repair Times:** not re-verified.
+**Repair Times — re-verified 10 July 2026, still holds.** `_buildRepairTimesText` (`report_provider.dart:2843`) and the docx table (`docx_export_service.dart:943-970`) both read the same `RepairPeriodModel.drydockDaysTotal`/`alongsideDaysTotal`/`ownerDaysTotal` source (§2.14's fix) — Preview shows it as plain text lines, docx additionally renders a formatted table of the same numbers. Not renderer drift (different formatting of identical data is an accepted existing pattern elsewhere, e.g. certificates/conditions) — confirmed, no fix needed.
 
-**Advice to Assured:** not attempted — folds into the general §1.9 omit-when-empty rule below rather than needing a one-off fix.
+**Advice to Assured — confirmed already done.** `surveyorNotes` (kept as the section type's enum name, retitled "Advice to Assured" 5 July) was already in `report_preview.dart`'s `omitWhenEmpty` set before the 9 July generalization and isn't in the `alwaysShow` exception list — already omitted when empty.
+
+**Documentation Retained on File — genuinely still not attempted, and blocked on the same work as §3.4/§2.15, not independently fixable.** `docx_export_service.dart:989-1001` renders only the 2-state model (`caseDocuments` = `availability == enclosed`) — the 3-way annexure/on-file/requested split needs §2.15's `DocAvailability` expansion, which is explicitly bundled into §3.4's dedicated Documentation screen (deferred, comparable in scope to §2.18). Don't build a partial fix here independently of that.
 
 **Documentation Retained on File:** not attempted.
 
