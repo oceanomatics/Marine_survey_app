@@ -86,3 +86,25 @@ String? buildAiUsageDeclaration(List<AiGenerationLogModel> log) {
       'model versions, source documents processed, and review records are '
       'set out in Annexure I.';
 }
+
+/// Version-supersedes narrative statement (TODO.md §2.5) — a prose sentence
+/// distinct from the Document Control table's `Supersedes` column value.
+/// Returns null for a first-ever report (nothing to supersede). Final
+/// reports get a blanket "supersedes all prior" statement; preliminary/
+/// advice reports that supersede an earlier one get a "supplements Report
+/// [R00N]" statement instead — there's no separate "progress"/
+/// "supplementary" `OutputType` in the data model, so both non-final types
+/// share the same wording.
+String? buildVersionSupersedesStatement(ReportOutput output) {
+  final supersedes = output.supersedesVersion;
+  if (supersedes == null || supersedes.isEmpty) return null;
+  return switch (output.outputType) {
+    OutputType.final_ =>
+      'This Final Report (${output.versionCode}) supersedes all prior '
+          'preliminary, advice, and progress reports issued in respect of '
+          'this casualty.',
+    OutputType.preliminary || OutputType.advice =>
+      'This report (${output.versionCode}) supplements Report $supersedes '
+          'issued previously in respect of this casualty.',
+  };
+}

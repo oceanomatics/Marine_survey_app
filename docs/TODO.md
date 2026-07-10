@@ -379,7 +379,9 @@ For each of the 8 narrative sections — **all done 9 July 2026:**
 ### 2.3 Chronology as Formal Table
 - [✓] Timeline events rendered as formal two-column table (Date | Event) in docx output — **DONE**
 - [✓] Events sorted ascending by `event_date` — **DONE**
-- [ ] Coloured header row using `primary_colour` from org config — **MISSING** (uses standard bold row)
+- [✓] Coloured header row using `primary_colour` from org config — **already done, checkbox was stale (corrected 10 July 2026)**: `doc.addTable(chronoRows, boldFirstRow: true, ...)` — `DocxBuilder.addTable()`'s `boldFirstRow: true` already sets `headerBgHex: _primaryHex`, which is threaded from `organisation.primary_colour` (`docx_export_service.dart:166-172`). Every other `boldFirstRow: true` table in this file gets the same colour for free — not unique to Chronology.
+
+**§2.3 fully done.**
 
 **Spec:** §4.3
 
@@ -395,9 +397,12 @@ For each of the 8 narrative sections — **all done 9 July 2026:**
 ### 2.5 Report Version Numbering (R001, R002…)
 - [✓] `sequenceNo` int on `ReportOutput`; `versionString` computed as `R001` format — **DONE**
 - [✓] Auto-increment picker in `new_output_sheet.dart` — **DONE**
-- [ ] Final Report "this report supersedes all prior…" narrative statement — **MISSING** (only a `Supersedes` column value in the table below, no prose statement)
-- [ ] Progress/Supplementary "this report supplements Report [R00N]…" narrative statement — **MISSING** (same as above)
+- [✓] Final Report "this report supersedes all prior…" narrative statement — **done 10 July 2026**, `buildVersionSupersedesStatement()` (`page2_legal_text.dart`, unit-tested), rendered immediately above the Document Control table in docx export. Returns null for a first-ever report (nothing to supersede)
+- [✓] Progress/Supplementary "this report supplements Report [R00N]…" narrative statement — **done, same function** — there's no separate "progress"/"supplementary" `OutputType` in the data model, so `preliminary`/`advice` both get this wording, `final_` gets the supersedes-all wording above
 - [✓] Version Control Block showing document management history (version, date, type, "changes from previous" field) — **DONE** (`docx_export_service.dart:305-336` — "DOCUMENT CONTROL" table with Version/Date/Type/Supersedes/Changes columns, from `report_outputs.supersedes_version`/`changes_summary`); **note:** "attending surveyor" column is not included, only version/date/type/supersedes/changes
+- **Found while fixing the above, not yet fixed:** the Document Control table (and now the new supersedes statement) is docx-export-only — `report_preview.dart` has no equivalent rendering at all, despite a code comment there (`report_preview.dart:880`) implying it's meant to be part of the same page-2 flow as Legal Designations/AI Usage Declaration, both of which *do* render in Preview. Worth a small follow-up to add a Preview equivalent so what the surveyor reviews matches what actually exports.
+
+**§2.5 fully done except the newly-found Preview gap noted above.**
 
 **Spec:** §4.9, §7
 

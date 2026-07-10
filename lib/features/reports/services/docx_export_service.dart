@@ -367,6 +367,15 @@ class DocxExportService {
       doc.addSpacer();
     }
 
+    // Version-supersedes narrative statement (§2.5) — precedes the Document
+    // Control table, since it's the prose companion to that table's
+    // `Supersedes` column, not a substitute for it.
+    final supersedesStatement = buildVersionSupersedesStatement(output);
+    if (supersedesStatement != null) {
+      doc.addParagraph(supersedesStatement, bold: true, halfPtSize: 20);
+      doc.addSpacer();
+    }
+
     // Document Control — version history table
     final allOutputs = assembled.allReportOutputs;
     if (allOutputs.isNotEmpty) {
