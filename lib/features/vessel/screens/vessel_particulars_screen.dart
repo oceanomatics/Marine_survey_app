@@ -177,6 +177,11 @@ class _VesselParticularsScreenState
   final _mcrRpmCtrl = TextEditingController();
   // Fields moved to Identity tab
   final _officialNumberCtrl = TextEditingController();
+  // TODO.md §2.11: registered_owner has existed on VesselModel since the
+  // statutory-fields work but never had an editor UI anywhere — added here,
+  // next to Official Number on the Registration tab, since both are
+  // registration-document concepts.
+  final _registeredOwnerCtrl = TextEditingController();
   final _constructionStandardCtrl = TextEditingController();
   final _piClubCtrl = TextEditingController();
   // Regulatory Standard / AMSA DCV fields (Identity tab)
@@ -240,6 +245,7 @@ class _VesselParticularsScreenState
       _mcrValueCtrl,
       _mcrRpmCtrl,
       _officialNumberCtrl,
+      _registeredOwnerCtrl,
       _constructionStandardCtrl,
       _piClubCtrl,
       _uviCtrl,
@@ -308,6 +314,7 @@ class _VesselParticularsScreenState
     _mcrRpmCtrl.text = v.mcrRpm?.toString() ?? '';
     _mcrPowerUnit = v.mcrPowerUnit ?? 'kW';
     _officialNumberCtrl.text = v.officialNumber ?? '';
+    _registeredOwnerCtrl.text = v.registeredOwner ?? '';
     _constructionStandardCtrl.text = v.constructionStandard ?? '';
     _piClubCtrl.text = v.piClub ?? '';
     _regulatoryStandard = v.regulatoryStandard;
@@ -371,6 +378,9 @@ class _VesselParticularsScreenState
         'official_number': _officialNumberCtrl.text.trim().isEmpty
             ? null
             : _officialNumberCtrl.text.trim(),
+        'registered_owner': _registeredOwnerCtrl.text.trim().isEmpty
+            ? null
+            : _registeredOwnerCtrl.text.trim(),
         'construction_standard': _constructionStandardCtrl.text.trim().isEmpty
             ? null
             : _constructionStandardCtrl.text.trim(),
@@ -825,6 +835,7 @@ class _VesselParticularsScreenState
             callSignCtrl: _callSignCtrl,
             mmsiCtrl: _mmsiCtrl,
             officialNumberCtrl: _officialNumberCtrl,
+            registeredOwnerCtrl: _registeredOwnerCtrl,
             regulatoryStandard: _regulatoryStandard,
             amsaVesselUseClass: _amsaVesselUseClass,
             amsaServiceCategory: _amsaServiceCategory,
@@ -1296,6 +1307,7 @@ class _RegistrationTab extends StatelessWidget {
     required this.callSignCtrl,
     required this.mmsiCtrl,
     required this.officialNumberCtrl,
+    required this.registeredOwnerCtrl,
     required this.regulatoryStandard,
     required this.amsaVesselUseClass,
     required this.amsaServiceCategory,
@@ -1317,6 +1329,7 @@ class _RegistrationTab extends StatelessWidget {
   final TextEditingController flagCtrl, portCtrl;
   final TextEditingController callSignCtrl, mmsiCtrl;
   final TextEditingController officialNumberCtrl;
+  final TextEditingController registeredOwnerCtrl;
   final RegulatoryStandard? regulatoryStandard;
   final AmsaVesselUseClass? amsaVesselUseClass;
   final AmsaServiceCategory? amsaServiceCategory;
@@ -1382,6 +1395,12 @@ class _RegistrationTab extends StatelessWidget {
           label: 'Official Number',
           controller: officialNumberCtrl,
           hint: 'National registration number',
+          onChanged: (_) => onChanged(),
+        ),
+        SurveyField(
+          label: 'Registered Owner',
+          controller: registeredOwnerCtrl,
+          hint: 'Name on the certificate of registry',
           onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: 20),

@@ -48,6 +48,21 @@ void main() {
       expect(rows, contains(equals(['Breadth', '12.5 m'])));
     });
 
+    test('includes registered_owner distinct from owners (TODO.md §2.11)', () {
+      final rows = buildVesselParticularsRows({
+        'name': 'MV Star',
+        'owners': 'Star Shipping Pty Ltd',
+        'registered_owner': 'Star Shipping (Registered Owner) Pty Ltd',
+      });
+      expect(rows, contains(equals(['Owners', 'Star Shipping Pty Ltd'])));
+      expect(
+          rows,
+          contains(equals([
+            'Registered Owner',
+            'Star Shipping (Registered Owner) Pty Ltd'
+          ])));
+    });
+
     test('formats a date field through formatSectionDate', () {
       final rows = buildVesselParticularsRows({
         'name': 'MV Star',

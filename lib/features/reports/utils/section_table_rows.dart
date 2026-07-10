@@ -53,6 +53,7 @@ List<List<String>> buildVesselParticularsRows(Map<String, dynamic> v) {
     ['Year Built', v['year_built']?.toString() ?? ''],
     ['Build Yard', v['build_yard'] ?? ''],
     ['Owners', v['owners'] ?? ''],
+    ['Registered Owner', v['registered_owner'] ?? ''],
     ['Operators', v['operators'] ?? ''],
     ['Class Society', v['class_society'] ?? ''],
     ['Class Notation', v['class_notation'] ?? ''],
