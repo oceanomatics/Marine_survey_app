@@ -62,6 +62,11 @@ class DocumentTile extends ConsumerWidget {
                   Wrap(spacing: 6, runSpacing: 4, children: [
                     _Badge(doc.availability.label,
                         _availColor(doc.availability)),
+                    // §3.4/§2.15 (10 July 2026): a doc can be enclosed
+                    // (retained on file) without shipping in this report.
+                    if (doc.availability == DocAvailability.enclosed &&
+                        !doc.includedInReport)
+                      const _Badge('Not in report', AppColors.textSecondary),
                     if (doc.extractionProcessing)
                       const _Badge('Extracting…', AppColors.amber)
                     else if (doc.aiExtracted && doc.surveyorConfirmed)
@@ -156,6 +161,7 @@ class DocumentTile extends ConsumerWidget {
               if (v == 'edit') _showEditMetadata(context, ref);
               if (v == 'delete') _confirmDelete(context, ref);
               if (v == 'reapply') onReapply?.call();
+              if (v == 'mark_received') _markReceived(context, ref);
             },
             itemBuilder: (_) => [
               const PopupMenuItem(
@@ -166,6 +172,17 @@ class DocumentTile extends ConsumerWidget {
                   Text('Edit metadata', style: TextStyle(fontSize: 13)),
                 ]),
               ),
+              // §3.4 (10 July 2026): nothing previously changed a doc from
+              // requested to enclosed after creation.
+              if (doc.availability == DocAvailability.requested)
+                const PopupMenuItem(
+                  value: 'mark_received',
+                  child: Row(children: [
+                    Icon(Icons.inventory_2_outlined, size: 16),
+                    SizedBox(width: 8),
+                    Text('Mark as received', style: TextStyle(fontSize: 13)),
+                  ]),
+                ),
               const PopupMenuItem(
                 value: 'rename',
                 child: Row(children: [
@@ -199,12 +216,34 @@ class DocumentTile extends ConsumerWidget {
     );
   }
 
+  /// §3.4 (10 July 2026): the only way to move a document from Requested
+  /// to Enclosed after creation — no file re-upload here, since a doc can
+  /// legitimately be "received" as a physical/description confirmation
+  /// (attaching a file afterwards, if wanted, is a separate action via
+  /// Edit metadata / the normal upload flow).
+  void _markReceived(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(documentProvider(doc.caseId).notifier).updateMetadata(
+            doc.docId,
+            availability: DocAvailability.enclosed,
+            includedInReport: true,
+          );
+      if (context.mounted) showSavedToast(context);
+    } catch (e, st) {
+      if (context.mounted) {
+        showError(context, 'Update failed: $e',
+            error: e, stack: st, tag: 'Document');
+      }
+    }
+  }
+
   void _showEditMetadata(BuildContext context, WidgetRef ref) {
     final titleCtrl = TextEditingController(text: doc.title);
     DocCategory? selectedCat = doc.docCategory;
     String? selectedAnnexure = doc.annexureAssignment;
     bool surveyorConfirmed = doc.surveyorConfirmed;
     bool isCoverPhoto = doc.isCoverPhoto;
+    bool includedInReport = doc.includedInReport;
 
     showModalBottomSheet(
       context: context,
@@ -371,6 +410,19 @@ class DocumentTile extends ConsumerWidget {
               ),
             ],
 
+            // ── Included in report toggle (enclosed docs only) —
+            // §3.4/§2.15 (10 July 2026) ───────────────────────────────
+            if (doc.availability == DocAvailability.enclosed) ...[
+              const SizedBox(height: 6),
+              _ToggleRow(
+                icon: Icons.fact_check_outlined,
+                label: 'Include in exported report (Documents on File)',
+                value: includedInReport,
+                color: AppColors.success,
+                onChanged: (v) => setState(() => includedInReport = v),
+              ),
+            ],
+
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -386,6 +438,7 @@ class DocumentTile extends ConsumerWidget {
                   final capturedAnnexure = selectedAnnexure;
                   final capturedConfirmed = surveyorConfirmed;
                   final capturedCover = isCoverPhoto;
+                  final capturedIncludedInReport = includedInReport;
                   Navigator.pop(ctx);
                   try {
                     final notifier =
@@ -400,7 +453,11 @@ class DocumentTile extends ConsumerWidget {
                         title: newTitle.isNotEmpty ? newTitle : null,
                         category: selectedCat,
                         annexureAssignment: capturedAnnexure,
-                        surveyorConfirmed: capturedConfirmed);
+                        surveyorConfirmed: capturedConfirmed,
+                        includedInReport: doc.availability ==
+                                DocAvailability.enclosed
+                            ? capturedIncludedInReport
+                            : null);
                     if (context.mounted) showSavedToast(context);
                   } catch (e, st) {
                     if (context.mounted) {

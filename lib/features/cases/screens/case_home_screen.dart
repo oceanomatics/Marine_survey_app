@@ -1955,8 +1955,16 @@ class _PseudoReport extends ConsumerWidget {
     if (documents.isEmpty) {
       return const _SectionEmpty('No documents recorded — tap Open to add');
     }
-    final enclosed = documents
-        .where((d) => d.availability == DocAvailability.enclosed)
+    // §3.4/§2.15 (10 July 2026): 'enclosed' alone no longer means "in the
+    // report" — migration 034's includedInReport splits it further into
+    // what actually ships vs what's retained on file but not attached.
+    final inReport = documents
+        .where((d) =>
+            d.availability == DocAvailability.enclosed && d.includedInReport)
+        .length;
+    final onFileNotInReport = documents
+        .where((d) =>
+            d.availability == DocAvailability.enclosed && !d.includedInReport)
         .length;
     final requestedDocs =
         documents.where((d) => d.availability == DocAvailability.requested).toList();
@@ -1966,18 +1974,23 @@ class _PseudoReport extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _accountAmountRow('On File', '$enclosed', AppColors.success),
+        _accountAmountRow('In Report', '$inReport', AppColors.success),
+        if (onFileNotInReport > 0)
+          _accountAmountRow(
+              'On File — Not in Report', '$onFileNotInReport', AppColors.textSecondary),
         if (requestedDocs.isNotEmpty)
           _accountAmountRow(
               'Requested — Not Yet Received', '${requestedDocs.length}', AppColors.amber),
         if (notAvailable > 0)
           _accountAmountRow('Not Available', '$notAvailable', AppColors.error),
-        // TODO.md §3.4 (8 July 2026): auto-generated email listing
-        // outstanding requested documents — the dedicated Documentation
-        // screen with a true 3-way availability split is a larger,
-        // separate architectural item (deferred, comparable in scope to
-        // §2.18); this delivers the actually-missing email capability now
-        // from the existing case-home card.
+        // TODO.md §3.4: auto-generated email listing outstanding requested
+        // documents, built 9 July 2026. The 3-way availability split
+        // (In Report / On File — Not in Report / Requested) landed 10 July
+        // 2026 via migration 034's includedInReport boolean — the surveyor
+        // chose a separate boolean over a new DocAvailability enum value,
+        // which meant the existing Document Vault could gain the missing
+        // status-management controls (toggle + "mark as received") instead
+        // of needing a structurally separate screen.
         if (requestedDocs.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8),

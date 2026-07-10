@@ -793,7 +793,7 @@ final assembledDataProvider =
     SupabaseService.client
         .from('documents')
         .select('doc_id, title, doc_category, doc_date, annexure_assignment, '
-            'availability, requested_date, received_date')
+            'availability, requested_date, received_date, included_in_report')
         .eq('case_id', caseId)
         .order('doc_category'),
   ]);
@@ -803,8 +803,16 @@ final assembledDataProvider =
   final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
   final allDocuments = List<Map<String, dynamic>>.from(supplementary[3]);
   // Clause K-1 vs K-2: split by availability rather than fetching twice.
-  final caseDocuments =
-      allDocuments.where((d) => d['availability'] == 'enclosed').toList();
+  // §3.4/§2.15 (10 July 2026): `included_in_report` (migration 034)
+  // further narrows K-1 to documents actually enclosed in this report —
+  // 'enclosed' alone now only means "retained on file", not necessarily
+  // "shipped in this export"; defaults true so pre-migration data's report
+  // output is unchanged until the surveyor explicitly un-enrols one.
+  final caseDocuments = allDocuments
+      .where((d) =>
+          d['availability'] == 'enclosed' &&
+          (d['included_in_report'] as bool? ?? true))
+      .toList();
   final requestedDocuments =
       allDocuments.where((d) => d['availability'] == 'requested').toList();
 
