@@ -288,7 +288,7 @@ Nothing here is optional. A report that misses these items is not professionally
 **Spec:** §5.4
 
 ### 1.8 Report Builder — Section Content Fixes, S1–S6 (scope added 8 July 2026)
-Section-by-section review with the surveyor. **S1/S2/S4/S6 and back matter done 9 July 2026** (see overnight session log above for full detail); S5 partially done (3-way narrative done with placeholder wording pending surveyor sign-off, table widths done, C-6f refinement not attempted — no concrete spec given); Repair Cost/Repair Times/Advice to Assured/Documentation Retained not attempted.
+Section-by-section review with the surveyor. **S1/S2/S4/S6, back matter, and S5 all done** (S1/S2/S4/S6/back matter 9 July, S5 10 July — see overnight session log above and S5 detail below); Repair Cost/Repair Times/Advice to Assured/Documentation Retained not attempted.
 
 **S1 — Introduction / Opening Certification — done 9 July 2026:**
 - [✓] Instructing-party substitution fixed — was reading an unpopulated `principals_clients` FK join instead of `cases.instructing_party`, silently rendering the literal `[CLIENT]` placeholder
@@ -303,10 +303,10 @@ Section-by-section review with the surveyor. **S1/S2/S4/S6 and back matter done 
 **S4 — Machinery/nameplate section — done 9 July 2026:**
 - [✓] Nameplate photo now flows into the docx export (`machineryPhotosByItemId`, same resolution convention as `damagePhotosByItemId`), keyed by the same `machinery_nameplate` link type Cluster B's thumbnail fix uses
 
-**S5 — Class & Statutory Certification — partially done 9 July 2026:**
-- [~] Condition-of-class 3-way narrative (none issued / related to casualty / not related) implemented, driven by the real `ClassConditionModel.occurrenceRelated` field, not inferred. **Wording is a placeholder — the surveyor's actual reference text from the 8 July walkthrough was never transcribed anywhere and needs to be supplied before this ships.** Seeded via 3 new `clause_library` clause types (`condition_of_class_none`/`_related`/`_not_related`)
-- [ ] C-6f refinement not attempted — TODO gives no concrete complaint beyond "extend the aggregation rule," needs surveyor clarification on what's actually wrong with the current expired/not-sighted/valid logic
+**S5 — Class & Statutory Certification — done 10 July 2026:**
+- [✓] **Condition-of-class narrative and C-6f both redesigned from a mutually-exclusive 3-way pick into a composed narrative** — the surveyor clarified this was never really a 3-way choice: a vessel can carry several certificates in different states and several conditions of class only some of which relate to the casualty, and the old logic silently rendered nothing for any real mix. New pure/deterministic/unit-tested `composeStatutoryCertificatesNarrative()`/`composeConditionOfClassNarrative()` (`lib/features/reports/utils/certification_narrative.dart`), same precedent as §3.8's damage-row-description composer. Full detail in `docs/legal_clauses.md`'s 2026-07-10 entry. The 6 now-unused `clause_library` clause types (12 rows) marked `deprecated`, not deleted.
 - [✓] Condition of Class table column widths fixed — was equal-flex regardless of content (shared `_RegisterTable` widget), now `[1, 3, 1]` at this call site, every other table's default unchanged
+- **Flagged by the surveyor as a recurring pattern** — "narrated description of hard fields" composed from structured data, not a canned-phrase pick, applies in a few more places in the report. No systematic audit done yet to find the others; see `docs/legal_clauses.md`'s note on how to spot the tell (`clauseByType()` fed by an if/else chain over a *list*, not a single 1:1 field mapping).
 
 **S6 — done 9 July 2026:**
 - [✓] "Available Information Sources" was rendering the same document list twice (free-text bullet dump + table); fixed at the source (`_buildInfoSourcesText` now returns a short intro sentence)

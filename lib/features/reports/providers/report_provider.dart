@@ -11,6 +11,7 @@ import '../../survey/providers/damage_provider.dart'
     show ConditionStatus, ConfirmedByRole, CertaintyLevel;
 import '../../cases/models/case_model.dart' show ClassStatus;
 import '../../survey/providers/attendees_provider.dart' show AttendeeTitle;
+import '../utils/certification_narrative.dart';
 
 // ── Report output types ────────────────────────────────────────────────────
 
@@ -2652,33 +2653,11 @@ class SectionDraftNotifier
       }
     }
 
-    // Clause C-6f: statutory certificate status — mutually exclusive 3-way
-    if (certs.isNotEmpty) {
-      final expired = certs.where((c) => c['status'] == 'expired').toList();
-      final notSighted =
-          certs.where((c) => c['status'] == 'not_sighted').toList();
-      String? clauseType;
-      String certDetails = '';
-      if (expired.isNotEmpty) {
-        clauseType = 'statutory_certs_expired';
-        certDetails = expired
-            .map((c) =>
-                c['cert_name'] as String? ?? c['cert_type'] as String? ?? '')
-            .where((s) => s.isNotEmpty)
-            .join(', ');
-      } else if (notSighted.isNotEmpty) {
-        clauseType = 'statutory_certs_not_sighted';
-      } else if (certs.every((c) => c['status'] == 'valid')) {
-        clauseType = 'statutory_certs_valid';
-      }
-      if (clauseType != null) {
-        final clause = data.clauseByType(clauseType);
-        if (clause != null) {
-          buf.writeln(
-              clause.clauseText.replaceAll('{CERT_DETAILS}', certDetails));
-        }
-      }
-    }
+    // Clause C-6f: statutory certificate status — composed narrative, not a
+    // mutually-exclusive 3-way pick (TODO.md §1.8 S5/C-6f, redesigned 10 July
+    // 2026 per surveyor — see certification_narrative.dart for why).
+    final certNarrative = composeStatutoryCertificatesNarrative(certs);
+    if (certNarrative.isNotEmpty) buf.writeln(certNarrative);
 
     if (buf.isNotEmpty) buf.writeln();
 
@@ -2692,26 +2671,12 @@ class SectionDraftNotifier
             '  • $name${expiry.isNotEmpty ? ' — expires ${_formatDate(expiry)}' : ''}');
       }
     }
-    // Condition-of-class narrative (8 July 2026 review, S5): three distinct
-    // cases — no conditions issued; a condition issued and related to the
-    // casualty; a condition issued but not related. Driven by
-    // ClassConditionModel.occurrenceRelated (already captured on the Class
-    // Condition editor), not inferred. Clause text is a placeholder pending
-    // the surveyor's exact reference wording from the 8 July walkthrough,
-    // which wasn't transcribed into docs/TODO.md — edit via clause_library
-    // once available, same as any other clause here.
-    final relatedCondition =
-        conditions.where((cc) => cc['occurrence_related'] == true).firstOrNull;
-    final conditionNarrativeType = conditions.isEmpty
-        ? 'condition_of_class_none'
-        : (relatedCondition != null
-            ? 'condition_of_class_related'
-            : 'condition_of_class_not_related');
-    final conditionNarrative = data.clauseByType(conditionNarrativeType);
-    if (conditionNarrative != null) {
-      if (buf.isNotEmpty) buf.writeln();
-      buf.writeln(conditionNarrative.clauseText);
-    }
+    // Condition-of-class narrative (TODO.md §1.8 S5, redesigned 10 July 2026
+    // per surveyor): composed from the actual condition count and how many
+    // relate to the casualty, not a mutually-exclusive "none / one related /
+    // one not related" pick — see certification_narrative.dart.
+    if (buf.isNotEmpty) buf.writeln();
+    buf.writeln(composeConditionOfClassNarrative(conditions));
 
     if (conditions.isNotEmpty) {
       if (buf.isNotEmpty) buf.writeln();
