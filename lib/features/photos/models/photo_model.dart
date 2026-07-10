@@ -5,11 +5,15 @@ import 'package:flutter/foundation.dart';
 enum PhotoSyncStatus {
   localOnly,
   uploading,
-  synced;
+  synced,
+  // Upload to Google Photos was attempted and failed — kept distinct from
+  // localOnly so the gallery can flag it and the next sync run retries it.
+  syncFailed;
 
   static PhotoSyncStatus fromValue(String v) => switch (v) {
         'uploading' => uploading,
         'synced' => synced,
+        'sync_failed' => syncFailed,
         _ => localOnly,
       };
 
@@ -17,6 +21,7 @@ enum PhotoSyncStatus {
         localOnly => 'local_only',
         uploading => 'uploading',
         synced => 'synced',
+        syncFailed => 'sync_failed',
       };
 }
 
