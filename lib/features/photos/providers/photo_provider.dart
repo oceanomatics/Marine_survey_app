@@ -539,6 +539,11 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       (ph) => ph.copyWith(
           syncStatus: PhotoSyncStatus.synced, remotePath: remotePath));
 
+  /// Marks a photo as failed to upload to Google Photos so the gallery can
+  /// flag it and the next sync run retries it (anything != synced is retried).
+  Future<void> markSyncFailed(String photoId) => _applyUpdate(
+      photoId, (ph) => ph.copyWith(syncStatus: PhotoSyncStatus.syncFailed));
+
   /// Applies [transform] to the in-memory photo, then pushes it to
   /// Supabase (falling back to a queued local pending_upsert if offline)
   /// and the local cache, then updates state.

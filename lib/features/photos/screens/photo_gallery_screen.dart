@@ -18,6 +18,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
 import '../services/google_photos_service.dart';
+import '../utils/google_photos_album_title.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
 import '../../cases/providers/cases_provider.dart';
@@ -66,6 +67,8 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
 
   Future<void> _syncToGooglePhotos() async {
     final all = ref.read(photosProvider(widget.caseId)).value ?? [];
+    // Anything not confirmed-synced is (re)tried — this picks up both
+    // never-synced photos and ones previously left in syncFailed.
     final unsynced =
         all.where((p) => p.syncStatus != PhotoSyncStatus.synced).toList();
     if (unsynced.isEmpty) {
@@ -81,39 +84,81 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       _syncTotal = unsynced.length;
     });
 
+    var failed = 0;
     try {
       final caseModel = ref.read(caseProvider(widget.caseId)).value;
-      final albumTitle = '${caseModel?.title ?? widget.caseId} — Survey Photos';
-      final albumId = await GooglePhotosService.findOrCreateAlbum(albumTitle);
-      final shareUrl = await GooglePhotosService.shareAlbum(albumId);
+      final attendances =
+          ref.read(attendancesProvider(widget.caseId)).value ?? [];
+      // 1-based visit sequence + visit date, keyed by attendance id. The list
+      // is ordered created_at ascending (see attendances_provider), so index+1
+      // is the "Attendance N" the surveyor sees elsewhere in the app.
+      final seqOf = <String, int>{};
+      final dateOf = <String, DateTime?>{};
+      for (var i = 0; i < attendances.length; i++) {
+        seqOf[attendances[i].attendanceId] = i + 1;
+        dateOf[attendances[i].attendanceId] = attendances[i].attendanceDate;
+      }
+
+      // Group photos by the visit they belong to so each visit's photos land
+      // in their own date-named album (null attendance → one "Unassigned" album).
+      final groups = <String?, List<PhotoModel>>{};
+      for (final p in unsynced) {
+        groups.putIfAbsent(p.attendanceId, () => []).add(p);
+      }
+
       final notifier = ref.read(photosProvider(widget.caseId).notifier);
 
-      for (final photo in unsynced) {
+      for (final entry in groups.entries) {
         if (!mounted) return;
-        try {
-          final resolved = photo.hasLocalFile
-              ? photo
-              : await notifier.ensureLocalFile(photo.id);
-          if (resolved == null || !resolved.hasLocalFile) continue;
-          final bytes = await File(resolved.localPath!).readAsBytes();
-          await GooglePhotosService.addPhotoToAlbum(
-            albumId: albumId,
-            bytes: bytes,
-            filename: '${photo.id}.jpg',
-            description: photo.caption,
-          );
-          await notifier.markSynced(photo.id, shareUrl);
-        } catch (_) {
-          // Skip this photo, continue with the rest — rough-edge MVP.
+        final attendanceId = entry.key;
+        final albumTitle = googlePhotosAlbumTitle(
+          visitDate: attendanceId != null ? dateOf[attendanceId] : null,
+          vesselName: caseModel?.vesselName,
+          attendanceNumber: attendanceId != null ? seqOf[attendanceId] : null,
+        );
+        final albumId = await GooglePhotosService.findOrCreateAlbum(albumTitle);
+        final shareUrl = await GooglePhotosService.shareAlbum(albumId);
+
+        for (final photo in entry.value) {
+          if (!mounted) return;
+          try {
+            final resolved = photo.hasLocalFile
+                ? photo
+                : await notifier.ensureLocalFile(photo.id);
+            if (resolved == null || !resolved.hasLocalFile) {
+              await notifier.markSyncFailed(photo.id);
+              failed++;
+              continue;
+            }
+            // The original JPEG bytes carry their EXIF DateTimeOriginal, which
+            // Google Photos reads to place the item on the survey date in the
+            // timeline (not the upload date) — no separate date field needed.
+            final bytes = await File(resolved.localPath!).readAsBytes();
+            await GooglePhotosService.addPhotoToAlbum(
+              albumId: albumId,
+              bytes: bytes,
+              filename: '${photo.id}.jpg',
+              description: photo.caption,
+            );
+            await notifier.markSynced(photo.id, shareUrl);
+          } catch (_) {
+            // Queue for retry: left in syncFailed, retried on the next sync run.
+            await notifier.markSyncFailed(photo.id);
+            failed++;
+          }
+          if (mounted) setState(() => _syncDone++);
         }
-        if (mounted) setState(() => _syncDone++);
       }
 
       if (mounted) {
+        final synced = _syncTotal - failed;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'Synced $_syncDone / $_syncTotal photos to Google Photos')),
+            content: Text(failed == 0
+                ? 'Synced $synced / $_syncTotal photos to Google Photos'
+                : 'Synced $synced / $_syncTotal — $failed failed, will retry'),
+            backgroundColor: failed == 0 ? null : Colors.orange.shade800,
+          ),
         );
       }
     } on GoogleSignInCancelled {
@@ -919,6 +964,20 @@ class _PhotoTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Icon(Icons.cloud_off_outlined,
+                    size: 9, color: Colors.white),
+              ),
+            )
+          else if (photo.syncStatus == PhotoSyncStatus.syncFailed)
+            Positioned(
+              bottom: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade800,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Icon(Icons.cloud_upload_outlined,
                     size: 9, color: Colors.white),
               ),
             ),
