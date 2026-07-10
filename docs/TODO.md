@@ -118,6 +118,8 @@ Surveyor is offline until tomorrow morning. Working unsupervised on branch `over
      - Verified: `flutter analyze lib/ test/` — 12 pre-existing issues, same baseline as the Agent A/C merge. `flutter test` — 225/226 passing, sole failure the pre-existing unrelated `test/widget_test.dart` placeholder.
      - `docs/migrations/` now has no duplicate numbers: `027_repair_period_phase.sql` (unchanged, landed first), `028_vessel_breadth_draft_variants.sql`, `029_cost_estimate_items.sql`, `030_invoice_status_auto_derive.sql`, `031_org_multi_logo_and_assets_bucket.sql`, `032_timeline_event_ratings.sql`.
      - **Still deliberately not started, per the surveyor's own scoping call earlier this session:** §2.18 (Section Editor redesign) and §3.4 (dedicated Documentation screen) — both legally-sensitive/architecturally large, held back from the agent batch on purpose, meant to be tackled directly rather than delegated.
+  9. **Resumed later 10 July, autonomously (surveyor asked to "start with the editor, and everything that does not require my presence") — §2.18 Slice 1, done.** Full detail in §2.18 above. Researched the actual current state before writing any code (a `SectionEditor`/`section_reference_panel.dart`/`report_preview.dart`/`docx_export_service.dart` trace) rather than building blind against the TODO note's assumptions — found the real gap was narrower than assumed, and found a genuine live Preview/docx drift bug (`repairTimes`/`documentsOnFile`) as a side effect. Converted exactly the 6 section types where `content` was provably unused in the real exported document (Vessel Particulars, Attendees, Machinery Particulars, Accounts, Repair Times, Documents on File) to read-only + Edit deep-link + Remarks; deliberately left `occurrence`/`natureOfRepairs`/`documentsRequested` (content there is genuinely live/exported, converting risks discarding real surveyor edits) and the hybrid/already-correct/narrative sections untouched — a case for the surveyor to weigh in on, not guessed blind. 6 commits, each independently revertable (migration; model/provider; reference panel; editor UI; Preview/docx rendering + drift fix; tests). `flutter analyze lib/ test/`: 12 pre-existing issues throughout, no new ones. `flutter test`: 233/234 passing (sole failure the pre-existing unrelated placeholder), 7 new tests added. **Not live-verified** — no surveyor present; flagged explicitly in §2.18 above for a spot-check next session.
+  10. **Genuinely still open:** §2.18 Slices 2+ (`occurrence`/`natureOfRepairs`/`documentsRequested` — needs the surveyor's call; `damageDescription` — needs a new table builder, bigger lift); §3.4 dedicated Documentation screen (large, still deliberately not started); §1.8 S5 wording needs the surveyor's real text; §3.14's remaining automate-import item and §4.1 need a supervised session (OAuth/API-cost risk); C-6f needs the surveyor to clarify the actual complaint.
 <!-- OVERNIGHT_LOG_END -->
 
 **Execution plan (clusters, in order):**
@@ -488,11 +490,73 @@ Current state: all major sections coded. Re-audit against spec:
 **Spec:** §2.2 (extends §2.11)
 
 ### 2.18 Section Editor — Auto-Populated, Edit-at-Source Redesign (scope added 8 July 2026)
-- [ ] Remove leftover free-text input fields from an earlier design iteration — most report sections should not be manually typed at all
-- [ ] Editor view should visually match the read-only Preview table, not a separate free-form editing layout
-- [ ] Sections auto-populate from the underlying case-screen data (vessel, occurrence, damage, accounts, etc.) — the only genuinely free-text field per section should be **Remarks**
-- [ ] Add an "Edit" affordance beside each auto-populated section that deep-links to the corresponding case-screen section — correcting data there updates the report automatically, rather than editing report text directly (single source of truth, no drift between case data and report text)
-- [ ] Large architectural change — touches `report_provider.dart`'s `buildSections()` and `section_editor.dart` broadly. Scope and sequence section-by-section rather than as one rewrite; §1.8's S1–S5 content fixes can land independently of this
+**Slice 1 done 10 July 2026 (resumed autonomously, surveyor offline) — the 6
+section types where `content` was confirmed dead weight/drifting in the
+real docx export.** Research before building found the actual gap narrower
+than this section originally assumed: `SectionReferencePanel`
+(`section_reference_panel.dart`) already existed and already built
+read-only structured tables from case data for most section types — it was
+just shown *redundantly alongside* the free-text box, not replacing it, and
+nothing deep-linked to the source screen. Traced whether `content` (the
+free-text box's field) is actually used in the real rendered output (both
+Preview *and* the exported .docx) for every non-narrative section type
+before touching anything, since this is legally-sensitive code:
+- [✓] **`vesselParticulars`, `attendees`, `machineryParticulars`, `accounts`**
+  — confirmed `content` was already 100% dead weight (both Preview and
+  docx render a table from case data directly, never reading it) —
+  converting to read-only was zero-risk.
+- [✓] **`repairTimes`, `documentsOnFile`** — found a genuine **live drift
+  bug**: Preview showed the AI-generated prose in `content`, but docx
+  export never read it at all (pure table from data) — whatever a surveyor
+  typed there was silently discarded at export while Preview dishonestly
+  showed it as if it mattered. Fixed as a side effect of this slice
+  (Preview now renders the same table docx always did — extracted
+  `buildRepairTimesRows`/`buildDocumentsOnFileRows` into
+  `section_table_rows.dart` so all three renderers share one
+  implementation instead of drifting).
+- [✓] Remove leftover free-text input fields — done for these 6 types:
+  `section_editor.dart` now shows the same read-only `SectionReferencePanel`
+  table Preview/docx already render, instead of a `TextField` that did
+  nothing to the real report.
+- [✓] Editor view visually matches the read-only Preview table — same
+  widget, promoted from "supplementary, below the box" to "the content".
+- [✓] Only free-text field left is **Remarks** — new nullable
+  `report_sections.remarks` column (migration
+  `033_report_section_remarks.sql`), rendered as a labeled, italicized,
+  omit-when-empty line after each section's table in both Preview and docx.
+- [✓] "Edit" affordance — `autoPopulatedEditRoute` const map +
+  `context.go('/cases/$caseId/<segment>')`, confirmed against
+  `app_router.dart`'s actual routes. Machinery has no separate tab
+  deep-link in v1 — goes to the Vessel screen, surveyor taps the Machinery
+  tab themselves (acceptable simplification, not an oversight).
+- [ ] **Deliberately NOT converted this slice** — a case for the surveyor
+  to weigh in on, not a same-session call:
+  - `occurrence`, `natureOfRepairs`, `documentsRequested` — `content` is
+    genuinely the live exported prose here (no table exists); converting
+    to read-only risks silently discarding real surveyor edits already
+    saved on in-flight cases.
+  - `classStatutory`, `informationSources`, `repairs` — hybrid (live prose
+    *and* an already-existing trailing table) — working as designed.
+  - Genuinely narrative sections (background, causation, allegation, the
+    four cue-driven-AI-draft sections, Advice to Assured) and
+    clause-locked/already-fully-auto sections (opening, waiver, closing,
+    executiveSummary) — already correct, untouched.
+- Verified: `flutter analyze lib/ test/` 12 pre-existing issues, unchanged.
+  `flutter test` 233/234 passing (sole failure the pre-existing unrelated
+  placeholder). 7 new tests
+  (`test/features/reports/widgets/section_editor_test.dart`) prove the
+  pattern on `vesselParticulars` plus a narrative-section control case.
+  **Not live-verified** — no surveyor present this session. Next time
+  online: open Report Builder → Editor tab on a real case, confirm Vessel
+  Particulars/Attendees/Machinery/Accounts/Repair Times/Documents on File
+  all show the read-only table (no text box), each Edit button opens the
+  right case screen, and a typed Remarks note persists after navigating
+  away and back.
+- **Not started — large, still needs its own pass:** extending the same
+  pattern to `occurrence`/`natureOfRepairs`/`documentsRequested` (needs the
+  surveyor's call on existing edits first) and `damageDescription` (no
+  table builder exists yet for Extent of Damage — bigger lift, its own
+  session).
 
 ### 2.12 Section Sub-Paragraphs (Oceanoservices format only)
 **Re-verified 3 July 2026: confirmed still fully missing** — no sub-paragraph/child-section model, numbering scheme, editor UI, or TOC-indent logic found anywhere in `lib/features/reports/`. The "1 July 2026" header note claiming this was added is inaccurate (see top-of-file note).
