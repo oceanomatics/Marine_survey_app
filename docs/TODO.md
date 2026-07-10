@@ -531,15 +531,18 @@ Current state: all major sections coded. Re-audit against spec:
 - [ ] See `docs/legal_clauses.md` Part K (K-2) for the report-side rendering, already implemented
 
 ### 3.6 Case Home — Header Redesign (8 July 2026)
-- [ ] Replace current header (repeats the full composite case title, not always visible, duplicated info) with: vessel name (bold, single line) + subline "{survey type} – {technical file no.} – {instructing party}" — e.g. "H&M – AU-M53-056789 – Gard"
-- [ ] Investigate "not always visible" report — check for overflow/clipping/scroll behaviour in `case_home_screen.dart`
-- [ ] Checklist quick-link at top of Case Home exists visually but is not wired to navigate/function yet — wire it up (relates to §4.3/§4.4 checklist auto-tick work)
+**All done — checkboxes were stale, corrected 10 July 2026** (built 9 July, commit `2d7f9dd`, but never checked off here; caught during a re-audit before starting new work).
+- [✓] Header replaced — vessel name leads (bold, single line, `maxLines: 1` + ellipsis), subline is case type – tech file no. – instructing party (`case_home_screen.dart:210-237`, explicit code comment citing §3.6)
+- [✓] "Not always visible" root cause addressed — resolved by the above (the old header's overflow-prone composite title is what caused it)
+- [✓] Checklist quick-link wired — `InkWell` → `context.go('/cases/${survey.caseId}/checklist')` (`case_home_screen.dart:240-243`)
 
 ### 3.7 Occurrence Editor — Restructure + Per-Occurrence Context Cues (scope added 8 July 2026)
-- [ ] Convert the Occurrence editor from a popup/sheet to a full single screen with two tabs: **Details** (all structured fields/hard data) and **Narrative** (background/occurrence narrative text, attached context cues, ability to add a new surveyor cue inline, and an AI draft button)
-- [ ] Attach context cues per-occurrence rather than case-wide only — shown under the narrative on the Narrative tab
-- [ ] Fix Occurrence title truncation — title doesn't wrap and gets cut off at tablet width; needs proper text wrapping wherever the title is displayed (list view, header)
-- [ ] Worth checking once built whether Causation/Damage Register want the same per-item cue-attachment pattern, since this is really "context cues need to be scoped, not only global" applied to Occurrence first
+**All done — checkboxes were stale, corrected 10 July 2026** (built same night as §3.8, commit `efa9bdf`, but never checked off here; caught during a re-audit before starting new work).
+- [✓] Occurrence editor is a full single screen with two tabs — **Details**/**Narrative** (`occurrence_editor_screen.dart`), confirmed via `flutter test`
+- [✓] Context cues attached per-occurrence, not case-wide — `ContextCuesPanel`'s `itemScope: CueItemScope(linkedToType: occurrenceLinkType, linkedToId: widget.occurrence.occurrenceId)`, genuinely scoped to the one occurrence, not just filtered by section tag
+- [✓] Occurrence title wrap fix — same commit
+- [✓] AI draft button on the Narrative tab — confirmed present (`occurrence_editor_screen.dart:398`)
+- [~] Causation/Damage Register per-item cue pattern — Damage Register got it (§3.8, cue promotion); Causation not checked
 
 ### 3.8 Damage Register — Editor Restructure + Smart Fields (scope added 8 July 2026)
 **All done 9 July 2026** (resumed Cluster C after the background agent hit its session limit last night before reaching this section — see overnight log above). Cue presentation in the Damage Register was already good as-is, no change made there.
@@ -554,11 +557,13 @@ Current state: all major sections coded. Re-audit against spec:
 **Shared with §3.7:** both `OccurrenceEditorScreen` and `DamageItemEditorScreen` follow the same full-screen-editor + cue-promotion/scoping pattern, though not extracted into one shared base component — the two screens' field sets are different enough (two-tab Details/Narrative for Occurrence vs. one flat form for Damage Items) that a shared component would have added more indirection than it saved. Worth revisiting if a third screen needs the same pattern.
 
 ### 3.9 Repair Periods — Editability, Repair-Phase Field, Period-Scoped Cues (scope added 8 July 2026)
-- [ ] Fix bottom overflow (Flutter layout overflow) when opening a repair period
-- [ ] **Add a repair-phase field: preliminary / temporary / permanent.** This is a previously-flagged, previously-deferred gap — `docs/context_cue_system_review.md` §4/§6 already noted "Formal repair-phase concept (preliminary/temporary/permanent) — not modeled today, no immediate need identified." **Immediate need now confirmed (8 July 2026).** This is supplemental to (distinct from) the repair outcome recorded per damage item — it describes the repair period itself, not any individual item within it
-- [ ] **Fields become read-only after the repair period is created** — make all fields editable post-creation, not just at creation time
-- [ ] **Scope context cues to the specific repair period**, not just the flat `repairs`/`repairTimes` case-section tag. The two-level, period-scoped allocation mechanism already exists for WNCA/General Expenses (`linked_to_type = 'repair_period'`, `RepairPeriodScopedCuesScreen`, `ContextCuesPanel`'s `periodScope` param — see `docs/context_cue_system_review.md` Step 2) — extend the same mechanism to the main Repair Periods editor rather than building a new one
-- [ ] Applies the standing cue-action principle here too — create/merge, see `docs/context_cue_system_review.md`
+**Mostly done — checkboxes were stale, corrected 10 July 2026** (re-audited before starting new work).
+- [✓] Bottom overflow fixed — commit `20e8859` ("Cluster C part 1: live-reproduce and fix Repair Periods overflow bug")
+- [✓] Repair-phase field (preliminary/temporary/permanent) — `RepairPhase` enum on `RepairPeriodModel`, persisted (`repair_phase` column)
+- [✓] Fields editable post-creation — no read-only/lock gating found in `repair_periods_screen.dart`; confirmed via passing widget test ("editing a period's own details via the overflow menu persists")
+- [✓] Context cues scoped to the specific repair period — `ContextCuesPanel`'s `periodScope: RepairPeriodScope.forPeriod(period.periodId)`, confirmed
+- [ ] **Still genuinely open:** the create/merge cue-action principle (§3.8's `onPromote` pattern) was never extended to this screen's `ContextCuesPanel` — no `onPromote` callback wired here, unlike Damage Register
+- **New, found during this re-audit (not yet fixed):** the period-scoped `ContextCuesPanel` for the `repairTimes` section (`initiallyExpanded: false`) has a collapsed height a few px short of its own header's content height, logging a RenderFlex overflow on every relayout — cosmetic, pre-existing, surfaced by the 9/10 July widget-test pass, not the same bug as the one already fixed above
 
 ### 3.10 WNCA + General Services & Access + Additional Information — Cosmetic + Layout (scope added 8 July 2026)
 WNCA and General Services & Access share the same underlying `RepairPeriodScopedCuesScreen` component (`docs/context_cue_system_review.md` Step 2 — same widget serves `/wnca` and `/general-expenses`). Additional Information is a different screen (its four live cue tags — previous works, extra expenses, contractual hire, other matters — are "flat siblings" per the case-section coverage matrix, not period-scoped) but the surveyor confirmed the same corner-rendering, bucket, and basket-scaling complaints apply there too — so the underlying `ContextCuesPanel`/`CueSectionCard` styling issue is shared more broadly than just the WNCA-family screens, not confined to `RepairPeriodScopedCuesScreen`. Fix once at the shared widget level, verify across all three screens:
@@ -596,10 +601,11 @@ WNCA and General Services & Access share the same underlying `RepairPeriodScoped
 - [✓] **Auto-derive invoice status from line-item statuses — done 9 July 2026.** `deriveInvoiceStatus()` (`accounts_provider.dart`, top-level, unit-tested in `test/features/accounts/providers/accounts_provider_test.dart`) computes `DocStatus` from the aggregate of an invoice's `AccountLineModel.status` values: any line queried → queried; every line rejected → rejected; every line approved/apportioned/betterment → approved; any other mix → partly approved; no lines or all still pending → pending review. Runs automatically after every account-line add/update/delete. Kept as **auto-with-manual-override** (per surveyor's choice over fully-automatic or suggest-only): `repair_documents.status_manually_set` (migration `030_invoice_status_auto_derive.sql`) tracks whether the surveyor has manually picked a status via the chip selector — auto-derivation skips a document once that's true, until "Reset to auto" is tapped (`invoice_detail_screen.dart`, next to the status label, only shown when manually set). Editing other header fields (supplier/notes/etc.) without touching the status chips does **not** trigger a manual override.
 
 ### 3.13 Attendances — Title Bar + Attendee Titles (scope added 8 July 2026)
-- [ ] Move "Followup Attendance Required" into the title bar (currently elsewhere in the screen body)
-- [ ] Add an editable **title** field per attendee (e.g. "Capt.", "Chief Engineer", "Mr.") — currently missing from the attendee editor
-- [ ] Title must be reflected everywhere the attendee's name is displayed — app UI (attendance lists, attendee chips) and report output (e.g. "Capt. John Doe") — not just stored and unused
-- [ ] **Cross-link attendees with the Parties/Stakeholder register.** When adding an attendee, either pick from existing Parties (`lib/features/parties`) or, if meeting someone new on site, add them straight into the Parties list from the attendee-entry flow — currently these are disconnected, so the same person can end up entered twice with no shared record
+**All done — checkboxes were stale, corrected 10 July 2026** (built 9 July, commit `2d7f9dd`, but never checked off here; caught during a re-audit before starting new work).
+- [✓] "Followup Attendance Required" moved into the title bar — `attendances_screen.dart:210-215`, `_FollowUpBadge` in `BackAppBar.actions`, explicit code comment citing §3.13
+- [✓] Editable attendee title field — `AttendeeTitle`, persisted, confirmed via passing widget test (docs/TODO.md §3.13 row 47 cited directly in the test name)
+- [✓] Title reflected in app UI (attendance lists) and report output — `section_table_rows.dart`'s `_attendeeName` (see §1.8 S2)
+- [✓] Parties cross-link — `add_attendee_sheet.dart` imports `parties_provider`, "Add to Parties?" dialog on new-attendee save
 
 ### 3.15 Photos — Allocation, AI Auto-Classification on Import, Title Convention (scope added 8 July 2026)
 - [✓] **Allocate from the photo viewer — done 9 July 2026.** `photo_detail_sheet.dart` gained a "Link to Attendance / Event" chip row: pick an existing attendance, or quick-create a lightweight event (label + date, pre-filled from the photo's EXIF `takenAt`) inline. New `AttendanceType.event` value — a plain-text DB column, no migration needed — reuses the existing `survey_attendances` table/`attendance_id` link on `PhotoModel` rather than a new table, but is filtered out of the formal Attendances screen's register (`attendances_screen.dart`) so ad-hoc photo-grouping events don't mix in with real attendances; they do show (with their own colour) in the Photo Gallery's per-attendance grouping, where they're legitimately useful.
