@@ -70,11 +70,22 @@ class RepairPeriodScopedCuesScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
             ],
-            _AddPeriodPrompt(
-              caseId: caseId,
-              periods: periods,
-              hint: periods.isEmpty ? noPeriodsHint : null,
-            ),
+            // TODO.md §3.10: the inline quick-create isn't warranted on
+            // General Services & Access specifically — repair periods
+            // should be created from the Repair Periods screen itself, not
+            // from within a cue-basket screen. WNCA keeps it (no surveyor
+            // complaint raised about it there).
+            if (section != CaseSection.generalExpenses)
+              _AddPeriodPrompt(
+                caseId: caseId,
+                periods: periods,
+                hint: periods.isEmpty ? noPeriodsHint : null,
+              )
+            else if (periods.isEmpty && noPeriodsHint != null)
+              Text(noPeriodsHint!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 12.5, color: AppColors.textTertiary)),
           ],
         ),
       ),
