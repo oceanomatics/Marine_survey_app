@@ -56,9 +56,17 @@ class VesselForCaseNotifier extends FamilyAsyncNotifier<VesselModel?, String> {
     required String caseId,
     required String name,
   }) async {
+    // Phase 2 multi-tenancy (migration 044): vessels.organisation_id is
+    // NOT NULL — the new vessel belongs to the same org as the case it's
+    // being created for.
+    final caseRow = await SupabaseService.client
+        .from('cases')
+        .select('organisation_id')
+        .eq('case_id', caseId)
+        .single();
     final data = await SupabaseService.client
         .from('vessels')
-        .insert({'name': name})
+        .insert({'name': name, 'organisation_id': caseRow['organisation_id']})
         .select()
         .single();
 

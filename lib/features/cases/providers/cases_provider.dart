@@ -46,6 +46,19 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     state = await AsyncValue.guard(_fetchCases);
   }
 
+  /// Phase 2 multi-tenancy (migration 044): cases.organisation_id is
+  /// NOT NULL, resolved from the creating user's own surveyor_profiles
+  /// row rather than assumed — a case always belongs to its creator's
+  /// org.
+  Future<String> _currentOrgId() async {
+    final row = await SupabaseService.client
+        .from('surveyor_profiles')
+        .select('organisation_id')
+        .eq('user_id', SupabaseService.userId)
+        .single();
+    return row['organisation_id'] as String;
+  }
+
   Future<CaseModel> createCase({
     required String technicalFileNo,
     required CaseType caseType,
@@ -55,12 +68,14 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     String? vesselId,
     DateTime? instructionDate,
   }) async {
+    final orgId = await _currentOrgId();
     final data = await SupabaseService.client
         .from('cases')
         .insert({
           'technical_file_no':      technicalFileNo,
           'case_type':       caseType.value,
           'status':          'open',
+          'organisation_id': orgId,
           if (outputFormat != null) 'output_format': outputFormat.value,
           if (claimReference != null) 'claim_reference': claimReference,
           if (clientId != null) 'client_id': clientId,
@@ -362,9 +377,12 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
           .update({'name': vesselName})
           .eq('vessel_id', current.vesselId!);
     } else {
+      // Phase 2 multi-tenancy (migration 044): vessels.organisation_id is
+      // NOT NULL — a vessel created for this case belongs to the same org
+      // as the case itself.
       final row = await SupabaseService.client
           .from('vessels')
-          .insert({'name': vesselName})
+          .insert({'name': vesselName, 'organisation_id': current.organisationId})
           .select()
           .single();
       final newVesselId = row['vessel_id'] as String;
