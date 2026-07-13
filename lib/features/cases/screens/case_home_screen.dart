@@ -34,6 +34,7 @@ import '../../vessel/providers/certificates_provider.dart';
 import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/screens/vessel_compliance_screen.dart';
 import '../../reports/providers/report_provider.dart';
+import '../../reports/utils/case_completeness.dart';
 import '../../documents/providers/document_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
@@ -650,6 +651,141 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+// ── Case completeness (§4.3) ────────────────────────────────────────────
+
+/// Compact "is this case ready" summary — a progress bar over the five
+/// required sections (see case_completeness.dart for what counts) plus a
+/// tap-to-expand breakdown covering the optional/tracked ones too.
+class _CompletenessCard extends StatefulWidget {
+  const _CompletenessCard({required this.completeness});
+  final CaseCompleteness completeness;
+
+  @override
+  State<_CompletenessCard> createState() => _CompletenessCardState();
+}
+
+class _CompletenessCardState extends State<_CompletenessCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.completeness;
+    final ratio = c.requiredTotal == 0 ? 0.0 : c.requiredComplete / c.requiredTotal;
+    final color = c.isFullyComplete ? AppColors.success : AppColors.amber;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(
+                    c.isFullyComplete
+                        ? Icons.check_circle_outline
+                        : Icons.donut_large_outlined,
+                    color: color,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.isFullyComplete
+                              ? 'Case ready — all required sections populated'
+                              : '${c.requiredComplete} of ${c.requiredTotal} '
+                                  'required sections complete',
+                          style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 5),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                            value: ratio,
+                            minHeight: 5,
+                            backgroundColor: AppColors.border,
+                            valueColor: AlwaysStoppedAnimation(color),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    color: AppColors.textTertiary,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: c.sections
+                    .map((s) => _CompletenessChip(section: s))
+                    .toList(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompletenessChip extends StatelessWidget {
+  const _CompletenessChip({required this.section});
+  final SectionCompleteness section;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = section.complete
+        ? AppColors.success
+        : (section.required ? AppColors.error : AppColors.textTertiary);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(section.complete ? Icons.check : Icons.remove,
+              size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            section.required ? section.label : '${section.label} (optional)',
+            style: TextStyle(
+                fontSize: 10.5, fontWeight: FontWeight.w600, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Pseudo-Report — template-aware ───────────────────────────────────────
 
 class _PseudoReport extends ConsumerWidget {
@@ -690,11 +826,28 @@ class _PseudoReport extends ConsumerWidget {
         surveyorNotes, survey,
         highlighted: highlighted);
 
+    // §4.3: case-wide completeness — reuses the exact same data already
+    // loaded above for the section cards, so this adds no extra fetch.
+    final completeness = computeCaseCompleteness(
+      hasVesselName: (vessel?.name ?? '').trim().isNotEmpty,
+      hasOccurrence: (damage?.occurrences.isNotEmpty ?? false),
+      hasDamageItems: (damage?.totalDamageItems ?? 0) > 0,
+      hasAttendance: visits.isNotEmpty,
+      signedOff: survey.signedOffAttending && survey.signedOffReviewing,
+      hasCertificates: certs.isNotEmpty,
+      hasRepairPeriods: repairPeriods.isNotEmpty,
+      hasAccounts: repairDocs.isNotEmpty,
+      hasDocumentation: documents.isNotEmpty,
+      hasReportOutput: outputs.isNotEmpty,
+    );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _CompletenessCard(completeness: completeness),
+          const SizedBox(height: 8),
           for (final s in sections) ...[s, const SizedBox(height: 8)],
           const SizedBox(height: 40),
         ],
