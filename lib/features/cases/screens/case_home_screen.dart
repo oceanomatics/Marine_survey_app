@@ -829,15 +829,16 @@ class _PseudoReport extends ConsumerWidget {
         highlighted: highlighted);
 
     // §4.7: open + pending-review action item count for the entry-point
-    // card — inserted right after Attendance since it's "what needs doing"
-    // information, the same priority tier.
+    // card — inserted at the very top of the section list (2026-07-13
+    // audit: surveyor wants "what needs doing" as the first thing seen,
+    // right under the Completeness card).
     final actionItems = ref.watch(actionItemsProvider(caseId)).value ?? [];
     final openActionItems = actionItems
         .where((i) =>
             i.pendingReview || i.status == ActionItemStatus.open)
         .length;
     sections.insert(
-      1,
+      0,
       _SectionCard(
         accentColor: AppColors.purple,
         icon: Icons.checklist_outlined,
