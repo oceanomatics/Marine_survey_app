@@ -137,4 +137,33 @@ void main() {
       expect(updated.pendingExtraction, {'hard_fields': {}});
     });
   });
+
+  // §3.14 (13 July 2026): cross-links a document back to the Correspondence
+  // trail item its attachment was filed from (migration 036) — the "not an
+  // orphan" fix.
+  group('DocumentModel — sourceCorrespondenceId (§3.14)', () {
+    test('null when the document has no correspondence origin (manual '
+        'upload, requested record, etc.)', () {
+      final doc = DocumentModel.fromJson(_baseJson());
+      expect(doc.sourceCorrespondenceId, isNull);
+    });
+
+    test('fromJson reads source_correspondence_id', () {
+      final doc = DocumentModel.fromJson(
+          _baseJson(overrides: {'source_correspondence_id': 'corr-1'}));
+      expect(doc.sourceCorrespondenceId, 'corr-1');
+    });
+
+    test('copyWith always preserves it — no caller ever changes a '
+        "document's correspondence origin after creation", () {
+      const doc = DocumentModel(
+        docId: 'doc-1',
+        caseId: 'case-1',
+        title: 'Attachment.pdf',
+        sourceCorrespondenceId: 'corr-1',
+      );
+      final updated = doc.copyWith(title: 'Renamed', aiExtracted: true);
+      expect(updated.sourceCorrespondenceId, 'corr-1');
+    });
+  });
 }

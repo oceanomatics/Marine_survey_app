@@ -212,7 +212,7 @@ class CorrespondenceScreen extends ConsumerWidget {
     final file = result.files.first;
     if (file.bytes == null || !context.mounted) return;
 
-    final (_, attachments) = await ref
+    final (corr, attachments) = await ref
         .read(correspondenceProvider(caseId).notifier)
         .importEml(caseId: caseId, bytes: file.bytes!, filename: file.name);
 
@@ -241,6 +241,10 @@ class CorrespondenceScreen extends ConsumerWidget {
           title: att.filename,
           category: DocCategory.correspondence,
           willExtract: false,
+          // §3.14: cross-link back to the trail item so Correspondence can
+          // show "filed in Vault" status instead of the attachment being an
+          // orphan once it lands in Document Vault.
+          sourceCorrespondenceId: corr.id,
         );
       }
       if (context.mounted) {
@@ -281,10 +285,18 @@ class CorrespondenceScreen extends ConsumerWidget {
 
     final notifier = ref.read(correspondenceProvider(caseId).notifier);
     final allAttachments = <EmlAttachment>[];
+    // §3.14: a batch import covers several messages at once, so track which
+    // correspondence record each pooled attachment actually came from —
+    // identity-keyed (the exact same EmlAttachment instances flow through
+    // the picker dialog and back), not a value-equality map.
+    final attachmentCorrId = <EmlAttachment, String>{};
     for (final (bytes, subject) in result) {
-      final (_, attachments) = await notifier.importEml(
+      final (corr, attachments) = await notifier.importEml(
           caseId: caseId, bytes: bytes, filename: '$subject.eml');
       allAttachments.addAll(attachments);
+      for (final att in attachments) {
+        attachmentCorrId[att] = corr.id;
+      }
     }
 
     if (!context.mounted) return;
@@ -313,6 +325,7 @@ class CorrespondenceScreen extends ConsumerWidget {
           title: att.filename,
           category: DocCategory.correspondence,
           willExtract: false,
+          sourceCorrespondenceId: attachmentCorrId[att],
         );
       }
       if (context.mounted) {
@@ -488,8 +501,17 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     }
   }
 
+  /// §3.14: attachments saved to Document Vault from this trail item
+  /// (`source_correspondence_id`, migration 036) — the cross-link so a
+  /// filed attachment doesn't read as an orphan back here.
+  int _filedInVaultCount() =>
+      (ref.watch(documentProvider(widget.caseId)).value ?? const [])
+          .where((d) => d.sourceCorrespondenceId == item.id)
+          .length;
+
   @override
   Widget build(BuildContext context) {
+    final filedInVault = _filedInVaultCount();
     return Container(
       decoration: BoxDecoration(
         color: AppColors.background,
@@ -570,6 +592,28 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                               '${item.actions.length} actions',
                               style: const TextStyle(
                                   fontSize: 10, color: AppColors.textTertiary),
+                            ),
+                          ],
+                          if (filedInVault > 0) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () =>
+                                  context.push('/cases/${widget.caseId}/documents'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '$filedInVault in Vault',
+                                  style: const TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.success),
+                                ),
+                              ),
                             ),
                           ],
                         ]),

@@ -86,6 +86,7 @@ class DocumentModel {
     this.surveyorConfirmed = false,
     this.isCoverPhoto = false,
     this.includedInReport = true,
+    this.sourceCorrespondenceId,
   });
 
   final String docId;
@@ -126,6 +127,12 @@ class DocumentModel {
   /// when [availability] == [DocAvailability.enclosed]; ignored (harmless)
   /// otherwise. Migration 034, defaults true.
   final bool includedInReport;
+
+  /// §3.14 (13 July 2026): set when this document was created from a
+  /// Correspondence attachment (`correspondence_screen.dart`'s EML/Gmail
+  /// import flows) — the cross-link back to that trail item, migration 036.
+  /// Null for every other document (manual upload, requested record, etc.).
+  final String? sourceCorrespondenceId;
 
   bool get hasFile => filePath != null && filePath!.isNotEmpty;
   bool get isImage =>
@@ -183,6 +190,7 @@ class DocumentModel {
         surveyorConfirmed: j['surveyor_confirmed'] as bool? ?? false,
         isCoverPhoto: j['is_cover_photo'] as bool? ?? false,
         includedInReport: j['included_in_report'] as bool? ?? true,
+        sourceCorrespondenceId: j['source_correspondence_id'] as String?,
       );
 
   DocumentModel copyWith({
@@ -229,6 +237,7 @@ class DocumentModel {
         surveyorConfirmed: surveyorConfirmed ?? this.surveyorConfirmed,
         isCoverPhoto: isCoverPhoto ?? this.isCoverPhoto,
         includedInReport: includedInReport ?? this.includedInReport,
+        sourceCorrespondenceId: sourceCorrespondenceId,
       );
 }
 
@@ -325,6 +334,7 @@ class DocumentNotifier
     required String title,
     DocCategory? category,
     bool willExtract = true,
+    String? sourceCorrespondenceId,
   }) async {
     final ext = filename.split('.').last.toLowerCase();
     final safeFilename = _sanitizeFilename(filename);
@@ -352,6 +362,8 @@ class DocumentNotifier
           'received_date': DateTime.now().toIso8601String().split('T').first,
           'ai_extracted': false,
           'extraction_status': willExtract ? 'pending' : 'not_applicable',
+          if (sourceCorrespondenceId != null)
+            'source_correspondence_id': sourceCorrespondenceId,
         })
         .select()
         .single();
