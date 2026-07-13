@@ -35,6 +35,7 @@ import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/screens/vessel_compliance_screen.dart';
 import '../../reports/providers/report_provider.dart';
 import '../../reports/utils/case_completeness.dart';
+import '../../action_items/providers/action_items_provider.dart';
 import '../../documents/providers/document_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
@@ -825,6 +826,31 @@ class _PseudoReport extends ConsumerWidget {
         natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
         surveyorNotes, survey,
         highlighted: highlighted);
+
+    // §4.7: open + pending-review action item count for the entry-point
+    // card — inserted right after Attendance since it's "what needs doing"
+    // information, the same priority tier.
+    final actionItems = ref.watch(actionItemsProvider(caseId)).value ?? [];
+    final openActionItems = actionItems
+        .where((i) =>
+            i.pendingReview || i.status == ActionItemStatus.open)
+        .length;
+    sections.insert(
+      1,
+      _SectionCard(
+        accentColor: AppColors.purple,
+        icon: Icons.checklist_outlined,
+        title: 'Action Items',
+        countLabel: openActionItems == 0 ? null : '$openActionItems',
+        onOpen: () => context.go('/cases/$caseId/action-items'),
+        child: openActionItems == 0
+            ? const _SectionEmpty('No open action items')
+            : Text('$openActionItems item${openActionItems == 1 ? '' : 's'} '
+                'need attention — tap Open to review',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+    );
 
     // §4.3: case-wide completeness — reuses the exact same data already
     // loaded above for the section cards, so this adds no extra fetch.
