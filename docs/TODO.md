@@ -849,22 +849,42 @@ merged card view with no ratings/tabs/AI, so this was genuinely unbuilt.)
 
 ## PHASE 2 — Pre-Launch (Commercial Deployment)
 
-From `README.md` commercial deployment section:
+**Full picture shaped up 13 July 2026** (live audit session — triggered by a Google Sign-In `ApiException: 10` on Android, which surfaced the real gap: no Android OAuth client is registered at all, and the app has no concept of "which Google/Microsoft account handles which purpose" for a given surveyor). Surveyor: "we can probably prepare the multi-tenancy now — it's about time." Live-audited the actual Supabase schema before writing any of this (per the project's own "TODO docs unreliable" lesson) — several things below already exist, unused or half-wired, rather than needing to be built from scratch.
 
-### Multi-Tenancy
-- [ ] Introduce `organisations` table (also needed for branding config — coordinate with §2.1 above)
-- [ ] Add `org_id` FK to: cases, vessels, documents, photos, repair_documents, surveyor_notes, attendees, interviews, timeline_events, checklists
-- [ ] Apply Row Level Security policies on all tables — full org isolation
-- [ ] User onboarding / invite flow per organisation
-- [ ] Admin screen: manage organisations and users (ABL ops)
+**What's already there, live-confirmed 13 July 2026:**
+- `organisations` table **exists** (1 row: "OceanoServices") — branding/letterhead fields only (`primary_colour`, `logo_storage_paths`, `wp_*_text`, etc.), no billing/API-key fields yet.
+- `surveyor_profiles` table **exists** (`organisation_id` + `user_id` FKs already present — this is the org-membership link multi-tenancy needs) but has **zero rows** — nobody has ever created one, including for the current single user. Read/written by `organisations_provider.dart`, joined into report generation (`report_provider.dart`) for surveyor signature/qualifications.
+- `profiles` table **exists**, keyed by `user_id`, already holds `anthropic_api_key`/`openai_api_key`/`google_api_key`/`drive_base_folder` — this is where `claude_api.dart` reads its key from today. **Per-user, not per-org** — worth an explicit decision below.
+- `external_accounts` table **exists** but is a plaintext username/password vault for **Equasis only** (`label='equasis'`) — not an OAuth token store, don't confuse the two when designing connected-accounts below.
+- `analyst_usage` table **exists** (`case_id, user_id, org_id, model, input_tokens, output_tokens, created_at`) matching the schema this section already asked for, but has **zero rows and zero references anywhere in `lib/`** — dead schema, nothing ever inserts into it. The checkbox below was accurate (not stale) — the table exists but the wiring doesn't.
+- **Every single RLS policy in the database today is the same `auth.role() = 'authenticated'` check** (live-sampled 8 tables) — any logged-in user can read/write every row of every table regardless of org. This is the actual isolation gap, not a missing concept — the schema anchor (`surveyor_profiles.organisation_id`) to fix it already exists.
+
+**New requirement surfaced by this session's Google Sign-In investigation:** the app currently has exactly ONE shared Google account for Drive+Gmail+Photos combined (`google_auth_service.dart`'s single `_signIn`). Surveyor's real situation: professional Gmail account for correspondence, a *different* personal Google account for phone photos — plus SharePoint and possibly a second Outlook account planned later. This means multi-tenancy isn't just "isolate case data by org" — it also needs a **connected-accounts-by-purpose-and-provider** model, independent of org isolation, since even a solo user needs more than one external account active at once.
+
+### Multi-Tenancy — data isolation
+- [ ] Add `org_id` FK to every case-owning table (cases first — everything else hangs off `case_id`, so a join/subquery through `cases.org_id` covers most tables without denormalizing everywhere; denormalize onto the highest-traffic tables only if RLS join performance actually becomes a problem): vessels, documents, photos, repair_documents, surveyor_notes, attendees, interviews, timeline_events, timeline_event_ratings, checklists, action_items, correspondence, account_lines, cost_estimate_items — plus every table added since this list was first written.
+- [ ] Populate `surveyor_profiles` for the existing single user/org (currently empty — do this first, it's a 30-second data fix and unblocks testing the rest of this against real data)
+- [ ] Rewrite every RLS policy from `auth.role() = 'authenticated'` to check the caller's org via `surveyor_profiles` (e.g. `org_id = (select organisation_id from surveyor_profiles where user_id = auth.uid())`) — this is the single biggest chunk of work here: dozens of tables, each needing its policy replaced, not just cases
+- [ ] `checklist_templates` stays **global** (shared across all orgs), not org-scoped, unless/until a firm wants to customize its own default checklist — not needed for the current MM09/placeholder content
+- [ ] User onboarding / invite flow per organisation (Supabase invite → `auth.users` row → `surveyor_profiles` row tying them to the org) — nothing exists for this today
+- [ ] Role model: nothing distinguishes "org admin" from "surveyor" yet — doesn't block a single-admin-per-firm model, but §4.2 (multi-surveyor firms) will need it
+- [ ] Admin screen: manage organisations and users (ABL ops) — not built
+
+### Connected Accounts — multiple external accounts, by purpose, by provider
+**New section, added 13 July 2026** — not just a Phase 2 nice-to-have, this blocks even solo-user testing today (the Android `ApiException: 10` investigation is what surfaced it).
+- [ ] New `connected_accounts` table: `id, user_id, provider ('google'|'microsoft'), purpose ('correspondence'|'photos'|'documents'|...), account_email, oauth_client_id (nullable — see below), created_at`. Deliberately **not** `external_accounts` (that's a plaintext credential vault for Equasis, a different concept — OAuth tokens/sessions are managed by the platform sign-in SDK, this table just records *which* account is connected for *which* purpose, it doesn't store secrets itself)
+- [ ] Refactor `google_auth_service.dart` off its single shared `_signIn` instance so Gmail (correspondence), Drive (documents), and Photos can each resolve to a *different* signed-in Google account per surveyor, keyed by `purpose` in `connected_accounts` — this directly fixes the surveyor's real professional-Gmail-vs-personal-Photos split, independent of anything else in this section
+- [ ] **Platform constraint (confirmed 13 July 2026):** `google_sign_in: ^6.2.0`'s Android plugin resolves its OAuth client entirely from `google-services.json` baked in at build time — the Dart-level `clientId` parameter is documented as ignored on Android (it *does* work at runtime on iOS and web). So `connected_accounts.oauth_client_id` (a true per-surveyor/per-org "bring your own OAuth client" override) can only be honoured on iOS/web with the current plugin — Android always uses the one shared app-level client until/unless a custom OAuth webview flow replaces the native plugin there. Don't build the Android bypass now — revisit if/when a client actually needs their own Google Cloud project.
+- [ ] Microsoft/Outlook/SharePoint: **schema anticipates it** (`provider` enum, not Google-specific) but **no Microsoft integration code exists yet** — needs its own auth service (MSAL or equivalent) when actually scoped. Don't build blind; the `docs/PRESENTATION_BRIEF.md` business framing and real client requirements should firm up which of Outlook/SharePoint is needed first before writing code.
+- [ ] **Immediate unblock (separate from all of the above, needed regardless of any decision here):** register one shared Android OAuth client (package name + debug SHA-1 `51:AF:5C:AD:44:97:8D:19:D7:3B:C5:1A:8C:2D:80:AA:30:62:8F:72`) in the existing Google Cloud project, download `google-services.json` into `android/app/`, wire up the `google-services` Gradle plugin (currently entirely absent) — this is what's actually blocking Correspondence/Inbox testing on Android today and doesn't depend on resolving the bigger connected-accounts design first.
 
 ### AI Cost Attribution
-- [ ] Create `analyst_usage` table: `case_id, user_id, org_id, model, input_tokens, output_tokens, created_at`
-- [ ] Update `case-analyst` Edge Function to insert a row after each Anthropic call
+- [ ] `analyst_usage` table already exists (confirmed above) — the gap is entirely on the write side: nothing inserts into it. Client-side Claude calls (the vast majority of AI usage in this app — see §4.1's note that everything is client-side except one Edge Function) need their own insert-after-call wiring, not just the `case-analyst` Edge Function this section originally assumed was the only call site
 - [ ] Build usage report view: per company, per case, per month
 - [ ] **Confirmed gap (8 July 2026):** existing Settings AI usage dashboard only shows global/org totals — needs a per-case breakdown
 - [ ] **Confirmed gap (8 July 2026):** model/feature names render as raw `snake_case` in the usage dashboard — needs human-readable labels
 - [ ] **Billing model decided (8 July 2026):** flat fee per case charged to the user/firm to cover token usage, not metered pass-through billing. Pricing/margin per case still to be worked out; superseded the open "include in service fee vs. pass-through" question — it's the former, at a fixed rather than variable rate
+- [ ] **Open decision, surfaced 13 July 2026:** `profiles.anthropic_api_key` is per-*user* today. Multi-tenancy likely wants this per-*organisation* instead (one firm-level billing key an org admin manages, not each surveyor bringing their own) — needs a real decision before `analyst_usage` attribution and the flat-fee-per-case billing model above can be wired together coherently. Not resolved here; flag for the surveyor.
 
 ### Configuration & Secrets
 - [ ] Per-deployment `ANTHROPIC_API_KEY` as Supabase secret
