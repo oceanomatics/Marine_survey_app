@@ -8,6 +8,17 @@ import '../models/nature_of_repairs_model.dart';
 
 const _uuid = Uuid();
 
+/// Pure list-reorder helper, factored out so it's unit-testable without a
+/// Supabase round trip. [newIndex] must already be adjusted for the
+/// removed-then-reinserted item (ReorderableListView's `onReorderItem`
+/// contract, not the deprecated `onReorder`).
+List<T> reorderedList<T>(List<T> items, int oldIndex, int newIndex) {
+  final result = [...items];
+  final moved = result.removeAt(oldIndex);
+  result.insert(newIndex, moved);
+  return result;
+}
+
 final natureOfRepairsProvider = AsyncNotifierProviderFamily<
     NatureOfRepairsNotifier, NatureOfRepairs, String>(
   NatureOfRepairsNotifier.new,
@@ -78,5 +89,18 @@ class NatureOfRepairsNotifier
     final updated =
         current.sequenceItems.where((i) => i.itemId != itemId).toList();
     await _patch({'sequence_items': updated.map((e) => e.toJson()).toList()});
+  }
+
+  /// §3.11: the sequence has no separate order column — `sequence_items` is
+  /// stored as one jsonb array, so its position *is* the report order.
+  /// Reordering is just re-arranging and re-persisting the whole array,
+  /// same as add/remove above. [newIndex] must already be adjusted for the
+  /// removed-then-reinserted item (i.e. call this from
+  /// ReorderableListView's `onReorderItem`, not the deprecated `onReorder`
+  /// — see AddableBulletList.onReorder's doc comment).
+  Future<void> reorderSequenceItems(int oldIndex, int newIndex) async {
+    final current = state.value ?? NatureOfRepairs.empty(arg);
+    final items = reorderedList(current.sequenceItems, oldIndex, newIndex);
+    await _patch({'sequence_items': items.map((e) => e.toJson()).toList()});
   }
 }

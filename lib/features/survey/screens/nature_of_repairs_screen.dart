@@ -196,6 +196,7 @@ class _NatureOfRepairsScreenState
                           onAdd: notifier.addSequenceItem,
                         ),
                         onRemove: notifier.removeSequenceItem,
+                        onReorder: notifier.reorderSequenceItems,
                       ),
                     ],
                   ),

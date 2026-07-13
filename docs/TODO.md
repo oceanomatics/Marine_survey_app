@@ -711,8 +711,8 @@ WNCA and General Services & Access share the same underlying `RepairPeriodScoped
 
 ### 3.11 Nature of the Repairs — Reorder + Sizing + Corner Bug (scope added 8 July 2026)
 - [✓] Rounded-corner bug — **already done, same fix as §3.10** (`acab6ab` explicitly names Nature-of-Repairs among the four screens covered).
-- [ ] Drag-to-reorder for the sequence of repairs — not attempted.
-- [ ] Increase element size (checkboxes/chips/fields too small) — not attempted.
+- [✓] Drag-to-reorder for the sequence of repairs — **DONE 13 July 2026.** `sequence_items` was already a single jsonb array (no separate order column), so reordering is just re-arranging and re-persisting the array. `AddableBulletList` gained an optional `onReorder` param (drag handle + `ReorderableListView`, opt-in — no other caller needs it) wired to `NatureOfRepairsNotifier.reorderSequenceItems()`; the pure reorder algorithm is factored out as `reorderedList()` and unit-tested (`nature_of_repairs_provider_test.dart`) since the provider itself isn't (hits Supabase directly).
+- [✓] Increase element size (checkboxes/chips/fields too small) — **DONE 13 July 2026, scoped to the bullet list** (the concrete "too small" element on this screen): item text 12→13.5px, add-button/close/drag icons enlarged and given more tap-target padding. The question cards' own text/switches were already standard Material sizing — left alone rather than guessing at further changes with no clearer signal on what else felt small.
 
 ### 3.12 Accounts Screen — Cost Estimate Redesign + Bugs (scope added 8 July 2026)
 
