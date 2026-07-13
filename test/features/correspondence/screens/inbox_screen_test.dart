@@ -5,9 +5,11 @@ import 'package:marine_survey_app/core/services/gmail_service.dart';
 import 'package:marine_survey_app/features/cases/models/case_model.dart';
 import 'package:marine_survey_app/features/cases/providers/cases_provider.dart';
 import 'package:marine_survey_app/features/correspondence/providers/inbox_provider.dart';
+import 'package:marine_survey_app/features/correspondence/providers/mail_poll_provider.dart';
 import 'package:marine_survey_app/features/correspondence/screens/inbox_screen.dart';
 
 import '../../../support/fakes/fake_cases_notifier.dart';
+import '../../../support/fakes/fake_mail_poll_notifier.dart';
 
 GmailMessageSummary _msg({
   String id = 'm1',
@@ -46,6 +48,9 @@ Future<void> _pump(
           return messages ?? const [];
         }),
         casesProvider.overrideWith(() => FakeCasesNotifier(cases)),
+        // Real mailPollProvider starts a Timer.periodic and hits the live
+        // Gmail API — neither belongs in a widget test.
+        mailPollProvider.overrideWith(FakeMailPollNotifier.new),
       ],
       child: const MaterialApp(home: InboxScreen()),
     ),
@@ -94,5 +99,37 @@ void main() {
       expect(find.text('MV Surveyor — H&M'), findsOneWidget);
       expect(find.text('MV Second — C&S'), findsOneWidget);
     });
+
+    testWidgets(
+        'opening the Inbox clears the shared §3.14 new-mail badge '
+        '(marks seen)', (tester) async {
+      final tracker = _TrackingMailPollNotifier();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            inboxMessagesProvider
+                .overrideWith((ref) async => [_msg()]),
+            casesProvider.overrideWith(() => FakeCasesNotifier(const [])),
+            mailPollProvider.overrideWith(() => tracker),
+          ],
+          child: const MaterialApp(home: InboxScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tracker.markSeenCalls, 1);
+    });
   });
+}
+
+/// Records whether InboxScreen's initState actually called markSeen(), per
+/// the badge-clearing contract mail_poll_provider.dart documents.
+class _TrackingMailPollNotifier extends FakeMailPollNotifier {
+  int markSeenCalls = 0;
+
+  @override
+  Future<void> markSeen() async {
+    markSeenCalls++;
+    await super.markSeen();
+  }
 }

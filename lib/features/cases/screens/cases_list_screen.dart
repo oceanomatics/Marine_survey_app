@@ -8,6 +8,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
 import '../../../shared/widgets/back_app_bar.dart';
+import '../../correspondence/providers/mail_poll_provider.dart';
 
 class CasesListScreen extends ConsumerWidget {
   const CasesListScreen({super.key});
@@ -15,14 +16,21 @@ class CasesListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final casesAsync = ref.watch(casesProvider);
+    final unseenMail = ref.watch(mailPollProvider).unseenCount;
     return Scaffold(
       appBar: BackAppBar(
         title: const Text('Cases'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.inbox_outlined, color: Colors.white),
+            icon: Badge(
+              label: Text('$unseenMail'),
+              isLabelVisible: unseenMail > 0,
+              child: const Icon(Icons.inbox_outlined, color: Colors.white),
+            ),
             onPressed: () => context.go('/inbox'),
-            tooltip: 'Inbox',
+            tooltip: unseenMail > 0
+                ? 'Inbox — $unseenMail new'
+                : 'Inbox',
           ),
           IconButton(
             icon: const Icon(Icons.access_time_outlined, color: Colors.white),

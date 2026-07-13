@@ -26,6 +26,8 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import 'gmail_message_picker_screen.dart';
 import '../../../shared/widgets/back_app_bar.dart';
+import 'package:go_router/go_router.dart';
+import '../providers/mail_poll_provider.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -36,10 +38,30 @@ class CorrespondenceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final corrAsync = ref.watch(correspondenceProvider(caseId));
+    final unseenMail = ref.watch(mailPollProvider).unseenCount;
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: const BackAppBar(title: Text('Correspondence')),
+      appBar: BackAppBar(
+        title: const Text('Correspondence'),
+        actions: [
+          // §3.14: same shared new-mail signal as the Cases list Inbox
+          // icon — a nudge that there's un-triaged mail, surfaced here too
+          // since a surveyor working a case's Correspondence trail is
+          // exactly who'd want to know about it, without conflating the
+          // count with anything case-specific (Inbox mail isn't filed to a
+          // case yet, so it can't be scoped to this one).
+          IconButton(
+            icon: Badge(
+              label: Text('$unseenMail'),
+              isLabelVisible: unseenMail > 0,
+              child: const Icon(Icons.mail_outline, color: Colors.white),
+            ),
+            onPressed: () => context.go('/inbox'),
+            tooltip: unseenMail > 0 ? 'Inbox — $unseenMail new' : 'Inbox',
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref),
         backgroundColor: _kColor,

@@ -75,6 +75,57 @@ class GmailService {
         'Authorization': 'Bearer ${await GoogleAuthService.accessToken()}'
       });
 
+  /// Same shape as [listRecent] (metadata-only summaries) but backed by
+  /// [GoogleAuthService.silentAccessToken] — never triggers an interactive
+  /// sign-in. Returns null if no session is silently available, meaning
+  /// "skip this cycle" for a background caller. Used by the §3.14 mail
+  /// poller; explicit user-initiated screens (Inbox, Correspondence import)
+  /// keep using [listRecent], which is allowed to prompt.
+  static Future<List<GmailMessageSummary>?> listRecentSilent({
+    int maxResults = 10,
+  }) async {
+    final token = await GoogleAuthService.silentAccessToken();
+    if (token == null) return null;
+    final headers = Options(headers: {'Authorization': 'Bearer $token'});
+
+    final listResp = await _dio.get<Map<String, dynamic>>(
+      'messages',
+      queryParameters: {'maxResults': maxResults},
+      options: headers,
+    );
+    final ids = (listResp.data!['messages'] as List? ?? [])
+        .map((m) => m['id'] as String)
+        .toList();
+
+    final summaries = <GmailMessageSummary>[];
+    for (final id in ids) {
+      final resp = await _dio.get<Map<String, dynamic>>(
+        'messages/$id',
+        queryParameters: {
+          'format': 'metadata',
+          'metadataHeaders': ['Subject', 'From', 'Date'],
+        },
+        options: headers,
+      );
+      final data = resp.data!;
+      final hdrs = (data['payload']?['headers'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+      String header(String name) =>
+          hdrs.firstWhere((h) => h['name'] == name,
+              orElse: () => const {})['value'] as String? ??
+          '';
+
+      summaries.add(GmailMessageSummary(
+        id: id,
+        subject: header('Subject').isEmpty ? '(no subject)' : header('Subject'),
+        from: header('From'),
+        date: header('Date').isEmpty ? null : header('Date'),
+        snippet: data['snippet'] as String? ?? '',
+      ));
+    }
+    return summaries;
+  }
+
   /// Converts standard base64 to the URL-safe alphabet Gmail's API expects
   /// (and back) — RFC 4648 §5.
   static String _b64UrlEncode(List<int> bytes) =>

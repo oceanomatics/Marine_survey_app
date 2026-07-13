@@ -46,6 +46,22 @@ class GoogleAuthService {
 
   static Future<void> signOut() => _signIn.signOut();
 
+  /// Non-interactive variant of [accessToken] for background callers (the
+  /// §3.14 mail poller) that must never pop a visible sign-in prompt of its
+  /// own accord. Only ever refreshes silently; returns null (never throws)
+  /// if no token is available without UI — callers should treat that as
+  /// "skip this cycle", not surface an error to the surveyor.
+  static Future<String?> silentAccessToken() async {
+    if (kIsWeb) return null; // web's silent path is unreliable, see accessToken().
+    final account = _signIn.currentUser ?? await _signIn.signInSilently();
+    if (account == null) return null;
+    var token = (await account.authentication).accessToken;
+    if (token != null) return token;
+    final refreshed = await _signIn.signInSilently();
+    token = (await refreshed?.authentication)?.accessToken;
+    return token;
+  }
+
   /// Returns a usable OAuth access token, refreshing silently where possible.
   ///
   /// Google access tokens expire (~1 h), so a long survey session will hit a

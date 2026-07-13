@@ -24,6 +24,8 @@ import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../providers/correspondence_provider.dart';
 import '../providers/inbox_provider.dart';
+import '../providers/mail_poll_provider.dart';
+import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -49,6 +51,16 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   final Set<String> _handled = {};
   // Message id currently being imported (spinner on its card).
   String? _busyId;
+
+  @override
+  void initState() {
+    super.initState();
+    // Opening the Inbox is the surveyor actually looking at their mail —
+    // clears the shared §3.14 new-mail badge shown elsewhere (Cases list,
+    // Correspondence) so it doesn't keep flagging mail already seen here.
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ref.read(mailPollProvider.notifier).markSeen());
+  }
 
   Future<void> _linkToCase(GmailMessageSummary msg) async {
     final selected = await showModalBottomSheet<CaseModel>(
@@ -100,7 +112,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     final async = ref.watch(inboxMessagesProvider);
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: AppBar(
+      appBar: BackAppBar(
         title: const Text('Inbox', style: TextStyle(fontSize: 15)),
         actions: [
           IconButton(
