@@ -188,3 +188,13 @@ Everything above is derived from these — read them directly if in doubt:
 | `048_token_usage_org_scoping.sql` | `token_usage.organisation_id` (denormalized — no case-join path works for its many null-`case_id` rows) |
 | `049_connected_accounts.sql` | The connected-accounts table itself |
 | `050_companion_apps_schema.sql` | `cases.reviewing_surveyor_id`, `surveyor_profiles.role`, `organisations` subscription fields |
+
+---
+
+## 8. Repo organisation — build these as separate repos
+
+**Decided 13 July 2026.** Both companion apps should be **separate git repositories**, not folders/packages inside this repo.
+
+- **This repo (`marine_survey_app`) stays the schema source of truth.** `docs/migrations/*.sql` and this file don't move — there's only one Supabase project regardless of how many app repos consume it. Whoever changes the schema updates it here first; the other repos reference it (a link or a copied section is enough — no submodules/package tooling needed for a two-file reference).
+- **Office-manager app (§4.2) → its own new repo.** Likely Flutter too, so it could eventually share Dart model code with this app — but don't set up shared-package tooling (Melos, a private pub package) before either app exists. Start with light duplication of the models it needs (`CaseModel`, `OrganisationModel`, etc.) and extract a shared package later only if the duplication actually becomes painful.
+- **Vendor console (§4.8) → its own new repo, and reconsider Flutter entirely for it.** It never ships to an end-user device, so there's no mobile-distribution reason to use Flutter. The real driver for a separate repo isn't convenience, it's the **`service_role` key** — it bypasses RLS entirely, and a repo that also produces a customer-distributed build is one accidental bundling mistake away from shipping cross-tenant DB access to a customer's device. A simple internal web dashboard (or even just hand-written SQL views + Supabase Studio for anything read-only) keeps that key on a server/trusted machine only, never compiled into a client binary at all.
