@@ -93,10 +93,12 @@ class TimelineRatingsNotifier
       Iterable<TimelineAiSuggestion> suggestions) async {
     for (final s in suggestions) {
       if (_current.containsKey(s.eventKey)) continue;
-      final next = TimelineEventRating(
-        id:            '',
-        caseId:        arg,
-        eventKey:      s.eventKey,
+      // Seed via _existingOrBlank (not a bare constructor) so
+      // includedInChronology defaults from defaultIncludedForKey like every
+      // other write path — otherwise it silently falls back to the model's
+      // `false` and the event vanishes from the report Chronology the
+      // moment an AI relevance suggestion is applied to it.
+      final next = _existingOrBlank(s.eventKey).copyWith(
         relevance:     s.relevance,
         pendingReview: true,
         aiReason:      s.reason,

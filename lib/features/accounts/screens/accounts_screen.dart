@@ -516,7 +516,12 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
               : 'ongoing_partial_invoices');
       if (needed != caseModel.costEstimateStatus) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _updateStatus(needed);
+          // Skip if a manual Yes/No chip tap already landed in the same
+          // window this callback was scheduled in (2026-07-13 review) —
+          // _pendingStatus is set synchronously by _updateStatus, so if
+          // it's non-null here the surveyor's own explicit choice already
+          // won and must not be silently overwritten by the auto-derive.
+          if (mounted && _pendingStatus == null) _updateStatus(needed);
         });
       }
     }

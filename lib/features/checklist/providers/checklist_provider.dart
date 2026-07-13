@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../reports/providers/case_completeness_provider.dart';
 import '../../reports/utils/case_completeness.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────
@@ -137,7 +138,18 @@ final checklistProvider =
 
 class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
   @override
-  Future<ChecklistState> build(String caseId) => _fetch(caseId);
+  Future<ChecklistState> build(String caseId) {
+    // §4.4 (2026-07-13 review fix): react to completeness changes from
+    // this provider's own lifecycle, not from a screen's build() — so
+    // auto-tick keeps firing even when the Checklist screen isn't the one
+    // mounted/rebuilding. This provider isn't autoDispose, so once built
+    // (e.g. the surveyor opens Checklist once) it keeps listening for the
+    // rest of the session.
+    ref.listen(caseCompletenessProvider(caseId), (previous, next) {
+      autoTickIfReady(next);
+    });
+    return _fetch(caseId);
+  }
 
   Future<ChecklistState> _fetch(String caseId) async {
     final data = await SupabaseService.client

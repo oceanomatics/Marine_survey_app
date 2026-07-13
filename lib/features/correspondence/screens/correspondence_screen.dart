@@ -40,7 +40,9 @@ class CorrespondenceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final corrAsync = ref.watch(correspondenceProvider(caseId));
-    final unseenMail = ref.watch(mailPollProvider).unseenCount;
+    final mailPoll = ref.watch(mailPollProvider);
+    final unseenMail = mailPoll.unseenCount;
+    final unseenLabel = '$unseenMail${mailPoll.capped ? '+' : ''}';
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -55,12 +57,12 @@ class CorrespondenceScreen extends ConsumerWidget {
           // case yet, so it can't be scoped to this one).
           IconButton(
             icon: Badge(
-              label: Text('$unseenMail'),
+              label: Text(unseenLabel),
               isLabelVisible: unseenMail > 0,
               child: const Icon(Icons.mail_outline, color: Colors.white),
             ),
             onPressed: () => context.go('/inbox'),
-            tooltip: unseenMail > 0 ? 'Inbox — $unseenMail new' : 'Inbox',
+            tooltip: unseenMail > 0 ? 'Inbox — $unseenLabel new' : 'Inbox',
           ),
         ],
       ),

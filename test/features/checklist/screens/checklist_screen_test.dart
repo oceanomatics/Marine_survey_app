@@ -5,6 +5,7 @@ import 'package:marine_survey_app/features/accounts/providers/accounts_provider.
 import 'package:marine_survey_app/features/attendances/providers/attendances_provider.dart';
 import 'package:marine_survey_app/features/cases/models/case_model.dart';
 import 'package:marine_survey_app/features/cases/providers/cases_provider.dart';
+import 'package:marine_survey_app/features/background/providers/background_provider.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
 import 'package:marine_survey_app/features/checklist/screens/checklist_screen.dart';
 import 'package:marine_survey_app/features/documents/providers/document_provider.dart';
@@ -15,6 +16,7 @@ import 'package:marine_survey_app/features/vessel/providers/certificates_provide
 import 'package:marine_survey_app/features/vessel/providers/vessel_provider.dart';
 
 import '../../../support/fakes/fake_attendances_notifier.dart';
+import '../../../support/fakes/fake_background_notifier.dart';
 import '../../../support/fakes/fake_case_notifier.dart';
 import '../../../support/fakes/fake_certificates_notifier.dart';
 import '../../../support/fakes/fake_checklist_notifier.dart';
@@ -74,6 +76,7 @@ Future<void> _pump(
     reportOutputsProvider.overrideWith(() => FakeReportOutputsNotifier(const [])),
     vesselForCaseProvider.overrideWith(() => FakeVesselForCaseNotifier(vessel)),
     documentProvider.overrideWith(() => FakeDocumentNotifier(const [])),
+    backgroundProvider.overrideWith(() => FakeBackgroundNotifier()),
   ]);
   addTearDown(container.dispose);
   await pumpWithRouter(

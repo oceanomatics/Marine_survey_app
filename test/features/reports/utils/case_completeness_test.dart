@@ -13,6 +13,7 @@ CaseCompleteness _all(bool value) => computeCaseCompleteness(
       hasAccounts: value,
       hasDocumentation: value,
       hasReportOutput: value,
+      hasBackground: value,
     );
 
 void main() {
@@ -43,6 +44,7 @@ void main() {
         hasAccounts: false,
         hasDocumentation: false,
         hasReportOutput: false,
+        hasBackground: false,
       );
       expect(result.isFullyComplete, isTrue);
     });
@@ -60,6 +62,7 @@ void main() {
         hasAccounts: true,
         hasDocumentation: true,
         hasReportOutput: true,
+        hasBackground: true,
       );
       expect(result.isFullyComplete, isFalse);
       expect(result.requiredComplete, 4);
@@ -69,9 +72,9 @@ void main() {
     test('sections list includes both required and optional entries, with '
         'the required flag correctly set for the caller to filter on', () {
       final result = _all(true);
-      expect(result.sections, hasLength(10));
+      expect(result.sections, hasLength(11));
       expect(result.sections.where((s) => s.required), hasLength(5));
-      expect(result.sections.where((s) => !s.required), hasLength(5));
+      expect(result.sections.where((s) => !s.required), hasLength(6));
     });
   });
 
@@ -90,6 +93,7 @@ void main() {
         hasAccounts: false,
         hasDocumentation: false,
         hasReportOutput: false,
+        hasBackground: false,
       );
       expect(result.completeFor('vessel_particulars'), isTrue);
       expect(result.completeFor('occurrence'), isFalse);
@@ -109,8 +113,32 @@ void main() {
         hasAccounts: false,
         hasDocumentation: false,
         hasReportOutput: false,
+        hasBackground: false,
       );
       expect(result.completeFor('damage_description'), isTrue);
+    });
+
+    test('background (2026-07-13: added so checklist_templates rows already '
+        'tagged with it have a matching completeness key) resolves and is '
+        'optional, not required', () {
+      final withBackground = computeCaseCompleteness(
+        hasVesselName: false,
+        hasOccurrence: false,
+        hasDamageItems: false,
+        hasAttendance: false,
+        signedOff: false,
+        hasCertificates: false,
+        hasRepairPeriods: false,
+        hasAccounts: false,
+        hasDocumentation: false,
+        hasReportOutput: false,
+        hasBackground: true,
+      );
+      expect(withBackground.completeFor('background'), isTrue);
+      expect(
+        withBackground.sections.firstWhere((s) => s.key == 'background').required,
+        isFalse,
+      );
     });
 
     test('an unknown key (e.g. "cover", or "attended_site" with no clean '

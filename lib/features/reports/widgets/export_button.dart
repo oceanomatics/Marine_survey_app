@@ -88,6 +88,27 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
     );
   }
 
+  /// Resolves one photo's local bytes (downloading from Drive via
+  /// [photoNotifier] if not already cached), or null if it can't be
+  /// resolved. Extracted so the three export photo passes can run each
+  /// photo's I/O concurrently via Future.wait instead of one-at-a-time in
+  /// a plain for loop (2026-07-13 review — export prep time was
+  /// serializing dozens of independent disk/Drive reads per export).
+  Future<ResolvedPhoto?> _resolvePhotoBytes(
+      PhotoModel p, PhotoNotifier photoNotifier) async {
+    try {
+      final resolved =
+          p.hasLocalFile ? p : await photoNotifier.ensureLocalFile(p.id) ?? p;
+      if (!resolved.hasLocalFile) return null;
+      final localPath = resolved.localPath!;
+      final bytes = await File(localPath).readAsBytes();
+      final ext = localPath.contains('.') ? localPath.split('.').last : 'jpg';
+      return (bytes: bytes, ext: ext);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _export(BuildContext context) async {
     // Consolidated pre-export checklist (TODO.md §1.7) — soft warnings only;
     // the hard blocks (sign-off, AI review) already disable the button and
@@ -133,44 +154,35 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
           } catch (_) {}
         }
 
-        for (final p in photos) {
-          if (p.linkedToType != 'damage_item' ||
-              p.linkedToId == null ||
-              p.effectivePlacementMode != PlacementMode.inline) {
-            continue;
-          }
-          try {
-            final resolved = p.hasLocalFile
-                ? p
-                : await photoNotifier.ensureLocalFile(p.id) ?? p;
-            if (!resolved.hasLocalFile) continue;
-            final localPath = resolved.localPath!;
-            final bytes = await File(localPath).readAsBytes();
-            final ext =
-                localPath.contains('.') ? localPath.split('.').last : 'jpg';
-            damagePhotosByItemId
-                .putIfAbsent(p.linkedToId!, () => [])
-                .add((bytes: bytes, ext: ext));
-          } catch (_) {}
+        final damageCandidates = photos
+            .where((p) =>
+                p.linkedToType == 'damage_item' &&
+                p.linkedToId != null &&
+                p.effectivePlacementMode == PlacementMode.inline)
+            .toList();
+        final damageResolved = await Future.wait(
+            damageCandidates.map((p) => _resolvePhotoBytes(p, photoNotifier)));
+        for (var i = 0; i < damageCandidates.length; i++) {
+          final r = damageResolved[i];
+          if (r == null) continue;
+          damagePhotosByItemId
+              .putIfAbsent(damageCandidates[i].linkedToId!, () => [])
+              .add(r);
         }
 
-        for (final p in photos) {
-          if (p.linkedToType != 'machinery_nameplate' || p.linkedToId == null) {
-            continue;
-          }
-          try {
-            final resolved = p.hasLocalFile
-                ? p
-                : await photoNotifier.ensureLocalFile(p.id) ?? p;
-            if (!resolved.hasLocalFile) continue;
-            final localPath = resolved.localPath!;
-            final bytes = await File(localPath).readAsBytes();
-            final ext =
-                localPath.contains('.') ? localPath.split('.').last : 'jpg';
-            machineryPhotosByItemId
-                .putIfAbsent(p.linkedToId!, () => [])
-                .add((bytes: bytes, ext: ext));
-          } catch (_) {}
+        final machineryCandidates = photos
+            .where((p) =>
+                p.linkedToType == 'machinery_nameplate' &&
+                p.linkedToId != null)
+            .toList();
+        final machineryResolved = await Future.wait(machineryCandidates
+            .map((p) => _resolvePhotoBytes(p, photoNotifier)));
+        for (var i = 0; i < machineryCandidates.length; i++) {
+          final r = machineryResolved[i];
+          if (r == null) continue;
+          machineryPhotosByItemId
+              .putIfAbsent(machineryCandidates[i].linkedToId!, () => [])
+              .add(r);
         }
 
         // §2.4: Annexure E gallery — every photo NOT rendered inline under
@@ -178,19 +190,15 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
         // keyed by photo id so the export service can line each one up
         // with its register row (annexureEPhotos/buildPhotoRegisterRows,
         // section_table_rows.dart).
-        for (final p in photos) {
-          if (p.effectivePlacementMode == PlacementMode.inline) continue;
-          try {
-            final resolved = p.hasLocalFile
-                ? p
-                : await photoNotifier.ensureLocalFile(p.id) ?? p;
-            if (!resolved.hasLocalFile) continue;
-            final localPath = resolved.localPath!;
-            final bytes = await File(localPath).readAsBytes();
-            final ext =
-                localPath.contains('.') ? localPath.split('.').last : 'jpg';
-            annexurePhotosById[p.id] = (bytes: bytes, ext: ext);
-          } catch (_) {}
+        final annexureCandidates = photos
+            .where((p) => p.effectivePlacementMode != PlacementMode.inline)
+            .toList();
+        final annexureResolved = await Future.wait(
+            annexureCandidates.map((p) => _resolvePhotoBytes(p, photoNotifier)));
+        for (var i = 0; i < annexureCandidates.length; i++) {
+          final r = annexureResolved[i];
+          if (r == null) continue;
+          annexurePhotosById[annexureCandidates[i].id] = r;
         }
       }
 

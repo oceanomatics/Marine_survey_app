@@ -36,11 +36,19 @@ const _kLastSeenIdKey = 'mail_poll.last_seen_message_id';
 
 @immutable
 class MailPollState {
-  const MailPollState({this.unseenCount = 0});
+  const MailPollState({this.unseenCount = 0, this.capped = false});
   final int unseenCount;
 
-  MailPollState copyWith({int? unseenCount}) =>
-      MailPollState(unseenCount: unseenCount ?? this.unseenCount);
+  /// True when [unseenCount] is a floor, not an exact count — the last-seen
+  /// message fell outside the page fetched by the periodic silent check, so
+  /// there may be more unseen mail than [unseenCount] shows. The badge
+  /// should render e.g. "10+" rather than implying an exact number.
+  final bool capped;
+
+  MailPollState copyWith({int? unseenCount, bool? capped}) => MailPollState(
+        unseenCount: unseenCount ?? this.unseenCount,
+        capped: capped ?? this.capped,
+      );
 }
 
 final mailPollProvider =
@@ -101,7 +109,7 @@ class MailPollNotifier extends Notifier<MailPollState> {
           await GmailService.listRecentSilent(maxResults: 10);
       if (messages == null) return; // no silent session — skip this cycle
       if (messages.isEmpty) {
-        state = state.copyWith(unseenCount: 0);
+        state = state.copyWith(unseenCount: 0, capped: false);
         return;
       }
       if (_lastSeenId == null) {
@@ -109,12 +117,16 @@ class MailPollNotifier extends Notifier<MailPollState> {
         // surveyor's existing inbox as "new", only mail that arrives from
         // here on.
         await _persistLastSeen(messages.first.id);
-        state = state.copyWith(unseenCount: 0);
+        state = state.copyWith(unseenCount: 0, capped: false);
         return;
       }
       final idx = messages.indexWhere((m) => m.id == _lastSeenId);
+      // idx == -1 means the last-seen message fell off the fetched page —
+      // there are *at least* messages.length unseen, not exactly that many
+      // (previously reported as an exact count, silently understating a
+      // busy inbox — see the 2026-07-13 review).
       state = state.copyWith(
-          unseenCount: idx == -1 ? messages.length : idx);
+          unseenCount: idx == -1 ? messages.length : idx, capped: idx == -1);
     } catch (_) {
       // Network hiccup / API error — leave the badge as it was, next tick
       // (or the next connectivity/lifecycle event) will retry.
@@ -144,7 +156,7 @@ class MailPollNotifier extends Notifier<MailPollState> {
       // Ignore — inboxMessagesProvider on the same screen already shows the
       // real error/retry state if Gmail is unreachable or unauthenticated.
     } finally {
-      state = state.copyWith(unseenCount: 0);
+      state = state.copyWith(unseenCount: 0, capped: false);
     }
   }
 }

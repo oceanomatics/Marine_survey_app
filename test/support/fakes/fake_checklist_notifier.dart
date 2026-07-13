@@ -7,6 +7,7 @@
 // (that remains a Manual/Integ concern — see TEST_SHEET.md).
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
+import 'package:marine_survey_app/features/reports/providers/case_completeness_provider.dart';
 import 'package:marine_survey_app/features/reports/utils/case_completeness.dart';
 
 class FakeChecklistNotifier extends ChecklistNotifier {
@@ -14,8 +15,16 @@ class FakeChecklistNotifier extends ChecklistNotifier {
   final List<ChecklistItem> _seed;
 
   @override
-  Future<ChecklistState> build(String caseId) async =>
-      ChecklistState(items: _seed);
+  Future<ChecklistState> build(String caseId) async {
+    // Mirrors the real notifier's build() (checklist_provider.dart) — auto-
+    // tick is driven by listening to caseCompletenessProvider from here,
+    // not from ChecklistScreen's build(), so the widget tests exercising
+    // auto-tick need this fake to actually wire the listener up too.
+    ref.listen(caseCompletenessProvider(caseId), (previous, next) {
+      autoTickIfReady(next);
+    });
+    return ChecklistState(items: _seed);
+  }
 
   @override
   Future<void> toggleItem(ChecklistItem item) async {

@@ -76,6 +76,7 @@ CaseCompleteness computeCaseCompleteness({
   required bool hasAccounts,
   required bool hasDocumentation,
   required bool hasReportOutput,
+  required bool hasBackground,
 }) {
   return CaseCompleteness([
     // Keys marked "existing" already appear as ChecklistItem.linkedSection
@@ -130,6 +131,11 @@ CaseCompleteness computeCaseCompleteness({
         key: 'report_output',
         label: 'Report Generated',
         complete: hasReportOutput,
+        required: false),
+    SectionCompleteness(
+        key: 'background', // existing — checklist_templates seeds items here
+        label: 'Background',
+        complete: hasBackground,
         required: false),
   ]);
 }

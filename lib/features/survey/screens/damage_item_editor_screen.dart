@@ -474,15 +474,17 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
               important: true,
             ),
 
-            // ── Location on Vessel — conditional (row 19): redundant ────
-            // once a machinery item is selected (that already implies
-            // location); mainly meaningful for hull-type damage.
-            if (_selectedMachineryId == null)
-              SurveyField(
-                label: 'Location on Vessel',
-                controller: _locationCtrl,
-                hint: 'e.g. Engine room — port side',
-              ),
+            // ── Location on Vessel (row 19) — always shown: hiding this
+            // whenever a machinery item was selected (2026-07-13 review)
+            // left no way to view/edit a location note on an item that
+            // also has a machinery link, even though the value survives in
+            // the model regardless. Still most meaningful for hull-type
+            // damage, hence the hint copy, but never unreachable.
+            SurveyField(
+              label: 'Location on Vessel',
+              controller: _locationCtrl,
+              hint: 'e.g. Engine room — port side',
+            ),
 
             SurveyField(
               label: 'Damage Description',

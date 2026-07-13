@@ -189,7 +189,8 @@ class RepairDocumentsNotifier
           state.value!.map((d) {
             if (d.id != docId) return d;
             return RepairDocumentModel.fromJson(
-                {..._docToJson(d), 'thumbnail_path': thumbPath});
+                {..._docToJson(d), 'thumbnail_path': thumbPath},
+                accountLines: d.accountLines);
           }).toList(),
         );
       }
@@ -349,6 +350,12 @@ class RepairDocumentsNotifier
 
     // Refresh state
     state = AsyncData(await _fetch());
+
+    // Every line was just reset to pending_review — recompute the
+    // invoice-level status so a re-extraction (e.g. retrying a misparse) on
+    // a previously reviewed/approved document doesn't leave surveyor_status
+    // stale relative to the lines that back it.
+    await _autoDeriveStatus(docId);
   }
 
   /// Downloads the source document, asks Claude to extract non-accounting

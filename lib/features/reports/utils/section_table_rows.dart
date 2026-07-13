@@ -699,6 +699,14 @@ ReportSignOff buildReportSignOff(Map<String, dynamic>? organisation) {
 /// linked to a damage item and no explicit override) without importing the
 /// photos feature's model — this file only ever sees the flattened map
 /// shape already used by every other builder here.
+///
+/// 'section_gallery' placement (PlacementMode.sectionGallery) is treated
+/// the same as 'annexure' here — deliberately, not by omission: no export
+/// path renders a photo inline within an arbitrary section, so Annexure E
+/// is the fallback that keeps it visible in the export at all. The photo
+/// detail sheet no longer offers "Section Gallery" as a choice for exactly
+/// this reason (2026-07-13 review) — this fallback only matters for photos
+/// that already had it set beforehand.
 List<Map<String, dynamic>> annexureEPhotos(List<Map<String, dynamic>> photos) {
   final list = photos.where((p) {
     final placementMode = p['placement_mode'] as String?;

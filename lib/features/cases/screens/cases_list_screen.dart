@@ -16,20 +16,22 @@ class CasesListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final casesAsync = ref.watch(casesProvider);
-    final unseenMail = ref.watch(mailPollProvider).unseenCount;
+    final mailPoll = ref.watch(mailPollProvider);
+    final unseenMail = mailPoll.unseenCount;
+    final unseenLabel = '$unseenMail${mailPoll.capped ? '+' : ''}';
     return Scaffold(
       appBar: BackAppBar(
         title: const Text('Cases'),
         actions: [
           IconButton(
             icon: Badge(
-              label: Text('$unseenMail'),
+              label: Text(unseenLabel),
               isLabelVisible: unseenMail > 0,
               child: const Icon(Icons.inbox_outlined, color: Colors.white),
             ),
             onPressed: () => context.go('/inbox'),
             tooltip: unseenMail > 0
-                ? 'Inbox — $unseenMail new'
+                ? 'Inbox — $unseenLabel new'
                 : 'Inbox',
           ),
           IconButton(

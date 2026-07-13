@@ -33,6 +33,7 @@ import '../../accounts/models/accounts_models.dart';
 import '../../vessel/providers/certificates_provider.dart';
 import '../../vessel/providers/vessel_provider.dart';
 import '../../vessel/screens/vessel_compliance_screen.dart';
+import '../../reports/providers/case_completeness_provider.dart';
 import '../../reports/providers/report_provider.dart';
 import '../../reports/utils/case_completeness.dart';
 import '../../action_items/providers/action_items_provider.dart';
@@ -852,20 +853,10 @@ class _PseudoReport extends ConsumerWidget {
       ),
     );
 
-    // §4.3: case-wide completeness — reuses the exact same data already
-    // loaded above for the section cards, so this adds no extra fetch.
-    final completeness = computeCaseCompleteness(
-      hasVesselName: (vessel?.name ?? '').trim().isNotEmpty,
-      hasOccurrence: (damage?.occurrences.isNotEmpty ?? false),
-      hasDamageItems: (damage?.totalDamageItems ?? 0) > 0,
-      hasAttendance: visits.isNotEmpty,
-      signedOff: survey.signedOffAttending && survey.signedOffReviewing,
-      hasCertificates: certs.isNotEmpty,
-      hasRepairPeriods: repairPeriods.isNotEmpty,
-      hasAccounts: repairDocs.isNotEmpty,
-      hasDocumentation: documents.isNotEmpty,
-      hasReportOutput: outputs.isNotEmpty,
-    );
+    // §4.3: case-wide completeness — shared provider (case_completeness_
+    // provider.dart) so this and the Checklist auto-tick engine read the
+    // exact same computation instead of two hand-maintained copies.
+    final completeness = ref.watch(caseCompletenessProvider(caseId));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

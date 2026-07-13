@@ -252,10 +252,18 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
 
             // Placement mode (spec §7: where the photo renders in the
             // exported report — Inline defaults for damage-item photos).
+            // Section Gallery is deliberately not offered here (2026-07-13
+            // review): no export path renders it inline within a section —
+            // docx_export_service.dart only ever places a non-inline photo
+            // in Annexure E — so selecting it silently did the same thing
+            // as Annexure with a misleading label. Revisit once section-
+            // scoped inline rendering actually exists.
             const _Label('Placement in Report'),
             const SizedBox(height: 8),
             ChipRow<PlacementMode>(
-              values: PlacementMode.values,
+              values: PlacementMode.values
+                  .where((m) => m != PlacementMode.sectionGallery)
+                  .toList(),
               selected: _placementMode ?? widget.photo.effectivePlacementMode,
               label: (m) => m.label,
               onChanged: (v) => setState(() => _placementMode = v),

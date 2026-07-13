@@ -148,7 +148,13 @@ class DamageItemCard extends StatelessWidget {
                     fontSize: 12,
                     color: AppColors.textPrimary,
                     height: 1.4),
-                maxLines: 2,
+                // 4, not 2 (2026-07-13 review): the old layout showed
+                // Damage Description (3 lines) and Condition Found
+                // (unclipped) as separate blocks; composing both into one
+                // string but still capping at 2 lines could hide content
+                // that used to be fully visible in the register without
+                // opening the editor.
+                maxLines: 4,
                 overflow: TextOverflow.ellipsis,
               ),
             ],

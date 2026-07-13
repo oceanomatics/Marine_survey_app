@@ -567,7 +567,7 @@ class _FullLogItem extends ConsumerWidget {
     };
     return PopupMenuButton<EventRelevance>(
       tooltip: 'Set relevance',
-      onSelected: (v) => ratings.setRelevance(entry.eventKey, v),
+      onSelected: (v) => _run(context, () => ratings.setRelevance(entry.eventKey, v)),
       itemBuilder: (_) => [
         for (final r in EventRelevance.values)
           PopupMenuItem(value: r, child: Text(r.label)),
@@ -597,7 +597,8 @@ class _FullLogItem extends ConsumerWidget {
     // Confirm an AI suggestion.
     final confirm = entry.pendingReview
         ? TextButton.icon(
-            onPressed: () => ratings.confirmSuggestion(entry.eventKey),
+            onPressed: () =>
+                _run(context, () => ratings.confirmSuggestion(entry.eventKey)),
             style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 minimumSize: const Size(0, 32)),
@@ -610,8 +611,8 @@ class _FullLogItem extends ConsumerWidget {
     Widget chrono;
     if (entry.isIgnored) {
       chrono = TextButton.icon(
-        onPressed: () =>
-            ratings.setRelevance(entry.eventKey, EventRelevance.normal),
+        onPressed: () => _run(context,
+            () => ratings.setRelevance(entry.eventKey, EventRelevance.normal)),
         style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             minimumSize: const Size(0, 32)),
@@ -621,7 +622,8 @@ class _FullLogItem extends ConsumerWidget {
     } else if (entry.sourceType == TimelineSourceType.manual) {
       final included = entry.includedInChronology;
       chrono = TextButton.icon(
-        onPressed: () => ratings.setIncluded(entry.eventKey, !included),
+        onPressed: () =>
+            _run(context, () => ratings.setIncluded(entry.eventKey, !included)),
         style: TextButton.styleFrom(
             foregroundColor: included ? _kColor : AppColors.textSecondary,
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -688,8 +690,22 @@ class _FullLogItem extends ConsumerWidget {
         ],
       ),
     );
-    if (ok == true) {
+    if (ok == true && context.mounted) {
       await ref.read(timelineProvider(caseId).notifier).delete(eventId);
+    }
+  }
+
+  /// Runs a fire-and-forget notifier write (relevance/confirm/chronology
+  /// toggle) with error feedback — `_persist()` has no try/catch of its
+  /// own, so an unhandled Supabase failure previously left the UI silently
+  /// showing the pre-tap value with no indication the write didn't land.
+  Future<void> _run(BuildContext context, Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not save: $e')));
     }
   }
 }

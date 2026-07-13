@@ -1100,22 +1100,34 @@ class DocxExportService {
     // inline photos (rendered under Extent of Damage already) are excluded
     // by annexureEPhotos() so they aren't shown twice.
     final annexureEList = annexureEPhotos(assembled.photos);
-    if (annexureEList.isNotEmpty && annexurePhotosById != null) {
+    // Only photos whose local bytes actually resolved (e.g. not yet
+    // downloaded from Drive, or evicted from cache) go into the register —
+    // otherwise the register lists a numbered entry with no image/caption
+    // ever printed for it (2026-07-13 review). Filtering before building
+    // the register keeps numbering, register rows, and captions all in
+    // sync, same requirement documented on buildPhotoRegisterRows.
+    final resolvedAnnexureEList = annexurePhotosById == null
+        ? const <Map<String, dynamic>>[]
+        : annexureEList
+            .where((p) => annexurePhotosById.containsKey(p['id'] as String?))
+            .toList();
+    if (resolvedAnnexureEList.isNotEmpty) {
       doc.addPageBreak();
       doc.addHeading('ANNEXURE E — PHOTOGRAPHS', 1);
-      final registerRows = buildPhotoRegisterRows(annexureEList);
+      final registerRows = buildPhotoRegisterRows(resolvedAnnexureEList);
       if (registerRows.isNotEmpty) {
         doc.addTable(registerRows, boldFirstRow: true,
             colWidths: [900, 2400, 2400, 1300, 2355]);
         doc.addSpacer();
       }
-      for (var i = 0; i < annexureEList.length; i++) {
-        final photoId = annexureEList[i]['id'] as String?;
-        final resolved = photoId != null ? annexurePhotosById[photoId] : null;
+      for (var i = 0; i < resolvedAnnexureEList.length; i++) {
+        final photoId = resolvedAnnexureEList[i]['id'] as String?;
+        final resolved = annexurePhotosById![photoId];
         if (resolved == null) continue;
         doc.addImage(resolved.bytes, resolved.ext,
             widthEmu: DocxBuilder.kPageWidthEmu * 2 ~/ 3);
-        doc.addParagraph(photoRegisterCaption(annexureEList[i], i + 1),
+        doc.addParagraph(
+            photoRegisterCaption(resolvedAnnexureEList[i], i + 1),
             italic: true, halfPtSize: 18, colorHex: '374151');
         doc.addSpacer();
       }
