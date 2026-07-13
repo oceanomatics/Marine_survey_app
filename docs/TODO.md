@@ -935,6 +935,7 @@ Strategic new initiatives, beyond the single-surveyor field tool. Not started. S
 - [ ] **Deliberately out of scope this pass — Photos.** §3.15 already flags "AI classification queue on import" as depending on §4.1, but auto-firing a paid Claude vision call on *every* imported site photo (not just documents/invoices the surveyor explicitly chose to import for extraction) is a real behaviour and cost change nobody has signed off on — a marine survey can easily produce hundreds of general photos, only a few of which (nameplates, damage close-ups) actually warrant AI extraction. The queue infrastructure built here (auto-fire + status tracking + Production Manager) is reusable for photos once someone decides which photos should qualify and what the cost exposure looks like — not decided here.
 
 ### 4.2 Survey Company Management App (one manager, multiple surveyors)
+**Backend schema prep done + fully documented 13 July 2026 — see `docs/companion_apps_backend.md` §4 before building this**, it has the exact columns/queries/gaps already worked out. Schema added same day (migration 050): `cases.reviewing_surveyor_id`, `surveyor_profiles.role`.
 **Scope sharpened 13 July 2026** — surveyor specifically named this as a separate companion app (not a screen bolted onto the field-survey tool) whose office-manager persona needs to **allocate cases and a reviewer to a case**, on top of the general oversight already noted below.
 - [ ] New product surface distinct from the current field-survey tool: a management console for a principal/manager overseeing a team of surveyors
 - [ ] **Case allocation**: assign a case to an attending surveyor. Data holder already exists: `cases.assigned_surveyor` (uuid, set today only at case-creation time to whoever created it — `createCase()` in `cases_provider.dart` hardcodes it to the creating user; there is no reassignment UI or API today).
@@ -989,6 +990,7 @@ Strategic new initiatives, beyond the single-surveyor field tool. Not started. S
 - [~] **First pass at live verification, 13 July 2026** — surveyor confirms the screen "works well" reading through it, but hasn't yet run the full loop (track a suggested action → confirm → mark done → add a manual task) against a real Supabase-backed case; flagged to revisit "in due time."
 
 ### 4.8 Subscription / Tenant Management App (developer/vendor console)
+**Backend schema prep done + fully documented 13 July 2026 — see `docs/companion_apps_backend.md` §5 before building this**, including the service_role key setup, billing-model context, and exactly what data is/isn't real yet. Schema added same day (migration 050): `organisations.subscription_status`/`plan_tier`/`max_surveyors`/`subscription_started_at`.
 **Added 13 July 2026** — a third product surface, distinct from both the field-survey tool and §4.2's office-manager app: a console for the surveyor **as the software's vendor/developer**, not as a surveying firm, to manage which organisations are subscribed to the product, their billing status, and cross-tenant oversight. Not scoped in detail yet — this entry exists to catalog what's already there to build on, per the surveyor's explicit ask, so a future scoping session doesn't start from zero.
 - [ ] Not started. No code, no schema specifically for subscription/billing status exists today.
 - [ ] **Relevant data holders already in place** (audited 13 July 2026, same pass as the Multi-Tenancy work above):
@@ -1050,5 +1052,6 @@ Answering the 15 questions from Spec §10.3 — **re-audited 3 July 2026 against
 | `docs/report_builder_specs` | Full H&M Report Builder Specification v1.0 |
 | `docs/SCHEMA.md` | Supabase schema dump (partial — truncated at `damage_items`) |
 | `docs/offline_sync_plan.md` | Offline case pinning architecture design |
+| `docs/companion_apps_backend.md` | **Added 13 July 2026.** Backend reference for the §4.2 office-manager app and §4.8 vendor console — RLS model, testing methodology, schema, what's built vs. genuinely missing, so those apps can be built fast without re-deriving this app's backend from scratch |
 | `TEST_SHEET.md` | 110-item feature test sheet (all untested) |
 | `README.md` | Project overview + commercial deployment pre-launch checklist |
