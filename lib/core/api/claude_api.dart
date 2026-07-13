@@ -1102,6 +1102,51 @@ Summary sentence:''',
     return _extractText(response.data).trim();
   }
 
+  /// §3.14: narrative synthesis of a whole email exchange — the one part of
+  /// the thread-level trail summary that actually needs an LLM call. The
+  /// sequence itself (who/when/subject) is composed deterministically by
+  /// correspondence_threads.dart; this only summarises how the exchange
+  /// developed. Fetched on demand (a button tap), not auto-generated on
+  /// import, to keep this a surveyor-triggered cost like the per-message
+  /// extraction summary it sits alongside.
+  ///
+  /// [messages] — oldest first, each `{'from': ..., 'date': ..., 'text':
+  /// ...}` where `text` is that message's own extracted summary if
+  /// available, else a short body snippet (never the full raw body, to
+  /// keep this call's cost bounded regardless of thread length).
+  static Future<String> draftCorrespondenceTrailSummary({
+    required String subject,
+    required List<Map<String, String?>> messages,
+  }) async {
+    if (messages.isEmpty) return '';
+    final exchangeText = messages
+        .map((m) =>
+            '${m['date'] ?? 'Unknown date'} — ${m['from'] ?? 'Unknown sender'}: '
+            '${m['text']?.trim().isNotEmpty == true ? m['text'] : '(no summary available)'}')
+        .join('\n');
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'correspondence_trail_summary'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 400,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''Summarise this email exchange ("$subject") for a marine surveyor reviewing the case file. Write a short factual narrative (3–6 sentences) describing how the exchange developed — what was asked, what was answered, where it landed. Plain third-person register, no preamble, no quotation marks.
+
+EXCHANGE (oldest first):
+$exchangeText
+
+Summary:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data).trim();
+  }
+
   // ── Generalized Document Extraction ──────────────────────────────────────
 
   /// Extract hard structured data + soft context findings from any marine doc.

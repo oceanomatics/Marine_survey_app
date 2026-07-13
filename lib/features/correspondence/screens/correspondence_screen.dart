@@ -11,6 +11,8 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../models/correspondence_model.dart';
 import '../providers/correspondence_provider.dart';
+import '../utils/correspondence_threads.dart';
+import '../../../core/api/claude_api.dart';
 import '../../../core/services/gmail_service.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/eml_parser.dart';
@@ -75,22 +77,33 @@ class CorrespondenceScreen extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (items) => items.isEmpty
             ? _EmptyState(onAdd: () => _showAddSheet(context, ref))
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-                itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) => _CorrCard(
-                  key: ValueKey(items[i].id),
-                  item: items[i],
-                  caseId: caseId,
-                  onPreview: () => items[i].isEml
-                      ? _openEmailPreview(context, items[i])
-                      : _openPdfPreview(context, ref, items[i]),
-                  onDelete: () => ref
-                      .read(correspondenceProvider(caseId).notifier)
-                      .delete(items[i].id),
-                ),
-              ),
+            : Builder(builder: (context) {
+                // §3.14: one grouping pass per build, looked up per-card by
+                // id — cheaper than each of N cards re-grouping the same
+                // full list.
+                final threadByItemId = <String, CorrespondenceThread>{
+                  for (final thread in groupCorrespondenceThreads(items))
+                    if (thread.isMultiMessage)
+                      for (final m in thread.messages) m.id: thread,
+                };
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) => _CorrCard(
+                    key: ValueKey(items[i].id),
+                    item: items[i],
+                    caseId: caseId,
+                    thread: threadByItemId[items[i].id],
+                    onPreview: () => items[i].isEml
+                        ? _openEmailPreview(context, items[i])
+                        : _openPdfPreview(context, ref, items[i]),
+                    onDelete: () => ref
+                        .read(correspondenceProvider(caseId).notifier)
+                        .delete(items[i].id),
+                  ),
+                );
+              }),
       ),
     );
   }
@@ -399,12 +412,17 @@ class _CorrCard extends ConsumerStatefulWidget {
     required this.caseId,
     required this.onPreview,
     required this.onDelete,
+    this.thread,
   });
 
   final CorrespondenceModel item;
   final String caseId;
   final VoidCallback onPreview;
   final VoidCallback onDelete;
+
+  /// §3.14: set only when this item belongs to a multi-message thread —
+  /// drives the "Trail (N)" action opening the thread summary sheet.
+  final CorrespondenceThread? thread;
 
   @override
   ConsumerState<_CorrCard> createState() => _CorrCardState();
@@ -612,6 +630,27 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                                       fontSize: 9.5,
                                       fontWeight: FontWeight.w600,
                                       color: AppColors.success),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (widget.thread != null) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _showThreadSummary,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.teal.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Trail (${widget.thread!.messages.length})',
+                                  style: const TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.teal),
                                 ),
                               ),
                             ),
@@ -904,6 +943,17 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CorrExtractionSummarySheet(item: item),
+    );
+  }
+
+  void _showThreadSummary() {
+    final thread = widget.thread;
+    if (thread == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ThreadSummarySheet(thread: thread),
     );
   }
 
@@ -1893,6 +1943,217 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
                                 fontSize: 12, color: AppColors.textPrimary)),
                       )),
                 ],
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// §3.14: thread-level trail summary — the deterministic sequence (who/
+/// when/subject) is always shown; the narrative synthesis is a separate
+/// on-demand AI call (button tap, not automatic) since it's a genuine paid
+/// call per thread, same posture as the per-message extraction summary.
+class _ThreadSummarySheet extends StatefulWidget {
+  const _ThreadSummarySheet({required this.thread});
+  final CorrespondenceThread thread;
+
+  @override
+  State<_ThreadSummarySheet> createState() => _ThreadSummarySheetState();
+}
+
+class _ThreadSummarySheetState extends State<_ThreadSummarySheet> {
+  String? _narrative;
+  bool _generating = false;
+  Object? _error;
+
+  Future<void> _generate() async {
+    setState(() {
+      _generating = true;
+      _error = null;
+    });
+    try {
+      final messages = widget.thread.messages
+          .map((m) => {
+                'from': m.sender,
+                'date': m.corrDate != null
+                    ? DateFormat('dd MMM yyyy').format(m.corrDate!)
+                    : null,
+                // Prefer the message's own extracted summary (concise,
+                // already AI-cleaned) — only fall back to a raw body
+                // snippet if it was never extracted, and even then cap it
+                // so one huge message can't blow out the call's cost.
+                'text': (m.summary?.isNotEmpty ?? false)
+                    ? m.summary
+                    : (m.bodyText?.isNotEmpty ?? false)
+                        ? m.bodyText!.substring(
+                            0, m.bodyText!.length.clamp(0, 500))
+                        : null,
+              })
+          .toList();
+      final result = await ClaudeApi.draftCorrespondenceTrailSummary(
+        subject: widget.thread.subject,
+        messages: messages,
+      );
+      if (mounted) setState(() => _narrative = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final thread = widget.thread;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      maxChildSize: 0.92,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              const Icon(Icons.forum_outlined, size: 16, color: AppColors.teal),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  thread.subject,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${thread.messages.length} messages in this trail',
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textTertiary),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Divider(),
+          Expanded(
+            child: ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              children: [
+                // ── AI narrative (on demand) ────────────────────────
+                const _CorrSummarySectionHeader(
+                  title: 'Exchange Summary',
+                  color: AppColors.midBlue,
+                  icon: Icons.summarize_outlined,
+                ),
+                const SizedBox(height: 6),
+                if (_narrative != null)
+                  Text(_narrative!,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                          height: 1.45))
+                else if (_error != null)
+                  Text('Could not generate a summary: $_error',
+                      style:
+                          const TextStyle(fontSize: 12, color: AppColors.error))
+                else
+                  const Text(
+                    'Not generated yet — tap below to summarise how this '
+                    'exchange developed.',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textTertiary,
+                        fontStyle: FontStyle.italic),
+                  ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _generating ? null : _generate,
+                  icon: _generating
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5))
+                      : const Icon(Icons.auto_awesome_outlined, size: 14),
+                  label: Text(
+                      _narrative == null ? 'Generate Summary' : 'Regenerate',
+                      style: const TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.midBlue,
+                    side: const BorderSide(color: AppColors.midBlue),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // ── Deterministic sequence ───────────────────────────
+                const _CorrSummarySectionHeader(
+                  title: 'Sequence',
+                  color: AppColors.teal,
+                  icon: Icons.list_alt_outlined,
+                ),
+                const SizedBox(height: 8),
+                ...thread.messages.map((m) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            margin: const EdgeInsets.only(top: 5, right: 8),
+                            decoration: const BoxDecoration(
+                                color: AppColors.teal, shape: BoxShape.circle),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  [
+                                    if (m.corrDate != null)
+                                      DateFormat('dd MMM yyyy')
+                                          .format(m.corrDate!),
+                                    if (m.sender != null) m.sender!,
+                                  ].join(' — '),
+                                  style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary),
+                                ),
+                                if (m.title != thread.subject)
+                                  Text(m.title,
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textTertiary)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
               ],
             ),
           ),
