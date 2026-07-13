@@ -27,14 +27,14 @@ class FakeChecklistNotifier extends ChecklistNotifier {
   }
 
   @override
-  Future<void> toggleItem(ChecklistItem item) async {
-    final nowDone = !item.completed;
+  Future<void> setResponse(
+      ChecklistItem item, ChecklistResponse response) async {
     final now = DateTime.now();
     final current = state.value!;
     state = AsyncData(ChecklistState(
       items: current.items
           .map((i) => i.checklistId == item.checklistId
-              ? i.copyWith(completed: nowDone, completedAt: nowDone ? now : null)
+              ? i.copyWith(response: response, answeredAt: now)
               : i)
           .toList(),
     ));
@@ -46,8 +46,8 @@ class FakeChecklistNotifier extends ChecklistNotifier {
     final current = state.value!;
     state = AsyncData(ChecklistState(
       items: current.items
-          .map((i) => i.stage == stage
-              ? i.copyWith(completed: true, completedAt: now)
+          .map((i) => i.stage == stage && i.response == null
+              ? i.copyWith(response: ChecklistResponse.yes, answeredAt: now)
               : i)
           .toList(),
     ));
@@ -68,7 +68,6 @@ class FakeChecklistNotifier extends ChecklistNotifier {
       stage: stage,
       itemNo: nextNo,
       itemText: text,
-      completed: false,
       isCustom: true,
     );
     state = AsyncData(ChecklistState(items: [...current.items, newItem]));
@@ -95,28 +94,30 @@ class FakeChecklistNotifier extends ChecklistNotifier {
   }
 
   // §4.4: same one-shot-nudge semantics as the real notifier, replayed
-  // in-memory — this is the method ChecklistScreen calls reactively from a
-  // post-frame callback on every build, so it must never fall through to
-  // the real Supabase-backed implementation in a widget test. Critically,
-  // it must also match the real notifier's behaviour of never reassigning
-  // `state` when nothing actually changed: ChecklistScreen re-registers this
-  // same post-frame callback on every rebuild, so an unconditional
-  // `state = AsyncData(...)` here — even to an equivalent value — is a new
-  // object reference every time, which Riverpod treats as a genuine change
-  // and rebuilds the screen again, which calls this again... an infinite
-  // loop that only shows up as "pumpAndSettle timed out", not a clean crash
-  // (caught the hard way authoring this test).
+  // in-memory — this fires from this fake's own build() via
+  // ref.listen(caseCompletenessProvider(...)), same as the real notifier,
+  // so it must never fall through to the real Supabase-backed
+  // implementation in a widget test. Critically, it must also never
+  // reassign `state` when nothing actually changed — an unconditional
+  // `state = AsyncData(...)` here would be a new object reference every
+  // time the listened-to provider recomputes even when no item's
+  // eligibility changed, which Riverpod treats as a genuine change and
+  // triggers another completeness recompute... an infinite loop that only
+  // shows up as "pumpAndSettle timed out", not a clean crash (caught the
+  // hard way authoring this test).
   @override
   Future<void> autoTickIfReady(CaseCompleteness completeness) async {
     final current = state.value!;
     final now = DateTime.now();
     var changed = false;
     final items = current.items.map((i) {
-      if (i.completed || i.autoTickAttempted) return i;
+      if (i.response != null || i.autoTickAttempted) return i;
       if (completeness.completeFor(i.linkedSection ?? '') == true) {
         changed = true;
         return i.copyWith(
-            completed: true, completedAt: now, autoTickAttempted: true);
+            response: ChecklistResponse.yes,
+            answeredAt: now,
+            autoTickAttempted: true);
       }
       return i;
     }).toList();

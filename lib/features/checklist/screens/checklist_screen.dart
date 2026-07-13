@@ -230,9 +230,9 @@ class _StageTab extends ConsumerWidget {
               final item = items[i];
               return ChecklistItemTile(
                 item: item,
-                onToggle: () => ref
+                onSetResponse: (response) => ref
                     .read(checklistProvider(caseId).notifier)
-                    .toggleItem(item),
+                    .setResponse(item, response),
                 onNotesSaved: (notes) => ref
                     .read(checklistProvider(caseId).notifier)
                     .updateNotes(item, notes),

@@ -23,6 +23,28 @@ enum ChecklistStage {
       .firstWhere((e) => e.value == v, orElse: () => ChecklistStage.onVessel);
 }
 
+/// §4.4 rework (2026-07-13 live audit): many real checklist items (e.g.
+/// Andy's MM09 attendance-advice list) are document/access requests where
+/// "did we get/see this" genuinely has three answers, not a binary tick —
+/// Yes (done), No (still outstanding, needs follow-up — counts the same as
+/// unanswered for progress purposes), N/A (not applicable/not fitted —
+/// excluded from progress/stage totals entirely).
+enum ChecklistResponse {
+  yes('yes', 'Yes'),
+  no('no', 'No'),
+  na('na', 'N/A');
+
+  const ChecklistResponse(this.value, this.label);
+  final String value;
+  final String label;
+
+  static ChecklistResponse? fromValue(String? v) {
+    if (v == null) return null;
+    return values.firstWhere((e) => e.value == v,
+        orElse: () => ChecklistResponse.no);
+  }
+}
+
 // ── Model ─────────────────────────────────────────────────────────────────
 
 @immutable
@@ -33,8 +55,8 @@ class ChecklistItem {
     required this.stage,
     required this.itemNo,
     required this.itemText,
-    required this.completed,
-    this.completedAt,
+    this.response,
+    this.answeredAt,
     this.linkedSection,
     this.linkedId,
     this.notes,
@@ -47,8 +69,10 @@ class ChecklistItem {
   final ChecklistStage stage;
   final int itemNo;
   final String itemText;
-  final bool completed;
-  final DateTime? completedAt;
+
+  /// Null = not yet answered.
+  final ChecklistResponse? response;
+  final DateTime? answeredAt;
   final String? linkedSection;
   final String? linkedId;
   final String? notes;
@@ -60,14 +84,16 @@ class ChecklistItem {
   /// underlying data condition is still true.
   final bool autoTickAttempted;
 
+  bool get completed => response == ChecklistResponse.yes;
+
   factory ChecklistItem.fromJson(Map<String, dynamic> j) => ChecklistItem(
         checklistId: j['checklist_id'] as String,
         caseId: j['case_id'] as String,
         stage: ChecklistStage.fromValue(j['stage'] as String? ?? 'on_vessel'),
         itemNo: j['item_no'] as int,
         itemText: j['item_text'] as String,
-        completed: j['completed'] as bool? ?? false,
-        completedAt: j['completed_at'] != null
+        response: ChecklistResponse.fromValue(j['response'] as String?),
+        answeredAt: j['completed_at'] != null
             ? DateTime.tryParse(j['completed_at'] as String)
             : null,
         linkedSection: j['linked_section'] as String?,
@@ -78,8 +104,8 @@ class ChecklistItem {
       );
 
   ChecklistItem copyWith(
-          {bool? completed,
-          DateTime? completedAt,
+          {ChecklistResponse? response,
+          DateTime? answeredAt,
           String? notes,
           bool? autoTickAttempted}) =>
       ChecklistItem(
@@ -88,8 +114,8 @@ class ChecklistItem {
         stage: stage,
         itemNo: itemNo,
         itemText: itemText,
-        completed: completed ?? this.completed,
-        completedAt: completedAt ?? this.completedAt,
+        response: response ?? this.response,
+        answeredAt: answeredAt ?? this.answeredAt,
         linkedSection: linkedSection,
         linkedId: linkedId,
         notes: notes ?? this.notes,
@@ -109,12 +135,16 @@ class ChecklistState {
       items.where((i) => i.stage == stage).toList()
         ..sort((a, b) => a.itemNo.compareTo(b.itemNo));
 
-  int get totalCount => items.length;
+  // N/A items are excluded from every total below — they're not part of
+  // "is this case ready", they're explicitly not applicable.
+  int get totalCount =>
+      items.where((i) => i.response != ChecklistResponse.na).length;
   int get completedCount => items.where((i) => i.completed).length;
   double get progress => totalCount == 0 ? 0 : completedCount / totalCount;
 
-  int stageTotal(ChecklistStage stage) =>
-      items.where((i) => i.stage == stage).length;
+  int stageTotal(ChecklistStage stage) => items
+      .where((i) => i.stage == stage && i.response != ChecklistResponse.na)
+      .length;
   int stageCompleted(ChecklistStage stage) =>
       items.where((i) => i.stage == stage && i.completed).length;
   double stageProgress(ChecklistStage stage) {
@@ -122,10 +152,14 @@ class ChecklistState {
     return total == 0 ? 0 : stageCompleted(stage) / total;
   }
 
-  // Are all mandatory (non-custom) items in a stage done?
+  // Are all mandatory (non-custom) items in a stage done? Items marked N/A
+  // don't count against this — a stage of all-N/A items is vacuously
+  // complete (nothing left applicable to do).
   bool stageComplete(ChecklistStage stage) {
-    final stageItems = items.where((i) => i.stage == stage);
-    return stageItems.isNotEmpty && stageItems.every((i) => i.completed);
+    final all = items.where((i) => i.stage == stage);
+    if (all.isEmpty) return false;
+    final relevant = all.where((i) => i.response != ChecklistResponse.na);
+    return relevant.isEmpty || relevant.every((i) => i.completed);
   }
 }
 
@@ -165,37 +199,36 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
     return ChecklistState(items: items);
   }
 
-  /// Toggle a single item completed / not completed
-  Future<void> toggleItem(ChecklistItem item) async {
-    final nowDone = !item.completed;
+  /// Set an item's Yes/No/N-A response.
+  Future<void> setResponse(
+      ChecklistItem item, ChecklistResponse response) async {
     final now = DateTime.now();
 
     // Optimistic update
     final current = state.value!;
     final updated = current.items.map((i) {
       if (i.checklistId != item.checklistId) return i;
-      return i.copyWith(
-        completed: nowDone,
-        completedAt: nowDone ? now : null,
-      );
+      return i.copyWith(response: response, answeredAt: now);
     }).toList();
     state = AsyncData(ChecklistState(items: updated));
 
     // Persist
     await SupabaseService.client.from('checklists').update({
-      'completed': nowDone,
-      'completed_at': nowDone ? now.toIso8601String() : null,
+      'response': response.value,
+      'completed_at': now.toIso8601String(),
       'completed_by': SupabaseService.userId,
     }).eq('checklist_id', item.checklistId);
   }
 
-  /// Mark all items in a stage as complete
+  /// Mark every not-yet-answered item in a stage as Yes. Items already
+  /// answered (Yes, No, or N/A) are left as the surveyor set them — this is
+  /// a bulk nudge for untouched items, not an override of explicit answers.
   Future<void> completeStage(ChecklistStage stage) async {
     final now = DateTime.now();
     final current = state.value!;
     final stageIds = current
         .forStage(stage)
-        .where((i) => !i.completed)
+        .where((i) => i.response == null)
         .map((i) => i.checklistId)
         .toList();
 
@@ -203,15 +236,15 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
 
     // Optimistic update
     final updated = current.items.map((i) {
-      if (i.stage != stage) return i;
-      return i.copyWith(completed: true, completedAt: now);
+      if (!stageIds.contains(i.checklistId)) return i;
+      return i.copyWith(response: ChecklistResponse.yes, answeredAt: now);
     }).toList();
     state = AsyncData(ChecklistState(items: updated));
 
     // Persist — update each
     for (final id in stageIds) {
       await SupabaseService.client.from('checklists').update({
-        'completed': true,
+        'response': ChecklistResponse.yes.value,
         'completed_at': now.toIso8601String(),
         'completed_by': SupabaseService.userId,
       }).eq('checklist_id', id);
@@ -235,7 +268,6 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
           'stage': stage.value,
           'item_no': nextNo,
           'item_text': text,
-          'completed': false,
           'is_custom': true,
         })
         .select()
@@ -278,20 +310,23 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
     state = await AsyncValue.guard(() => _fetch(arg));
   }
 
-  /// §4.4: ticks every incomplete item whose linkedSection's completeness
-  /// condition (case_completeness.dart) is now met and hasn't already been
-  /// evaluated once (autoTickAttempted) — a one-shot nudge, not a
-  /// perpetually-enforced state, so manually un-ticking an auto-ticked item
-  /// is never immediately re-ticked by the next pass even though the
-  /// underlying data condition is still true. Items with no linkedSection,
-  /// or a linkedSection this app has no clean data signal for (e.g.
-  /// "attended site"), are untouched — completeFor() returns null for
-  /// those, not false, so they're correctly never matched here.
+  /// §4.4: ticks every not-yet-answered item whose linkedSection's
+  /// completeness condition (case_completeness.dart) is now met and hasn't
+  /// already been evaluated once (autoTickAttempted) — a one-shot nudge,
+  /// not a perpetually-enforced state, so manually un-ticking an
+  /// auto-ticked item is never immediately re-ticked by the next pass even
+  /// though the underlying data condition is still true. Items with no
+  /// linkedSection, or a linkedSection this app has no clean data signal
+  /// for (e.g. "attended site"), are untouched — completeFor() returns
+  /// null for those, not false, so they're correctly never matched here.
+  /// Items the surveyor already explicitly answered No or N/A are also
+  /// left alone — auto-tick only ever fills in a genuinely blank item, it
+  /// never overrides an explicit manual answer.
   Future<void> autoTickIfReady(CaseCompleteness completeness) async {
     final current = state.value;
     if (current == null) return;
     final toTick = current.items.where((i) =>
-        !i.completed &&
+        i.response == null &&
         !i.autoTickAttempted &&
         completeness.completeFor(i.linkedSection ?? '') == true);
 
@@ -300,12 +335,14 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
       final updated = (state.value ?? current).items.map((i) {
         if (i.checklistId != item.checklistId) return i;
         return i.copyWith(
-            completed: true, completedAt: now, autoTickAttempted: true);
+            response: ChecklistResponse.yes,
+            answeredAt: now,
+            autoTickAttempted: true);
       }).toList();
       state = AsyncData(ChecklistState(items: updated));
 
       await SupabaseService.client.from('checklists').update({
-        'completed': true,
+        'response': ChecklistResponse.yes.value,
         'completed_at': now.toIso8601String(),
         'completed_by': SupabaseService.userId,
         'auto_tick_attempted': true,

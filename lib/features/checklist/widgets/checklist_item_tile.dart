@@ -8,14 +8,14 @@ class ChecklistItemTile extends StatefulWidget {
   const ChecklistItemTile({
     super.key,
     required this.item,
-    required this.onToggle,
+    required this.onSetResponse,
     required this.onNotesSaved,
     this.onDelete,
     this.onNavigate,
   });
 
   final ChecklistItem item;
-  final VoidCallback onToggle;
+  final void Function(ChecklistResponse response) onSetResponse;
   final Future<void> Function(String notes) onNotesSaved;
   final VoidCallback? onDelete;
   final VoidCallback? onNavigate;
@@ -53,18 +53,35 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final done = item.completed;
+    final flagged = item.response == ChecklistResponse.no;
+    final na = item.response == ChecklistResponse.na;
+
+    final Color tint = done
+        ? AppColors.green
+        : flagged
+            ? AppColors.error
+            : na
+                ? AppColors.textTertiary
+                : AppColors.border;
+    final Color bg = done
+        ? AppColors.lightGreen.withValues(alpha: 0.5)
+        : flagged
+            ? AppColors.error.withValues(alpha: 0.06)
+            : na
+                ? AppColors.surface
+                : Colors.white;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       decoration: BoxDecoration(
-        color: done
-            ? AppColors.lightGreen.withValues(alpha: 0.5)
-            : Colors.white,
+        color: bg,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: done ? AppColors.green.withValues(alpha: 0.3) : AppColors.border,
-          width: done ? 1 : 0.8,
+          color: done || flagged
+              ? tint.withValues(alpha: 0.3)
+              : AppColors.border,
+          width: done || flagged ? 1 : 0.8,
         ),
       ),
       child: Column(
@@ -72,33 +89,17 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
           // ── Main row ─────────────────────────────────────────────────
           InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: widget.onToggle,
-            onLongPress: () => setState(() => _expanded = !_expanded),
+            onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  // Checkbox
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color:
-                          done ? AppColors.green : Colors.transparent,
-                      border: Border.all(
-                        color: done
-                            ? AppColors.green
-                            : AppColors.textTertiary,
-                        width: done ? 0 : 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: done
-                        ? const Icon(Icons.check,
-                            color: Colors.white, size: 15)
-                        : null,
+                  // Y / N / N-A response selector
+                  _ResponseSelector(
+                    checklistId: item.checklistId,
+                    response: item.response,
+                    onChanged: widget.onSetResponse,
                   ),
                   const SizedBox(width: 12),
 
@@ -112,7 +113,7 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: done
+                            color: done || na
                                 ? AppColors.textSecondary
                                 : AppColors.textPrimary,
                             decoration: done
@@ -135,13 +136,14 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
-                        if (done && item.completedAt != null) ...[
+                        if (item.response != null &&
+                            item.answeredAt != null) ...[
                           const SizedBox(height: 2),
                           Text(
-                            _formatTime(item.completedAt!),
-                            style: const TextStyle(
+                            _formatTime(item.answeredAt!),
+                            style: TextStyle(
                               fontSize: 10,
-                              color: AppColors.green,
+                              color: flagged ? AppColors.error : tint,
                             ),
                           ),
                         ],
@@ -333,5 +335,86 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
     final day = dt.day.toString().padLeft(2, '0');
     final mon = dt.month.toString().padLeft(2, '0');
     return '$day/$mon $h:$m';
+  }
+}
+
+/// Compact 3-way Yes/No/N-A selector, replacing the old single checkbox.
+class _ResponseSelector extends StatelessWidget {
+  const _ResponseSelector({
+    required this.checklistId,
+    required this.response,
+    required this.onChanged,
+  });
+
+  final String checklistId;
+  final ChecklistResponse? response;
+  final void Function(ChecklistResponse) onChanged;
+
+  Color _colorFor(ChecklistResponse r) => switch (r) {
+        ChecklistResponse.yes => AppColors.green,
+        ChecklistResponse.no => AppColors.error,
+        ChecklistResponse.na => AppColors.textTertiary,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final r in ChecklistResponse.values) ...[
+          _ResponseButton(
+            key: Key('response-${r.value}-$checklistId'),
+            label: r == ChecklistResponse.na ? 'N/A' : r.label[0],
+            selected: response == r,
+            color: _colorFor(r),
+            onTap: () => onChanged(r),
+          ),
+          if (r != ChecklistResponse.values.last) const SizedBox(width: 4),
+        ],
+      ],
+    );
+  }
+}
+
+class _ResponseButton extends StatelessWidget {
+  const _ResponseButton({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 26,
+        height: 24,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? color : Colors.transparent,
+          border: Border.all(
+              color: selected ? color : AppColors.textTertiary, width: 1.2),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: selected ? Colors.white : AppColors.textTertiary,
+          ),
+        ),
+      ),
+    );
   }
 }

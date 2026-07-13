@@ -37,7 +37,7 @@ ChecklistItem _item({
   required ChecklistStage stage,
   required int itemNo,
   required String text,
-  bool completed = false,
+  ChecklistResponse? response,
   bool isCustom = false,
   String? linkedSection,
   bool autoTickAttempted = false,
@@ -48,7 +48,7 @@ ChecklistItem _item({
       stage: stage,
       itemNo: itemNo,
       itemText: text,
-      completed: completed,
+      response: response,
       isCustom: isCustom,
       linkedSection: linkedSection,
       autoTickAttempted: autoTickAttempted,
@@ -101,9 +101,9 @@ void main() {
       expect(find.text('Post-Survey'), findsWidgets);
     });
 
-    testWidgets('progress header reflects the ticked/total item count', (tester) async {
+    testWidgets('progress header reflects the answered-yes/total item count', (tester) async {
       await _pump(tester, [
-        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Item A', completed: true),
+        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Item A', response: ChecklistResponse.yes),
         _item(id: '2', stage: ChecklistStage.preSurvey, itemNo: 2, text: 'Item B'),
       ]);
 
@@ -112,7 +112,7 @@ void main() {
 
     testWidgets('per-stage tab shows its own done/total count', (tester) async {
       await _pump(tester, [
-        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Item A', completed: true),
+        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Item A', response: ChecklistResponse.yes),
         _item(id: '2', stage: ChecklistStage.preSurvey, itemNo: 2, text: 'Item B'),
         _item(id: '3', stage: ChecklistStage.onVessel, itemNo: 1, text: 'Item C'),
       ]);
@@ -121,32 +121,44 @@ void main() {
       expect(find.text('0/1'), findsOneWidget); // On Vessel tab
     });
 
-    testWidgets('tapping an item toggles it complete', (tester) async {
+    testWidgets('tapping Yes on an item marks it complete', (tester) async {
       await _pump(tester, [
         _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Check tide tables'),
       ]);
 
-      // Not completed yet — no checkmark icon rendered for the item box.
-      expect(find.byIcon(Icons.check), findsNothing);
+      expect(find.text('0 of 1 complete'), findsOneWidget);
 
-      await tester.tap(find.text('Check tide tables'));
+      await tester.tap(find.byKey(const Key('response-yes-1')));
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.check), findsOneWidget);
       expect(find.text('1 of 1 complete'), findsOneWidget);
     });
 
-    testWidgets('tapping a completed item toggles it back to incomplete', (tester) async {
+    testWidgets('tapping No on a completed item makes it outstanding again', (tester) async {
       await _pump(tester, [
-        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Check tide tables', completed: true),
+        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Check tide tables', response: ChecklistResponse.yes),
       ]);
 
-      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.text('1 of 1 complete'), findsOneWidget);
 
-      await tester.tap(find.text('Check tide tables'));
+      await tester.tap(find.byKey(const Key('response-no-1')));
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.check), findsNothing);
+      expect(find.text('0 of 1 complete'), findsOneWidget);
+    });
+
+    testWidgets('tapping N/A on an item excludes it from the total entirely', (tester) async {
+      await _pump(tester, [
+        _item(id: '1', stage: ChecklistStage.preSurvey, itemNo: 1, text: 'Telegraph data logger'),
+        _item(id: '2', stage: ChecklistStage.preSurvey, itemNo: 2, text: 'Crew list'),
+      ]);
+
+      expect(find.text('0 of 2 complete'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('response-na-1')));
+      await tester.pumpAndSettle();
+
+      // Item 1 is now N/A and no longer counts toward the denominator.
       expect(find.text('0 of 1 complete'), findsOneWidget);
     });
 
@@ -238,7 +250,6 @@ void main() {
             itemNo: 1,
             text: 'Confirm vessel identity',
             linkedSection: 'vessel_particulars',
-            completed: false,
             autoTickAttempted: true, // already offered once, surveyor unticked it
           ),
         ],
