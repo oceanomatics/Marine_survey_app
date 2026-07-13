@@ -14,6 +14,7 @@ class DocumentTile extends ConsumerWidget {
     this.onPreview,
     this.onExtract,
     this.onViewExtraction,
+    this.onReviewExtraction,
     this.onReapply,
   });
 
@@ -21,6 +22,12 @@ class DocumentTile extends ConsumerWidget {
   final VoidCallback? onPreview;
   final VoidCallback? onExtract;
   final VoidCallback? onViewExtraction;
+
+  /// §4.1: opens the review sheet for an extraction that already ran
+  /// (auto-fired on upload, or the surveyor tapped Extract and navigated
+  /// away before it finished) — reads the persisted `pending_extraction`
+  /// instead of calling Claude again.
+  final VoidCallback? onReviewExtraction;
   final VoidCallback? onReapply;
 
   @override
@@ -69,6 +76,12 @@ class DocumentTile extends ConsumerWidget {
                       const _Badge('Not in report', AppColors.textSecondary),
                     if (doc.extractionProcessing)
                       const _Badge('Extracting…', AppColors.amber)
+                    else if (doc.extractionReadyForReview)
+                      GestureDetector(
+                        onTap: onReviewExtraction,
+                        child: const _Badge(
+                            'Ready to review', AppColors.midBlue),
+                      )
                     else if (doc.aiExtracted && doc.surveyorConfirmed)
                       GestureDetector(
                         onTap: onViewExtraction,
@@ -123,7 +136,8 @@ class DocumentTile extends ConsumerWidget {
             ),
           ),
 
-          // Spinner while extracting, wand icon when pending/failed
+          // Spinner while extracting, review icon when ready, wand icon
+          // when pending/failed
           if (doc.extractionProcessing)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 12),
@@ -132,6 +146,13 @@ class DocumentTile extends ConsumerWidget {
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: AppColors.amber),
               ),
+            )
+          else if (doc.extractionReadyForReview && onReviewExtraction != null)
+            IconButton(
+              icon: const Icon(Icons.rate_review_outlined, size: 18),
+              color: AppColors.midBlue,
+              tooltip: 'Review extracted data',
+              onPressed: onReviewExtraction,
             )
           else if (onExtract != null)
             IconButton(

@@ -70,4 +70,71 @@ void main() {
       expect(updated.includedInReport, isTrue);
     });
   });
+
+  // §4.1 (13 July 2026): pending_extraction persists the raw (un-confirmed)
+  // Claude result so a background-run extraction survives navigating away.
+  group('DocumentModel — extractionReadyForReview (§4.1)', () {
+    test('fromJson reads pending_extraction and reports ready-for-review',
+        () {
+      final doc = DocumentModel.fromJson(_baseJson(overrides: {
+        'extraction_status': 'ready_for_review',
+        'pending_extraction': {
+          'hard_fields': {'cert_number': 'ABC123'},
+        },
+      }));
+      expect(doc.extractionReadyForReview, isTrue);
+      expect(doc.pendingExtraction, {
+        'hard_fields': {'cert_number': 'ABC123'},
+      });
+    });
+
+    test('not ready-for-review without a stored pending_extraction payload,'
+        ' even if the status column says so (defensive against drift)', () {
+      final doc = DocumentModel.fromJson(
+          _baseJson(overrides: {'extraction_status': 'ready_for_review'}));
+      expect(doc.extractionReadyForReview, isFalse);
+    });
+
+    test('processing/failed/completed are not ready-for-review', () {
+      for (final status in ['processing', 'failed', 'completed', 'pending']) {
+        final doc = DocumentModel.fromJson(_baseJson(overrides: {
+          'extraction_status': status,
+          'pending_extraction': {'hard_fields': {}},
+        }));
+        expect(doc.extractionReadyForReview, isFalse,
+            reason: 'status=$status should not be ready-for-review');
+      }
+    });
+
+    test('copyWith(pendingExtraction: null) explicitly clears it '
+        '(saveExtracted() confirm path)', () {
+      const doc = DocumentModel(
+        docId: 'doc-1',
+        caseId: 'case-1',
+        title: 'Class Certificate',
+        extractionStatus: 'ready_for_review',
+        pendingExtraction: {
+          'hard_fields': {'cert_number': 'ABC123'},
+        },
+      );
+      final confirmed = doc.copyWith(
+        extractionStatus: 'completed',
+        pendingExtraction: null,
+      );
+      expect(confirmed.pendingExtraction, isNull);
+      expect(confirmed.extractionReadyForReview, isFalse);
+    });
+
+    test('copyWith omitting pendingExtraction preserves the existing value',
+        () {
+      const doc = DocumentModel(
+        docId: 'doc-1',
+        caseId: 'case-1',
+        title: 'Class Certificate',
+        pendingExtraction: {'hard_fields': {}},
+      );
+      final updated = doc.copyWith(title: 'Renamed');
+      expect(updated.pendingExtraction, {'hard_fields': {}});
+    });
+  });
 }

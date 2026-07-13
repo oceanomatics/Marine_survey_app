@@ -8,6 +8,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:photo_view/photo_view.dart';
@@ -101,11 +102,29 @@ class DocumentVaultScreen extends ConsumerWidget {
             .toList() ??
         [];
 
+    // §4.1: a quick "needs your attention" count for the Production Manager
+    // entry point badge — mirrors the same statuses that screen groups by.
+    final needsAttention = (docsAsync.value ?? const <DocumentModel>[])
+        .where((d) =>
+            d.extractionStatus == 'ready_for_review' ||
+            d.extractionStatus == 'failed')
+        .length;
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
         title: const Text('Document Vault'),
         actions: [
+          IconButton(
+            icon: Badge(
+              label: Text('$needsAttention'),
+              isLabelVisible: needsAttention > 0,
+              child: const Icon(Icons.auto_awesome_outlined,
+                  color: Colors.white),
+            ),
+            tooltip: 'AI processing status',
+            onPressed: () => context.push('/cases/$caseId/production'),
+          ),
           IconButton(
             icon: const Icon(Icons.add_to_drive_outlined, color: Colors.white),
             tooltip: 'Export all to Google Drive',
@@ -149,6 +168,8 @@ class DocumentVaultScreen extends ConsumerWidget {
                       _runPhotoExtraction(context, ref, photo),
                   onViewExtraction: (doc) =>
                       showExtractionSummary(context, doc),
+                  onReviewExtraction: (doc) =>
+                      _reviewExtraction(context, ref, doc),
                   onReapply: (doc) => reapplyExtraction(context, caseId, doc),
                 ),
               ),
@@ -425,6 +446,41 @@ class DocumentVaultScreen extends ConsumerWidget {
         caseId: caseId,
         docTitle: doc.title,
         result: extractionResult,
+      ),
+    );
+  }
+
+  /// §4.1: opens the review sheet for an extraction that already ran in the
+  /// background (auto-fired on upload, or a manual "Extract" the surveyor
+  /// navigated away from before it finished) — re-parses the persisted
+  /// `pending_extraction` instead of calling Claude again.
+  Future<void> _reviewExtraction(
+      BuildContext context, WidgetRef ref, DocumentModel doc) async {
+    final result =
+        ref.read(documentProvider(caseId).notifier).parsePending(doc.docId);
+    if (result == null) return;
+
+    if (!result.hasAny) {
+      await ref
+          .read(documentProvider(caseId).notifier)
+          .saveExtracted(doc.docId, {});
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No data extracted from this document')),
+        );
+      }
+      return;
+    }
+
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ExtractionResultSheet(
+        caseId: caseId,
+        docTitle: doc.title,
+        result: result,
       ),
     );
   }
@@ -1949,6 +2005,7 @@ class _DocList extends StatelessWidget {
     required this.onExtract,
     required this.onExtractPhoto,
     required this.onViewExtraction,
+    required this.onReviewExtraction,
     required this.onReapply,
   });
   final List<DocumentModel> docs;
@@ -1960,6 +2017,7 @@ class _DocList extends StatelessWidget {
   final void Function(DocumentModel) onExtract;
   final void Function(PhotoModel) onExtractPhoto;
   final void Function(DocumentModel) onViewExtraction;
+  final void Function(DocumentModel) onReviewExtraction;
   final void Function(DocumentModel) onReapply;
 
   @override
@@ -1999,6 +2057,9 @@ class _DocList extends StatelessWidget {
                     (canExtract && !isProcessing) ? () => onExtract(doc) : null,
                 onViewExtraction:
                     doc.aiExtracted ? () => onViewExtraction(doc) : null,
+                onReviewExtraction: doc.extractionReadyForReview
+                    ? () => onReviewExtraction(doc)
+                    : null,
                 onReapply: (doc.aiExtracted && doc.extractedData != null)
                     ? () => onReapply(doc)
                     : null,

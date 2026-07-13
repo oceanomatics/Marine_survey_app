@@ -19,6 +19,7 @@ import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
 import '../../features/capture/screens/quick_capture_screen.dart';
 import '../../features/documents/screens/document_vault_screen.dart';
+import '../../features/documents/screens/production_manager_screen.dart';
 import '../../features/checklist/screens/checklist_screen.dart';
 import '../../features/reports/screens/report_builder_screen.dart';
 import '../../features/survey/screens/attendees_screen.dart';
@@ -145,6 +146,11 @@ final appRouter = GoRouter(
               path: 'documents',
               builder: (context, state) =>
                   DocumentVaultScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'production',
+              builder: (context, state) => ProductionManagerScreen(
+                  caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'checklist',

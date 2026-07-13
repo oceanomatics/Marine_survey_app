@@ -41,6 +41,11 @@ class AccountsScreen extends ConsumerWidget {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.auto_awesome_outlined),
+            tooltip: 'AI processing status',
+            onPressed: () => context.push('/cases/$caseId/production'),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh_outlined),
             tooltip: 'Refresh',
             onPressed: () =>
@@ -1004,6 +1009,21 @@ class _DocumentCard extends StatelessWidget {
                           fontSize: 14),
                     ),
                   ),
+                  if (doc.extractionProcessing) ...[
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 6),
+                    const _StatusBadge(
+                        label: 'Extracting…', color: AppColors.amber),
+                    const SizedBox(width: 6),
+                  ] else if (doc.extractionFailed) ...[
+                    const _StatusBadge(
+                        label: 'Extraction failed', color: AppColors.error),
+                    const SizedBox(width: 6),
+                  ],
                   _StatusBadge(label: status.label, color: statusColor),
                 ],
               ),

@@ -348,6 +348,7 @@ class RepairDocumentModel {
     this.surveyorNotes,
     this.sourcePdfPath,
     this.aiExtractedAt,
+    this.extractionStatus,
     this.aiConfidence,
     this.pageStart,
     this.pageEnd,
@@ -383,6 +384,10 @@ class RepairDocumentModel {
   final String? surveyorNotes;
   final String? sourcePdfPath;
   final DateTime? aiExtractedAt;
+
+  /// §4.1: pending/processing/completed/failed, mirroring documents.extraction_status.
+  /// Null for invoices imported before this migration and never (re-)extracted.
+  final String? extractionStatus;
   final double? aiConfidence;
   final int? pageStart;
   final int? pageEnd;
@@ -392,6 +397,8 @@ class RepairDocumentModel {
   final List<AccountLineModel> accountLines;
   final DateTime? createdAt;
 
+  bool get extractionProcessing => extractionStatus == 'processing';
+  bool get extractionFailed => extractionStatus == 'failed';
   bool get isContextOnly => !submittedToInsurance;
   bool get hasPageRange => pageStart != null && pageEnd != null;
   String? get pageRangeLabel =>
@@ -445,6 +452,7 @@ class RepairDocumentModel {
         aiExtractedAt:        j['ai_extracted_at'] != null
             ? DateTime.tryParse(j['ai_extracted_at'] as String)
             : null,
+        extractionStatus:     j['extraction_status'] as String?,
         aiConfidence:         (j['ai_confidence'] as num?)?.toDouble(),
         pageStart:            j['page_start'] as int?,
         pageEnd:              j['page_end'] as int?,

@@ -110,6 +110,7 @@ class RepairDocumentsNotifier
     required String mimeType,
     Uint8List? thumbnailBytes,
     String? displayName,
+    bool willExtract = true,
   }) async {
     debugPrint('[AccountsProvider] importPdf — caseId: $_caseId  file: $filename  size: ${bytes.length}');
     final storagePath =
@@ -147,7 +148,25 @@ class RepairDocumentsNotifier
     } else {
       unawaited(_generateAndSaveThumbnail(bytes, doc.id));
     }
+
+    // §4.1: event-driven — importing an invoice fires the full line-item
+    // extraction straight away instead of requiring a manual "Extract" tap.
+    // Fire-and-forget so importPdf() returns immediately and the import
+    // sheet closes normally; extractWithAI() records processing/failed
+    // status itself, so the invoice card and Production Manager pick this
+    // up reactively whether or not the surveyor is still on this screen.
+    if (willExtract) unawaited(_autoExtractInvoice(doc.id));
+
     return doc;
+  }
+
+  Future<void> _autoExtractInvoice(String docId) async {
+    try {
+      await extractWithAI(docId);
+    } catch (_) {
+      // Already recorded as extraction_status: 'failed' — surfaced via the
+      // invoice card (retry action) and the Production Manager view.
+    }
   }
 
   /// Upload pre-built PNG thumbnail bytes and update the DB record.
@@ -210,8 +229,35 @@ class RepairDocumentsNotifier
 
   /// Run AI extraction on an already-imported document.
   /// Downloads the PDF from storage, calls Claude, updates the record and
-  /// replaces all account lines.
+  /// replaces all account lines. Tracks extraction_status
+  /// (pending/processing/completed/failed) the same way documents.dart
+  /// does, so the Accounts screen and Production Manager can show
+  /// progress/retry without the caller having to wait inline (§4.1).
   Future<void> extractWithAI(String docId) async {
+    _patchExtractionStatus(docId, 'processing');
+    try {
+      await _extractWithAI(docId);
+      _patchExtractionStatus(docId, 'completed');
+    } catch (e) {
+      await SupabaseService.client
+          .from('repair_documents')
+          .update({'extraction_status': 'failed'}).eq('id', docId);
+      _patchExtractionStatus(docId, 'failed');
+      rethrow;
+    }
+  }
+
+  void _patchExtractionStatus(String docId, String status) {
+    final current = state.value ?? [];
+    state = AsyncData(current.map((d) {
+      if (d.id != docId) return d;
+      return RepairDocumentModel.fromJson(
+          {..._docToJson(d), 'extraction_status': status},
+          accountLines: d.accountLines);
+    }).toList());
+  }
+
+  Future<void> _extractWithAI(String docId) async {
     final doc = (state.value ?? []).firstWhere((d) => d.id == docId);
     if (doc.sourcePdfPath == null) throw Exception('No PDF on record');
 
@@ -269,6 +315,7 @@ class RepairDocumentsNotifier
       'mixed_nature_flag':     extracted['mixed_nature_flag'] ?? false,
       'ai_presentation_draft': extracted['ai_presentation_draft'],
       'ai_extracted_at':       DateTime.now().toIso8601String(),
+      'extraction_status':     'completed',
       'ai_confidence':         extracted['confidence'],
       'raw_lines_json':        jsonEncode(extracted['raw_lines'] ?? []),
     }).eq('id', docId);
@@ -544,6 +591,7 @@ class RepairDocumentsNotifier
         'surveyor_notes':        d.surveyorNotes,
         'source_pdf_path':       d.sourcePdfPath,
         'ai_extracted_at':       d.aiExtractedAt?.toIso8601String(),
+        'extraction_status':     d.extractionStatus,
         'ai_confidence':         d.aiConfidence,
         'page_start':            d.pageStart,
         'page_end':              d.pageEnd,

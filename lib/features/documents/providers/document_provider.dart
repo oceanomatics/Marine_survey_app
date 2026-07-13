@@ -1,5 +1,6 @@
 // lib/features/documents/providers/document_provider.dart
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -77,6 +78,7 @@ class DocumentModel {
     this.aiExtracted = false,
     this.extractionStatus,
     this.extractedData,
+    this.pendingExtraction,
     this.language = 'en',
     this.notes,
     this.createdAt,
@@ -104,6 +106,14 @@ class DocumentModel {
   final bool aiExtracted;
   final String? extractionStatus;
   final Map<String, dynamic>? extractedData;
+
+  /// §4.1: the RAW (un-confirmed) Claude extraction result, persisted so a
+  /// background-run extraction survives navigating away without losing the
+  /// work already done. Only meaningful when [extractionStatus] is
+  /// 'ready_for_review'; cleared once the surveyor confirms via
+  /// saveExtracted(). Distinct from [extractedData], which only ever holds
+  /// the surveyor-confirmed subset.
+  final Map<String, dynamic>? pendingExtraction;
   final String language;
   final String? notes;
   final DateTime? createdAt;
@@ -127,6 +137,11 @@ class DocumentModel {
       hasFile && !aiExtracted && extractionStatus == 'pending';
   bool get extractionProcessing => extractionStatus == 'processing';
   bool get extractionFailed => extractionStatus == 'failed';
+
+  /// §4.1: extraction ran (possibly in the background) and is waiting for
+  /// the surveyor to open the review sheet and confirm what to keep.
+  bool get extractionReadyForReview =>
+      extractionStatus == 'ready_for_review' && pendingExtraction != null;
 
   factory DocumentModel.fromJson(Map<String, dynamic> j) => DocumentModel(
         docId: j['doc_id'] as String,
@@ -156,6 +171,9 @@ class DocumentModel {
         extractedData: j['extracted_data'] != null
             ? Map<String, dynamic>.from(j['extracted_data'] as Map)
             : null,
+        pendingExtraction: j['pending_extraction'] != null
+            ? Map<String, dynamic>.from(j['pending_extraction'] as Map)
+            : null,
         language: j['language'] as String? ?? 'en',
         notes: j['notes'] as String?,
         createdAt: j['created_at'] != null
@@ -173,6 +191,7 @@ class DocumentModel {
     String? docType,
     String? extractionStatus,
     Map<String, dynamic>? extractedData,
+    Object? pendingExtraction = _sentinel,
     bool? aiExtracted,
     String? notes,
     Object? annexureAssignment = _sentinel,
@@ -198,6 +217,9 @@ class DocumentModel {
         aiExtracted: aiExtracted ?? this.aiExtracted,
         extractionStatus: extractionStatus ?? this.extractionStatus,
         extractedData: extractedData ?? this.extractedData,
+        pendingExtraction: identical(pendingExtraction, _sentinel)
+            ? this.pendingExtraction
+            : pendingExtraction as Map<String, dynamic>?,
         language: language,
         notes: notes ?? this.notes,
         createdAt: createdAt,
@@ -341,12 +363,40 @@ class DocumentNotifier
       final current = state.value ?? [];
       state = AsyncData([doc, ...current]);
     }
+
+    // §4.1: event-driven — importing a document fires extraction straight
+    // away instead of leaving it for a manual "Extract" tap. Fire-and-forget
+    // so uploadAndCreate() returns immediately and the import sheet closes
+    // normally; extract() persists pending_extraction/status itself, so the
+    // Document Vault tile and Production Manager pick this up reactively
+    // whether or not the surveyor is still watching this screen.
+    if (willExtract) unawaited(_autoExtract(doc.docId));
+
     return doc;
   }
 
-  /// Run AI extraction on a document already in the vault.
-  /// Returns [DocExtractionResult] for the caller to show in the results sheet.
-  /// Does NOT write extracted data to DB — call [saveExtracted] to confirm.
+  /// Wraps [extract] for fire-and-forget callers (upload auto-fire). extract()
+  /// already records failure in `extraction_status`/local state and rethrows
+  /// for callers that are awaiting it directly (the manual "Extract" button,
+  /// which shows its own SnackBar) — here there's no one awaiting, so the
+  /// failure is swallowed rather than becoming an unhandled async error.
+  Future<void> _autoExtract(String docId) async {
+    try {
+      await extract(docId);
+    } catch (_) {
+      // Already recorded as extraction_status: 'failed' — surfaced via the
+      // document's own tile (retry action) and the Production Manager view.
+    }
+  }
+
+  /// Run AI extraction on a document already in the vault. Persists the raw
+  /// result to `pending_extraction` + `extraction_status: 'ready_for_review'`
+  /// so a background/auto-fired run (see [uploadAndCreate]) survives the
+  /// surveyor navigating away, then also returns the parsed
+  /// [DocExtractionResult] so a caller watching synchronously (the manual
+  /// "Extract" button) can open the review sheet immediately without a
+  /// second round trip. Does NOT write extracted data to case fields —
+  /// call [saveExtracted] to confirm; that's the only step that ever does.
   Future<DocExtractionResult?> extract(String docId) async {
     _patchStatus(docId, 'processing');
     try {
@@ -372,111 +422,18 @@ class DocumentNotifier
         categoryHint: doc.docCategory?.label ?? 'marine document',
       );
 
-      final hardFields = <String, dynamic>{};
-      final rawHard = raw['hard_fields'];
-      if (rawHard is Map) {
-        for (final e in rawHard.entries) {
-          if (e.value != null && e.value != '' && e.value != 0) {
-            hardFields[e.key as String] = e.value;
-          }
-        }
-      }
+      await SupabaseService.client.from('documents').update({
+        'pending_extraction': raw,
+        'extraction_status': 'ready_for_review',
+      }).eq('doc_id', docId);
+      final afterPersist = state.value ?? [];
+      state = AsyncData(afterPersist.map((d) {
+        if (d.docId != docId) return d;
+        return d.copyWith(
+            extractionStatus: 'ready_for_review', pendingExtraction: raw);
+      }).toList());
 
-      // Parse findings — supports both old (string) and new ({text, note_category}) formats
-      final findings = <String>[];
-      final findingCats = <String>[];
-      final findingSections = <String?>[];
-      final findingOrigins = <String?>[];
-      final findingPages = <int?>[];
-      for (final f in raw['context_findings'] as List? ?? []) {
-        if (f is Map) {
-          final text = f['text']?.toString() ?? '';
-          if (text.isNotEmpty) {
-            findings.add(text);
-            findingCats.add(f['note_category']?.toString() ?? 'observation');
-            findingSections.add(f['case_section']?.toString());
-            findingOrigins.add(f['origin']?.toString());
-            findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
-          }
-        } else {
-          final text = f.toString();
-          if (text.isNotEmpty) {
-            findings.add(text);
-            findingCats.add('observation');
-            findingSections.add(null);
-            findingOrigins.add(null);
-            findingPages.add(null);
-          }
-        }
-      }
-
-      // Safety net: enforce document order by page even if the model didn't
-      // fully comply with the "list in document order" instruction — a
-      // stable sort keyed on (page, original index) so same-page/unknown-page
-      // findings keep their original relative order.
-      final order = List<int>.generate(findings.length, (i) => i)
-        ..sort((a, b) {
-          final pa = findingPages[a] ?? (1 << 30);
-          final pb = findingPages[b] ?? (1 << 30);
-          if (pa != pb) return pa.compareTo(pb);
-          return a.compareTo(b);
-        });
-      final orderedFindings = [for (final i in order) findings[i]];
-      final orderedCats = [for (final i in order) findingCats[i]];
-      final orderedSections = [for (final i in order) findingSections[i]];
-      final orderedOrigins = [for (final i in order) findingOrigins[i]];
-      final orderedPages = [for (final i in order) findingPages[i]];
-
-      final incidents = (raw['detected_incidents'] as List? ?? [])
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-
-      final machinery = (raw['detected_machinery'] as List? ?? [])
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-
-      final classConditions = (raw['detected_class_conditions'] as List? ?? [])
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .where((e) =>
-              e['description'] != null &&
-              e['description'].toString().isNotEmpty)
-          .toList();
-
-      // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
-      final vesselFields = <String, dynamic>{};
-      final rawVessel = raw['vessel_data'];
-      debugPrint(
-          '[EXTRACT] vessel_data raw type: ${rawVessel.runtimeType}, value: $rawVessel');
-      if (rawVessel is Map) {
-        for (final e in rawVessel.entries) {
-          if (e.value != null && e.value != '') {
-            vesselFields[e.key as String] = e.value;
-          }
-        }
-      }
-      debugPrint(
-          '[EXTRACT] vesselFields parsed (${vesselFields.length} keys): $vesselFields');
-      debugPrint(
-          '[EXTRACT] machinery: ${machinery.length}, classConditions: ${classConditions.length}');
-
-      return DocExtractionResult(
-        docId: docId,
-        hardFields: hardFields,
-        contextFindings: orderedFindings,
-        findingCategories: orderedCats,
-        findingCaseSections: orderedSections,
-        findingOrigins: orderedOrigins,
-        findingPages: orderedPages,
-        detectedIncidents: incidents,
-        detectedMachinery: machinery,
-        detectedClassConditions: classConditions,
-        vesselFields: vesselFields,
-        suggestedCategory: raw['suggested_category'] as String?,
-        documentType: raw['document_type'] as String?,
-      );
+      return _parseRaw(docId, raw);
     } catch (e) {
       _patchStatus(docId, 'failed');
       await SupabaseService.client
@@ -485,6 +442,125 @@ class DocumentNotifier
       debugPrint('[DocumentProvider] extraction failed for $docId: $e');
       rethrow;
     }
+  }
+
+  /// Re-parses an already-persisted `pending_extraction` payload — the path
+  /// used to open the review sheet for an extraction that ran in the
+  /// background (auto-fired on upload, or the surveyor navigated away
+  /// after tapping "Extract"), rather than re-calling Claude.
+  DocExtractionResult? parsePending(String docId) {
+    final doc = (state.value ?? []).firstWhere((d) => d.docId == docId,
+        orElse: () => throw StateError('Unknown document: $docId'));
+    final raw = doc.pendingExtraction;
+    if (raw == null) return null;
+    return _parseRaw(docId, raw);
+  }
+
+  DocExtractionResult _parseRaw(String docId, Map<String, dynamic> raw) {
+    final hardFields = <String, dynamic>{};
+    final rawHard = raw['hard_fields'];
+    if (rawHard is Map) {
+      for (final e in rawHard.entries) {
+        if (e.value != null && e.value != '' && e.value != 0) {
+          hardFields[e.key as String] = e.value;
+        }
+      }
+    }
+
+    // Parse findings — supports both old (string) and new ({text, note_category}) formats
+    final findings = <String>[];
+    final findingCats = <String>[];
+    final findingSections = <String?>[];
+    final findingOrigins = <String?>[];
+    final findingPages = <int?>[];
+    for (final f in raw['context_findings'] as List? ?? []) {
+      if (f is Map) {
+        final text = f['text']?.toString() ?? '';
+        if (text.isNotEmpty) {
+          findings.add(text);
+          findingCats.add(f['note_category']?.toString() ?? 'observation');
+          findingSections.add(f['case_section']?.toString());
+          findingOrigins.add(f['origin']?.toString());
+          findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
+        }
+      } else {
+        final text = f.toString();
+        if (text.isNotEmpty) {
+          findings.add(text);
+          findingCats.add('observation');
+          findingSections.add(null);
+          findingOrigins.add(null);
+          findingPages.add(null);
+        }
+      }
+    }
+
+    // Safety net: enforce document order by page even if the model didn't
+    // fully comply with the "list in document order" instruction — a
+    // stable sort keyed on (page, original index) so same-page/unknown-page
+    // findings keep their original relative order.
+    final order = List<int>.generate(findings.length, (i) => i)
+      ..sort((a, b) {
+        final pa = findingPages[a] ?? (1 << 30);
+        final pb = findingPages[b] ?? (1 << 30);
+        if (pa != pb) return pa.compareTo(pb);
+        return a.compareTo(b);
+      });
+    final orderedFindings = [for (final i in order) findings[i]];
+    final orderedCats = [for (final i in order) findingCats[i]];
+    final orderedSections = [for (final i in order) findingSections[i]];
+    final orderedOrigins = [for (final i in order) findingOrigins[i]];
+    final orderedPages = [for (final i in order) findingPages[i]];
+
+    final incidents = (raw['detected_incidents'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final machinery = (raw['detected_machinery'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final classConditions = (raw['detected_class_conditions'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) =>
+            e['description'] != null && e['description'].toString().isNotEmpty)
+        .toList();
+
+    // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
+    final vesselFields = <String, dynamic>{};
+    final rawVessel = raw['vessel_data'];
+    debugPrint(
+        '[EXTRACT] vessel_data raw type: ${rawVessel.runtimeType}, value: $rawVessel');
+    if (rawVessel is Map) {
+      for (final e in rawVessel.entries) {
+        if (e.value != null && e.value != '') {
+          vesselFields[e.key as String] = e.value;
+        }
+      }
+    }
+    debugPrint(
+        '[EXTRACT] vesselFields parsed (${vesselFields.length} keys): $vesselFields');
+    debugPrint(
+        '[EXTRACT] machinery: ${machinery.length}, classConditions: ${classConditions.length}');
+
+    return DocExtractionResult(
+      docId: docId,
+      hardFields: hardFields,
+      contextFindings: orderedFindings,
+      findingCategories: orderedCats,
+      findingCaseSections: orderedSections,
+      findingOrigins: orderedOrigins,
+      findingPages: orderedPages,
+      detectedIncidents: incidents,
+      detectedMachinery: machinery,
+      detectedClassConditions: classConditions,
+      vesselFields: vesselFields,
+      suggestedCategory: raw['suggested_category'] as String?,
+      documentType: raw['document_type'] as String?,
+    );
   }
 
   /// Persist the user-selected extraction result and mark the document extracted.
@@ -528,6 +604,7 @@ class DocumentNotifier
 
     await SupabaseService.client.from('documents').update({
       'extracted_data': storedData,
+      'pending_extraction': null,
       'ai_extracted': true,
       'extraction_status': 'completed',
     }).eq('doc_id', docId);
@@ -537,6 +614,7 @@ class DocumentNotifier
       if (d.docId != docId) return d;
       return d.copyWith(
         extractedData: storedData,
+        pendingExtraction: null,
         aiExtracted: true,
         extractionStatus: 'completed',
       );
