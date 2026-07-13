@@ -117,7 +117,8 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
 
     if ((templates as List).isEmpty) return;
 
-    // Insert as case-specific checklist items
+    // Insert as case-specific checklist items — response left unset
+    // (defaults to NULL/unanswered; see checklist_provider.dart).
     final items = templates.map((t) => {
       'case_id':        caseId,
       'template_type':  t['case_type'],
@@ -125,7 +126,6 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
       'item_no':        t['item_no'],
       'item_text':      t['item_text'],
       'linked_section': t['linked_section'],
-      'completed':      false,
     }).toList();
 
     await SupabaseService.client.from('checklists').insert(items);
@@ -385,12 +385,16 @@ final checklistProgressProvider =
     FutureProvider.family<double, String>((ref, caseId) async {
   final data = await SupabaseService.client
       .from('checklists')
-      .select('completed')
+      .select('response')
       .eq('case_id', caseId);
 
-  final items = data as List;
+  // N/A items are excluded from the denominator entirely, matching
+  // ChecklistState.progress's semantics (checklist_provider.dart) — this
+  // is a separate lightweight query so it has to repeat that exclusion.
+  final items =
+      (data as List).where((i) => i['response'] != 'na').toList();
   if (items.isEmpty) return 0;
-  final done = items.where((i) => i['completed'] == true).length;
+  final done = items.where((i) => i['response'] == 'yes').length;
   return done / items.length;
 });
 
