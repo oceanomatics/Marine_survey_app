@@ -7,6 +7,7 @@
 // (that remains a Manual/Integ concern — see TEST_SHEET.md).
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
+import 'package:marine_survey_app/features/reports/utils/case_completeness.dart';
 
 class FakeChecklistNotifier extends ChecklistNotifier {
   FakeChecklistNotifier(this._seed);
@@ -82,5 +83,36 @@ class FakeChecklistNotifier extends ChecklistNotifier {
     state = AsyncData(ChecklistState(
       items: current.items.where((i) => i.checklistId != checklistId).toList(),
     ));
+  }
+
+  // §4.4: same one-shot-nudge semantics as the real notifier, replayed
+  // in-memory — this is the method ChecklistScreen calls reactively from a
+  // post-frame callback on every build, so it must never fall through to
+  // the real Supabase-backed implementation in a widget test. Critically,
+  // it must also match the real notifier's behaviour of never reassigning
+  // `state` when nothing actually changed: ChecklistScreen re-registers this
+  // same post-frame callback on every rebuild, so an unconditional
+  // `state = AsyncData(...)` here — even to an equivalent value — is a new
+  // object reference every time, which Riverpod treats as a genuine change
+  // and rebuilds the screen again, which calls this again... an infinite
+  // loop that only shows up as "pumpAndSettle timed out", not a clean crash
+  // (caught the hard way authoring this test).
+  @override
+  Future<void> autoTickIfReady(CaseCompleteness completeness) async {
+    final current = state.value!;
+    final now = DateTime.now();
+    var changed = false;
+    final items = current.items.map((i) {
+      if (i.completed || i.autoTickAttempted) return i;
+      if (completeness.completeFor(i.linkedSection ?? '') == true) {
+        changed = true;
+        return i.copyWith(
+            completed: true, completedAt: now, autoTickAttempted: true);
+      }
+      return i;
+    }).toList();
+    if (changed) {
+      state = AsyncData(ChecklistState(items: items));
+    }
   }
 }

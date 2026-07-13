@@ -10,6 +10,16 @@ import '../widgets/add_item_sheet.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/back_app_bar.dart';
+import '../../cases/providers/cases_provider.dart';
+import '../../survey/providers/damage_provider.dart';
+import '../../attendances/providers/attendances_provider.dart';
+import '../../survey/providers/repair_period_provider.dart';
+import '../../accounts/providers/accounts_provider.dart';
+import '../../vessel/providers/certificates_provider.dart';
+import '../../vessel/providers/vessel_provider.dart';
+import '../../reports/providers/report_provider.dart';
+import '../../documents/providers/document_provider.dart';
+import '../../reports/utils/case_completeness.dart';
 
 class ChecklistScreen extends ConsumerStatefulWidget {
   const ChecklistScreen({super.key, required this.caseId, this.stage});
@@ -45,6 +55,46 @@ class _ChecklistScreenState extends ConsumerState<ChecklistScreen>
   @override
   Widget build(BuildContext context) {
     final checklistAsync = ref.watch(checklistProvider(widget.caseId));
+
+    // §4.4: same live case data Case Home's completeness card already
+    // watches (case_home_screen.dart _PseudoReport) — reused here so
+    // checklist items with a matching linkedSection (case_completeness.dart
+    // §4.3) can auto-tick as that data becomes available, without a
+    // separate fetch.
+    final survey = ref.watch(caseProvider(widget.caseId)).value;
+    final damage = ref.watch(damageProvider(widget.caseId)).value;
+    final visits = ref.watch(attendancesProvider(widget.caseId)).value ?? [];
+    final repairPeriods =
+        ref.watch(repairPeriodsProvider(widget.caseId)).value ?? [];
+    final repairDocs =
+        ref.watch(repairDocumentsProvider(widget.caseId)).value ?? [];
+    final certs = ref.watch(certificatesProvider(widget.caseId)).value ?? [];
+    final outputs = ref.watch(reportOutputsProvider(widget.caseId)).value ?? [];
+    final vessel = ref.watch(vesselForCaseProvider(widget.caseId)).value;
+    final documents = ref.watch(documentProvider(widget.caseId)).value ?? [];
+
+    if (survey != null) {
+      final completeness = computeCaseCompleteness(
+        hasVesselName: (vessel?.name ?? '').trim().isNotEmpty,
+        hasOccurrence: (damage?.occurrences.isNotEmpty ?? false),
+        hasDamageItems: (damage?.totalDamageItems ?? 0) > 0,
+        hasAttendance: visits.isNotEmpty,
+        signedOff: survey.signedOffAttending && survey.signedOffReviewing,
+        hasCertificates: certs.isNotEmpty,
+        hasRepairPeriods: repairPeriods.isNotEmpty,
+        hasAccounts: repairDocs.isNotEmpty,
+        hasDocumentation: documents.isNotEmpty,
+        hasReportOutput: outputs.isNotEmpty,
+      );
+      // Deferred: this mutates provider state (auto-ticking items), which
+      // can't happen synchronously mid-build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref
+            .read(checklistProvider(widget.caseId).notifier)
+            .autoTickIfReady(completeness);
+      });
+    }
 
     return checklistAsync.when(
       loading: () => const Scaffold(body: AppLoadingWidget()),

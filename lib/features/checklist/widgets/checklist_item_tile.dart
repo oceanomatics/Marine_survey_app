@@ -163,6 +163,22 @@ class _ChecklistItemTileState extends State<ChecklistItemTile> {
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
                         ),
+                      // §4.4: auto-ticked provenance badge
+                      if (item.completed && item.autoTickAttempted)
+                        Container(
+                          margin: const EdgeInsets.only(right: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGreen,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('auto',
+                              style: TextStyle(
+                                  fontSize: 9,
+                                  color: AppColors.green,
+                                  fontWeight: FontWeight.w600)),
+                        ),
                       // Custom badge + delete
                       if (item.isCustom)
                         Container(

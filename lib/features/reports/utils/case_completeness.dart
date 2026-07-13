@@ -22,11 +22,16 @@
 
 class SectionCompleteness {
   const SectionCompleteness({
+    required this.key,
     required this.label,
     required this.complete,
     required this.required,
   });
 
+  /// Stable identifier — matches ChecklistItem.linkedSection's vocabulary
+  /// (§4.4) so a checklist item can name which completeness signal
+  /// auto-ticks it, without coupling to the display [label].
+  final String key;
   final String label;
   final bool complete;
 
@@ -40,6 +45,13 @@ class CaseCompleteness {
   const CaseCompleteness(this.sections);
 
   final List<SectionCompleteness> sections;
+
+  /// §4.4: looks up a section's completeness by its stable [key] — null
+  /// when no section has that key, meaning "no auto-tick rule", not
+  /// "incomplete". Used to drive ChecklistItem auto-ticking without that
+  /// feature needing to know this class's internal section list.
+  bool? completeFor(String key) =>
+      sections.where((s) => s.key == key).firstOrNull?.complete;
 
   List<SectionCompleteness> get requiredSections =>
       sections.where((s) => s.required).toList();
@@ -66,29 +78,56 @@ CaseCompleteness computeCaseCompleteness({
   required bool hasReportOutput,
 }) {
   return CaseCompleteness([
+    // Keys marked "existing" already appear as ChecklistItem.linkedSection
+    // navigation targets (checklist_screen.dart) — reused verbatim so those
+    // items get auto-tick for free once §4.4 wires this up, no renaming.
     SectionCompleteness(
-        label: "Vessel's Particulars", complete: hasVesselName, required: true),
+        key: 'vessel_particulars', // existing
+        label: "Vessel's Particulars",
+        complete: hasVesselName,
+        required: true),
     SectionCompleteness(
-        label: 'Occurrence', complete: hasOccurrence, required: true),
+        key: 'occurrence',
+        label: 'Occurrence',
+        complete: hasOccurrence,
+        required: true),
     SectionCompleteness(
-        label: 'Extent of Damage', complete: hasDamageItems, required: true),
+        key: 'damage_description', // existing
+        label: 'Extent of Damage',
+        complete: hasDamageItems,
+        required: true),
     SectionCompleteness(
+        key: 'attendance',
         label: 'Attendance & Representatives',
         complete: hasAttendance,
         required: true),
     SectionCompleteness(
-        label: 'Dual Sign-Off', complete: signedOff, required: true),
+        key: 'sign_off',
+        label: 'Dual Sign-Off',
+        complete: signedOff,
+        required: true),
     SectionCompleteness(
+        key: 'certificates',
         label: 'Certificates & Class',
         complete: hasCertificates,
         required: false),
     SectionCompleteness(
-        label: 'Repair Periods', complete: hasRepairPeriods, required: false),
+        key: 'repair_periods',
+        label: 'Repair Periods',
+        complete: hasRepairPeriods,
+        required: false),
     SectionCompleteness(
-        label: 'Accounts', complete: hasAccounts, required: false),
+        key: 'accounts',
+        label: 'Accounts',
+        complete: hasAccounts,
+        required: false),
     SectionCompleteness(
-        label: 'Documentation', complete: hasDocumentation, required: false),
+        key: 'documentation',
+        label: 'Documentation',
+        complete: hasDocumentation,
+        required: false),
     SectionCompleteness(
+        key: 'report_output',
         label: 'Report Generated',
         complete: hasReportOutput,
         required: false),

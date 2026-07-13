@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
+import '../../reports/utils/case_completeness.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ class ChecklistItem {
     this.linkedId,
     this.notes,
     this.isCustom = false,
+    this.autoTickAttempted = false,
   });
 
   final String checklistId;
@@ -50,6 +52,12 @@ class ChecklistItem {
   final String? linkedId;
   final String? notes;
   final bool isCustom;
+
+  /// §4.4: true once the auto-tick evaluator has acted on this item — a
+  /// one-shot marker so a surveyor manually un-ticking an auto-ticked item
+  /// is never immediately re-ticked by the next pass, even though the
+  /// underlying data condition is still true.
+  final bool autoTickAttempted;
 
   factory ChecklistItem.fromJson(Map<String, dynamic> j) => ChecklistItem(
         checklistId: j['checklist_id'] as String,
@@ -65,10 +73,14 @@ class ChecklistItem {
         linkedId: j['linked_id'] as String?,
         notes: j['notes'] as String?,
         isCustom: j['is_custom'] as bool? ?? false,
+        autoTickAttempted: j['auto_tick_attempted'] as bool? ?? false,
       );
 
   ChecklistItem copyWith(
-          {bool? completed, DateTime? completedAt, String? notes}) =>
+          {bool? completed,
+          DateTime? completedAt,
+          String? notes,
+          bool? autoTickAttempted}) =>
       ChecklistItem(
         checklistId: checklistId,
         caseId: caseId,
@@ -81,6 +93,7 @@ class ChecklistItem {
         linkedId: linkedId,
         notes: notes ?? this.notes,
         isCustom: isCustom,
+        autoTickAttempted: autoTickAttempted ?? this.autoTickAttempted,
       );
 }
 
@@ -251,5 +264,40 @@ class ChecklistNotifier extends FamilyAsyncNotifier<ChecklistState, String> {
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(arg));
+  }
+
+  /// §4.4: ticks every incomplete item whose linkedSection's completeness
+  /// condition (case_completeness.dart) is now met and hasn't already been
+  /// evaluated once (autoTickAttempted) — a one-shot nudge, not a
+  /// perpetually-enforced state, so manually un-ticking an auto-ticked item
+  /// is never immediately re-ticked by the next pass even though the
+  /// underlying data condition is still true. Items with no linkedSection,
+  /// or a linkedSection this app has no clean data signal for (e.g.
+  /// "attended site"), are untouched — completeFor() returns null for
+  /// those, not false, so they're correctly never matched here.
+  Future<void> autoTickIfReady(CaseCompleteness completeness) async {
+    final current = state.value;
+    if (current == null) return;
+    final toTick = current.items.where((i) =>
+        !i.completed &&
+        !i.autoTickAttempted &&
+        completeness.completeFor(i.linkedSection ?? '') == true);
+
+    for (final item in toTick) {
+      final now = DateTime.now();
+      final updated = (state.value ?? current).items.map((i) {
+        if (i.checklistId != item.checklistId) return i;
+        return i.copyWith(
+            completed: true, completedAt: now, autoTickAttempted: true);
+      }).toList();
+      state = AsyncData(ChecklistState(items: updated));
+
+      await SupabaseService.client.from('checklists').update({
+        'completed': true,
+        'completed_at': now.toIso8601String(),
+        'completed_by': SupabaseService.userId,
+        'auto_tick_attempted': true,
+      }).eq('checklist_id', item.checklistId);
+    }
   }
 }

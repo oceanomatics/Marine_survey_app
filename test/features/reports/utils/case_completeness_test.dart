@@ -74,4 +74,51 @@ void main() {
       expect(result.sections.where((s) => !s.required), hasLength(5));
     });
   });
+
+  // §4.4: completeFor() is how ChecklistItem.linkedSection drives auto-tick
+  // without that feature reaching into this class's internals.
+  group('CaseCompleteness.completeFor', () {
+    test('returns the matching section\'s complete flag by key', () {
+      final result = computeCaseCompleteness(
+        hasVesselName: true,
+        hasOccurrence: false,
+        hasDamageItems: false,
+        hasAttendance: false,
+        signedOff: false,
+        hasCertificates: false,
+        hasRepairPeriods: false,
+        hasAccounts: false,
+        hasDocumentation: false,
+        hasReportOutput: false,
+      );
+      expect(result.completeFor('vessel_particulars'), isTrue);
+      expect(result.completeFor('occurrence'), isFalse);
+    });
+
+    test('an existing linkedSection value the checklist already uses for '
+        'navigation ("damage_description") resolves to Extent of Damage',
+        () {
+      final result = computeCaseCompleteness(
+        hasVesselName: false,
+        hasOccurrence: false,
+        hasDamageItems: true,
+        hasAttendance: false,
+        signedOff: false,
+        hasCertificates: false,
+        hasRepairPeriods: false,
+        hasAccounts: false,
+        hasDocumentation: false,
+        hasReportOutput: false,
+      );
+      expect(result.completeFor('damage_description'), isTrue);
+    });
+
+    test('an unknown key (e.g. "cover", or "attended_site" with no clean '
+        'data signal) returns null — no auto-tick rule, not "incomplete"',
+        () {
+      final result = _all(true);
+      expect(result.completeFor('cover'), isNull);
+      expect(result.completeFor('attended_site'), isNull);
+    });
+  });
 }

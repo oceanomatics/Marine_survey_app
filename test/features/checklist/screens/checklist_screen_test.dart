@@ -1,10 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marine_survey_app/features/accounts/providers/accounts_provider.dart';
+import 'package:marine_survey_app/features/attendances/providers/attendances_provider.dart';
+import 'package:marine_survey_app/features/cases/models/case_model.dart';
+import 'package:marine_survey_app/features/cases/providers/cases_provider.dart';
 import 'package:marine_survey_app/features/checklist/providers/checklist_provider.dart';
 import 'package:marine_survey_app/features/checklist/screens/checklist_screen.dart';
+import 'package:marine_survey_app/features/documents/providers/document_provider.dart';
+import 'package:marine_survey_app/features/reports/providers/report_provider.dart';
+import 'package:marine_survey_app/features/survey/providers/damage_provider.dart';
+import 'package:marine_survey_app/features/survey/providers/repair_period_provider.dart';
+import 'package:marine_survey_app/features/vessel/providers/certificates_provider.dart';
+import 'package:marine_survey_app/features/vessel/providers/vessel_provider.dart';
 
+import '../../../support/fakes/fake_attendances_notifier.dart';
+import '../../../support/fakes/fake_case_notifier.dart';
+import '../../../support/fakes/fake_certificates_notifier.dart';
 import '../../../support/fakes/fake_checklist_notifier.dart';
+import '../../../support/fakes/fake_damage_notifier.dart';
+import '../../../support/fakes/fake_document_notifier.dart';
+import '../../../support/fakes/fake_repair_documents_notifier.dart';
+import '../../../support/fakes/fake_repair_periods_notifier.dart';
+import '../../../support/fakes/fake_report_outputs_notifier.dart';
+import '../../../support/fakes/fake_vessel_for_case_notifier.dart';
+import '../../../support/fixtures/report_fixtures.dart';
+import '../../../support/fixtures/survey_fixtures.dart';
 import '../../../support/pump_with_router.dart';
 
 const _caseId = 'case-1';
@@ -16,6 +37,8 @@ ChecklistItem _item({
   required String text,
   bool completed = false,
   bool isCustom = false,
+  String? linkedSection,
+  bool autoTickAttempted = false,
 }) =>
     ChecklistItem(
       checklistId: id,
@@ -25,11 +48,32 @@ ChecklistItem _item({
       itemText: text,
       completed: completed,
       isCustom: isCustom,
+      linkedSection: linkedSection,
+      autoTickAttempted: autoTickAttempted,
     );
 
-Future<void> _pump(WidgetTester tester, List<ChecklistItem> seed) async {
+Future<void> _pump(
+  WidgetTester tester,
+  List<ChecklistItem> seed, {
+  VesselModel? vessel,
+}) async {
   final container = ProviderContainer(overrides: [
     checklistProvider.overrideWith(() => FakeChecklistNotifier(seed)),
+    // §4.4: ChecklistScreen now also watches the same case-data providers
+    // Case Home's completeness card does, to drive auto-tick — none of
+    // these are exercised by most of these tests, so seed them empty/off
+    // rather than letting them fall through to the real Supabase-backed
+    // provider. [vessel] is the one exception a dedicated test overrides.
+    caseProvider.overrideWith(() => FakeCaseNotifier(fixtureCase(caseId: _caseId))),
+    damageProvider.overrideWith(() => FakeDamageNotifier(fixtureDamageState())),
+    attendancesProvider.overrideWith(() => FakeAttendancesNotifier()),
+    repairPeriodsProvider.overrideWith(() => FakeRepairPeriodsNotifier(const [])),
+    repairDocumentsProvider
+        .overrideWith(() => FakeRepairDocumentsNotifier(const [])),
+    certificatesProvider.overrideWith(() => FakeCertificatesNotifier(const [])),
+    reportOutputsProvider.overrideWith(() => FakeReportOutputsNotifier(const [])),
+    vesselForCaseProvider.overrideWith(() => FakeVesselForCaseNotifier(vessel)),
+    documentProvider.overrideWith(() => FakeDocumentNotifier(const [])),
   ]);
   addTearDown(container.dispose);
   await pumpWithRouter(
@@ -133,6 +177,73 @@ void main() {
       expect(find.text('Add custom item'), findsNothing);
       expect(find.text('Confirm crew list with Master'), findsOneWidget);
       expect(find.text('0 of 2 complete'), findsOneWidget);
+    });
+
+    // §4.4 (13 July 2026): checklist auto-ticking.
+    testWidgets(
+        'an item linked to a completeness section auto-ticks once that '
+        "section's data condition is met, and shows the auto badge",
+        (tester) async {
+      await _pump(
+        tester,
+        [
+          _item(
+            id: '1',
+            stage: ChecklistStage.preSurvey,
+            itemNo: 1,
+            text: 'Confirm vessel identity',
+            linkedSection: 'vessel_particulars',
+          ),
+        ],
+        vessel: const VesselModel(vesselId: 'v1', name: 'MV Test Vessel'),
+      );
+
+      expect(find.text('auto'), findsOneWidget);
+      expect(find.text('1 of 1 complete'), findsOneWidget);
+    });
+
+    testWidgets(
+        'an item with no linkedSection never auto-ticks, even with '
+        'matching case data available', (tester) async {
+      await _pump(
+        tester,
+        [
+          _item(
+            id: '1',
+            stage: ChecklistStage.preSurvey,
+            itemNo: 1,
+            text: 'Attended site', // no clean data signal — stays manual
+          ),
+        ],
+        vessel: const VesselModel(vesselId: 'v1', name: 'MV Test Vessel'),
+      );
+
+      expect(find.text('auto'), findsNothing);
+      expect(find.text('0 of 1 complete'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a previously auto-ticked-then-manually-unticked item is not '
+        're-ticked by the next pass (one-shot, not perpetually enforced)',
+        (tester) async {
+      await _pump(
+        tester,
+        [
+          _item(
+            id: '1',
+            stage: ChecklistStage.preSurvey,
+            itemNo: 1,
+            text: 'Confirm vessel identity',
+            linkedSection: 'vessel_particulars',
+            completed: false,
+            autoTickAttempted: true, // already offered once, surveyor unticked it
+          ),
+        ],
+        vessel: const VesselModel(vesselId: 'v1', name: 'MV Test Vessel'),
+      );
+
+      expect(find.text('auto'), findsNothing);
+      expect(find.text('0 of 1 complete'), findsOneWidget);
     });
   });
 }
