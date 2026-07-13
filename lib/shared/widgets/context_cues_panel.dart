@@ -77,6 +77,33 @@ class RepairPeriodScope {
   final bool isUnassignedBucket;
 }
 
+/// Shared scope-matching logic — the single source of truth for "does this
+/// cue belong to this panel" used both inside [ContextCuesPanel] itself and
+/// by callers that need a count *before* the panel is built (e.g.
+/// RepairPeriodScopedCuesScreen collapsing the Unassigned bucket when it's
+/// empty, TODO.md §3.10 — the count has to be known outside the panel to
+/// decide how to render it, so this can't stay private).
+bool cueMatchesScope(
+  SurveyorNote n,
+  CaseSection section, {
+  RepairPeriodScope? periodScope,
+  CueItemScope? itemScope,
+}) {
+  if (n.caseSection != section) return false;
+  if (periodScope != null) {
+    if (periodScope.isUnassignedBucket) {
+      return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
+    }
+    return n.linkedToType == repairPeriodLinkType &&
+        n.linkedToId == periodScope.periodId;
+  }
+  if (itemScope != null) {
+    return n.linkedToType == itemScope.linkedToType &&
+        n.linkedToId == itemScope.linkedToId;
+  }
+  return true;
+}
+
 // ── Generic per-item scoping ────────────────────────────────────────────────
 //
 // The standing design principle (docs/context_cue_system_review.md, added
@@ -209,22 +236,24 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   bool _summaryLoading = false;
   String? _summarizedSignature;
 
-  bool _matchesScope(SurveyorNote n) {
-    if (n.caseSection != widget.section) return false;
-    final scope = widget.periodScope;
-    if (scope != null) {
-      if (scope.isUnassignedBucket) {
-        return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
-      }
-      return n.linkedToType == repairPeriodLinkType &&
-          n.linkedToId == scope.periodId;
-    }
-    final item = widget.itemScope;
-    if (item != null) {
-      return n.linkedToType == item.linkedToType &&
-          n.linkedToId == item.linkedToId;
-    }
-    return true;
+  bool _matchesScope(SurveyorNote n) => cueMatchesScope(
+        n,
+        widget.section,
+        periodScope: widget.periodScope,
+        itemScope: widget.itemScope,
+      );
+
+  /// §3.10/§3.11: expanded height scales with [itemCount] instead of always
+  /// reserving the old flat 268 — a near-empty basket no longer eats the
+  /// same space as a full one. Clamped so a long list scrolls inside a
+  /// sane max rather than growing unboundedly.
+  double _expandedHeight(int itemCount) {
+    const chrome = 92.0; // header row + tab pills row + list padding
+    const itemHeight = 46.0; // approx. one cue tile incl. its bottom margin
+    const emptyStateHeight = 40.0;
+    final contentHeight =
+        itemCount == 0 ? emptyStateHeight : itemCount * itemHeight;
+    return (chrome + contentHeight).clamp(150.0, 268.0);
   }
 
   String _signatureFor(List<SurveyorNote> notes) =>
@@ -278,7 +307,14 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
       // panel rendered collapsed with no quick-summary line yet (confirmed
       // via live widget-test reproduction on the Repair Periods screen,
       // docs/TODO.md Phase 0.1 row 24 / §3.9, 9 July 2026).
-      height: _expanded ? 268 : (showSummary ? 62 : 48),
+      //
+      // Expanded height (§3.10/§3.11, 13 July 2026): previously a flat 268
+      // regardless of content — a basket with 1 cue reserved exactly the
+      // same space as one with 20. Now scales with the visible tab's item
+      // count instead.
+      height: _expanded
+          ? _expandedHeight(visibleNotes.length)
+          : (showSummary ? 62 : 48),
       decoration: const BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border, width: 1)),

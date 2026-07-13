@@ -15,6 +15,7 @@ import '../models/repair_period_model.dart';
 import '../providers/repair_period_provider.dart';
 import '../widgets/quick_create_repair_period.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
@@ -39,6 +40,20 @@ class RepairPeriodScopedCuesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final periodsAsync = ref.watch(repairPeriodsProvider(caseId));
 
+    // §3.10: the Unassigned bucket needs its own active-cue count *before*
+    // ContextCuesPanel builds, to decide whether it starts collapsed — an
+    // empty bucket eating the same expanded space as a populated one was
+    // the "awkward, rarely useful" complaint. Uses the same cueMatchesScope
+    // the panel itself uses internally, so there's no drift between "what
+    // the panel shows" and "what this screen thinks is in it".
+    final notesAsync = ref.watch(surveyorNotesProvider(caseId));
+    final unassignedCount = notesAsync.value
+            ?.where((n) => cueMatchesScope(n, section,
+                periodScope: const RepairPeriodScope.unassigned()))
+            .where((n) => n.priority != CuePriority.ignored)
+            .length ??
+        0;
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(title: Text(title)),
@@ -52,9 +67,15 @@ class RepairPeriodScopedCuesScreen extends ConsumerWidget {
               title: 'Not Allocated to a Period',
               hint: 'Cues not yet tied to a specific repair period.',
               child: ContextCuesPanel(
+                // Recreates the panel's State (and re-evaluates
+                // initiallyExpanded) when crossing the empty/non-empty
+                // boundary — a `late` field only initialises once per
+                // State instance, so this can't just be a rebuild.
+                key: ValueKey('unassigned-${unassignedCount > 0}'),
                 caseId: caseId,
                 section: section,
                 periodScope: const RepairPeriodScope.unassigned(),
+                initiallyExpanded: unassignedCount > 0,
               ),
             ),
             const SizedBox(height: 16),
