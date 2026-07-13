@@ -96,6 +96,7 @@ class CaseModel {
     this.claimReference,
     this.principalId,
     this.assignedSurveyor,
+    this.reviewingSurveyorId,
     this.inboxEmailTag,
     this.storageFolderPath,
     this.notes,
@@ -159,6 +160,12 @@ class CaseModel {
   final String? claimReference;
   final String? principalId;
   final String? assignedSurveyor;
+  /// §4.2 companion office-manager app (migration 050) — the surveyor
+  /// assigned to QC/review the case, set by the office manager before
+  /// review happens. Distinct from [signedOffReviewingName] (free text,
+  /// captured at the moment sign-off actually occurred) and
+  /// [reviewingPartyId] (an external party/organisation, not a surveyor).
+  final String? reviewingSurveyorId;
   final String? inboxEmailTag;
   final String? storageFolderPath;
   final String? notes;
@@ -235,6 +242,7 @@ class CaseModel {
       claimReference: json['claim_reference'] as String?,
       principalId: json['principal_id'] as String?,
       assignedSurveyor: json['assigned_surveyor'] as String?,
+      reviewingSurveyorId: json['reviewing_surveyor_id'] as String?,
       inboxEmailTag: json['inbox_email_tag'] as String?,
       storageFolderPath: json['storage_folder_path'] as String?,
       notes: json['notes'] as String?,
@@ -306,6 +314,7 @@ class CaseModel {
     if (claimReference != null)    'claim_reference':     claimReference,
     if (principalId != null)       'principal_id':        principalId,
     if (assignedSurveyor != null)  'assigned_surveyor':   assignedSurveyor,
+    if (reviewingSurveyorId != null) 'reviewing_surveyor_id': reviewingSurveyorId,
     if (inboxEmailTag != null)     'inbox_email_tag':     inboxEmailTag,
     if (storageFolderPath != null) 'storage_folder_path': storageFolderPath,
     if (notes != null)             'notes':               notes,
@@ -407,6 +416,7 @@ class CaseModel {
       claimReference:        claimReference        ?? this.claimReference,
       principalId:           principalId,
       assignedSurveyor:      assignedSurveyor,
+      reviewingSurveyorId:   reviewingSurveyorId,
       inboxEmailTag:         inboxEmailTag,
       storageFolderPath:     storageFolderPath,
       notes:                 notes                 ?? this.notes,
