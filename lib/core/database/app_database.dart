@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 14,
+      version: 15,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -55,7 +55,10 @@ class AppDatabase {
         photo_source    TEXT,
         drive_file_id   TEXT,
         thumbnail_drive_file_id TEXT,
-        local_sync_status TEXT NOT NULL DEFAULT 'synced'
+        local_sync_status TEXT NOT NULL DEFAULT 'synced',
+        location_component TEXT,
+        direction_context TEXT,
+        significance_to_claim TEXT
       )
     ''');
 
@@ -158,6 +161,16 @@ class AppDatabase {
           "ALTER TABLE correspondence ADD COLUMN file_type TEXT NOT NULL DEFAULT 'pdf'");
       await db.execute(
           "ALTER TABLE correspondence ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
+    }
+    if (oldVersion < 15) {
+      // §2.4 Photo Register (spec §4.8, Annexure E) — mirrors Supabase
+      // migration 037.
+      await db
+          .execute('ALTER TABLE photos ADD COLUMN location_component TEXT');
+      await db
+          .execute('ALTER TABLE photos ADD COLUMN direction_context TEXT');
+      await db.execute(
+          'ALTER TABLE photos ADD COLUMN significance_to_claim TEXT');
     }
   }
 }

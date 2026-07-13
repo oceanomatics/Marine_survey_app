@@ -513,6 +513,7 @@ class AssembledReportData {
     required this.classConditions,
     required this.caseDocuments,
     required this.requestedDocuments,
+    required this.photos,
     required this.aiGenerationLog,
     required this.allReportOutputs,
     this.organisation,
@@ -559,6 +560,11 @@ class AssembledReportData {
 
   /// Documents requested but not yet received (Clause K-2).
   final List<Map<String, dynamic>> requestedDocuments;
+
+  /// §2.4 (13 July 2026): case photos, for the Annexure E photo register
+  /// (metadata only — actual image bytes are resolved separately by the
+  /// export flow, same split as caseDocuments/damage-item photos).
+  final List<Map<String, dynamic>> photos;
 
   /// Org config — present when the case has an organisation_id set.
   final Map<String, dynamic>? organisation;
@@ -817,6 +823,15 @@ final assembledDataProvider =
             'availability, requested_date, received_date, included_in_report')
         .eq('case_id', caseId)
         .order('doc_category'),
+    // §2.4: Annexure E photo register — metadata only, actual bytes
+    // resolved separately by the export flow (export_button.dart), same
+    // split already used for damage-item inline photos.
+    SupabaseService.client
+        .from('photos')
+        .select('id, caption, taken_at, linked_to_type, placement_mode, '
+            'location_component, direction_context, significance_to_claim')
+        .eq('case_id', caseId)
+        .order('taken_at'),
   ]);
 
   final surveyorNotes = List<Map<String, dynamic>>.from(supplementary[0]);
@@ -825,6 +840,7 @@ final assembledDataProvider =
   final allDocuments = List<Map<String, dynamic>>.from(supplementary[3]);
   final caseDocuments = filterEnclosedInReportDocuments(allDocuments);
   final requestedDocuments = filterRequestedDocuments(allDocuments);
+  final photos = List<Map<String, dynamic>>.from(supplementary[4]);
 
   // Fetch org config and AI generation log in parallel
   Map<String, dynamic>? organisation;
@@ -886,6 +902,7 @@ final assembledDataProvider =
     classConditions: classConditions,
     caseDocuments: caseDocuments,
     requestedDocuments: requestedDocuments,
+    photos: photos,
     aiGenerationLog: aiGenerationLog,
     allReportOutputs: allReportOutputs,
     organisation: organisation,

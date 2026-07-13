@@ -75,6 +75,7 @@ void main() {
       classConditions: [],
       caseDocuments: [],
       requestedDocuments: [],
+      photos: [],
       aiGenerationLog: [],
       allReportOutputs: [],
     );
@@ -173,6 +174,7 @@ void main() {
       classConditions: [],
       caseDocuments: [],
       requestedDocuments: [],
+      photos: [],
       aiGenerationLog: [],
       allReportOutputs: [],
     );
@@ -241,6 +243,7 @@ void main() {
       classConditions: [],
       caseDocuments: [],
       requestedDocuments: [],
+      photos: [],
       aiGenerationLog: [],
       allReportOutputs: [],
     );

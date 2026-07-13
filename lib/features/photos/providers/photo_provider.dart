@@ -544,6 +544,29 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
         (ph) => ph.copyWith(caption: trimmed.isEmpty ? null : trimmed));
   }
 
+  /// §2.4: Annexure E photo register fields (spec §4.8). Empty strings are
+  /// stored as null, same convention as [updateCaption].
+  Future<void> updateRegisterFields(
+    String photoId, {
+    String? locationComponent,
+    String? directionContext,
+    String? significanceToClaim,
+  }) async {
+    String? clean(String? s) {
+      final t = s?.trim();
+      return (t == null || t.isEmpty) ? null : t;
+    }
+
+    await _applyUpdate(
+      photoId,
+      (ph) => ph.copyWith(
+        locationComponent: clean(locationComponent),
+        directionContext: clean(directionContext),
+        significanceToClaim: clean(significanceToClaim),
+      ),
+    );
+  }
+
   Future<void> updatePlacementMode(
           String photoId, PlacementMode? placementMode) =>
       _applyUpdate(photoId, (ph) => ph.copyWith(placementMode: placementMode));

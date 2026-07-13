@@ -44,6 +44,7 @@ class DocxExportService {
     String coverPhotoExt = 'jpg',
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
     Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
+    Map<String, ResolvedPhoto>? annexurePhotosById,
   }) async {
     // Fetch org logo from Supabase Storage (non-fatal). The primary (element 0)
     // of the multi-logo array is embedded, falling back to the legacy single
@@ -117,7 +118,8 @@ class DocxExportService {
         logoBytes: logoBytes, logoExt: logoExt,
         signatureBytes: signatureBytes, signatureExt: signatureExt,
         damagePhotosByItemId: damagePhotosByItemId,
-        machineryPhotosByItemId: machineryPhotosByItemId);
+        machineryPhotosByItemId: machineryPhotosByItemId,
+        annexurePhotosById: annexurePhotosById);
     final filename = _filename(output, assembled);
 
     // Snapshot AI log + upload to Supabase Storage (non-fatal)
@@ -162,6 +164,7 @@ class DocxExportService {
     String signatureExt = 'png',
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
     Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
+    Map<String, ResolvedPhoto>? annexurePhotosById,
   }) {
     final doc = DocxBuilder();
     final v     = assembled.vessel ?? {};
@@ -1088,6 +1091,34 @@ class DocxExportService {
       doc.addSpacer();
       doc.addParagraph('[See attached document(s)]',
           italic: true, colorHex: '9CA3AF', halfPtSize: 18);
+    }
+
+    // ── Annexure E — Photographs (§2.4, spec §4.8) ───────────────────
+    // Opens with a register table (Photo No. | Location/Component |
+    // Direction/Context | Date | Significance), then each photo full-size
+    // with a caption composed from the same register fields. Damage-item
+    // inline photos (rendered under Extent of Damage already) are excluded
+    // by annexureEPhotos() so they aren't shown twice.
+    final annexureEList = annexureEPhotos(assembled.photos);
+    if (annexureEList.isNotEmpty && annexurePhotosById != null) {
+      doc.addPageBreak();
+      doc.addHeading('ANNEXURE E — PHOTOGRAPHS', 1);
+      final registerRows = buildPhotoRegisterRows(annexureEList);
+      if (registerRows.isNotEmpty) {
+        doc.addTable(registerRows, boldFirstRow: true,
+            colWidths: [900, 2400, 2400, 1300, 2355]);
+        doc.addSpacer();
+      }
+      for (var i = 0; i < annexureEList.length; i++) {
+        final photoId = annexureEList[i]['id'] as String?;
+        final resolved = photoId != null ? annexurePhotosById[photoId] : null;
+        if (resolved == null) continue;
+        doc.addImage(resolved.bytes, resolved.ext,
+            widthEmu: DocxBuilder.kPageWidthEmu * 2 ~/ 3);
+        doc.addParagraph(photoRegisterCaption(annexureEList[i], i + 1),
+            italic: true, halfPtSize: 18, colorHex: '374151');
+        doc.addSpacer();
+      }
     }
 
     // ── Annexure I — AI Generation Record ────────────────────────────

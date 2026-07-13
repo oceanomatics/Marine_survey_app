@@ -274,4 +274,123 @@ void main() {
       expect(blocks, isEmpty);
     });
   });
+
+  // §2.4 (13 July 2026): Annexure E photo register (spec §4.8).
+  group('annexureEPhotos', () {
+    test('excludes damage-item photos with no explicit placement override '
+        '(defaults to inline, spec §7)', () {
+      final photos = [
+        {'id': 'p1', 'linked_to_type': 'damage_item', 'taken_at': '2026-01-01'},
+        {'id': 'p2', 'linked_to_type': 'occurrence', 'taken_at': '2026-01-02'},
+      ];
+      final result = annexureEPhotos(photos);
+      expect(result.map((p) => p['id']), ['p2']);
+    });
+
+    test('an explicit annexure placement_mode overrides a damage_item link',
+        () {
+      final photos = [
+        {
+          'id': 'p1',
+          'linked_to_type': 'damage_item',
+          'placement_mode': 'annexure',
+          'taken_at': '2026-01-01',
+        },
+      ];
+      expect(annexureEPhotos(photos).map((p) => p['id']), ['p1']);
+    });
+
+    test('an explicit inline placement_mode excludes a non-damage-item '
+        'photo too', () {
+      final photos = [
+        {
+          'id': 'p1',
+          'linked_to_type': 'occurrence',
+          'placement_mode': 'inline',
+          'taken_at': '2026-01-01',
+        },
+      ];
+      expect(annexureEPhotos(photos), isEmpty);
+    });
+
+    test('sorts oldest first by taken_at', () {
+      final photos = [
+        {'id': 'later', 'taken_at': '2026-02-01'},
+        {'id': 'earlier', 'taken_at': '2026-01-01'},
+      ];
+      expect(annexureEPhotos(photos).map((p) => p['id']), ['earlier', 'later']);
+    });
+  });
+
+  group('buildPhotoRegisterRows', () {
+    test('empty list produces no rows (not even a header)', () {
+      expect(buildPhotoRegisterRows(const []), isEmpty);
+    });
+
+    test('numbers photos by their position in the (already-filtered/'
+        'ordered) list, 1-based', () {
+      final rows = buildPhotoRegisterRows([
+        {
+          'location_component': 'Port main engine',
+          'direction_context': 'Looking aft',
+          'taken_at': '2026-01-15',
+          'significance_to_claim': 'Shows fracture',
+        },
+        {
+          'location_component': 'Stbd hull',
+          'direction_context': 'Overview',
+          'taken_at': '2026-01-16',
+          'significance_to_claim': 'Confirms extent',
+        },
+      ]);
+      expect(rows[0],
+          ['Photo No.', 'Location / Component', 'Direction / Context', 'Date',
+            'Significance']);
+      expect(rows[1],
+          ['1', 'Port main engine', 'Looking aft', '15-Jan-2026',
+            'Shows fracture']);
+      expect(rows[2],
+          ['2', 'Stbd hull', 'Overview', '16-Jan-2026', 'Confirms extent']);
+    });
+
+    test('missing register fields render as empty cells, not null/crash', () {
+      final rows = buildPhotoRegisterRows([
+        {'taken_at': '2026-01-15'},
+      ]);
+      expect(rows[1], ['1', '', '', '15-Jan-2026', '']);
+    });
+  });
+
+  group('photoRegisterCaption', () {
+    test('composes the full spec §4.8 format when all fields are set', () {
+      final caption = photoRegisterCaption({
+        'location_component': 'Port main engine',
+        'direction_context': 'Looking aft',
+        'taken_at': '2026-01-15',
+        'significance_to_claim': 'Shows fracture consistent with impact',
+      }, 3);
+      expect(caption,
+          '[Photo 3] — Port main engine — Looking aft — 15-Jan-2026 — '
+          'Shows fracture consistent with impact');
+    });
+
+    test('omits unset register fields but keeps the rest in order', () {
+      final caption = photoRegisterCaption({
+        'location_component': 'Port main engine',
+        'taken_at': '2026-01-15',
+      }, 1);
+      expect(caption, '[Photo 1] — Port main engine — 15-Jan-2026');
+    });
+
+    test('falls back to the free-text caption when no register field is set',
+        () {
+      final caption = photoRegisterCaption({'caption': 'Old-style caption'}, 5);
+      expect(caption, '[Photo 5] — Old-style caption');
+    });
+
+    test('bare photo number when neither register fields nor caption exist',
+        () {
+      expect(photoRegisterCaption(const {}, 2), '[Photo 2]');
+    });
+  });
 }

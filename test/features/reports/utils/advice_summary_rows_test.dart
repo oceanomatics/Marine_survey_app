@@ -25,6 +25,7 @@ AssembledReportData _assembled({
       classConditions: const [],
       caseDocuments: const [],
       requestedDocuments: const [],
+      photos: const [],
       aiGenerationLog: const [],
       allReportOutputs: const [],
     );

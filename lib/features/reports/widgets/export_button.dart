@@ -114,6 +114,8 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
       // convention, keyed by machinery_id via the 'machinery_nameplate'
       // link type already used for the in-app thumbnail (machinery_card.dart).
       final machineryPhotosByItemId = <String, List<ResolvedPhoto>>{};
+      // §2.4 Annexure E gallery, keyed by photo id.
+      final annexurePhotosById = <String, ResolvedPhoto>{};
       if (!kIsWeb) {
         final photoNotifier =
             ref.read(photosProvider(widget.output.caseId).notifier);
@@ -170,6 +172,26 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
                 .add((bytes: bytes, ext: ext));
           } catch (_) {}
         }
+
+        // §2.4: Annexure E gallery — every photo NOT rendered inline under
+        // a damage item (same effectivePlacementMode split used above),
+        // keyed by photo id so the export service can line each one up
+        // with its register row (annexureEPhotos/buildPhotoRegisterRows,
+        // section_table_rows.dart).
+        for (final p in photos) {
+          if (p.effectivePlacementMode == PlacementMode.inline) continue;
+          try {
+            final resolved = p.hasLocalFile
+                ? p
+                : await photoNotifier.ensureLocalFile(p.id) ?? p;
+            if (!resolved.hasLocalFile) continue;
+            final localPath = resolved.localPath!;
+            final bytes = await File(localPath).readAsBytes();
+            final ext =
+                localPath.contains('.') ? localPath.split('.').last : 'jpg';
+            annexurePhotosById[p.id] = (bytes: bytes, ext: ext);
+          } catch (_) {}
+        }
       }
 
       final filename = await DocxExportService.export(
@@ -180,6 +202,7 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
         coverPhotoExt: coverPhotoExt,
         damagePhotosByItemId: damagePhotosByItemId,
         machineryPhotosByItemId: machineryPhotosByItemId,
+        annexurePhotosById: annexurePhotosById,
       );
 
       if (!context.mounted) return;

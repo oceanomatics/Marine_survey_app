@@ -1379,6 +1379,37 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     );
   }
 
+  /// §2.4: Annexure E photo register fields (spec §4.8) — kept out of the
+  /// main inline edit panel (already tight, especially with the keyboard
+  /// open) and behind a dedicated sheet instead, same pattern as allocation.
+  void _showRegisterDetails() {
+    final ph = _livePhoto();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RegisterDetailsSheet(
+        locationComponent: ph.locationComponent,
+        directionContext: ph.directionContext,
+        significanceToClaim: ph.significanceToClaim,
+        onSave: (location, direction, significance) async {
+          await ref
+              .read(photosProvider(widget.caseId).notifier)
+              .updateRegisterFields(
+                ph.id,
+                locationComponent: location,
+                directionContext: direction,
+                significanceToClaim: significance,
+              );
+          if (mounted) {
+            Navigator.pop(context);
+            showSavedToast(context);
+          }
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final livePhotos =
@@ -1632,6 +1663,13 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                               enabled: !_busy,
                               onTap: _crop,
                             ),
+                            const SizedBox(width: 6),
+                            _ToolBtn(
+                              icon: Icons.article_outlined,
+                              tooltip: 'Photo register details (Annexure E)',
+                              enabled: true,
+                              onTap: _showRegisterDetails,
+                            ),
                           ],
                         ),
                         const SizedBox(height: 7),
@@ -1797,6 +1835,167 @@ class _AllocationBadge extends StatelessWidget {
           const SizedBox(width: 4),
           Icon(Icons.expand_more, size: 14, color: color),
         ],
+      ),
+    );
+  }
+}
+
+/// §2.4: Annexure E photo register fields (spec §4.8) — Location/Component,
+/// Direction/Context, Significance to Claim. Date comes from the photo's
+/// own takenAt; Photo No. is the register's row position, not editable
+/// here.
+class _RegisterDetailsSheet extends StatefulWidget {
+  const _RegisterDetailsSheet({
+    required this.locationComponent,
+    required this.directionContext,
+    required this.significanceToClaim,
+    required this.onSave,
+  });
+
+  final String? locationComponent;
+  final String? directionContext;
+  final String? significanceToClaim;
+  final void Function(String? location, String? direction, String? significance)
+      onSave;
+
+  @override
+  State<_RegisterDetailsSheet> createState() => _RegisterDetailsSheetState();
+}
+
+class _RegisterDetailsSheetState extends State<_RegisterDetailsSheet> {
+  late final _locationCtrl =
+      TextEditingController(text: widget.locationComponent ?? '');
+  late final _directionCtrl =
+      TextEditingController(text: widget.directionContext ?? '');
+  late final _significanceCtrl =
+      TextEditingController(text: widget.significanceToClaim ?? '');
+
+  @override
+  void dispose() {
+    _locationCtrl.dispose();
+    _directionCtrl.dispose();
+    _significanceCtrl.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _decoration(String hint) => InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+        isDense: true,
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: _kColor, width: 1.5)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Material(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Photo Register Details',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Feeds the Annexure E photo register table and caption.',
+                style: TextStyle(fontSize: 11, color: AppColors.textTertiary),
+              ),
+              const SizedBox(height: 14),
+              const Text('Location / Component',
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary)),
+              const SizedBox(height: 5),
+              TextField(
+                controller: _locationCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration: _decoration('e.g. Port main engine, turbocharger'),
+              ),
+              const SizedBox(height: 12),
+              const Text('Direction / Context',
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary)),
+              const SizedBox(height: 5),
+              TextField(
+                controller: _directionCtrl,
+                style: const TextStyle(fontSize: 13),
+                decoration:
+                    _decoration('e.g. Looking aft, general overview'),
+              ),
+              const SizedBox(height: 12),
+              const Text('Significance to Claim',
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary)),
+              const SizedBox(height: 5),
+              TextField(
+                controller: _significanceCtrl,
+                maxLines: 2,
+                minLines: 1,
+                style: const TextStyle(fontSize: 13),
+                decoration:
+                    _decoration('e.g. Shows fracture consistent with impact'),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => widget.onSave(
+                    _locationCtrl.text,
+                    _directionCtrl.text,
+                    _significanceCtrl.text,
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _kColor,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Save',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -100,6 +100,9 @@ class PhotoModel {
     this.photoSource,
     this.driveFileId,
     this.thumbnailDriveFileId,
+    this.locationComponent,
+    this.directionContext,
+    this.significanceToClaim,
   });
 
   final String id;
@@ -131,6 +134,16 @@ class PhotoModel {
   /// upload completes.
   final String? driveFileId;
   final String? thumbnailDriveFileId;
+
+  /// §2.4 (13 July 2026): Annexure E photo register fields (spec §4.8 —
+  /// Photo No. | Location/Component | Direction/Context | Date |
+  /// Significance; Date comes from [takenAt], Photo No. is the register's
+  /// row position, not stored). [caption] is a separate free-text field
+  /// some existing photos already carry — kept as a caption fallback when
+  /// these are unset, not replaced by them.
+  final String? locationComponent;
+  final String? directionContext;
+  final String? significanceToClaim;
 
   bool get hasLocalFile => localPath != null && localPath!.isNotEmpty;
 
@@ -170,6 +183,9 @@ class PhotoModel {
         photoSource: PhotoSource.fromValue(m['photo_source'] as String?),
         driveFileId: m['drive_file_id'] as String?,
         thumbnailDriveFileId: m['thumbnail_drive_file_id'] as String?,
+        locationComponent: m['location_component'] as String?,
+        directionContext: m['direction_context'] as String?,
+        significanceToClaim: m['significance_to_claim'] as String?,
       );
 
   /// Parses a row from Supabase (canonical metadata; no per-device fields —
@@ -189,6 +205,9 @@ class PhotoModel {
         photoSource: PhotoSource.fromValue(m['photo_source'] as String?),
         driveFileId: m['drive_file_id'] as String?,
         thumbnailDriveFileId: m['thumbnail_drive_file_id'] as String?,
+        locationComponent: m['location_component'] as String?,
+        directionContext: m['direction_context'] as String?,
+        significanceToClaim: m['significance_to_claim'] as String?,
       );
 
   /// Serializes for the local SQLite cache — includes per-device fields.
@@ -211,6 +230,10 @@ class PhotoModel {
         if (driveFileId != null) 'drive_file_id': driveFileId,
         if (thumbnailDriveFileId != null)
           'thumbnail_drive_file_id': thumbnailDriveFileId,
+        if (locationComponent != null) 'location_component': locationComponent,
+        if (directionContext != null) 'direction_context': directionContext,
+        if (significanceToClaim != null)
+          'significance_to_claim': significanceToClaim,
       };
 
   /// Serializes for the Supabase `photos` table — canonical metadata only,
@@ -230,6 +253,10 @@ class PhotoModel {
         if (driveFileId != null) 'drive_file_id': driveFileId,
         if (thumbnailDriveFileId != null)
           'thumbnail_drive_file_id': thumbnailDriveFileId,
+        if (locationComponent != null) 'location_component': locationComponent,
+        if (directionContext != null) 'direction_context': directionContext,
+        if (significanceToClaim != null)
+          'significance_to_claim': significanceToClaim,
       };
 
   // Sentinel for nullable copyWith fields.
@@ -249,6 +276,9 @@ class PhotoModel {
     Object? photoSource = _unset,
     String? driveFileId,
     String? thumbnailDriveFileId,
+    Object? locationComponent = _unset,
+    Object? directionContext = _unset,
+    Object? significanceToClaim = _unset,
   }) =>
       PhotoModel(
         id: id,
@@ -276,5 +306,14 @@ class PhotoModel {
             : photoSource as PhotoSource?,
         driveFileId: driveFileId ?? this.driveFileId,
         thumbnailDriveFileId: thumbnailDriveFileId ?? this.thumbnailDriveFileId,
+        locationComponent: locationComponent == _unset
+            ? this.locationComponent
+            : locationComponent as String?,
+        directionContext: directionContext == _unset
+            ? this.directionContext
+            : directionContext as String?,
+        significanceToClaim: significanceToClaim == _unset
+            ? this.significanceToClaim
+            : significanceToClaim as String?,
       );
 }

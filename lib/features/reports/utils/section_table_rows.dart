@@ -689,3 +689,65 @@ ReportSignOff buildReportSignOff(Map<String, dynamic>? organisation) {
     signatureStoragePath: profile?['signature_storage_path'] as String?,
   );
 }
+
+// ── Annexure E: Photo Register (§2.4, spec §4.8) ────────────────────────────
+
+/// Photos that belong in the Annexure E gallery/register — everything
+/// except damage-item inline photos (spec §7 placement mode), which render
+/// under Extent of Damage instead and would otherwise be double-counted.
+/// Mirrors [PhotoModel.effectivePlacementMode]'s default (inline only when
+/// linked to a damage item and no explicit override) without importing the
+/// photos feature's model — this file only ever sees the flattened map
+/// shape already used by every other builder here.
+List<Map<String, dynamic>> annexureEPhotos(List<Map<String, dynamic>> photos) {
+  final list = photos.where((p) {
+    final placementMode = p['placement_mode'] as String?;
+    if (placementMode != null) return placementMode != 'inline';
+    return (p['linked_to_type'] as String?) != 'damage_item';
+  }).toList();
+  list.sort((a, b) =>
+      (a['taken_at'] as String? ?? '').compareTo(b['taken_at'] as String? ?? ''));
+  return list;
+}
+
+/// The register table opening Annexure E — spec §4.8: Photo No. |
+/// Location/Component | Direction/Context | Date | Significance. [photos]
+/// must already be filtered/ordered via [annexureEPhotos] — Photo No. is
+/// simply that list's 1-based position, so passing an unfiltered/unordered
+/// list here would desync the numbering from the captions built by
+/// [photoRegisterCaption] for the same list.
+List<List<String>> buildPhotoRegisterRows(List<Map<String, dynamic>> photos) {
+  if (photos.isEmpty) return const [];
+  return [
+    ['Photo No.', 'Location / Component', 'Direction / Context', 'Date',
+      'Significance'],
+    for (var i = 0; i < photos.length; i++)
+      [
+        '${i + 1}',
+        photos[i]['location_component'] as String? ?? '',
+        photos[i]['direction_context'] as String? ?? '',
+        formatSectionDate(photos[i]['taken_at'] as String? ?? ''),
+        photos[i]['significance_to_claim'] as String? ?? '',
+      ],
+  ];
+}
+
+/// Spec §4.8 caption format: `[Photo N] — [component/location] —
+/// [direction/context] — [date] — [significance to claim]`. Falls back to
+/// the photo's free-text `caption` field when none of the three register
+/// fields are set (pre-§2.4 photos, or ones the surveyor hasn't filled in
+/// yet) so a caption is never blank outright — just less structured.
+String photoRegisterCaption(Map<String, dynamic> photo, int photoNo) {
+  final location = photo['location_component'] as String? ?? '';
+  final direction = photo['direction_context'] as String? ?? '';
+  final significance = photo['significance_to_claim'] as String? ?? '';
+  final date = formatSectionDate(photo['taken_at'] as String? ?? '');
+  final parts = [location, direction, date, significance]
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) {
+    final caption = photo['caption'] as String? ?? '';
+    return caption.isEmpty ? '[Photo $photoNo]' : '[Photo $photoNo] — $caption';
+  }
+  return '[Photo $photoNo] — ${parts.join(' — ')}';
+}
