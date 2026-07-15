@@ -593,6 +593,7 @@ class VesselModel {
     this.classSociety,
     this.classNotation,
     this.serviceSpeed,
+    this.screwCount,
     this.propulsionType,
     this.propellerType,
     this.propulsionDriveType,
@@ -670,8 +671,19 @@ class VesselModel {
   final String? classSociety;
   final String? classNotation;
   final double? serviceSpeed;
+  /// Number of screws (14 July 2026 walkthrough §3 Q5 — Propulsion
+  /// Particulars reorganised into screw count / prime mover type / thruster
+  /// type; see vessel_particulars_screen.dart's Machinery tab).
+  final int? screwCount;
+  /// Relabelled "Type of Prime Mover" in the UI (motor / steam / electric)
+  /// as part of the same reorganisation — same column, new option set.
   final String? propulsionType;
+  /// Relabelled "Thruster Type" in the UI (fixed pitch / variable pitch /
+  /// azipods / waterjet) — same column, new option set.
   final String? propellerType;
+  /// No longer surfaced in the UI after the reorganisation above; left in
+  /// place rather than dropped (pre-production app, not worth a destructive
+  /// migration for an unused column).
   final String? propulsionDriveType;
   final double? mcrPowerValue;
   final int? mcrRpm;
@@ -745,6 +757,7 @@ class VesselModel {
       classSociety:        json['class_society'] as String?,
       classNotation:       json['class_notation'] as String?,
       serviceSpeed:        (json['service_speed'] as num?)?.toDouble(),
+      screwCount:          json['screw_count'] as int?,
       propulsionType:      json['propulsion_type'] as String?,
       propellerType:       json['propeller_type'] as String?,
       propulsionDriveType: json['propulsion_drive_type'] as String?,
@@ -840,6 +853,7 @@ class VesselModel {
     if (classSociety != null)         'class_society':         classSociety,
     if (classNotation != null)        'class_notation':        classNotation,
     if (serviceSpeed != null)         'service_speed':         serviceSpeed,
+    if (screwCount != null)           'screw_count':           screwCount,
     if (propulsionType != null)       'propulsion_type':       propulsionType,
     if (propellerType != null)        'propeller_type':        propellerType,
     if (propulsionDriveType != null)  'propulsion_drive_type': propulsionDriveType,
@@ -913,26 +927,57 @@ class VesselModel {
       classSociety:  extracted['class_society'] as String? ?? classSociety,
       classNotation: extracted['class_notation'] as String? ?? classNotation,
       serviceSpeed:  (extracted['service_speed'] as num?)?.toDouble() ?? serviceSpeed,
+      screwCount:          extracted['screw_count'] as int? ?? screwCount,
       propulsionType:      extracted['propulsion_type'] as String? ?? propulsionType,
       propellerType:       extracted['propeller_type'] as String? ?? propellerType,
       propulsionDriveType: extracted['propulsion_drive_type'] as String? ?? propulsionDriveType,
       mcrPowerValue: (extracted['mcr_power_value'] as num?)?.toDouble() ?? mcrPowerValue,
       mcrRpm:        extracted['mcr_rpm'] as int? ?? mcrRpm,
       mcrPowerUnit:  extracted['mcr_power_unit'] as String? ?? mcrPowerUnit,
-      // Statutory — not overwritten by AI extraction; preserved as-is
-      officialNumber:        officialNumber,
-      classStatus:           classStatus,
+      // Statutory — most of this block was previously "not overwritten by
+      // AI extraction; preserved as-is" with no matching extraction-schema
+      // fields at all (confirmed 15 July 2026 — the surveyor's own
+      // suspicion that newer schema fields weren't being extracted for).
+      // The ones below now have real hard_fields in the extraction prompt,
+      // but deliberately keep the *existing* stricter policy an existing
+      // unit test locks in for this block: a confirmed statutory value is
+      // never silently overwritten by a fresh extraction pass (existing
+      // value wins if already set) — only ever fills a currently-empty
+      // field. That's the opposite merge direction from the physical-
+      // particulars fields above, where a fresh extraction wins outright —
+      // deliberate, not an oversight: a wrong class-status/PSC-result claim
+      // has real legal weight in a report, tonnage/dimensions don't.
+      // The rest (AMSA classifications, hull material, survey-due dates)
+      // stay preserved-as-is — too specialised/rarely-stated to extract
+      // reliably, not added to the prompt.
+      officialNumber: officialNumber ?? extracted['official_number'] as String?,
+      classStatus: classStatus ??
+          (extracted['class_status'] is String
+              ? ClassStatus.fromValue(extracted['class_status'] as String)
+              : null),
       constructionStandard:  constructionStandard,
-      registeredOwner:       registeredOwner,
-      lastDrydockDate:       lastDrydockDate,
-      lastDrydockYard:       lastDrydockYard,
+      registeredOwner: registeredOwner ?? extracted['registered_owner'] as String?,
+      lastDrydockDate: lastDrydockDate ??
+          (extracted['last_drydock_date'] is String
+              ? DateTime.tryParse(extracted['last_drydock_date'] as String)
+              : null),
+      lastDrydockYard: lastDrydockYard ?? extracted['last_drydock_yard'] as String?,
       ismIncidentReported:   ismIncidentReported,
       classIncidentReported: classIncidentReported,
-      pscLastInspection:     pscLastInspection,
-      pscLastResult:         pscLastResult,
-      pscSummary:            pscSummary,
-      piClub:                piClub,
-      ispsStatus:            ispsStatus,
+      pscLastInspection: pscLastInspection ??
+          (extracted['psc_last_inspection'] is String
+              ? DateTime.tryParse(extracted['psc_last_inspection'] as String)
+              : null),
+      pscLastResult: pscLastResult ??
+          (extracted['psc_last_result'] is String
+              ? PscResult.fromValue(extracted['psc_last_result'] as String)
+              : null),
+      pscSummary: pscSummary ?? extracted['psc_summary'] as String?,
+      piClub: piClub ?? extracted['pi_club'] as String?,
+      ispsStatus: ispsStatus ??
+          (extracted['isps_status'] is String
+              ? IspsStatus.fromValue(extracted['isps_status'] as String)
+              : null),
       regulatoryStandard:      regulatoryStandard,
       amsaVesselUseClass:      amsaVesselUseClass,
       amsaServiceCategory:     amsaServiceCategory,

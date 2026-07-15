@@ -926,7 +926,14 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
         left: 20, right: 20, top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: SingleChildScrollView(
+      // Material(transparency), not a bare child — the sheet's own
+      // DecoratedBox (the background colour above) otherwise sits between
+      // this sheet's SwitchListTile and the nearest real Material ancestor,
+      // so its tap ripple/ink never paints (caught by Flutter's own debug
+      // assertion via a widget test).
+      child: Material(
+        type: MaterialType.transparency,
+        child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Center(
             child: Container(
@@ -1053,6 +1060,7 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
           ),
         ]),
       ),
+      ),
     );
   }
 }
@@ -1115,7 +1123,14 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
         left: 20, right: 20, top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: SingleChildScrollView(
+      // Material(transparency), not a bare child — the sheet's own
+      // DecoratedBox (the background colour above) otherwise sits between
+      // this sheet's SwitchListTile and the nearest real Material ancestor,
+      // so its tap ripple/ink never paints (caught by Flutter's own debug
+      // assertion via a widget test).
+      child: Material(
+        type: MaterialType.transparency,
+        child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Center(
             child: Container(
@@ -1211,6 +1226,7 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
             ),
           ),
         ]),
+      ),
       ),
     );
   }

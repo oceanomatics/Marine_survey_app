@@ -9,12 +9,12 @@ import '../../../core/models/ai_generation_log_model.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/damage_provider.dart'
     show ConditionStatus, ConfirmedByRole, CertaintyLevel;
-import '../../cases/models/case_model.dart' show ClassStatus;
 import '../../survey/providers/attendees_provider.dart' show AttendeeTitle;
 import '../utils/certification_narrative.dart';
 import '../../timeline/models/timeline_entry.dart';
 import '../../timeline/models/timeline_event_rating.dart';
 import '../../timeline/models/timeline_aggregation.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 
 // ── Report output types ────────────────────────────────────────────────────
 
@@ -285,6 +285,7 @@ class ReportSection {
     this.sectionId,
     this.carriedForwardContent,
     this.remarks,
+    this.drafting = false,
   });
 
   final SectionType type;
@@ -314,6 +315,14 @@ class ReportSection {
   /// genuinely free-text field for [autoPopulatedSectionTypes] (§2.18);
   /// null/unused for every other section type in this slice.
   final String? remarks;
+
+  /// True while an AI draft is in flight for this section — client-only
+  /// (never persisted, see [SectionDraftNotifier._persist]'s explicit field
+  /// list). Lets "Draft with AI" show real feedback instead of the button
+  /// staying fully interactive with nothing visibly happening for ~20s
+  /// (14 July 2026 walkthrough §13/§17/§23 — "removing the ~20 second wait
+  /// after pressing a draft button").
+  final bool drafting;
 
   /// Frozen copy of the prior report output's approved text for this
   /// section (spec: "Successive Report Behaviour" — docs/report_builder_
@@ -348,6 +357,7 @@ class ReportSection {
     bool? aiDrafted,
     Object? carriedForwardContent = _sentinel,
     Object? remarks = _sentinel,
+    bool? drafting,
   }) =>
       ReportSection(
         type: type,
@@ -364,6 +374,7 @@ class ReportSection {
             ? this.carriedForwardContent
             : carriedForwardContent as String?,
         remarks: remarks == _sentinel ? this.remarks : remarks as String?,
+        drafting: drafting ?? this.drafting,
       );
 }
 
@@ -919,7 +930,7 @@ typedef SectionDraftKey = ({String caseId, String outputId});
 
 final sectionDraftProvider = StateNotifierProvider.family<SectionDraftNotifier,
     Map<SectionType, ReportSection>, SectionDraftKey>(
-  (ref, key) => SectionDraftNotifier(key.caseId, key.outputId),
+  (ref, key) => SectionDraftNotifier(ref, key.caseId, key.outputId),
 );
 
 /// A row loaded from `report_sections` — the persisted override for one
@@ -952,8 +963,9 @@ class _PersistedSection {
 
 class SectionDraftNotifier
     extends StateNotifier<Map<SectionType, ReportSection>> {
-  SectionDraftNotifier(this.caseId, this.outputId) : super({});
+  SectionDraftNotifier(this._ref, this.caseId, this.outputId) : super({});
 
+  final Ref _ref;
   final String caseId;
   final String outputId;
   final Map<SectionType, Timer> _saveTimers = {};
@@ -1923,7 +1935,22 @@ class SectionDraftNotifier
       // override sitting in the DB from before this change becomes inert,
       // not deleted (fully reversible). `remarks`/`surveyorReview` always
       // overlay regardless, since those stay genuinely surveyor-authored.
-      final isAuto = autoPopulatedSectionTypes.contains(entry.key);
+      //
+      // 14 July 2026 fix: a handful of auto-populated types (occurrence/
+      // damageDescription/natureOfRepairs/repairs — see
+      // `deterministicDefaultTypes` in report_builder_screen.dart) are ALSO
+      // AI-draftable: "Draft with AI" is meant to replace the deterministic
+      // template with flowing narrative prose exactly once, after which the
+      // drafted text should stick until manually redone (confirmed with the
+      // surveyor 14 July 2026). Blanket-discarding `content`/`aiDrafted` for
+      // every auto-populated type here was silently reverting that draft
+      // back to the deterministic default on every reopen, and the button
+      // reappeared as if nothing had happened since `aiDrafted` never
+      // stayed true. Once a real AI draft is persisted
+      // (`entry.value.aiDrafted`), treat it like a manually-authored
+      // override instead of overwriting it with the fresh default.
+      final isAuto = autoPopulatedSectionTypes.contains(entry.key) &&
+          !entry.value.aiDrafted;
       sections[entry.key] = base.copyWith(
         content: isAuto ? base.content : entry.value.content,
         surveyorReview: entry.value.surveyorReview,
@@ -2051,15 +2078,73 @@ class SectionDraftNotifier
     return prior?['output_id'] as String?;
   }
 
+  /// Writes AI-generated content from the Case Analyst chat into a report
+  /// section (14 July 2026 walkthrough §21 — "insert a table/paragraph
+  /// directly via conversational prompts"). Same commit shape as the tail
+  /// of [draftSectionWithAi] — `content` is fully replaced (not appended;
+  /// the surveyor picked this specific section to receive it) and marked
+  /// `aiDrafted: true` so the same review badge/gate applies as any other
+  /// AI-drafted section. Refuses locked or auto-populated sections, same as
+  /// [draftSectionWithAi] refuses locked ones — the caller (the "Insert
+  /// into report" sheet) is expected to only offer eligible sections in the
+  /// first place, this is the safety net.
+  void insertAiChatContent(SectionType type, String content) {
+    final existing = state[type];
+    if (existing == null ||
+        existing.isLocked ||
+        autoPopulatedSectionTypes.contains(type)) {
+      return;
+    }
+    state = {
+      ...state,
+      type: existing.copyWith(content: content, aiDrafted: true),
+    };
+    _saveTimers[type]?.cancel();
+    _saveTimers[type] = Timer(Duration.zero, () => _persist(type));
+  }
+
   /// Drafts [type] (background or causation only) with AI on demand,
   /// wiring up the AI-drafting code paths that [buildSections] already has
   /// but that are otherwise unreachable from the UI. Marks the result
   /// `aiDrafted: true` so the GPN-AI review gate applies to it.
+  ///
+  /// Fire-and-forget from the caller's perspective (report_builder_screen.
+  /// dart's "Draft with AI" button doesn't await this) — but until this was
+  /// added, that meant the button gave zero feedback for the ~20s the
+  /// Claude call takes, so a surveyor who wasn't staring at exactly this
+  /// section had no idea anything was happening (and could double-tap,
+  /// firing the call twice). [ReportSection.drafting] now flips reactively
+  /// the instant this is called, same "background + visible status" shape
+  /// as document extraction's `extraction_status` (14 July 2026 walkthrough
+  /// §13/§17/§23 — "unify with the existing AI extraction queue system").
   Future<void> draftSectionWithAi(
       SectionType type, AssembledReportData data) async {
     final existing = state[type];
-    if (existing == null || existing.isLocked) return;
+    if (existing == null || existing.isLocked || existing.drafting) return;
 
+    state = {...state, type: existing.copyWith(drafting: true)};
+
+    try {
+      await _ref.read(aiTasksProvider.notifier).run(
+            label: 'Drafting ${existing.title}',
+            caseId: caseId,
+            caseLabel: data.vessel?['name'] as String?,
+            estimate: const Duration(seconds: 20),
+            action: () => _draftSectionContent(type, data, existing),
+          );
+    } finally {
+      // Safety net for every early `return` inside _draftSectionContent
+      // (missing data, etc.) — never leave the button stuck showing
+      // "Drafting…" with no way out.
+      final current = state[type];
+      if (current != null && current.drafting) {
+        state = {...state, type: current.copyWith(drafting: false)};
+      }
+    }
+  }
+
+  Future<void> _draftSectionContent(SectionType type,
+      AssembledReportData data, ReportSection existing) async {
     String content;
     try {
       switch (type) {
@@ -2380,27 +2465,17 @@ class SectionDraftNotifier
       }
     }
 
-    // Class status up front (8 July 2026 review): state classed /
-    // conditionally classed / suspended / not classed from the hard field
-    // captured on the Class & Certification screen, rather than leaving the
-    // reader to find it later in §5. Deliberately a deterministic
-    // field-driven sentence, not an AI-drafted one — GPN-AI audit/review
-    // requirements would apply to AI content in a locked certification
-    // section, and we already hold this as a hard fact, so there's nothing
-    // for an AI draft to add here.
-    final classStatusValue = data.vessel?['class_status'] as String?;
-    if (classStatusValue != null) {
-      final status = ClassStatus.fromValue(classStatusValue);
-      final phrase = switch (status) {
-        ClassStatus.classed => 'is currently in class',
-        ClassStatus.conditional =>
-          'is currently in class, subject to an outstanding condition of class',
-        ClassStatus.suspended => 'has its class currently suspended',
-        ClassStatus.notClassed => 'is not currently classed',
-      };
-      final vesselName = data.vessel?['name'] as String? ?? 'The vessel';
-      trailingSentences.add('$vesselName $phrase.');
-    }
+    // Class status was previously appended here too (8 July 2026 review),
+    // reasoning that stating classed/conditional/suspended up front saved
+    // the reader hunting for it in §5. Reverted 14 July 2026 — live bug
+    // report: the surveyor flagged this as "wrong place for these items"
+    // on a locked, approved-legal-wording section, and §5's Class &
+    // Statutory Certificates already carries a class status statement
+    // (clause `class_status_statement`) — this duplicated it in the wrong
+    // spot rather than adding real information. If the classed/conditional/
+    // suspended/not-classed distinction from vessels.class_status is wanted
+    // in the exported report, it belongs in §5 alongside that clause, not
+    // spliced into §1's fixed certification text.
 
     if (trailingSentences.isEmpty) return filled;
     return '$filled ${trailingSentences.join(' ')}';
@@ -2635,8 +2710,11 @@ class SectionDraftNotifier
           final reason = d['exclusion_reason'] as String?;
           buf.writeln('    This item is unrelated to the casualty'
               '${reason != null && reason.isNotEmpty ? ' ($reason)' : ''}.');
-        } else if (averageStatusRaw == 'partial') {
-          buf.writeln('    Partially concerning average'
+        } else if (averageStatusRaw == 'partial' ||
+            averageStatusRaw == 'challenged') {
+          // 'partial' is the pre-14-July-2026 stored value for this same
+          // state, relabelled Challenged — both still resolve here.
+          buf.writeln('    Challenged as concerning average'
               '${averagePartialDetail != null && averagePartialDetail.isNotEmpty ? ' — $averagePartialDetail' : ''}.');
         } else if (averageStatusRaw == null &&
             (d['is_concerning_average'] as bool? ?? true) == false) {

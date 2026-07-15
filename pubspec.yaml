@@ -26,6 +26,7 @@ dependencies:
   sqflite: ^2.3.3
   path_provider: ^2.1.3
   shared_preferences: ^2.2.3
+  local_auth: ^2.3.0
 
   # Camera & media
   image_picker: ^1.1.2
@@ -87,6 +88,7 @@ dependencies:
 
   # Icons
   cupertino_icons: ^1.0.8
+  feedback: ^3.2.0
   flutter_phosphor_icons: ^0.0.1
 
 dev_dependencies:

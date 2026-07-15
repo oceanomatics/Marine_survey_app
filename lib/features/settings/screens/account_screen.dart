@@ -4,10 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/account_provider.dart';
+import '../../../core/services/biometric_lock_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/save_bar.dart';
 import '../../../shared/widgets/app_feedback.dart';
+import 'organisation_list_screen.dart' show OrganisationsTabBody, createOrganisation;
 
+/// Unified Account & Organisation Settings — Surveyor / Organisations /
+/// Connectivity tabs (14 July 2026 walkthrough — a repeat complaint; this
+/// was previously split across this screen and a separate Organisations
+/// route/screen, which TODO.md §2.16 recorded as a deliberate deferral the
+/// surveyor said was "not acceptable, wants it done"). Route/class name
+/// (`/account`, AccountScreen) kept as-is — only the content changed —
+/// so nothing else that links here needs updating.
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
 
@@ -15,7 +24,9 @@ class AccountScreen extends ConsumerStatefulWidget {
   ConsumerState<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends ConsumerState<AccountScreen> {
+class _AccountScreenState extends ConsumerState<AccountScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab = TabController(length: 3, vsync: this);
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -24,7 +35,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   bool _savingProfile = false;
 
   @override
+  void initState() {
+    super.initState();
+    _tab.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
+    _tab.dispose();
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
@@ -81,183 +99,207 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           _loadProfile(account);
         }
 
+        final onOrgTab = _tab.index == 1;
+
         return Scaffold(
           backgroundColor: AppColors.surface,
           appBar: AppBar(
-            title: const Text('Account'),
+            title: const Text('Account & Organisation'),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => context.go('/cases'),
             ),
+            bottom: TabBar(
+              controller: _tab,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
+              labelStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+              tabs: const [
+                Tab(text: 'Surveyor'),
+                Tab(text: 'Organisations'),
+                Tab(text: 'Connectivity'),
+              ],
+            ),
           ),
-          bottomNavigationBar: SaveBar(
-            visible: _profileDirty,
-            saving: _savingProfile,
-            onSave: _saveProfile,
-          ),
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              // ── Surveyor Profile ──────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.person_outline,
-                color: AppColors.midBlue,
-                title: 'Surveyor Profile',
-              ),
-              const SizedBox(height: 10),
-              _ProfileCard(
-                nameCtrl: _nameCtrl,
-                emailCtrl: _emailCtrl,
-                phoneCtrl: _phoneCtrl,
-                addressCtrl: _addressCtrl,
-                onChanged: () => setState(() => _profileDirty = true),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── API Keys ──────────────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.key_outlined,
-                color: AppColors.teal,
-                title: 'API Keys',
-              ),
-              const SizedBox(height: 10),
-              _ApiKeyEditCard(
-                title: 'Anthropic (Claude)',
-                subtitle: 'Used for AI document extraction, drafting and '
-                    'OCR throughout the app. Get a key at console.anthropic.com.',
-                icon: Icons.psychology_outlined,
-                iconColor: AppColors.teal,
-                currentKey: account.anthropicApiKey,
-                onSave: (v) =>
-                    ref.read(accountProvider.notifier).saveAnthropicApiKey(v),
-              ),
-              const SizedBox(height: 10),
-              _ApiKeyEditCard(
-                title: 'OpenAI',
-                subtitle: 'Reserved for OpenAI-based features. '
-                    'Get a key at platform.openai.com.',
-                icon: Icons.auto_awesome_outlined,
-                iconColor: AppColors.purple,
-                currentKey: account.openAiApiKey,
-                onSave: (v) =>
-                    ref.read(accountProvider.notifier).saveOpenAiApiKey(v),
-              ),
-              const SizedBox(height: 10),
-              _ApiKeyEditCard(
-                title: 'Google',
-                subtitle: 'Reserved for Google Maps/Places features. '
-                    'Get a key at console.cloud.google.com.',
-                icon: Icons.map_outlined,
-                iconColor: AppColors.midBlue,
-                currentKey: account.googleApiKey,
-                onSave: (v) =>
-                    ref.read(accountProvider.notifier).saveGoogleApiKey(v),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Cloud Storage ─────────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.folder_shared_outlined,
-                color: AppColors.amber,
-                title: 'Cloud Storage',
-              ),
-              const SizedBox(height: 10),
-              _ApiKeyEditCard(
-                title: 'Drive Base Folder',
-                subtitle: 'Root folder name in your Google Drive under which '
-                    'Cases/ and Admin/ are created — all case photos, '
-                    'correspondence, documents and reports are stored there. '
-                    'Leave blank to use "My Drive" root directly.',
-                icon: Icons.folder_shared_outlined,
-                iconColor: AppColors.amber,
-                currentKey: account.driveBaseFolder,
-                onSave: (v) =>
-                    ref.read(accountProvider.notifier).saveDriveBaseFolder(v),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── FX Rates ──────────────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.currency_exchange_outlined,
-                color: AppColors.teal,
-                title: 'FX Rates',
-              ),
-              const SizedBox(height: 10),
-              _ApiKeyEditCard(
-                title: 'openexchangerates.org',
-                subtitle: 'Free-tier App ID from openexchangerates.org, '
-                    'used for FX rate conversion.',
-                icon: Icons.currency_exchange_outlined,
-                iconColor: AppColors.teal,
-                currentKey: account.fxApiKey,
-                onSave: (v) =>
-                    ref.read(accountProvider.notifier).saveFxApiKey(v),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Speech & Transcription ────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.mic_outlined,
-                color: AppColors.purple,
-                title: 'Speech & Transcription',
-              ),
-              const SizedBox(height: 10),
-              _NavTile(
-                icon: Icons.record_voice_over_outlined,
-                label: 'Speech Models & Settings',
-                subtitle: 'Choose model, decoding method, endpoint sensitivity',
-                onTap: () => context.go('/speech-settings'),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Organisations ─────────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.business_outlined,
-                color: AppColors.navy,
-                title: 'Organisations',
-              ),
-              const SizedBox(height: 10),
-              _NavTile(
-                icon: Icons.domain_outlined,
-                label: 'Manage Organisations',
-                subtitle:
-                    'Firm profiles, branding, legal text, surveyor sign-off',
-                onTap: () => context.push('/organisations'),
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── External Accounts ─────────────────────────────────────
-              const _SectionHeader(
-                icon: Icons.manage_accounts_outlined,
-                color: AppColors.amber,
-                title: 'External Accounts',
-              ),
-              const SizedBox(height: 10),
-              if (account.externalAccounts.isEmpty)
-                _EmptyAccounts()
-              else
-                ...account.externalAccounts.map((a) => _AccountCard(
-                      account: a,
-                      onEdit: () => _showAccountSheet(context, a),
-                      onDelete: () => _confirmDelete(context, a),
-                    )),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _showAccountSheet(context, null),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Account'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.amber,
-                  side: const BorderSide(color: AppColors.amber),
+          floatingActionButton: onOrgTab
+              ? FloatingActionButton.extended(
+                  onPressed: () => createOrganisation(context, ref),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Organisation'),
+                )
+              : null,
+          bottomNavigationBar: onOrgTab
+              ? null
+              : SaveBar(
+                  visible: _profileDirty,
+                  saving: _savingProfile,
+                  onSave: _saveProfile,
                 ),
+          body: TabBarView(
+            controller: _tab,
+            children: [
+              // ── Tab 1: Surveyor ───────────────────────────────────────
+              ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const _SectionHeader(
+                    icon: Icons.person_outline,
+                    color: AppColors.midBlue,
+                    title: 'Surveyor Profile',
+                  ),
+                  const SizedBox(height: 10),
+                  _ProfileCard(
+                    nameCtrl: _nameCtrl,
+                    emailCtrl: _emailCtrl,
+                    phoneCtrl: _phoneCtrl,
+                    addressCtrl: _addressCtrl,
+                    onChanged: () => setState(() => _profileDirty = true),
+                  ),
+                  const SizedBox(height: 24),
+                  const _SectionHeader(
+                    icon: Icons.fingerprint,
+                    color: AppColors.purple,
+                    title: 'App Lock',
+                  ),
+                  const SizedBox(height: 10),
+                  const _BiometricLockCard(),
+                  const SizedBox(height: 32),
+                ],
               ),
-              const SizedBox(height: 32),
+
+              // ── Tab 2: Organisations ──────────────────────────────────
+              const OrganisationsTabBody(),
+
+              // ── Tab 3: Connectivity ───────────────────────────────────
+              ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                children: [
+                  const _SectionHeader(
+                    icon: Icons.key_outlined,
+                    color: AppColors.teal,
+                    title: 'API Keys',
+                  ),
+                  const SizedBox(height: 10),
+                  _ApiKeyEditCard(
+                    title: 'Anthropic (Claude)',
+                    subtitle: 'Used for AI document extraction, drafting and '
+                        'OCR throughout the app. Get a key at console.anthropic.com.',
+                    icon: Icons.psychology_outlined,
+                    iconColor: AppColors.teal,
+                    currentKey: account.anthropicApiKey,
+                    onSave: (v) => ref
+                        .read(accountProvider.notifier)
+                        .saveAnthropicApiKey(v),
+                  ),
+                  const SizedBox(height: 10),
+                  _ApiKeyEditCard(
+                    title: 'OpenAI',
+                    subtitle: 'Reserved for OpenAI-based features. '
+                        'Get a key at platform.openai.com.',
+                    icon: Icons.auto_awesome_outlined,
+                    iconColor: AppColors.purple,
+                    currentKey: account.openAiApiKey,
+                    onSave: (v) =>
+                        ref.read(accountProvider.notifier).saveOpenAiApiKey(v),
+                  ),
+                  const SizedBox(height: 10),
+                  _ApiKeyEditCard(
+                    title: 'Google',
+                    subtitle: 'Reserved for Google Maps/Places features. '
+                        'Get a key at console.cloud.google.com.',
+                    icon: Icons.map_outlined,
+                    iconColor: AppColors.midBlue,
+                    currentKey: account.googleApiKey,
+                    onSave: (v) =>
+                        ref.read(accountProvider.notifier).saveGoogleApiKey(v),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const _SectionHeader(
+                    icon: Icons.folder_shared_outlined,
+                    color: AppColors.amber,
+                    title: 'Cloud Storage',
+                  ),
+                  const SizedBox(height: 10),
+                  _ApiKeyEditCard(
+                    title: 'Drive Base Folder',
+                    subtitle: 'Root folder name in your Google Drive under which '
+                        'Cases/ and Admin/ are created — all case photos, '
+                        'correspondence, documents and reports are stored there. '
+                        'Leave blank to use "My Drive" root directly.',
+                    icon: Icons.folder_shared_outlined,
+                    iconColor: AppColors.amber,
+                    currentKey: account.driveBaseFolder,
+                    onSave: (v) => ref
+                        .read(accountProvider.notifier)
+                        .saveDriveBaseFolder(v),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const _SectionHeader(
+                    icon: Icons.currency_exchange_outlined,
+                    color: AppColors.teal,
+                    title: 'FX Rates',
+                  ),
+                  const SizedBox(height: 10),
+                  _ApiKeyEditCard(
+                    title: 'openexchangerates.org',
+                    subtitle: 'Free-tier App ID from openexchangerates.org, '
+                        'used for FX rate conversion.',
+                    icon: Icons.currency_exchange_outlined,
+                    iconColor: AppColors.teal,
+                    currentKey: account.fxApiKey,
+                    onSave: (v) =>
+                        ref.read(accountProvider.notifier).saveFxApiKey(v),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const _SectionHeader(
+                    icon: Icons.mic_outlined,
+                    color: AppColors.purple,
+                    title: 'Speech & Transcription',
+                  ),
+                  const SizedBox(height: 10),
+                  _NavTile(
+                    icon: Icons.record_voice_over_outlined,
+                    label: 'Speech Models & Settings',
+                    subtitle:
+                        'Choose model, decoding method, endpoint sensitivity',
+                    onTap: () => context.go('/speech-settings'),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const _SectionHeader(
+                    icon: Icons.manage_accounts_outlined,
+                    color: AppColors.amber,
+                    title: 'External Accounts',
+                  ),
+                  const SizedBox(height: 10),
+                  if (account.externalAccounts.isEmpty)
+                    _EmptyAccounts()
+                  else
+                    ...account.externalAccounts.map((a) => _AccountCard(
+                          account: a,
+                          onEdit: () => _showAccountSheet(context, a),
+                          onDelete: () => _confirmDelete(context, a),
+                        )),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _showAccountSheet(context, null),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Add Account'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.amber,
+                      side: const BorderSide(color: AppColors.amber),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         );
@@ -304,6 +346,121 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Biometric app-lock toggle ──────────────────────────────────────────────
+// 14 July 2026 walkthrough — "add a 2FA toggle... biometrics accepted as
+// the second factor, not just OTP/authenticator". This is a local device
+// gate (Face ID/fingerprint/Windows Hello via local_auth), checked at app
+// start and on every resume — see biometric_lock_gate.dart.
+
+class _BiometricLockCard extends StatefulWidget {
+  const _BiometricLockCard();
+
+  @override
+  State<_BiometricLockCard> createState() => _BiometricLockCardState();
+}
+
+class _BiometricLockCardState extends State<_BiometricLockCard> {
+  bool _loading = true;
+  bool _supported = false;
+  bool _enabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final supported = await BiometricLockService.isSupported();
+    final enabled = await BiometricLockService.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _supported = supported;
+      _enabled = enabled;
+      _loading = false;
+    });
+  }
+
+  Future<void> _toggle(bool value) async {
+    if (value) {
+      // Verify biometrics actually work on this device before committing
+      // to the setting — otherwise a broken sensor could lock the
+      // surveyor out with no way back in.
+      final ok = await BiometricLockService.authenticate();
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Could not verify biometrics — app lock not enabled.')));
+        }
+        return;
+      }
+    }
+    await BiometricLockService.setEnabled(value);
+    if (mounted) setState(() => _enabled = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(14),
+        child: Center(
+            child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: AppColors.purple.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.fingerprint,
+              size: 18, color: AppColors.purple),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Require biometric unlock',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary)),
+              const SizedBox(height: 2),
+              Text(
+                _supported
+                    ? 'Face ID / fingerprint / device credential, checked at '
+                        'app start and on resume.'
+                    : 'No biometrics available on this device.',
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: _enabled,
+          onChanged: _supported ? _toggle : null,
+        ),
+      ]),
     );
   }
 }

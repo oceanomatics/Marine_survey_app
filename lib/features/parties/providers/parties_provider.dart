@@ -99,7 +99,16 @@ class AssuredContactsNotifier
     String caseId,
     List<ExtractedParty> parties,
   ) async {
-    final existing = (state.value ?? []).map((c) => c.fullName.toLowerCase()).toSet();
+    // Correspondence's "Add to Parties" calls this via ref.read(...).notifier
+    // without ever having watched this provider first (unlike the Parties
+    // screen itself) — if this is the first touch of assuredContactsProvider
+    // in the session, state.value is still null while the initial fetch is
+    // in flight, so the dedupe check below would silently miss every
+    // existing contact. `?? await future` waits for that first fetch to
+    // land instead of racing it (found via a widget test, 15 July 2026).
+    final existing = (state.value ?? await future)
+        .map((c) => c.fullName.toLowerCase())
+        .toSet();
     var added = 0;
     for (final p in parties) {
       if (existing.contains(p.name.toLowerCase())) continue;

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 
 // ── Document category ──────────────────────────────────────────────────────
 
@@ -197,6 +198,7 @@ class DocumentModel {
     String? title,
     DocCategory? docCategory,
     String? docType,
+    DateTime? docDate,
     String? extractionStatus,
     Map<String, dynamic>? extractedData,
     Object? pendingExtraction = _sentinel,
@@ -215,7 +217,7 @@ class DocumentModel {
         docCategory: docCategory ?? this.docCategory,
         docType: docType ?? this.docType,
         source: source,
-        docDate: docDate,
+        docDate: docDate ?? this.docDate,
         receivedDate: receivedDate,
         requestedDate: requestedDate,
         filePath: filePath,
@@ -428,11 +430,29 @@ class DocumentNotifier
         _ => 'application/pdf',
       };
 
-      final raw = await ClaudeApi.extractDocument(
-        base64Content: base64Encode(bytes),
-        mediaType: mediaType,
-        categoryHint: doc.docCategory?.label ?? 'marine document',
-      );
+      final raw = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Extracting "${doc.title}"',
+            caseId: arg,
+            estimate: const Duration(seconds: 20),
+            action: () => ClaudeApi.extractDocument(
+              base64Content: base64Encode(bytes),
+              mediaType: mediaType,
+              categoryHint: doc.docCategory?.label ?? 'marine document',
+            ),
+          );
+
+      // ClaudeApi._parseJson() falls back to {'error': ..., 'raw': ...} when
+      // the model's response isn't valid JSON (e.g. it replied with prose
+      // instead — seen live with a French-language maintenance record).
+      // Previously this silently persisted as a "successful" extraction
+      // with zero hard_fields/context_findings — the surveyor just saw an
+      // empty review sheet with no indication anything had gone wrong
+      // (14 July 2026 walkthrough, §10). Treat it as the real failure it
+      // is so the existing catch-block/failed-status/retry-action path
+      // handles it like any other extraction error.
+      if (raw.containsKey('error')) {
+        throw Exception('Extraction response could not be parsed: ${raw['error']}');
+      }
 
       await SupabaseService.client.from('documents').update({
         'pending_extraction': raw,
@@ -614,11 +634,22 @@ class DocumentNotifier
       },
     };
 
+    // The document's own content date — not the import/created_at timestamp
+    // — was extracted into hard_fields.document_date but never written back
+    // onto the document record itself (docDate stayed permanently null).
+    // Timeline's Full Log needs this to be a real queryable field, not
+    // something buried in extracted_data jsonb (14 July 2026 walkthrough).
+    final docDateRaw = selectedHardFields['document_date']?.toString();
+    final docDate =
+        docDateRaw != null ? DateTime.tryParse(docDateRaw) : null;
+
     await SupabaseService.client.from('documents').update({
       'extracted_data': storedData,
       'pending_extraction': null,
       'ai_extracted': true,
       'extraction_status': 'completed',
+      if (docDate != null)
+        'doc_date': docDate.toIso8601String().split('T').first,
     }).eq('doc_id', docId);
 
     final current = state.value ?? [];
@@ -629,6 +660,7 @@ class DocumentNotifier
         pendingExtraction: null,
         aiExtracted: true,
         extractionStatus: 'completed',
+        docDate: docDate ?? d.docDate,
       );
     }).toList());
   }

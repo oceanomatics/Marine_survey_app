@@ -8,6 +8,7 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'timeline_aggregation.dart' show chronologyIncludeForRating;
 import 'timeline_event_rating.dart';
 
 // ── Source ──────────────────────────────────────────────────────────────────
@@ -18,7 +19,15 @@ enum TimelineSourceType {
   occurrence('occurrence', 'Occurrence'),
   attendance('attendance', 'Attendance'),
   repair('repair', 'Repair'),
-  manual('manual', 'Timeline Event');
+  manual('manual', 'Timeline Event'),
+  // 14 July 2026 walkthrough — correspondence and minor events should be
+  // listed in the Full Log; document date means the date extracted from
+  // the document's own content (not import date), plus the surveyor's own
+  // report issuance date as a real milestone. Report-*generation*
+  // timestamps stay excluded — see ReportOutput.issuedDate vs .createdAt.
+  correspondence('correspondence', 'Correspondence'),
+  document('document', 'Document'),
+  report('report', 'Report Issued');
 
   const TimelineSourceType(this.value, this.label);
   final String value;
@@ -90,18 +99,10 @@ class TimelineEntry {
   String? get aiReason => rating?.aiReason;
 
   /// Whether this event should populate the report's Chronology table.
-  ///
-  /// Ignored events never do. Otherwise: a manual timeline event defaults to
-  /// *included* (preserves the report builder's long-standing behaviour of
-  /// listing every timeline_events row) unless a rating explicitly excludes
-  /// it; aggregated non-timeline events default to *excluded* until the
-  /// surveyor promotes them (which sets [promoted]) or ticks inclusion.
-  bool get includedInChronology {
-    if (isIgnored) return false;
-    if (promoted) return true;
-    if (rating != null) return rating!.includedInChronology;
-    return sourceType == TimelineSourceType.manual;
-  }
+  /// Delegates to [chronologyIncludeForRating] — the single shared rule so
+  /// the in-app view and the rendered report can never disagree.
+  bool get includedInChronology => chronologyIncludeForRating(
+      sourceType: sourceType, rating: rating, promoted: promoted);
 
   /// The single-line text used in the report Chronology's "Event" column —
   /// description preferred, title as fallback. Kept here so the in-app view and

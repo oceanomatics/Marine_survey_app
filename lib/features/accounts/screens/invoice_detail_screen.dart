@@ -6,6 +6,7 @@ import '../providers/accounts_provider.dart';
 import '../widgets/edit_account_line_sheet.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/services/fx_rate_service.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/settings/providers/account_provider.dart';
@@ -406,7 +407,12 @@ class _DetailViewState extends ConsumerState<_DetailView> {
     if (raw.isEmpty) return;
     setState(() => _polishing = true);
     try {
-      final polished = await ClaudeApi.polishSurveyorNote(raw);
+      final polished = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Polishing note',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 8),
+            action: () => ClaudeApi.polishSurveyorNote(raw),
+          );
       _notesCtrl.text = polished;
     } catch (e) {
       if (mounted) {

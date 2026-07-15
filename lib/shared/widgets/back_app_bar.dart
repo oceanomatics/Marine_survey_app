@@ -16,6 +16,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/ai_tasks/widgets/ai_task_indicator.dart';
+
 class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
   const BackAppBar({
     super.key,
@@ -95,7 +97,10 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
 
     return AppBar(
       title: title,
-      actions: actions,
+      // AiTaskIndicator always trails any caller-supplied actions — one
+      // line here gives every one of this app-bar's ~47 call sites the
+      // global "AI task explorer" button for free (15 July 2026).
+      actions: [...?actions, const AiTaskIndicator()],
       bottom: bottom,
       backgroundColor: backgroundColor,
       foregroundColor: foregroundColor,

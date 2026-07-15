@@ -82,7 +82,14 @@ List<List<String>> buildVesselParticularsRows(Map<String, dynamic> v) {
     ['LOA', v['length_oa']?.toString() ?? ''],
     ...breadthRows,
     ...draftRows,
-    ['Propeller Type', v['propeller_type'] ?? ''],
+    // Propulsion Particulars reorganised (14 July 2026 walkthrough §3 Q5)
+    // into screw count / prime mover type / thruster type — 'Propulsion
+    // Drive' is left in place (not editable going forward, so it's absent
+    // for any vessel and hidden by the empty-row filter, but still shows
+    // for older vessels that already have a saved value).
+    ['Number of Screws', v['screw_count']?.toString() ?? ''],
+    ['Type of Prime Mover', v['propulsion_type'] ?? ''],
+    ['Thruster Type', v['propeller_type'] ?? ''],
     ['Propulsion Drive', v['propulsion_drive_type'] ?? ''],
     ['Year Built', v['year_built']?.toString() ?? ''],
     ['Build Yard', v['build_yard'] ?? ''],
@@ -625,7 +632,9 @@ List<List<String>> buildDamageScheduleRows(
       final averageStatusRaw = d['average_status'] as String?;
       final averageLabel = switch (averageStatusRaw) {
         'no' => "Owner's",
-        'partial' => 'Partial',
+        // 'partial' is the pre-14-July-2026 stored value for this state,
+        // relabelled Challenged — both still resolve here.
+        'partial' || 'challenged' => 'Challenged',
         'yes' => 'Average',
         _ => (d['is_concerning_average'] as bool? ?? true)
             ? 'Average'

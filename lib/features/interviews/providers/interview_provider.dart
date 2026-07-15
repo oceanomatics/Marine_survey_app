@@ -1,6 +1,8 @@
 // lib/features/interviews/providers/interview_provider.dart
 
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 import 'package:uuid/uuid.dart';
 import '../models/interview_model.dart';
 import '../../../core/api/supabase_client.dart';
@@ -32,15 +34,35 @@ class InterviewsNotifier
     required String transcript,
     required int durationSecs,
     String? title,
+    Uint8List? audioWav,
   }) async {
+    final interviewId = const Uuid().v4();
+
+    // Raw audio (14 July 2026 walkthrough) — best-effort: a failed upload
+    // still saves the transcript/interview record, just without audio.
+    String? audioPath;
+    if (audioWav != null && audioWav.isNotEmpty) {
+      try {
+        final path = '$caseId/$interviewId.wav';
+        await SupabaseService.client.storage
+            .from('interview-audio')
+            .uploadBinary(path, audioWav,
+                fileOptions: const FileOptions(contentType: 'audio/wav'));
+        audioPath = path;
+      } catch (_) {
+        // Offline or upload failure — proceed without audio.
+      }
+    }
+
     final model = InterviewModel(
-      interviewId:  const Uuid().v4(),
+      interviewId:  interviewId,
       caseId:       caseId,
       createdAt:    DateTime.now(),
       participants: participants,
       transcript:   transcript,
       durationSecs: durationSecs,
       title:        title,
+      audioPath:    audioPath,
     );
     await SupabaseService.client
         .from('interviews')

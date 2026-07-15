@@ -10,15 +10,26 @@
 // drafting the paragraphs") — see AccountsScreen (cost estimate, cost
 // inclusions, survey fee reserve), AttendancesScreen (follow-up attendance),
 // and deriveRepairStatus() in repair_period_model.dart (status of repairs,
-// now computed from repair periods rather than typed). This card now shows
-// those as read-only summaries and keeps editable input only for the
-// genuinely per-report prose (Description of Damage, Nature of Repairs,
-// Remarks) plus the Confirmed sign-off checkbox.
+// now computed from repair periods rather than typed).
+//
+// 14 July 2026: Description of Damage and Nature of Repairs were the last
+// two fields still typed here as free text, duplicating the real
+// SectionType.damageDescription/natureOfRepairs sections in the report body
+// — surveyor flagged this live as inconsistent with everything else on this
+// card. Converted to read-only, sourced from `sectionDraftProvider` (the
+// same computed state the body sections render, kept in sync by
+// construction rather than re-derived). Also added Assured/Instructing
+// Party (previously missing from the 12-field spec, docs/AUDIT_delta.md)
+// and a real "Edit in X →" deep-link on every read-only group, matching the
+// pattern already used in section_editor.dart — this card predated that
+// convention (built 4 July, deep-link landed 10 July) and was never
+// retrofitted. `advice_remarks` is now the only free-text field left.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/report_provider.dart';
 import '../../survey/models/repair_period_model.dart';
@@ -60,8 +71,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     super.initState();
     final o = widget.output;
     _ctrls = {
-      'advice_description_of_damage': TextEditingController(text: o.adviceDescriptionOfDamage ?? ''),
-      'advice_nature_of_repairs': TextEditingController(text: o.adviceNatureOfRepairs ?? ''),
       'advice_remarks': TextEditingController(text: o.adviceRemarks ?? ''),
     };
   }
@@ -101,12 +110,22 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   @override
   Widget build(BuildContext context) {
     final o = widget.output;
+    final caseId = o.caseId;
     final v = widget.assembled.vessel ?? {};
     final caseData = widget.assembled.caseData;
     final occ = widget.assembled.occurrences.isNotEmpty
         ? widget.assembled.occurrences.first
         : null;
     final locked = widget.isLocked;
+
+    // Same computed section state the report body renders — kept in sync
+    // by construction rather than re-derived here.
+    final sections = ref.watch(
+        sectionDraftProvider((caseId: caseId, outputId: o.outputId)));
+    final damageContent =
+        sections[SectionType.damageDescription]?.fullContent ?? '';
+    final natureContent =
+        sections[SectionType.natureOfRepairs]?.fullContent ?? '';
 
     final derivedStatus = deriveRepairStatus(widget.assembled.repairPeriods
         .map(RepairPeriodModel.fromJson)
@@ -178,11 +197,24 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                   _autoRow('Report Type / No.', [o.outputType.label, o.reportNumber ?? o.versionCode].join(' / ')),
                   _autoRow('Technical File No.', caseData['technical_file_no'] as String?),
                   _autoRow('UCR / Reference', caseData['claim_reference'] as String?),
+                  _autoRow('Assured', caseData['assured'] as String?),
+                  _autoRow('Instructing Party', caseData['instructing_party'] as String?),
                   _autoRow('Date and Nature of Casualty', occ?['title'] as String?),
                   const SizedBox(height: 10),
 
-                  _field('Description of Damage', 'advice_description_of_damage', locked, maxLines: 4),
-                  _field('Nature of Repairs', 'advice_nature_of_repairs', locked, maxLines: 4),
+                  _autoProseSection(
+                    'Description of Damage',
+                    damageContent,
+                    caseId: caseId,
+                    route: autoPopulatedEditRoute[SectionType.damageDescription],
+                  ),
+                  const SizedBox(height: 10),
+                  _autoProseSection(
+                    'Nature of Repairs',
+                    natureContent,
+                    caseId: caseId,
+                    route: autoPopulatedEditRoute[SectionType.natureOfRepairs],
+                  ),
 
                   const SizedBox(height: 10),
                   _readOnlySection('Data now entered in the case screen', [
@@ -200,6 +232,10 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                       'Survey Fee Reserve',
                       'Hours: ${feeHours ?? '—'}   Expenses: ${feeExpenses != null ? '$currency ${feeExpenses.toStringAsFixed(0)}' : '—'}',
                     ),
+                  ], caseId: caseId, route: ('accounts', 'Accounts')),
+
+                  const SizedBox(height: 10),
+                  _readOnlySection('Data now entered in the case screen', [
                     (
                       'Follow-up Attendance',
                       followUpRequired == true
@@ -208,7 +244,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                               ? 'Not required'
                               : 'Not yet recorded',
                     ),
-                  ], editHint: 'Edit in Accounts / Attendance sections of the case screen'),
+                  ], caseId: caseId, route: ('attendances', 'Attendances')),
 
                   const SizedBox(height: 10),
                   _autoRow('Allegation Status', _allegationLabel(occ?['allegation_type'] as String?)),
@@ -244,7 +280,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   }
 
   Widget _readOnlySection(String heading, List<(String, String)> rows,
-      {required String editHint}) {
+      {required String caseId, required (String, String) route}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(10),
@@ -267,14 +303,59 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
           ]),
           const SizedBox(height: 6),
           for (final r in rows) _autoRow(r.$1, r.$2),
-          const SizedBox(height: 2),
-          Text(editHint,
-              style: const TextStyle(
-                  fontSize: 9,
-                  fontStyle: FontStyle.italic,
-                  color: AppColors.textTertiary)),
+          const SizedBox(height: 4),
+          _editLink(caseId, route),
         ],
       ),
+    );
+  }
+
+  /// Deep-link button matching the pattern already used for auto-populated
+  /// body sections (section_editor.dart) — this card predated that
+  /// convention and only ever showed static hint text until 14 July 2026.
+  Widget _editLink(String caseId, (String, String) route) {
+    return TextButton.icon(
+      onPressed: () => context.go('/cases/$caseId/${route.$1}'),
+      icon: const Icon(Icons.open_in_new, size: 13),
+      label: Text('Edit in ${route.$2} →',
+          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.midBlue,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        minimumSize: const Size(0, 24),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  /// Read-only auto-populated prose (Description of Damage / Nature of
+  /// Repairs) — sourced from the same computed section content the report
+  /// body renders, replacing what used to be a free-text box duplicating
+  /// that content. Only Remarks stays manually editable on this card.
+  Widget _autoProseSection(String label, String content,
+      {required String caseId, (String, String)? route}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(
+            content.isNotEmpty ? content : 'No data on file yet.',
+            style: const TextStyle(fontSize: 11, color: AppColors.textPrimary, height: 1.5),
+          ),
+        ),
+        if (route != null) _editLink(caseId, route),
+      ],
     );
   }
 

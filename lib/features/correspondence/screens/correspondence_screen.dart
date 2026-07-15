@@ -23,6 +23,7 @@ import '../../../features/photos/services/google_drive_service.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
@@ -955,7 +956,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ThreadSummarySheet(thread: thread),
+      builder: (_) => _ThreadSummarySheet(thread: thread, caseId: widget.caseId),
     );
   }
 
@@ -1958,15 +1959,17 @@ class _CorrExtractionSummarySheet extends StatelessWidget {
 /// when/subject) is always shown; the narrative synthesis is a separate
 /// on-demand AI call (button tap, not automatic) since it's a genuine paid
 /// call per thread, same posture as the per-message extraction summary.
-class _ThreadSummarySheet extends StatefulWidget {
-  const _ThreadSummarySheet({required this.thread});
+class _ThreadSummarySheet extends ConsumerStatefulWidget {
+  const _ThreadSummarySheet({required this.thread, required this.caseId});
   final CorrespondenceThread thread;
+  final String caseId;
 
   @override
-  State<_ThreadSummarySheet> createState() => _ThreadSummarySheetState();
+  ConsumerState<_ThreadSummarySheet> createState() =>
+      _ThreadSummarySheetState();
 }
 
-class _ThreadSummarySheetState extends State<_ThreadSummarySheet> {
+class _ThreadSummarySheetState extends ConsumerState<_ThreadSummarySheet> {
   String? _narrative;
   bool _generating = false;
   Object? _error;
@@ -1995,10 +1998,15 @@ class _ThreadSummarySheetState extends State<_ThreadSummarySheet> {
                         : null,
               })
           .toList();
-      final result = await ClaudeApi.draftCorrespondenceTrailSummary(
-        subject: widget.thread.subject,
-        messages: messages,
-      );
+      final result = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Summarising "${widget.thread.subject}"',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 15),
+            action: () => ClaudeApi.draftCorrespondenceTrailSummary(
+              subject: widget.thread.subject,
+              messages: messages,
+            ),
+          );
       if (mounted) setState(() => _narrative = result);
     } catch (e) {
       if (mounted) setState(() => _error = e);

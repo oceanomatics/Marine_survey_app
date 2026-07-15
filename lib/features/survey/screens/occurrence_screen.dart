@@ -61,15 +61,41 @@ class OccurrenceScreen extends ConsumerWidget {
                               MaterialPageRoute(
                                   builder: (_) => OccurrenceEditorScreen(
                                       caseId: caseId, occurrence: sorted[i]))),
-                          onDelete: () => _confirmDelete(context, ref, sorted[i]),
+                          onDelete: () =>
+                              _confirmDelete(context, ref, sorted[i]),
                           onSetPrimary: () => ref
                               .read(damageProvider(caseId).notifier)
                               .setPrimaryOccurrence(sorted[i].occurrenceId)
-                              .then((_) => ref.invalidate(caseProvider(caseId))),
+                              .then(
+                                  (_) => ref.invalidate(caseProvider(caseId))),
                         ),
                       ),
               ),
-              ContextCuesPanel(caseId: caseId, section: CaseSection.occurrence),
+              // Auto-scoped to the sole occurrence when there's only one —
+              // no prompt needed in that case. With more than one, the
+              // add/edit cue sheet shows a "Route to" picker instead (14
+              // July 2026 walkthrough §4).
+              ContextCuesPanel(
+                caseId: caseId,
+                section: CaseSection.occurrence,
+                itemScope: sorted.length == 1
+                    ? CueItemScope(
+                        linkedToType: occurrenceLinkType,
+                        linkedToId: sorted.first.occurrenceId,
+                      )
+                    : null,
+                routingLinkType: sorted.length > 1 ? occurrenceLinkType : null,
+                routingOptions: sorted.length > 1
+                    ? sorted
+                        .map((o) => MapEntry(
+                              o.occurrenceId,
+                              (o.title?.trim().isNotEmpty ?? false)
+                                  ? o.title!
+                                  : 'Occurrence ${o.occurrenceNo}',
+                            ))
+                        .toList()
+                    : null,
+              ),
             ],
           );
         },
@@ -83,8 +109,8 @@ class OccurrenceScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => AddOccurrenceSheet(
-        onSave: (title, dateTime, location, description,
-            vesselStatusAtCasualty, aftermathStatus, aftermathPort) async {
+        onSave: (title, dateTime, location, description, vesselStatusAtCasualty,
+            aftermathStatus, aftermathPort) async {
           await ref.read(damageProvider(caseId).notifier).createOccurrence(
                 caseId: caseId,
                 title: title,
@@ -122,14 +148,12 @@ class OccurrenceScreen extends ConsumerWidget {
                   .read(damageProvider(caseId).notifier)
                   .deleteOccurrence(occ.occurrenceId);
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
   }
-
 }
 
 // ── Occurrence card ────────────────────────────────────────────────────────
@@ -151,164 +175,181 @@ class _OccurrenceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.coral.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header ──────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  margin: const EdgeInsets.only(top: 1),
-                  decoration: BoxDecoration(
-                    color: AppColors.coral,
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${occurrence.occurrenceNo}',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700),
+    // Whole-card tap-to-edit (14 July 2026 walkthrough: "fast interface
+    // throughout, no hunting through menus to edit") — the ⋮ menu's Edit
+    // item stays too, same both-entry-points principle as Damage Register.
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onEdit,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.coral.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ──────────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      margin: const EdgeInsets.only(top: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.coral,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${occurrence.occurrenceNo}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              occurrence.title ??
-                                  'Occurrence ${occurrence.occurrenceNo}',
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.coral),
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  occurrence.title ??
+                                      'Occurrence ${occurrence.occurrenceNo}',
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.coral),
+                                ),
+                              ),
+                              if (occurrenceCount > 1 &&
+                                  occurrence.isPrimary) ...[
+                                const SizedBox(width: 7),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        AppColors.teal.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(
+                                        color: AppColors.teal
+                                            .withValues(alpha: 0.4)),
+                                  ),
+                                  child: const Text(
+                                    'PRIMARY',
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.teal,
+                                        letterSpacing: 0.5),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          if (occurrenceCount > 1 && occurrence.isPrimary) ...[
-                            const SizedBox(width: 7),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: AppColors.teal.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(5),
-                                border: Border.all(
-                                    color: AppColors.teal.withValues(alpha: 0.4)),
-                              ),
-                              child: const Text(
-                                'PRIMARY',
+                          if (occurrence.dateTime != null) ...[
+                            const SizedBox(height: 2),
+                            Row(children: [
+                              Icon(Icons.calendar_today_outlined,
+                                  size: 11,
+                                  color:
+                                      AppColors.coral.withValues(alpha: 0.7)),
+                              const SizedBox(width: 4),
+                              Text(
+                                _fmtDate(occurrence.dateTime!),
                                 style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.teal,
-                                    letterSpacing: 0.5),
+                                    fontSize: 11,
+                                    color:
+                                        AppColors.coral.withValues(alpha: 0.8)),
                               ),
-                            ),
+                            ]),
+                          ],
+                          if (occurrence.location != null &&
+                              occurrence.location!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Row(children: [
+                              Icon(Icons.location_on_outlined,
+                                  size: 11,
+                                  color:
+                                      AppColors.coral.withValues(alpha: 0.7)),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  occurrence.location!,
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.coral
+                                          .withValues(alpha: 0.8),
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                            ]),
                           ],
                         ],
                       ),
-                      if (occurrence.dateTime != null) ...[
-                        const SizedBox(height: 2),
-                        Row(children: [
-                          Icon(Icons.calendar_today_outlined,
-                              size: 11,
-                              color: AppColors.coral.withValues(alpha: 0.7)),
-                          const SizedBox(width: 4),
-                          Text(
-                            _fmtDate(occurrence.dateTime!),
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.coral.withValues(alpha: 0.8)),
+                    ),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert,
+                          color: AppColors.coral, size: 20),
+                      padding: EdgeInsets.zero,
+                      onSelected: (v) {
+                        if (v == 'edit') onEdit();
+                        if (v == 'delete') onDelete();
+                        if (v == 'primary') onSetPrimary();
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        if (occurrenceCount > 1 && !occurrence.isPrimary)
+                          const PopupMenuItem(
+                            value: 'primary',
+                            child: Row(children: [
+                              Icon(Icons.star_outline,
+                                  size: 15, color: AppColors.teal),
+                              SizedBox(width: 8),
+                              Text('Set as primary',
+                                  style: TextStyle(color: AppColors.teal)),
+                            ]),
                           ),
-                        ]),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete',
+                              style: TextStyle(color: Colors.red)),
+                        ),
                       ],
-                      if (occurrence.location != null &&
-                          occurrence.location!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Row(children: [
-                          Icon(Icons.location_on_outlined,
-                              size: 11,
-                              color: AppColors.coral.withValues(alpha: 0.7)),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              occurrence.location!,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.coral.withValues(alpha: 0.8),
-                                  fontStyle: FontStyle.italic),
-                            ),
-                          ),
-                        ]),
-                      ],
-                    ],
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert,
-                      color: AppColors.coral, size: 20),
-                  padding: EdgeInsets.zero,
-                  onSelected: (v) {
-                    if (v == 'edit') onEdit();
-                    if (v == 'delete') onDelete();
-                    if (v == 'primary') onSetPrimary();
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    if (occurrenceCount > 1 && !occurrence.isPrimary)
-                      const PopupMenuItem(
-                        value: 'primary',
-                        child: Row(children: [
-                          Icon(Icons.star_outline,
-                              size: 15, color: AppColors.teal),
-                          SizedBox(width: 8),
-                          Text('Set as primary',
-                              style: TextStyle(color: AppColors.teal)),
-                        ]),
-                      ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Delete',
-                          style: TextStyle(color: Colors.red)),
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          // ── Narrative ───────────────────────────────────────────────
-          if (occurrence.briefDescription != null &&
-              occurrence.briefDescription!.isNotEmpty) ...[
-            Divider(
-                height: 1,
-                color: AppColors.coral.withValues(alpha: 0.15)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-              child: Text(
-                occurrence.briefDescription!,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary),
               ),
-            ),
-          ],
-        ],
+              // ── Narrative ───────────────────────────────────────────────
+              if (occurrence.briefDescription != null &&
+                  occurrence.briefDescription!.isNotEmpty) ...[
+                Divider(
+                    height: 1, color: AppColors.coral.withValues(alpha: 0.15)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                  child: Text(
+                    occurrence.briefDescription!,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

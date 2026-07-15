@@ -360,7 +360,7 @@ class DocxExportService {
     // advice_summary_rows.dart (avoids the renderer-drift class of bug
     // described in gap #5 of docs/report_builder_editor_notes.md).
     {
-      final adviceRows = buildAdviceSummaryRows(output, assembled);
+      final adviceRows = buildAdviceSummaryRows(output, assembled, sections);
       if (adviceRows.isNotEmpty) {
         doc.addHeading('ADVICE SUMMARY', 2);
         doc.addTable(adviceRows, colWidths: [3000, 6355]);
@@ -787,6 +787,7 @@ class DocxExportService {
       double grandTotalBase  = 0;
       double grandTotalUw    = 0;
       double grandTotalOwner = 0;
+      final statusCounts = <String, int>{};
 
       bool isOwnersLine(Map<String, dynamic> l) =>
           l['cost_nature'] == 'owners_maintenance' ||
@@ -854,6 +855,8 @@ class DocxExportService {
         final allOwners  = lines.isNotEmpty && lines.every(isOwnersLine);
         final someOwners = !allOwners && lines.any(isOwnersLine);
         final docStatus  = repDoc['surveyor_status'] as String?;
+        statusCounts[docStatus ?? 'pending_review'] =
+            (statusCounts[docStatus ?? 'pending_review'] ?? 0) + 1;
         String? h3ClauseType;
         if (allOwners) {
           h3ClauseType = 'account_owners_only';
@@ -865,14 +868,17 @@ class DocxExportService {
               : 'account_approved_subject_to_deductions';
         } else if (docStatus == 'queried') {
           h3ClauseType = 'account_queried';
+        } else if (docStatus == 'rejected') {
+          h3ClauseType = 'account_rejected';
+        } else {
+          // pending_review, under_review, or null — awaiting assessment.
+          h3ClauseType = 'account_pending_assessment';
         }
-        if (h3ClauseType != null) {
-          final h3Text = assembled.clauseByType(h3ClauseType)?.clauseText;
-          if (h3Text != null && h3Text.isNotEmpty) {
-            doc.addParagraph(h3Text, italic: true,
-                halfPtSize: 18, colorHex: '374151');
-            doc.addSpacer();
-          }
+        final h3Text = assembled.clauseByType(h3ClauseType)?.clauseText;
+        if (h3Text != null && h3Text.isNotEmpty) {
+          doc.addParagraph(h3Text, italic: true,
+              halfPtSize: 18, colorHex: '374151');
+          doc.addSpacer();
         }
 
         // Clause H-4: owner's-maintenance deduction lines called out
@@ -936,6 +942,34 @@ class DocxExportService {
         doc.addTable(totalsRows, colWidths: [6355, 3000]);
       }
       doc.addSpacer();
+
+      // Assessment-status rollup — so accounts still awaiting review/
+      // rejected don't just silently disappear from the report; every
+      // invoice is accounted for in this summary line even when it has
+      // no H-3 narrative of its own.
+      if (docs.length > 1) {
+        const statusLabels = {
+          'approved': 'approved',
+          'partly_approved': 'partly approved',
+          'queried': 'queried',
+          'pending_review': 'pending assessment',
+          'under_review': 'pending assessment',
+          'rejected': 'rejected',
+        };
+        final mergedCounts = <String, int>{};
+        for (final entry in statusCounts.entries) {
+          final label = statusLabels[entry.key] ?? 'pending assessment';
+          mergedCounts[label] = (mergedCounts[label] ?? 0) + entry.value;
+        }
+        final summary = mergedCounts.entries
+            .map((e) => '${e.value} ${e.key}')
+            .join(', ');
+        if (summary.isNotEmpty) {
+          doc.addParagraph('Invoices: $summary.',
+              italic: true, halfPtSize: 18, colorHex: '6B7280');
+          doc.addSpacer();
+        }
+      }
     } else {
       final wpCost = org?['wp_cost_section_text'] as String?;
       if ((wpCost != null && wpCost.isNotEmpty) ||

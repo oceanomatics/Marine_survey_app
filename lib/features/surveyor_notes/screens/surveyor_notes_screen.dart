@@ -14,6 +14,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/surveyor_note_model.dart';
 import '../providers/surveyor_notes_provider.dart';
+import '../../timeline/providers/timeline_provider.dart';
+import '../../timeline/utils/cue_to_event.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/repair_period_provider.dart';
 import '../../survey/widgets/quick_create_repair_period.dart';
@@ -52,16 +54,30 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
   @override
   Widget build(BuildContext context) {
     final notesAsync = ref.watch(surveyorNotesProvider(widget.caseId));
+    final timelineAsync = ref.watch(timelineProvider(widget.caseId));
+    final eventSourceKeys = timelineAsync.valueOrNull
+            ?.map((e) => e.sourceKey)
+            .whereType<String>()
+            .toSet() ??
+        <String>{};
+    bool hasEvent(SurveyorNote n) =>
+        eventSourceKeys.contains(cueEventSourceKey(n.id));
+    void onCreateEvent(SurveyorNote n) => convertCueToTimelineEvent(
+          context,
+          ref,
+          caseId: widget.caseId,
+          note: n,
+        );
 
     return notesAsync.when(
       loading: () => const Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: BackAppBar(title: Text('Context Cues')),
+        appBar: BackAppBar(title: Text('Advice to Owner')),
         body: AppLoadingWidget(message: 'Loading cues…'),
       ),
       error: (e, _) => Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: const BackAppBar(title: Text('Context Cues')),
+        appBar: const BackAppBar(title: Text('Advice to Owner')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (notes) {
@@ -86,7 +102,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
         return Scaffold(
           backgroundColor: AppColors.surface,
           appBar: BackAppBar(
-            title: const Text('Context Cues'),
+            title: const Text('Advice to Owner'),
             bottom: TabBar(
               controller: _tabCtrl,
               labelColor: _kColor,
@@ -96,11 +112,21 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                   const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
               tabs: [
                 const Tab(text: 'Retained'),
+                // 4 tabs sharing a non-scrollable TabBar squeeze to ~68dp
+                // each on a ~400dp phone — "Suggested"/"Unallocated" plus
+                // their badge overflowed that on real narrow devices
+                // (caught by a widget test, same class of bug as the
+                // Accounts/Causation overflow fixes earlier tonight).
+                // Flexible + ellipsis lets the label shrink instead.
                 Tab(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Suggested', style: TextStyle(fontSize: 12)),
+                      const Flexible(
+                        child: Text('Suggested',
+                            style: TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                      ),
                       if (suggested.isNotEmpty) ...[
                         const SizedBox(width: 5),
                         _Badge(
@@ -113,7 +139,11 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Unallocated', style: TextStyle(fontSize: 12)),
+                      const Flexible(
+                        child: Text('Unallocated',
+                            style: TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                      ),
                       if (unallocated.isNotEmpty) ...[
                         const SizedBox(width: 5),
                         _Badge(count: unallocated.length),
@@ -125,7 +155,11 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Ignored', style: TextStyle(fontSize: 12)),
+                      const Flexible(
+                        child: Text('Ignored',
+                            style: TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                      ),
                       if (ignored.isNotEmpty) ...[
                         const SizedBox(width: 5),
                         _Badge(
@@ -162,6 +196,8 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                       onDelete: (id) => ref
                           .read(surveyorNotesProvider(widget.caseId).notifier)
                           .delete(id),
+                      hasEvent: hasEvent,
+                      onCreateEvent: onCreateEvent,
                     ),
 
               // ── Suggested (AI-extracted, awaiting review) ────────────────
@@ -181,6 +217,8 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                       onConfirm: (id) => ref
                           .read(surveyorNotesProvider(widget.caseId).notifier)
                           .confirmAllocation(id),
+                      hasEvent: hasEvent,
+                      onCreateEvent: onCreateEvent,
                     ),
 
               // ── Unallocated ───────────────────────────────────────────
@@ -196,6 +234,8 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
                       onDelete: (id) => ref
                           .read(surveyorNotesProvider(widget.caseId).notifier)
                           .delete(id),
+                      hasEvent: hasEvent,
+                      onCreateEvent: onCreateEvent,
                     ),
 
               // ── Ignored ───────────────────────────────────────────────
@@ -295,11 +335,18 @@ class _Badge extends StatelessWidget {
 // ── Retained list (grouped by case section) ────────────────────────────────
 
 class _RetainedList extends StatelessWidget {
-  const _RetainedList(
-      {required this.notes, required this.onEdit, required this.onDelete});
+  const _RetainedList({
+    required this.notes,
+    required this.onEdit,
+    required this.onDelete,
+    this.hasEvent,
+    this.onCreateEvent,
+  });
   final List<SurveyorNote> notes;
   final void Function(SurveyorNote) onEdit;
   final void Function(String) onDelete;
+  final bool Function(SurveyorNote)? hasEvent;
+  final void Function(SurveyorNote)? onCreateEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +373,10 @@ class _RetainedList extends StatelessWidget {
           child: _NoteCard(
               note: note,
               onEdit: () => onEdit(note),
-              onDelete: () => onDelete(note.id)),
+              onDelete: () => onDelete(note.id),
+              hasEvent: hasEvent?.call(note) ?? false,
+              onCreateEvent:
+                  onCreateEvent == null ? null : () => onCreateEvent!(note)),
         ));
       }
     }
@@ -341,15 +391,20 @@ class _RetainedList extends StatelessWidget {
 // ── Flat list (unallocated + ignored) — grouped by nature of content ──────
 
 class _FlatList extends StatelessWidget {
-  const _FlatList(
-      {required this.notes,
-      required this.onEdit,
-      required this.onDelete,
-      this.onConfirm});
+  const _FlatList({
+    required this.notes,
+    required this.onEdit,
+    required this.onDelete,
+    this.onConfirm,
+    this.hasEvent,
+    this.onCreateEvent,
+  });
   final List<SurveyorNote> notes;
   final void Function(SurveyorNote) onEdit;
   final void Function(String) onDelete;
   final void Function(String)? onConfirm;
+  final bool Function(SurveyorNote)? hasEvent;
+  final void Function(SurveyorNote)? onCreateEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -374,7 +429,10 @@ class _FlatList extends StatelessWidget {
               note: note,
               onEdit: () => onEdit(note),
               onDelete: () => onDelete(note.id),
-              onConfirm: onConfirm != null ? () => onConfirm!(note.id) : null),
+              onConfirm: onConfirm != null ? () => onConfirm!(note.id) : null,
+              hasEvent: hasEvent?.call(note) ?? false,
+              onCreateEvent:
+                  onCreateEvent == null ? null : () => onCreateEvent!(note)),
         ));
       }
     }
@@ -476,12 +534,18 @@ class _NoteCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.onConfirm,
+    this.hasEvent = false,
+    this.onCreateEvent,
   });
 
   final SurveyorNote note;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onConfirm;
+  /// Whether a Timeline event already links back to this cue via
+  /// `sourceKey` (15 July 2026 walkthrough §16 — "Event created" pill).
+  final bool hasEvent;
+  final VoidCallback? onCreateEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -544,6 +608,11 @@ class _NoteCard extends StatelessWidget {
                                   if (note.pendingReview)
                                     const _MetaChip(
                                       label: 'Suggested',
+                                      color: AppColors.midBlue,
+                                    ),
+                                  if (hasEvent)
+                                    const _MetaChip(
+                                      label: 'Event',
                                       color: AppColors.midBlue,
                                     ),
                                 ],
@@ -640,6 +709,7 @@ class _NoteCard extends StatelessWidget {
                           onSelected: (v) {
                             if (v == 'edit') onEdit();
                             if (v == 'delete') onDelete();
+                            if (v == 'event') onCreateEvent?.call();
                           },
                           itemBuilder: (_) => [
                             const PopupMenuItem(
@@ -649,6 +719,16 @@ class _NoteCard extends StatelessWidget {
                                   SizedBox(width: 8),
                                   Text('Edit', style: TextStyle(fontSize: 13)),
                                 ])),
+                            if (!hasEvent && onCreateEvent != null)
+                              const PopupMenuItem(
+                                  value: 'event',
+                                  child: Row(children: [
+                                    Icon(Icons.event_outlined,
+                                        size: 15, color: AppColors.midBlue),
+                                    SizedBox(width: 8),
+                                    Text('Create event',
+                                        style: TextStyle(fontSize: 13)),
+                                  ])),
                             const PopupMenuItem(
                                 value: 'delete',
                                 child: Row(children: [
@@ -918,6 +998,64 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ),
             const SizedBox(height: 12),
 
+            // ── Cue text + its origin, moved up here (right after Priority,
+            // ahead of the classification chips below) so both are visible
+            // while classifying instead of buried further down — this is
+            // what actually informs the classification decision (14 July
+            // 2026 walkthrough).
+            if (widget.existing?.source != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.midBlue.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.description_outlined,
+                        size: 12, color: AppColors.midBlue),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        widget.existing!.source!,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.midBlue,
+                            fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: _ctrl,
+                maxLines: 6,
+                minLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Enter context cue…',
+                  hintStyle: const TextStyle(
+                      color: AppColors.textTertiary, fontSize: 13),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.border)),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.border)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _kColor, width: 1.5)),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+                style: const TextStyle(fontSize: 13, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 12),
+
             // Case section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -963,61 +1101,40 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ],
             const SizedBox(height: 10),
 
-            // Text input
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: _ctrl,
-                maxLines: 6,
-                minLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'Enter context cue…',
-                  hintStyle: const TextStyle(
-                      color: AppColors.textTertiary, fontSize: 13),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppColors.border)),
-                  enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppColors.border)),
-                  focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: _kColor, width: 1.5)),
-                  contentPadding: const EdgeInsets.all(12),
-                ),
-                style: const TextStyle(fontSize: 13, height: 1.5),
+            // ── Further classification skipped once Ignored (14 July 2026
+            // walkthrough): an ignored cue isn't going to be allocated
+            // further, so these menus were pointless to fill in regardless.
+            if (_priority != CuePriority.ignored) ...[
+              LabeledCueChipRow<NatureOfContent>(
+                label: 'Nature of content',
+                values: NatureOfContent.values,
+                selected: _nature,
+                labelOf: (n) => n.label,
+                colorOf: natureOfContentColor,
+                onTap: (n) =>
+                    setState(() => _nature = _nature == n ? null : n),
               ),
-            ),
-            const SizedBox(height: 12),
-
-            LabeledCueChipRow<NatureOfContent>(
-              label: 'Nature of content',
-              values: NatureOfContent.values,
-              selected: _nature,
-              labelOf: (n) => n.label,
-              colorOf: natureOfContentColor,
-              onTap: (n) => setState(() => _nature = _nature == n ? null : n),
-            ),
-            const SizedBox(height: 10),
-
-            LabeledCueChipRow<EvidentiaryWeight>(
-              label: 'Evidentiary weight',
-              values: EvidentiaryWeight.values,
-              selected: _weight,
-              labelOf: (w) => w.label,
-              colorOf: evidentiaryWeightColor,
-              onTap: (w) => setState(() => _weight = _weight == w ? null : w),
-            ),
-            const SizedBox(height: 10),
-
-            LabeledCueChipRow<CueOrigin>(
-              label: 'Origin',
-              values: CueOrigin.values,
-              selected: _origin,
-              labelOf: (o) => o.label,
-              colorOf: cueOriginColor,
-              onTap: (o) => setState(() => _origin = _origin == o ? null : o),
-            ),
+              const SizedBox(height: 10),
+              LabeledCueChipRow<EvidentiaryWeight>(
+                label: 'Evidentiary weight',
+                values: EvidentiaryWeight.values,
+                selected: _weight,
+                labelOf: (w) => w.label,
+                colorOf: evidentiaryWeightColor,
+                onTap: (w) =>
+                    setState(() => _weight = _weight == w ? null : w),
+              ),
+              const SizedBox(height: 10),
+              LabeledCueChipRow<CueOrigin>(
+                label: 'Origin',
+                values: CueOrigin.values,
+                selected: _origin,
+                labelOf: (o) => o.label,
+                colorOf: cueOriginColor,
+                onTap: (o) =>
+                    setState(() => _origin = _origin == o ? null : o),
+              ),
+            ],
             const SizedBox(height: 14),
 
             // Save button

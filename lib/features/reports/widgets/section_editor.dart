@@ -134,16 +134,34 @@ class _SectionEditorState extends State<SectionEditor> {
                     if (section.aiDrafted && !section.isLocked)
                       const _Badge('AI DRAFT', AppColors.midBlue,
                           AppColors.lightBlue),
+                    // 14 July 2026: adjacent, similarly-named sections
+                    // (e.g. natureOfRepairs vs repairs) were being confused
+                    // for one another when scanning the editor quickly —
+                    // this makes "content is computed from case data" vs
+                    // "content is free narrative" visually obvious without
+                    // reading fine print.
+                    if (isAutoPopulated && !section.isLocked)
+                      const _Badge('AUTO', AppColors.textSecondary,
+                          AppColors.border),
                   ]),
                 ),
 
                 // AI draft trigger (background/causation only, empty content)
+                // — disabled + spinner while drafting rather than staying
+                // fully clickable with no feedback for the ~20s the Claude
+                // call takes (14 July 2026 walkthrough §13/§17/§23).
                 if (widget.onDraftWithAi != null)
                   TextButton.icon(
-                    onPressed: widget.onDraftWithAi,
-                    icon: const Icon(Icons.auto_awesome, size: 13),
-                    label: const Text('Draft with AI',
-                        style: TextStyle(
+                    onPressed: section.drafting ? null : widget.onDraftWithAi,
+                    icon: section.drafting
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                          )
+                        : const Icon(Icons.auto_awesome, size: 13),
+                    label: Text(section.drafting ? 'Drafting…' : 'Draft with AI',
+                        style: const TextStyle(
                             fontSize: 10, fontWeight: FontWeight.w600)),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.midBlue,

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../features/cases/providers/cases_provider.dart';
@@ -26,6 +28,8 @@ import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../shared/widgets/context_cues_panel.dart'
     show natureOfContentColor;
+import '../../../features/parties/models/party_model.dart';
+import '../../../features/parties/providers/parties_provider.dart';
 import '../../../features/vessel/providers/certificates_provider.dart';
 import '../../../features/vessel/providers/class_conditions_provider.dart';
 import '../../../features/vessel/providers/vessel_provider.dart';
@@ -71,12 +75,25 @@ const _kKnownVesselKeys = {
   'class_society',
   'class_notation',
   'service_speed',
+  'screw_count',
   'propulsion_type',
   'propeller_type',
   'propulsion_drive_type',
   'mcr_power_value',
   'mcr_rpm',
   'mcr_power_unit',
+  // Added 15 July 2026 — see the "Statutory" block comment in
+  // VesselModel.applyExtraction() for why these were missing.
+  'pi_club',
+  'class_status',
+  'official_number',
+  'registered_owner',
+  'last_drydock_date',
+  'last_drydock_yard',
+  'psc_last_inspection',
+  'psc_last_result',
+  'psc_summary',
+  'isps_status',
 };
 
 // ── Connectivity provider ──────────────────────────────────────────────────
@@ -87,12 +104,28 @@ final _isOnlineProvider = StreamProvider<bool>((ref) => Connectivity()
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
-class DocumentVaultScreen extends ConsumerWidget {
-  const DocumentVaultScreen({super.key, required this.caseId});
+class DocumentVaultScreen extends ConsumerStatefulWidget {
+  const DocumentVaultScreen(
+      {super.key, required this.caseId, this.openReviewForDocumentId});
   final String caseId;
 
+  /// Deep-link from Production Manager: when set, auto-opens the review
+  /// sheet for this document once its data loads, instead of landing on the
+  /// generic vault list (Production Manager previously always pushed the
+  /// bare '/documents' route with no way to reach a specific item's review).
+  final String? openReviewForDocumentId;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DocumentVaultScreen> createState() =>
+      _DocumentVaultScreenState();
+}
+
+class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
+  String get caseId => widget.caseId;
+  bool _handledDeepLink = false;
+
+  @override
+  Widget build(BuildContext context) {
     final docsAsync = ref.watch(documentProvider(caseId));
     final isOnline = ref.watch(_isOnlineProvider).value ?? true;
     final allocatedPhotos = ref
@@ -109,6 +142,18 @@ class DocumentVaultScreen extends ConsumerWidget {
             d.extractionStatus == 'ready_for_review' ||
             d.extractionStatus == 'failed')
         .length;
+
+    final deepLinkId = widget.openReviewForDocumentId;
+    if (!_handledDeepLink && deepLinkId != null && docsAsync.value != null) {
+      final target =
+          docsAsync.value!.where((d) => d.docId == deepLinkId).firstOrNull;
+      _handledDeepLink = true;
+      if (target != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _reviewExtraction(context, ref, target);
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -517,14 +562,34 @@ class DocumentVaultScreen extends ConsumerWidget {
         return;
       }
       final bytes = await File(resolved.localPath!).readAsBytes();
-      final raw = await ClaudeApi.extractDocument(
-        base64Content: base64Encode(bytes),
-        mediaType: 'image/jpeg',
-        categoryHint: photo.allocation?.label ?? 'marine document photo',
-      );
+      final raw = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Extracting photo',
+            caseId: photo.caseId,
+            estimate: const Duration(seconds: 20),
+            action: () => ClaudeApi.extractDocument(
+              base64Content: base64Encode(bytes),
+              mediaType: 'image/jpeg',
+              categoryHint: photo.allocation?.label ?? 'marine document photo',
+            ),
+          );
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      // A parse failure (e.g. the model replied with prose instead of JSON —
+      // seen live with a non-English document) previously looked identical
+      // to a genuinely empty result: same "No data extracted" message, real
+      // cause silently dropped (14 July 2026 walkthrough §9/§10). Distinguish
+      // the two so a real failure reads as one, not as "nothing here."
+      if (raw.containsKey('error')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Extraction failed — could not read the '
+                  "model's response. Try again, or extract from the "
+                  'original document instead of a photo.')),
+        );
+        return;
+      }
 
       final result = _parsePhotoExtraction(photo.id, raw);
 
@@ -964,14 +1029,16 @@ class _ExtractionResultSheetState
   late final Map<String, bool> _vesselSelected;
   bool _saving = false;
 
-  // Similar-existing-item suggestions (surfaced so the surveyor can merge
-  // rather than create a duplicate occurrence/machinery record). Null = no
-  // close match found. The bool tracks whether the surveyor wants to merge
-  // into that match (default true when a match exists) vs. add as new.
-  late final List<OccurrenceModel?> _incidentMergeMatch;
-  late final List<bool> _incidentMergeChosen;
-  late final List<MachineryModel?> _machineryMergeMatch;
-  late final List<bool> _machineryMergeChosen;
+  // Merge target per detected item — mutable (not `final`): the fuzzy
+  // match seeds the default, but the surveyor can repoint it at any
+  // existing occurrence/machinery item, or null it out for "add as new".
+  // A dropdown of every existing item is offered unconditionally, not
+  // just when a fuzzy match was found (14 July 2026 walkthrough — "merge"
+  // was previously offered only sometimes; wanted always).
+  late List<OccurrenceModel?> _incidentMergeMatch;
+  late List<MachineryModel?> _machineryMergeMatch;
+  late final List<OccurrenceModel> _existingOccs;
+  late final List<MachineryModel> _existingMachinery;
 
   @override
   void initState() {
@@ -988,27 +1055,25 @@ class _ExtractionResultSheetState
     _conditionSelected = widget.initialConditionSelected ??
         List.filled(widget.result.detectedClassConditions.length, true);
 
-    final existingOccs =
+    _existingOccs =
         ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
     final claimedOccs = <String>{};
     _incidentMergeMatch = [
       for (final inc in widget.result.detectedIncidents)
         _bestOccurrenceMatch(
-            inc['title']?.toString() ?? '', existingOccs, claimedOccs),
+            inc['title']?.toString() ?? '', _existingOccs, claimedOccs),
     ];
-    _incidentMergeChosen = [for (final m in _incidentMergeMatch) m != null];
 
     final vesselId = ref.read(caseProvider(widget.caseId)).value?.vesselId;
-    final existingMachinery = vesselId != null
+    _existingMachinery = vesselId != null
         ? (ref.read(machineryProvider(vesselId)).value ?? const [])
         : const <MachineryModel>[];
     final claimedMachinery = <String>{};
     _machineryMergeMatch = [
       for (final m in widget.result.detectedMachinery)
         _bestMachineryMatch(m['machinery_type']?.toString() ?? '',
-            existingMachinery, claimedMachinery),
+            _existingMachinery, claimedMachinery),
     ];
-    _machineryMergeChosen = [for (final m in _machineryMergeMatch) m != null];
   }
 
   // ── Similar-item matching ────────────────────────────────────────────────
@@ -1087,6 +1152,25 @@ class _ExtractionResultSheetState
         widget.result.hardFields.entries
             .where((e) => _hardSelected[e.key] == true),
       );
+
+      // 1a. P&I insurer detected but previously never auto-populated
+      // anywhere (14 July 2026 walkthrough — the field wasn't even
+      // extracted before this). Writes into Parties' existing
+      // "Underwriter / Insurer" field, only when that's not already set
+      // (never overwrites a value the surveyor already entered).
+      final detectedInsurer = selectedFields['pi_insurer']?.toString().trim();
+      if (detectedInsurer != null && detectedInsurer.isNotEmpty) {
+        final partiesNotifier =
+            ref.read(partiesProvider(widget.caseId).notifier);
+        final currentParties =
+            ref.read(partiesProvider(widget.caseId)).value;
+        if (currentParties == null ||
+            (currentParties.underwriterName ?? '').trim().isEmpty) {
+          await partiesNotifier.save(
+              (currentParties ?? CasePartiesModel(caseId: widget.caseId))
+                  .copyWith(underwriterName: detectedInsurer));
+        }
+      }
 
       // Build full findings list with category for the summary view.
       // Preserve cumulative applied state: an item stays 'applied: true' if it
@@ -1207,7 +1291,7 @@ class _ExtractionResultSheetState
             (inc['title']?.toString() ?? 'Occurrence from ${widget.docTitle}')
                 .trim();
         final mergeTarget = _incidentMergeMatch[i];
-        if (mergeTarget != null && _incidentMergeChosen[i]) {
+        if (mergeTarget != null) {
           final incDate = inc['date'] != null
               ? DateTime.tryParse(inc['date'].toString())
               : null;
@@ -1284,7 +1368,7 @@ class _ExtractionResultSheetState
             if (!_machinerySelected[i]) continue;
             final m = widget.result.detectedMachinery[i];
             final mergeTarget = _machineryMergeMatch[i];
-            if (mergeTarget != null && _machineryMergeChosen[i]) {
+            if (mergeTarget != null) {
               final merged = mergeTarget.copyWith(
                 make: mergeTarget.make ?? m['make']?.toString(),
                 model: mergeTarget.model ?? m['model']?.toString(),
@@ -1597,8 +1681,12 @@ class _ExtractionResultSheetState
               // Detected incidents
               if (result.hasIncidents) ...[
                 const Divider(height: 20, color: AppColors.border),
+                // "Detected event" was ambiguous — could read as either a
+                // detected Occurrence or a Timeline event; this extraction
+                // path only ever creates Occurrences, so say so explicitly
+                // (14 July 2026 walkthrough).
                 const _SectionHeader(
-                    'DETECTED EVENTS', Icons.warning_amber_outlined,
+                    'DETECTED OCCURRENCES', Icons.warning_amber_outlined,
                     subtitle: 'create as case occurrences'),
                 const SizedBox(height: 6),
                 ...List.generate(result.detectedIncidents.length, (i) {
@@ -1617,7 +1705,7 @@ class _ExtractionResultSheetState
                     tileColor: Colors.transparent,
                     dense: true,
                     title: Text(
-                      inc['title']?.toString() ?? 'Unnamed event',
+                      inc['title']?.toString() ?? 'Unnamed occurrence',
                       style: TextStyle(
                           fontSize: 12,
                           color: _incidentSelected[i]
@@ -1627,7 +1715,7 @@ class _ExtractionResultSheetState
                               ? null
                               : TextDecoration.lineThrough),
                     ),
-                    subtitle: (meta.isNotEmpty || _incidentMergeMatch[i] != null)
+                    subtitle: (meta.isNotEmpty || _existingOccs.isNotEmpty)
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1636,15 +1724,21 @@ class _ExtractionResultSheetState
                                     style: const TextStyle(
                                         fontSize: 10,
                                         color: AppColors.textTertiary)),
-                              if (_incidentMergeMatch[i] != null)
-                                _MergeBanner(
-                                  existingLabel: _incidentMergeMatch[i]!
-                                          .title ??
-                                      'existing occurrence',
-                                  checked: _incidentMergeChosen[i],
-                                  onChanged: (v) =>
-                                      setState(() => _incidentMergeChosen[i] = v),
-                                ),
+                              _MergePicker(
+                                candidates: [
+                                  for (final o in _existingOccs)
+                                    (o.occurrenceId,
+                                        o.title ?? 'Untitled occurrence'),
+                                ],
+                                selectedId: _incidentMergeMatch[i]
+                                    ?.occurrenceId,
+                                onChanged: (id) => setState(() {
+                                  _incidentMergeMatch[i] = id == null
+                                      ? null
+                                      : _existingOccs.firstWhere(
+                                          (o) => o.occurrenceId == id);
+                                }),
+                              ),
                             ],
                           )
                         : null,
@@ -1685,7 +1779,7 @@ class _ExtractionResultSheetState
                               ? null
                               : TextDecoration.lineThrough),
                     ),
-                    subtitle: (sub.isNotEmpty || _machineryMergeMatch[i] != null)
+                    subtitle: (sub.isNotEmpty || _existingMachinery.isNotEmpty)
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1694,14 +1788,20 @@ class _ExtractionResultSheetState
                                     style: const TextStyle(
                                         fontSize: 10,
                                         color: AppColors.textTertiary)),
-                              if (_machineryMergeMatch[i] != null)
-                                _MergeBanner(
-                                  existingLabel: _machineryMergeMatch[i]!
-                                      .machineryType,
-                                  checked: _machineryMergeChosen[i],
-                                  onChanged: (v) => setState(
-                                      () => _machineryMergeChosen[i] = v),
-                                ),
+                              _MergePicker(
+                                candidates: [
+                                  for (final m in _existingMachinery)
+                                    (m.machineryId, m.displayName),
+                                ],
+                                selectedId:
+                                    _machineryMergeMatch[i]?.machineryId,
+                                onChanged: (id) => setState(() {
+                                  _machineryMergeMatch[i] = id == null
+                                      ? null
+                                      : _existingMachinery.firstWhere(
+                                          (m) => m.machineryId == id);
+                                }),
+                              ),
                             ],
                           )
                         : null,
@@ -1848,11 +1948,13 @@ class _ExtractionResultSheetState
     );
   }
 
-  String _labelFor(String key) => key
-      .replaceAll('_', ' ')
-      .split(' ')
-      .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-      .join(' ');
+  String _labelFor(String key) => key == 'pi_insurer'
+      ? 'P&I Insurer'
+      : key
+          .replaceAll('_', ' ')
+          .split(' ')
+          .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
 
   String _vesselFieldLabel(String key) => switch (key) {
         'vessel_name' => 'Vessel Name',
@@ -1874,6 +1976,16 @@ class _ExtractionResultSheetState
         'class_society' => 'Classification Society',
         'class_notation' => 'Class Notation',
         'service_speed' => 'Service Speed (kts)',
+        'pi_club' => 'P&I Club',
+        'class_status' => 'Class Status',
+        'official_number' => 'Official Number',
+        'registered_owner' => 'Registered Owner',
+        'last_drydock_date' => 'Last Drydock Date',
+        'last_drydock_yard' => 'Last Drydock Yard',
+        'psc_last_inspection' => 'PSC Last Inspection',
+        'psc_last_result' => 'PSC Last Result',
+        'psc_summary' => 'PSC Summary',
+        'isps_status' => 'ISPS Status',
         _ => _labelFor(key),
       };
 }
@@ -1918,47 +2030,62 @@ class _CatChip extends StatelessWidget {
   }
 }
 
-/// Suggestion banner shown under a detected incident/machinery tile when a
-/// similar item already exists in the case — lets the surveyor merge into
-/// it instead of creating a duplicate. Tapping toggles the choice.
-class _MergeBanner extends StatelessWidget {
-  const _MergeBanner({
-    required this.existingLabel,
-    required this.checked,
+/// Merge-target picker shown under every detected incident/machinery tile
+/// — offered unconditionally (14 July 2026 walkthrough: "merge into an
+/// existing item" was previously only shown when a fuzzy-match heuristic
+/// found a candidate, "not just sometimes" was the ask). Defaults to that
+/// fuzzy match when one exists (via [selectedId]); the surveyor can
+/// repoint it at any existing item, or pick "Add as new" — a clear default
+/// suggested action rather than an ambiguous flat toggle.
+class _MergePicker extends StatelessWidget {
+  const _MergePicker({
+    required this.candidates,
+    required this.selectedId,
     required this.onChanged,
   });
-  final String existingLabel;
-  final bool checked;
-  final ValueChanged<bool> onChanged;
+  final List<(String id, String label)> candidates;
+  final String? selectedId;
+  final ValueChanged<String?> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!checked),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              checked ? Icons.merge_type : Icons.add_circle_outline,
-              size: 13,
-              color: checked ? AppColors.teal : AppColors.textTertiary,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                checked
-                    ? 'Merge into existing "$existingLabel" instead of creating new'
-                    : 'Similar to existing "$existingLabel" — tap to merge instead',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontStyle: FontStyle.italic,
-                  color: checked ? AppColors.teal : AppColors.textTertiary,
-                ),
+    if (candidates.isEmpty) return const SizedBox.shrink();
+    final merging = selectedId != null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: merging
+              ? AppColors.teal.withValues(alpha: 0.08)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: merging
+                  ? AppColors.teal.withValues(alpha: 0.4)
+                  : AppColors.border),
+        ),
+        child: DropdownButton<String?>(
+          value: selectedId,
+          isDense: true,
+          isExpanded: true,
+          underline: const SizedBox.shrink(),
+          icon: Icon(Icons.arrow_drop_down,
+              size: 16, color: merging ? AppColors.teal : AppColors.textTertiary),
+          style: TextStyle(
+              fontSize: 10.5,
+              fontStyle: FontStyle.italic,
+              color: merging ? AppColors.teal : AppColors.textTertiary),
+          items: [
+            const DropdownMenuItem(value: null, child: Text('Add as new')),
+            for (final c in candidates)
+              DropdownMenuItem(
+                value: c.$1,
+                child: Text('Merge into "${c.$2}"',
+                    overflow: TextOverflow.ellipsis),
               ),
-            ),
           ],
+          onChanged: onChanged,
         ),
       ),
     );
@@ -2352,7 +2479,19 @@ class _PdfViewerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade200,
-      appBar: BackAppBar(title: Text(title, overflow: TextOverflow.ellipsis)),
+      // Plain AppBar with a Navigator.pop, not BackAppBar: this screen is
+      // reached via a raw Navigator.push (MaterialPageRoute), not go_router,
+      // so BackAppBar's context.canPop() sees no go_router history to pop
+      // and falls back to context.go(), leaving the pushed route un-popped
+      // underneath — the reported "back button loops me around" bug.
+      appBar: AppBar(
+        title: Text(title, overflow: TextOverflow.ellipsis),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
       body: PdfViewer.uri(
         Uri.parse(url),
         params: const PdfViewerParams(backgroundColor: Color(0xFFE0E0E0)),
@@ -2372,9 +2511,16 @@ class _ImagePreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: BackAppBar(
+      // Plain AppBar with a Navigator.pop, not BackAppBar — see the comment
+      // in _PdfViewerScreen above; same raw Navigator.push, same fix.
+      appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: Text(title,
             style: const TextStyle(
                 color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
@@ -2534,8 +2680,9 @@ const _kFieldLabels = <String, String>{
   'owners': 'Owners',
   'operators': 'Operators',
   'service_speed': 'Service Speed (kn)',
-  'propulsion_type': 'Propulsion Type',
-  'propeller_type': 'Propeller Type',
+  'screw_count': 'Number of Screws',
+  'propulsion_type': 'Type of Prime Mover',
+  'propeller_type': 'Thruster Type',
   'propulsion_drive_type': 'Drive Type',
   'mcr_power_value': 'MCR Power',
   'mcr_rpm': 'MCR RPM',

@@ -16,6 +16,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../features/timeline/providers/timeline_provider.dart';
+import '../../features/timeline/utils/cue_to_event.dart';
 import '../../core/api/claude_api.dart';
 import '../theme/app_theme.dart';
 
@@ -66,6 +68,13 @@ Color sectionColor(CaseSection s) => switch (s) {
 // specific repair period, or the "not allocated to a period" bucket.
 // Irrelevant for every other section.
 const String repairPeriodLinkType = 'repair_period';
+
+/// `linked_to_type` tag for a cue routed to a specific occurrence — see
+/// [ContextCuesPanel.routingLinkType]/[CueItemScope]. Moved here from
+/// occurrence_editor_screen.dart (14 July 2026 walkthrough §4) so both the
+/// single-occurrence auto-scope and the new multi-occurrence picker share
+/// one definition.
+const String occurrenceLinkType = 'occurrence';
 
 class RepairPeriodScope {
   const RepairPeriodScope.forPeriod(this.periodId) : isUnassignedBucket = false;
@@ -195,6 +204,8 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     required this.section,
     this.periodScope,
     this.itemScope,
+    this.routingLinkType,
+    this.routingOptions,
     this.initiallyExpanded = true,
     this.onPromote,
   });
@@ -209,6 +220,18 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
   /// repair period embedded on its own screen, etc.) — see [CueItemScope].
   /// Mutually exclusive with [periodScope].
   final CueItemScope? itemScope;
+  /// When there's more than one possible target of [itemScope]'s kind (e.g.
+  /// a multi-occurrence case), pass the shared `linkedToType` here plus
+  /// [routingOptions] instead of [itemScope] — the add/edit cue sheet then
+  /// shows a picker so the surveyor chooses which one a given cue routes
+  /// to, rather than every cue silently going unscoped (14 July 2026
+  /// walkthrough §4 — "if the case only has one occurrence, default to it
+  /// automatically, no prompt needed" — that single-item case is exactly
+  /// what [itemScope] already covers; this is for the >1 case).
+  final String? routingLinkType;
+  /// (id, label) pairs offered by the picker described above. Ignored
+  /// unless [routingOptions] has more than one entry.
+  final List<MapEntry<String, String>>? routingOptions;
   /// Set false when stacking multiple panels on one screen (e.g. Repairs +
   /// Repair Times) so they don't all default open at once.
   final bool initiallyExpanded;
@@ -287,6 +310,13 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
     final sectionNotes =
         notesAsync.value?.where(_matchesScope).toList() ?? [];
 
+    final timelineAsync = ref.watch(timelineProvider(widget.caseId));
+    final eventSourceKeys = timelineAsync.valueOrNull
+            ?.map((e) => e.sourceKey)
+            .whereType<String>()
+            .toSet() ??
+        <String>{};
+
     final activeNotes =
         sectionNotes.where((n) => n.priority != CuePriority.ignored).toList();
     final ignoredNotes =
@@ -301,20 +331,24 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
-      // Collapsed height must fit the header row's own intrinsic height
-      // (icon box + padding) — 44 was a few px too tight and produced a
-      // "RenderFlex overflowed by 3.0 pixels on the bottom" whenever a
-      // panel rendered collapsed with no quick-summary line yet (confirmed
-      // via live widget-test reproduction on the Repair Periods screen,
-      // docs/TODO.md Phase 0.1 row 24 / §3.9, 9 July 2026).
+      // Collapsed state uses a minHeight, not a tight height: a fixed pixel
+      // budget for the header row (44, then 48) kept recurring as a "few px"
+      // RenderFlex overflow under larger system text-scale settings and
+      // during the summary-text appear/disappear transition — the header's
+      // real intrinsic height isn't a constant, it depends on font metrics
+      // and text scale. minHeight lets the box grow to fit whatever the
+      // header actually needs instead of clipping it (docs/TODO.md §3.9,
+      // reopened 14 July 2026 walkthrough — live repro on Repair Periods).
       //
-      // Expanded height (§3.10/§3.11, 13 July 2026): previously a flat 268
-      // regardless of content — a basket with 1 cue reserved exactly the
-      // same space as one with 20. Now scales with the visible tab's item
-      // count instead.
-      height: _expanded
-          ? _expandedHeight(visibleNotes.length)
-          : (showSummary ? 62 : 48),
+      // Expanded height (§3.10/§3.11, 13 July 2026) still needs a tight
+      // value: the Expanded(ListView) inside requires a bounded max height
+      // from its parent to divide space, and it scales with item count
+      // instead of a flat 268 so a near-empty basket doesn't reserve the
+      // same space as a full one.
+      constraints: _expanded
+          ? BoxConstraints.tightFor(
+              height: _expandedHeight(visibleNotes.length))
+          : BoxConstraints(minHeight: showSummary ? 62 : 48),
       decoration: const BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border, width: 1)),
@@ -504,6 +538,14 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                           onPromote: widget.onPromote == null
                               ? null
                               : () => widget.onPromote!(visibleNotes[i]),
+                          hasEvent: eventSourceKeys
+                              .contains(cueEventSourceKey(visibleNotes[i].id)),
+                          onCreateEvent: () => convertCueToTimelineEvent(
+                            context,
+                            ref,
+                            caseId: widget.caseId,
+                            note: visibleNotes[i],
+                          ),
                         ),
                       ),
               ),
@@ -528,17 +570,45 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
       builder: (_) => _CuePanelSheet(
         section: widget.section,
         existing: existing,
-        onSave: (content, priority, nature, weight, origin) async {
+        routingLinkType: widget.routingOptions != null &&
+                widget.routingOptions!.length > 1
+            ? widget.routingLinkType
+            : null,
+        routingOptions:
+            widget.routingOptions != null && widget.routingOptions!.length > 1
+                ? widget.routingOptions
+                : null,
+        initialRoutedId: existing != null &&
+                existing.linkedToType == widget.routingLinkType
+            ? existing.linkedToId
+            : null,
+        onPromote: existing == null || widget.onPromote == null
+            ? null
+            : () {
+                Navigator.pop(context);
+                widget.onPromote!(existing);
+              },
+        onSave: (content, priority, nature, weight, origin, routedId) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
           final scope = widget.periodScope;
           final item = widget.itemScope;
-          final linkedToType = scope != null && !scope.isUnassignedBucket
-              ? repairPeriodLinkType
-              : item?.linkedToType;
-          final linkedToId = scope != null && !scope.isUnassignedBucket
-              ? scope.periodId
-              : item?.linkedToId;
+          final String? linkedToType;
+          final String? linkedToId;
+          if (scope != null && !scope.isUnassignedBucket) {
+            linkedToType = repairPeriodLinkType;
+            linkedToId = scope.periodId;
+          } else if (widget.routingOptions != null &&
+              widget.routingOptions!.length > 1) {
+            // Multi-item routing (e.g. multiple occurrences) — only scoped
+            // if the surveyor actually picked one; otherwise stays
+            // unscoped, same as before this picker existed.
+            linkedToType = routedId != null ? widget.routingLinkType : null;
+            linkedToId = routedId;
+          } else {
+            linkedToType = item?.linkedToType;
+            linkedToId = item?.linkedToId;
+          }
           if (existing == null) {
             await notifier.add(
               caseId:            widget.caseId,
@@ -646,6 +716,8 @@ class _CuePanelTile extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.onPromote,
+    this.hasEvent = false,
+    this.onCreateEvent,
   });
 
   final SurveyorNote note;
@@ -653,6 +725,10 @@ class _CuePanelTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onPromote;
+  /// Whether a Timeline event already links back to this cue via
+  /// `sourceKey` (15 July 2026 walkthrough §16 — "Event created" pill).
+  final bool hasEvent;
+  final VoidCallback? onCreateEvent;
 
   @override
   Widget build(BuildContext context) {
@@ -721,11 +797,55 @@ class _CuePanelTile extends StatelessWidget {
                 ),
               ),
               if (onPromote != null)
+                Tooltip(
+                  // 14 July 2026 walkthrough §5 Q2 — "not visible/
+                  // discoverable" that this icon promotes the cue; it had
+                  // no label at all. A full redesign is explicitly
+                  // deferred by the surveyor (not urgent, may resolve
+                  // itself once cue-processing UX gets addressed more
+                  // broadly per §16), so this is a small, safe addition
+                  // rather than reworking the control itself.
+                  message: 'Promote to damage item',
+                  child: GestureDetector(
+                    onTap: onPromote,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(Icons.arrow_circle_right_outlined,
+                          size: 15, color: accent),
+                    ),
+                  ),
+                ),
+              if (hasEvent)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.midBlue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.event_available,
+                            size: 10, color: AppColors.midBlue),
+                        SizedBox(width: 3),
+                        Text('Event',
+                            style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.midBlue)),
+                      ],
+                    ),
+                  ),
+                )
+              else if (onCreateEvent != null)
                 GestureDetector(
-                  onTap: onPromote,
+                  onTap: onCreateEvent,
                   child: Padding(
                     padding: const EdgeInsets.all(8),
-                    child: Icon(Icons.arrow_circle_right_outlined,
+                    child: Icon(Icons.event_outlined,
                         size: 15, color: accent),
                   ),
                 ),
@@ -753,6 +873,7 @@ typedef _CueSaveCallback = Future<void> Function(
   NatureOfContent? nature,
   EvidentiaryWeight? weight,
   CueOrigin? origin,
+  String? routedId,
 );
 
 class _CuePanelSheet extends StatefulWidget {
@@ -760,11 +881,25 @@ class _CuePanelSheet extends StatefulWidget {
     required this.section,
     required this.onSave,
     this.existing,
+    this.onPromote,
+    this.routingLinkType,
+    this.routingOptions,
+    this.initialRoutedId,
   });
 
   final CaseSection section;
   final SurveyorNote? existing;
   final _CueSaveCallback onSave;
+  /// Duplicated here from the list tile (14 July 2026 walkthrough — the
+  /// list tile's promote control was "too tiny/hard to hit"), positioned
+  /// next to "Tagged: X" so it's reachable right where a cue is being
+  /// allocated, not just from the collapsed list.
+  final VoidCallback? onPromote;
+  /// See [ContextCuesPanel.routingLinkType] — non-null (with >1
+  /// [routingOptions]) shows a picker for which item this cue routes to.
+  final String? routingLinkType;
+  final List<MapEntry<String, String>>? routingOptions;
+  final String? initialRoutedId;
 
   @override
   State<_CuePanelSheet> createState() => _CuePanelSheetState();
@@ -776,6 +911,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
   NatureOfContent? _nature;
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
+  String? _routedId;
   bool _saving = false;
 
   @override
@@ -786,6 +922,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     _nature = widget.existing?.natureOfContent;
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
+    _routedId = widget.initialRoutedId;
   }
 
   @override
@@ -845,6 +982,13 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
                     ],
                   ),
                   const Spacer(),
+                  if (widget.onPromote != null)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_upward, size: 18),
+                      color: accent,
+                      tooltip: 'Promote',
+                      onPressed: widget.onPromote,
+                    ),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
                     child: const Text('Cancel',
@@ -855,6 +999,36 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
               ),
             ),
             const SizedBox(height: 12),
+
+            // ── Routing picker (e.g. which occurrence, when a case has
+            // more than one) — surfaced right where the cue is being
+            // allocated (14 July 2026 walkthrough §4).
+            if (widget.routingOptions != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Route to',
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textTertiary)),
+                    const SizedBox(height: 5),
+                    CueChipRow<String>(
+                      values: widget.routingOptions!.map((o) => o.key).toList(),
+                      selected: _routedId,
+                      labelOf: (id) => widget.routingOptions!
+                          .firstWhere((o) => o.key == id)
+                          .value,
+                      colorOf: (_) => accent,
+                      onTap: (id) => setState(
+                          () => _routedId = _routedId == id ? null : id),
+                      allowDeselect: true,
+                    ),
+                  ],
+                ),
+              ),
 
             // ── Priority — first decision, positioned at the top ────────
             Padding(
@@ -870,6 +1044,36 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
             ),
             const SizedBox(height: 12),
 
+            // Cue text + its origin (source doc/page), shown together, not
+            // buried below the classification chips (14 July 2026
+            // walkthrough — this is what actually informs classification).
+            if (widget.existing?.source != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.midBlue.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.description_outlined,
+                        size: 12, color: AppColors.midBlue),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        widget.existing!.source!,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.midBlue,
+                            fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
@@ -900,37 +1104,39 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
             ),
             const SizedBox(height: 14),
 
-            // ── Nature of content (optional, tap again to clear) ────────
-            LabeledCueChipRow<NatureOfContent>(
-              label: 'Nature of content',
-              values: NatureOfContent.values,
-              selected: _nature,
-              labelOf: (n) => n.label,
-              colorOf: natureOfContentColor,
-              onTap: (n) => setState(() => _nature = _nature == n ? null : n),
-            ),
-            const SizedBox(height: 10),
-
-            // ── Evidentiary weight (optional, tap again to clear) ───────
-            LabeledCueChipRow<EvidentiaryWeight>(
-              label: 'Evidentiary weight',
-              values: EvidentiaryWeight.values,
-              selected: _weight,
-              labelOf: (w) => w.label,
-              colorOf: evidentiaryWeightColor,
-              onTap: (w) => setState(() => _weight = _weight == w ? null : w),
-            ),
-            const SizedBox(height: 10),
-
-            // ── Origin (optional, tap again to clear) ───────────────────
-            LabeledCueChipRow<CueOrigin>(
-              label: 'Origin',
-              values: CueOrigin.values,
-              selected: _origin,
-              labelOf: (o) => o.label,
-              colorOf: cueOriginColor,
-              onTap: (o) => setState(() => _origin = _origin == o ? null : o),
-            ),
+            // Further classification skipped once Ignored — same reasoning
+            // as the standalone Advice-to-Owner editor sheet.
+            if (_priority != CuePriority.ignored) ...[
+              LabeledCueChipRow<NatureOfContent>(
+                label: 'Nature of content',
+                values: NatureOfContent.values,
+                selected: _nature,
+                labelOf: (n) => n.label,
+                colorOf: natureOfContentColor,
+                onTap: (n) =>
+                    setState(() => _nature = _nature == n ? null : n),
+              ),
+              const SizedBox(height: 10),
+              LabeledCueChipRow<EvidentiaryWeight>(
+                label: 'Evidentiary weight',
+                values: EvidentiaryWeight.values,
+                selected: _weight,
+                labelOf: (w) => w.label,
+                colorOf: evidentiaryWeightColor,
+                onTap: (w) =>
+                    setState(() => _weight = _weight == w ? null : w),
+              ),
+              const SizedBox(height: 10),
+              LabeledCueChipRow<CueOrigin>(
+                label: 'Origin',
+                values: CueOrigin.values,
+                selected: _origin,
+                labelOf: (o) => o.label,
+                colorOf: cueOriginColor,
+                onTap: (o) =>
+                    setState(() => _origin = _origin == o ? null : o),
+              ),
+            ],
             const SizedBox(height: 14),
 
             Padding(
@@ -973,7 +1179,8 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await widget.onSave(content, _priority, _nature, _weight, _origin);
+      await widget.onSave(
+          content, _priority, _nature, _weight, _origin, _routedId);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);

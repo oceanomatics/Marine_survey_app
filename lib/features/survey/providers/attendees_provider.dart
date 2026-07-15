@@ -53,21 +53,33 @@ enum AttendeeRole {
 
 // ── Title (form of address) ─────────────────────────────────────────────────
 
+// Order and set per the 14 July 2026 walkthrough: "Ms"/"Miss" were flagged
+// as redundant (Miss dropped, Ms kept), Capt moved above Dr/Prof as the
+// most-used title in this context, Prof moved to the end as rarely used,
+// and a set of shortened Navy officer ranks was added.
 enum AttendeeTitle {
   mr('mr', 'Mr.'),
   mrs('mrs', 'Mrs.'),
   ms('ms', 'Ms.'),
-  miss('miss', 'Miss'),
   dr('dr', 'Dr.'),
   capt('capt', 'Capt.'),
+  adm('adm', 'Adm.'),
+  cdre('cdre', 'Cdre.'),
+  cdr('cdr', 'Cdr.'),
+  ltCdr('lt_cdr', 'Lt Cdr.'),
+  lt('lt', 'Lt.'),
+  subLt('sub_lt', 'Sub Lt.'),
   prof('prof', 'Prof.');
 
   const AttendeeTitle(this.value, this.label);
   final String value;
   final String label;
 
-  static AttendeeTitle fromValue(String v) =>
-      values.firstWhere((e) => e.value == v, orElse: () => AttendeeTitle.mr);
+  // 'miss' is the pre-14-July-2026 stored value, dropped from the picker as
+  // a duplicate of 'ms' — mapped here so existing rows still resolve.
+  static AttendeeTitle fromValue(String v) => v == 'miss'
+      ? AttendeeTitle.ms
+      : values.firstWhere((e) => e.value == v, orElse: () => AttendeeTitle.mr);
 }
 
 // ── Model ─────────────────────────────────────────────────────────────────
@@ -83,6 +95,7 @@ class AttendeeModel {
     this.rankPosition,
     this.company,
     this.representing,
+    this.representingPartyId,
     this.roleType,
     this.dpCertification,
     this.certExpiry,
@@ -100,6 +113,11 @@ class AttendeeModel {
   final String? rankPosition;
   final String? company;
   final String? representing;
+  /// Optional link to an `assured_contacts` row (14 July 2026 walkthrough —
+  /// "Representing" was free text with no link to the case's actual
+  /// stakeholder list). [representing] stays as a free-text fallback/
+  /// override for attendees with no matching logged stakeholder.
+  final String? representingPartyId;
   final AttendeeRole? roleType;
   final String? dpCertification;
   final DateTime? certExpiry;
@@ -140,6 +158,7 @@ class AttendeeModel {
         rankPosition:   j['rank_position'] as String?,
         company:        j['company'] as String?,
         representing:   j['representing'] as String?,
+        representingPartyId: j['representing_party_id'] as String?,
         roleType:       j['role_type'] != null
             ? AttendeeRole.fromValue(j['role_type'] as String)
             : null,
@@ -163,6 +182,8 @@ class AttendeeModel {
         if (rankPosition != null)    'rank_position':    rankPosition,
         if (company != null)         'company':          company,
         if (representing != null)    'representing':     representing,
+        if (representingPartyId != null)
+          'representing_party_id': representingPartyId,
         if (roleType != null)        'role_type':        roleType!.value,
         if (dpCertification != null) 'dp_certification': dpCertification,
         if (certExpiry != null)
@@ -172,15 +193,26 @@ class AttendeeModel {
         if (sortOrder != null)       'sort_order':        sortOrder,
       };
 
-  AttendeeModel copyWith({int? sortOrder}) => AttendeeModel(
+  AttendeeModel copyWith({
+    String? fullName,
+    AttendeeTitle? title,
+    bool clearTitle = false,
+    String? representing,
+    String? representingPartyId,
+    bool clearRepresentingPartyId = false,
+    int? sortOrder,
+  }) => AttendeeModel(
         attendeeId:      attendeeId,
         caseId:          caseId,
-        fullName:        fullName,
+        fullName:        fullName ?? this.fullName,
         attendanceId:    attendanceId,
-        title:           title,
+        title:           clearTitle ? null : (title ?? this.title),
         rankPosition:    rankPosition,
         company:         company,
-        representing:    representing,
+        representing:    representing ?? this.representing,
+        representingPartyId: clearRepresentingPartyId
+            ? null
+            : (representingPartyId ?? this.representingPartyId),
         roleType:        roleType,
         dpCertification: dpCertification,
         certExpiry:      certExpiry,

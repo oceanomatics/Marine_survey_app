@@ -9,9 +9,32 @@ import '../../../shared/theme/app_theme.dart';
 const _kColor = Color(0xFF2E7CB7);
 
 class AddTimelineEventSheet extends StatefulWidget {
-  const AddTimelineEventSheet({super.key, required this.onSave});
+  const AddTimelineEventSheet({
+    super.key,
+    required this.onSave,
+    this.initialTitle,
+    this.initialDate,
+    this.initialDescription,
+    this.sourceKey,
+  });
 
   final Future<void> Function(TimelineEventModel) onSave;
+
+  /// Pre-fills the sheet — used when a context cue is auto-converted into a
+  /// timeline event (14 July 2026 walkthrough) so the surveyor reviews/
+  /// edits the AI-extracted date+title rather than typing from scratch.
+  final String? initialTitle;
+  final DateTime? initialDate;
+  final String? initialDescription;
+
+  /// Set when this sheet is converting a specific context cue into an
+  /// event (`'cue:<noteId>'`) — carried through to the created
+  /// TimelineEventModel so the originating cue can show an "Event created"
+  /// pill afterwards (15 July 2026 walkthrough ask, §16). Reuses the same
+  /// `source_key` column the Full Log's promote/unpromote mechanism already
+  /// uses for occurrences/attendances/etc — a cue's key never collides with
+  /// those since cues aren't part of the aggregated Full Log.
+  final String? sourceKey;
 
   @override
   State<AddTimelineEventSheet> createState() => _AddTimelineEventSheetState();
@@ -34,8 +57,17 @@ class _AddTimelineEventSheetState extends State<AddTimelineEventSheet> {
   @override
   void initState() {
     super.initState();
-    _titleCtrl.text = _type.label;
+    if (widget.initialTitle != null && widget.initialTitle!.isNotEmpty) {
+      _titleCtrl.text = widget.initialTitle!;
+      _titleEdited = true;
+    } else {
+      _titleCtrl.text = _type.label;
+    }
     _titleCtrl.addListener(() => _titleEdited = true);
+    _date = widget.initialDate;
+    if (widget.initialDescription != null) {
+      _descCtrl.text = widget.initialDescription!;
+    }
   }
 
   @override
@@ -84,6 +116,7 @@ class _AddTimelineEventSheetState extends State<AddTimelineEventSheet> {
         title:       _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
         location:    _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
         description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+        sourceKey:   widget.sourceKey,
       );
       await widget.onSave(model);
       if (mounted) Navigator.pop(context);

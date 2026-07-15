@@ -42,6 +42,7 @@ import '../../features/settings/screens/organisation_list_screen.dart';
 import '../../features/settings/screens/organisation_detail_screen.dart';
 import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
+import '../../features/interviews/screens/interview_detail_screen.dart';
 import '../../features/interviews/screens/record_interview_screen.dart';
 import '../../features/accounts/screens/accounts_screen.dart';
 import '../../features/accounts/screens/invoice_detail_screen.dart';
@@ -145,8 +146,11 @@ final appRouter = GoRouter(
             ),
             GoRoute(
               path: 'documents',
-              builder: (context, state) =>
-                  DocumentVaultScreen(caseId: state.pathParameters['caseId']!),
+              builder: (context, state) => DocumentVaultScreen(
+                caseId: state.pathParameters['caseId']!,
+                openReviewForDocumentId:
+                    state.uri.queryParameters['reviewDocId'],
+              ),
             ),
             GoRoute(
               path: 'production',
@@ -234,6 +238,13 @@ final appRouter = GoRouter(
               path: 'interviews/record',
               builder: (context, state) =>
                   RecordInterviewScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'interviews/:interviewId',
+              builder: (context, state) => InterviewDetailScreen(
+                caseId: state.pathParameters['caseId']!,
+                interviewId: state.pathParameters['interviewId']!,
+              ),
             ),
             GoRoute(
               path: 'reports',

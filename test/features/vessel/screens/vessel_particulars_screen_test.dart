@@ -146,6 +146,19 @@ void main() {
       final saved = container.read(vesselForCaseProvider(_caseId)).value;
       expect(saved?.grossTonnage, 1311);
     });
+
+    testWidgets(
+        'Principal Dimensions is regrouped into Longitudinal/Transversal/Vertical '
+        '(14 July 2026 walkthrough §3)', (tester) async {
+      await _pump(tester, vessel: fixtureVessel());
+
+      await tester.tap(find.text('Dimensions').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('LONGITUDINAL'), findsOneWidget);
+      expect(find.text('TRANSVERSAL'), findsOneWidget);
+      expect(find.text('VERTICAL'), findsOneWidget);
+    });
   });
 
   group('VesselParticularsScreen — Machinery tab', () {
@@ -156,6 +169,37 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('No machinery recorded yet'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Propulsion Particulars is reorganised into screw count / prime mover / '
+        'thruster type (14 July 2026 walkthrough §3 Q5)', (tester) async {
+      final container =
+          await _pump(tester, vessel: fixtureVessel(vesselId: 'vessel-1'));
+
+      await tester.tap(find.text('Machinery').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Number of Screws'), findsOneWidget);
+      expect(find.text('Type of Prime Mover'), findsOneWidget);
+      expect(find.text('Thruster Type'), findsOneWidget);
+      expect(find.text('Propulsion Type'), findsNothing);
+      expect(find.text('Propulsion Drive Type'), findsNothing);
+      expect(find.text('Propeller / Thruster Type'), findsNothing);
+
+      await tester.enterText(_fieldByLabel('Number of Screws'), '2');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Electric'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Azipods'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save changes'));
+      await tester.pumpAndSettle();
+
+      final saved = container.read(vesselForCaseProvider(_caseId)).value;
+      expect(saved?.screwCount, 2);
+      expect(saved?.propulsionType, 'Electric');
+      expect(saved?.propellerType, 'Azipods');
     });
 
     testWidgets('adding an item persists it to the list', (tester) async {

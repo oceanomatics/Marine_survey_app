@@ -172,6 +172,30 @@ class CasePartiesModel {
       underwriterCompany == null &&
       adjusterName == null &&
       assuredRepName == null;
+
+  /// Used for the AI-extraction "P&I insurer detected but not auto-
+  /// populated" fix (14 July 2026 walkthrough) — only the one field is
+  /// needed there, so that's all this supports for now.
+  CasePartiesModel copyWith({String? underwriterName}) => CasePartiesModel(
+        caseId: caseId,
+        principalName: principalName,
+        principalCompany: principalCompany,
+        principalEmail: principalEmail,
+        reviewerName: reviewerName,
+        reviewerCompany: reviewerCompany,
+        reviewerEmail: reviewerEmail,
+        underwriterName: underwriterName ?? this.underwriterName,
+        underwriterCompany: underwriterCompany,
+        underwriterEmail: underwriterEmail,
+        adjusterName: adjusterName,
+        adjusterCompany: adjusterCompany,
+        adjusterEmail: adjusterEmail,
+        adjusterPhone: adjusterPhone,
+        assuredRepName: assuredRepName,
+        assuredRepCompany: assuredRepCompany,
+        assuredRepEmail: assuredRepEmail,
+        assuredRepPhone: assuredRepPhone,
+      );
 }
 
 // ── Assured Contact / Stakeholder ─────────────────────────────────────────

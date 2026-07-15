@@ -37,19 +37,50 @@ extension on _Period {
   }
 }
 
-// Human-readable labels for feature identifiers.
+// Human-readable labels for feature identifiers. Kept in sync with every
+// `feature:`/`extra['feature']` key actually logged via UsageTracker/Dio in
+// claude_api.dart — 14 July 2026 walkthrough found ~21 real feature keys
+// still falling back to raw snake_case here.
 const _featureLabels = <String, String>{
-  'report_extraction':    'Report extraction',
+  'report_extraction': 'Report extraction',
   'certificate_extraction': 'Certificate extraction',
-  'vessel_particulars':   'Vessel particulars',
+  'vessel_particulars': 'Vessel particulars',
   'occurrence_narrative': 'Narrative draft',
-  'cause_consideration':  'Cause consideration',
-  'invoice_extraction':   'Invoice extraction',
+  'cause_consideration': 'Cause consideration',
+  'invoice_extraction': 'Invoice extraction',
   'photo_classification': 'Photo classification',
-  'voice_routing':        'Voice note routing',
+  'voice_routing': 'Voice note routing',
   'email_classification': 'Email classification',
-  'api_call':             'Other API call',
+  'api_call': 'Other API call',
+  'nameplate_extraction': 'Nameplate extraction',
+  'sub_causation_draft': 'Sub-causation draft',
+  'general_services_draft': 'General services draft',
+  'previous_works_draft': 'Previous works draft',
+  'extra_expenses_draft': 'Extra expenses draft',
+  'contractual_hire_draft': 'Contractual hire draft',
+  'other_matters_draft': 'Other matters draft',
+  'occurrence_section_draft': 'Occurrence section draft',
+  'damage_description_section_draft': 'Damage description draft',
+  'nature_of_repairs_section_draft': 'Nature of repairs draft',
+  'repairs_section_draft': 'Repairs section draft',
+  'cue_quick_summary': 'Cue quick summary',
+  'correspondence_trail_summary': 'Correspondence trail summary',
+  'document_extraction': 'Document extraction',
+  'batch_invoice_analysis': 'Batch invoice analysis',
+  'correspondence_extraction': 'Correspondence extraction',
+  'image_orientation': 'Image orientation',
+  'document_corner_detection': 'Document corner detection',
+  'invoice_context_cues': 'Invoice context cues',
+  'surveyor_note_polish': 'Cue polish',
+  'timeline_event_rating': 'Timeline event rating',
+  'timeline_event_from_note': 'Timeline event from cue',
+  'interview_summary': 'Interview summary',
 };
+
+// Rows for cases no longer in `_caseLabels` (deleted, or never resolved)
+// roll up into this single bucket instead of one orphaned row per case —
+// still visible, never lost, just not one-row-per-deleted-case.
+const _kDeletedCasesKey = '__deleted__';
 
 typedef _TokenTotals = ({int input, int output, double cost});
 
@@ -140,20 +171,39 @@ class _UsageScreenState extends State<UsageScreen> {
         map.entries.toList()..sort((a, b) => b.value.cost.compareTo(a.value.cost)));
   }
 
-  Map<String, _TokenTotals> get _byCase {
-    final map = <String, ({int input, int output, double cost})>{};
+  // Grouped by case, then by feature within each case (14 July 2026
+  // walkthrough — was a flat "by case" list with no feature breakdown per
+  // case). Cases missing from `_caseLabels` (deleted) all fold into
+  // `_kDeletedCasesKey` instead of one orphaned row each.
+  Map<String, Map<String, _TokenTotals>> get _byCaseThenFeature {
+    final map = <String, Map<String, ({int input, int output, double cost})>>{};
     for (final r in _records) {
-      final caseId = r['case_id'] as String?;
-      if (caseId == null) continue;
-      final e = map[caseId];
-      map[caseId] = (
+      final rawCaseId = r['case_id'] as String?;
+      if (rawCaseId == null) continue;
+      final caseKey =
+          _caseLabels.containsKey(rawCaseId) ? rawCaseId : _kDeletedCasesKey;
+      final feature = r['feature'] as String? ?? 'api_call';
+      final byFeature = map.putIfAbsent(caseKey, () => {});
+      final e = byFeature[feature];
+      byFeature[feature] = (
         input:  (e?.input  ?? 0) + (r['input_tokens']  as num? ?? 0).toInt(),
         output: (e?.output ?? 0) + (r['output_tokens'] as num? ?? 0).toInt(),
         cost:   (e?.cost   ?? 0) + (r['cost_usd']      as num? ?? 0).toDouble(),
       );
     }
-    return Map.fromEntries(
-        map.entries.toList()..sort((a, b) => b.value.cost.compareTo(a.value.cost)));
+    // Sort cases by total cost descending, deleted-cases bucket always last.
+    final entries = map.entries.toList()
+      ..sort((a, b) {
+        if (a.key == _kDeletedCasesKey) return 1;
+        if (b.key == _kDeletedCasesKey) return -1;
+        final aCost = a.value.values.fold(0.0, (s, t) => s + t.cost);
+        final bCost = b.value.values.fold(0.0, (s, t) => s + t.cost);
+        return bCost.compareTo(aCost);
+      });
+    return Map.fromEntries(entries.map((e) => MapEntry(
+        e.key,
+        Map.fromEntries(e.value.entries.toList()
+          ..sort((a, b) => b.value.cost.compareTo(a.value.cost))))));
   }
 
   // ── Build ────────────────────────────────────────────────────────────────────
@@ -194,7 +244,7 @@ class _UsageScreenState extends State<UsageScreen> {
                   : _Body(
                       totals:     _totals,
                       byFeature:  _byFeature,
-                      byCase:     _byCase,
+                      byCaseThenFeature: _byCaseThenFeature,
                       caseLabels: _caseLabels,
                       recordCount: _records.length,
                     ),
@@ -249,14 +299,14 @@ class _Body extends StatelessWidget {
   const _Body({
     required this.totals,
     required this.byFeature,
-    required this.byCase,
+    required this.byCaseThenFeature,
     required this.caseLabels,
     required this.recordCount,
   });
 
   final _TokenTotals totals;
   final Map<String, _TokenTotals> byFeature;
-  final Map<String, _TokenTotals> byCase;
+  final Map<String, Map<String, _TokenTotals>> byCaseThenFeature;
   final Map<String, String> caseLabels;
   final int recordCount;
 
@@ -282,15 +332,29 @@ class _Body extends StatelessWidget {
               totals: e.value,
               grandTotal: totals.cost,
             )),
-        if (byCase.isNotEmpty) ...[
+        if (byCaseThenFeature.isNotEmpty) ...[
           const SizedBox(height: 20),
           const _SectionHeader('By case', Icons.folder_outlined),
           const SizedBox(height: 8),
-          ...byCase.entries.map((e) {
-                final label = caseLabels[e.key]
-                    ?? 'Deleted case — …${e.key.length > 8 ? e.key.substring(e.key.length - 8) : e.key}';
-                return _CaseRow(label: label, totals: e.value, deleted: !caseLabels.containsKey(e.key));
-              }),
+          ...byCaseThenFeature.entries.map((e) {
+            final deleted = e.key == _kDeletedCasesKey;
+            final label = deleted
+                ? 'Previous / deleted cases'
+                : (caseLabels[e.key] ?? e.key);
+            final caseTotal = e.value.values.fold<_TokenTotals>(
+                (input: 0, output: 0, cost: 0.0),
+                (a, t) => (
+                      input: a.input + t.input,
+                      output: a.output + t.output,
+                      cost: a.cost + t.cost,
+                    ));
+            return _CaseGroup(
+              label: label,
+              deleted: deleted,
+              totals: caseTotal,
+              byFeature: e.value,
+            );
+          }),
         ],
         const SizedBox(height: 20),
         _PricingNote(),
@@ -501,56 +565,78 @@ class _FeatureRow extends StatelessWidget {
   }
 }
 
-// ── Case row ─────────────────────────────────────────────────────────────────
+// ── Case group (case → feature breakdown) ─────────────────────────────────
 
-class _CaseRow extends StatelessWidget {
-  const _CaseRow({required this.label, required this.totals, this.deleted = false});
+class _CaseGroup extends StatelessWidget {
+  const _CaseGroup({
+    required this.label,
+    required this.totals,
+    required this.byFeature,
+    this.deleted = false,
+  });
   final String label;
   final _TokenTotals totals;
+  final Map<String, _TokenTotals> byFeature;
   final bool deleted;
 
   @override
   Widget build(BuildContext context) {
-    final costFmt  = NumberFormat('\$#,##0.0000', 'en_AU');
+    final costFmt = NumberFormat('\$#,##0.0000', 'en_AU');
     final tokenFmt = NumberFormat('#,###');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(children: [
-        Icon(deleted ? Icons.folder_off_outlined : Icons.folder_outlined,
-            size: 16, color: deleted ? AppColors.textTertiary : AppColors.textTertiary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              Text(
-                '${tokenFmt.format(totals.input + totals.output)} tokens',
-                style: const TextStyle(
-                    fontSize: 10, color: AppColors.textTertiary),
-              ),
-            ],
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          leading: Icon(
+              deleted ? Icons.folder_off_outlined : Icons.folder_outlined,
+              size: 16,
+              color: AppColors.textTertiary),
+          title: Text(label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            '${tokenFmt.format(totals.input + totals.output)} tokens · ${byFeature.length} feature${byFeature.length == 1 ? '' : 's'}',
+            style: const TextStyle(fontSize: 10, color: AppColors.textTertiary),
           ),
+          trailing: Text(
+            costFmt.format(totals.cost),
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy),
+          ),
+          children: [
+            for (final e in byFeature.entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(_featureLabels[e.key] ?? e.key,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary)),
+                  ),
+                  Text(
+                    '${tokenFmt.format(e.value.input + e.value.output)} tok',
+                    style: const TextStyle(
+                        fontSize: 10, color: AppColors.textTertiary),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(costFmt.format(e.value.cost),
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+          ],
         ),
-        Text(
-          costFmt.format(totals.cost),
-          style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.navy),
-        ),
-      ]),
+      ),
     );
   }
 }

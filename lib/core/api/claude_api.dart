@@ -182,6 +182,7 @@ class ClaudeApi {
   "class_society": "",
   "class_notation": "",
   "service_speed": null,
+  "screw_count": null,
   "propulsion_type": "",
   "propeller_type": "",
   "propulsion_drive_type": "",
@@ -332,6 +333,7 @@ Return ONLY valid JSON, no preamble:
   "class_society": "",
   "class_notation": "",
   "service_speed": null,
+  "screw_count": null,
   "propulsion_type": "",
   "propeller_type": "",
   "propulsion_drive_type": "",
@@ -355,9 +357,9 @@ Return ONLY valid JSON, no preamble:
 Field guidance:
 - breadth_qualifier: choose from "Moulded Breadth", "Extreme Breadth", "Beam (OA)", "Breadth", "Beam"
 - draft_qualifier: choose from "Load Line Draft", "Max Draft", "Draft"
-- propulsion_type: choose from "single screw, motor driven", "twin screw, motor driven", "single screw, steam turbine driven"
-- propeller_type: choose from "Single screw fixed pitch", "Twin screw fixed pitch", "Single Azipod", "Twin Azipods", "Single screw variable pitch", "Twin screw variable pitch", "Water Jet"
-- propulsion_drive_type: choose from "Direct drive", "Via reduction gearbox", "Via double reduction gearbox", "Electric Motor"
+- screw_count: integer number of screws/propellers, if stated
+- propulsion_type: this is "type of prime mover" — choose from "Motor", "Steam", "Electric"
+- propeller_type: this is "thruster type" — choose from "Fixed pitch", "Variable pitch", "Azipods", "Waterjet"
 - mcr_power_value: numeric MCR value; set mcr_power_unit to "kW" or "bhp"
 Dates in ISO format. Return null for missing fields.''',
             },
@@ -1230,7 +1232,8 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
     "invoice_number": "",
     "supplier": "",
     "amount": null,
-    "currency": ""
+    "currency": "",
+    "pi_insurer": "the P&I club or hull insurer named in this document, e.g. Gard, Skuld, West of England, QBE"
   },
   "context_findings": [
     {
@@ -1297,12 +1300,23 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
     "class_society": "",
     "class_notation": "",
     "service_speed": null,
+    "screw_count": null,
     "propulsion_type": "",
     "propeller_type": "",
     "propulsion_drive_type": "",
     "mcr_power_value": null,
     "mcr_rpm": null,
-    "mcr_power_unit": "kW"
+    "mcr_power_unit": "kW",
+    "pi_club": "the P&I club or hull insurer named in this document, e.g. Gard, Skuld, West of England, QBE",
+    "class_status": "classed|conditional|suspended|not_classed — the vessel's current class status as stated in this document, if any",
+    "official_number": "the vessel's official/registry number, distinct from IMO number",
+    "registered_owner": "the registered owner of record, if stated (may differ from operators)",
+    "last_drydock_date": "YYYY-MM-DD, if this document states a drydocking date",
+    "last_drydock_yard": "the drydock/repair yard name, if stated",
+    "psc_last_inspection": "YYYY-MM-DD, if this document is or references a Port State Control inspection",
+    "psc_last_result": "clear|deficiencies|detained — the PSC inspection outcome, if this document is a PSC report",
+    "psc_summary": "brief summary of PSC findings, if this document is a PSC report",
+    "isps_status": "compliant|non_compliant — ISPS compliance status, if stated"
   }
 }
 
@@ -2084,6 +2098,93 @@ $lines''',
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Extracts a title + date from a context cue's free text so it can
+  /// become a real Timeline event automatically, instead of just sitting as
+  /// a raw listed cue (14 July 2026 walkthrough). E.g. "The vessel departed
+  /// Perth for Hobart on 29/10/2025…" -> title "Vessel departed Perth for
+  /// Hobart", date 2025-10-29. Returns null date if the text has no clear
+  /// date — caller should treat that as "not auto-convertible" and leave
+  /// the date for the surveyor to fill in.
+  static Future<Map<String, dynamic>> extractEventFromNote({
+    required String text,
+    String? caseId,
+  }) async {
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {
+        'feature': 'timeline_event_from_note',
+        if (caseId != null) 'case_id': caseId,
+        if (caseId != null) 'call_type': 'extraction',
+      }),
+      data: {
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 300,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''A marine surveyor wrote this note about a case. If it describes a real dated event, extract a short factual title (max ~12 words, no surrounding quotes) and the date (YYYY-MM-DD). If there's no clear date in the text, return "date": null.
+
+Return ONLY JSON: {"title": "...", "date": "YYYY-MM-DD" or null}
+
+NOTE:
+$text''',
+          },
+        ],
+      },
+    );
+
+    final raw = _extractText(response.data).trim();
+    try {
+      var clean = raw
+          .replaceAll(RegExp(r'```json\s*'), '')
+          .replaceAll(RegExp(r'```\s*'), '')
+          .trim();
+      final start = clean.indexOf('{');
+      final end = clean.lastIndexOf('}');
+      if (start < 0 || end < 0) return const {};
+      clean = clean.substring(start, end + 1);
+      return jsonDecode(clean) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Post-processing for a saved interview transcript (14 July 2026
+  /// walkthrough — "derive summary/cues after the fact"). Produces a short
+  /// prose summary plus a handful of candidate follow-up cues the surveyor
+  /// can act on; both are surfaced for review, never auto-filed.
+  static Future<Map<String, dynamic>> summarizeInterview({
+    required String transcript,
+    String? caseId,
+  }) async {
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {
+        'feature': 'interview_summary',
+        if (caseId != null) 'case_id': caseId,
+        if (caseId != null) 'call_type': 'extraction',
+      }),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 900,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''You are assisting a marine insurance surveyor. Summarise the following interview transcript for the case file: 3-6 sentences of factual prose covering what was said, by whom (if roles are clear from context), and any dates, causes, or figures mentioned. Do not speculate beyond what was said. Then list up to 5 short follow-up cues (things worth checking or noting elsewhere in the case) as plain statements, or an empty list if none.
+
+Return ONLY JSON: {"summary": "...", "cues": ["...", ...]}
+
+TRANSCRIPT:
+$transcript''',
+          },
+        ],
+      },
+    );
+    return _parseJson(_extractText(response.data));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

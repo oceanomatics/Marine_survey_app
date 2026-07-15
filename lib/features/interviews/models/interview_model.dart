@@ -47,6 +47,7 @@ class InterviewModel {
     this.filedToVault,
     this.vaultDocId,
     this.summary,
+    this.audioPath,
   });
 
   final String   interviewId;
@@ -59,6 +60,10 @@ class InterviewModel {
   final bool?    filedToVault;
   final String?  vaultDocId;
   final String?  summary;
+  /// Path within the 'interview-audio' storage bucket to the raw recording
+  /// (14 July 2026 walkthrough) — null for interviews recorded before this
+  /// existed, or if nothing was captured.
+  final String?  audioPath;
 
   String get displayTitle {
     if (title != null && title!.isNotEmpty) return title!;
@@ -86,6 +91,7 @@ class InterviewModel {
       filedToVault: j['filed_to_vault'] as bool?,
       vaultDocId:   j['vault_doc_id']  as String?,
       summary:      j['summary']       as String?,
+      audioPath:    j['audio_path']    as String?,
     );
   }
 
@@ -99,6 +105,7 @@ class InterviewModel {
         if (filedToVault != null) 'filed_to_vault': filedToVault,
         if (vaultDocId   != null) 'vault_doc_id':   vaultDocId,
         if (summary      != null) 'summary':        summary,
+        if (audioPath    != null) 'audio_path':     audioPath,
       };
 
   InterviewModel copyWith({
@@ -109,6 +116,7 @@ class InterviewModel {
     bool?    filedToVault,
     String?  vaultDocId,
     String?  summary,
+    String?  audioPath,
   }) =>
       InterviewModel(
         interviewId:  interviewId,
@@ -121,5 +129,6 @@ class InterviewModel {
         filedToVault: filedToVault ?? this.filedToVault,
         vaultDocId:   vaultDocId   ?? this.vaultDocId,
         summary:      summary      ?? this.summary,
+        audioPath:    audioPath    ?? this.audioPath,
       );
 }

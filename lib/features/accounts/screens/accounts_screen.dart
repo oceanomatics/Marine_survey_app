@@ -5,6 +5,8 @@ import '../models/accounts_models.dart';
 import '../providers/accounts_provider.dart';
 import '../widgets/import_invoice_sheet.dart';
 import '../../../features/survey/providers/damage_provider.dart';
+import '../../../features/survey/providers/repair_period_provider.dart';
+import '../../../features/survey/models/repair_period_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../cases/models/case_model.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -13,6 +15,9 @@ import '../../../shared/widgets/back_app_bar.dart';
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const _kAccent = Color(0xFF2E7D32);
+// Matches _kBudgetColor in repair_periods_screen.dart — same visual
+// identity for the same underlying data, viewed from two screens.
+const _kBudgetRollupColor = Color(0xFF7B5EA7);
 
 String _fmtMoney(double v, String currency) {
   final parts = v.toStringAsFixed(2).split('.');
@@ -23,15 +28,44 @@ String _fmtMoney(double v, String currency) {
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
-class AccountsScreen extends ConsumerWidget {
+// Split into two proper top-level tabs (14 July 2026 walkthrough — the old
+// single-tab layout was "bloated"): Cost Estimate (through Survey Fee
+// Reserve) and Accounts (invoice management, with its own Submitted /
+// Context Archive sub-split, unchanged). Each has its own summary at the
+// top instead of one shared banner sitting above both.
+class AccountsScreen extends ConsumerStatefulWidget {
   const AccountsScreen({super.key, required this.caseId});
   final String caseId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AccountsScreen> createState() => _AccountsScreenState();
+}
+
+class _AccountsScreenState extends ConsumerState<AccountsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab = TabController(length: 2, vsync: this);
+
+  @override
+  void initState() {
+    super.initState();
+    _tab.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  String get caseId => widget.caseId;
+
+  @override
+  Widget build(BuildContext context) {
     final docsAsync   = ref.watch(repairDocumentsProvider(caseId));
     final occurrences = ref.watch(damageProvider(caseId)).value?.occurrences
         ?? const [];
+    final onAccountsTab = _tab.index == 1;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: BackAppBar(
@@ -52,19 +86,45 @@ class AccountsScreen extends ConsumerWidget {
                 ref.invalidate(repairDocumentsProvider(caseId)),
           ),
         ],
+        bottom: TabBar(
+          controller: _tab,
+          labelColor: AppColors.textPrimary,
+          unselectedLabelColor: AppColors.textSecondary,
+          indicatorColor: _kAccent,
+          labelStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+          tabs: const [
+            Tab(text: 'Cost Estimate'),
+            Tab(text: 'Accounts'),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: _kAccent,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.upload_file_outlined),
-        label: const Text('Import Invoice'),
-        onPressed: () => _import(context, ref),
-      ),
+      floatingActionButton: onAccountsTab
+          ? FloatingActionButton.extended(
+              backgroundColor: _kAccent,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Import Invoice'),
+              onPressed: () => _import(context, ref),
+            )
+          : null,
       body: docsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (docs) =>
-            _Body(caseId: caseId, docs: docs, occurrences: occurrences),
+        data: (docs) => TabBarView(
+          controller: _tab,
+          children: [
+            // ── Tab 1: Cost Estimate ──────────────────────────────────
+            SingleChildScrollView(
+              child: _CostEstimateSelector(
+                caseId: caseId,
+                hasInvoices:
+                    docs.where((d) => d.submittedToInsurance).isNotEmpty,
+              ),
+            ),
+            // ── Tab 2: Accounts ───────────────────────────────────────
+            _AccountsTab(caseId: caseId, docs: docs, occurrences: occurrences),
+          ],
+        ),
       ),
     );
   }
@@ -84,10 +144,10 @@ class AccountsScreen extends ConsumerWidget {
   }
 }
 
-// ── Body ───────────────────────────────────────────────────────────────────
+// ── Accounts tab (Submitted / Context Archive) ─────────────────────────────
 
-class _Body extends StatefulWidget {
-  const _Body({
+class _AccountsTab extends StatefulWidget {
+  const _AccountsTab({
     required this.caseId,
     required this.docs,
     required this.occurrences,
@@ -97,10 +157,11 @@ class _Body extends StatefulWidget {
   final List<OccurrenceModel> occurrences;
 
   @override
-  State<_Body> createState() => _BodyState();
+  State<_AccountsTab> createState() => _AccountsTabState();
 }
 
-class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
+class _AccountsTabState extends State<_AccountsTab>
+    with SingleTickerProviderStateMixin {
   late TabController _tabs;
 
   @override
@@ -123,26 +184,10 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
 
     return Column(
       children: [
-        Flexible(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                // Cost Estimate always renders above Account Summary (§3.12
-                // item 44) — the estimate is the forward-looking figure the
-                // surveyor cares about first; the summary is the retrospective
-                // record of what's actually been submitted.
-                _CostEstimateSelector(
-                  caseId: widget.caseId,
-                  hasInvoices: submitted.isNotEmpty,
-                ),
-                _SummaryBanner(
-                  summary: summary,
-                  occurrences: widget.occurrences,
-                  allLines: submitted.expand((d) => d.accountLines).toList(),
-                ),
-              ],
-            ),
-          ),
+        _SummaryBanner(
+          summary: summary,
+          occurrences: widget.occurrences,
+          allLines: submitted.expand((d) => d.accountLines).toList(),
         ),
         TabBar(
           controller: _tabs,
@@ -162,7 +207,10 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
               _DocList(docs: submitted, caseId: widget.caseId,
                   emptyText: 'No submitted invoices yet'),
               _DocList(docs: context_, caseId: widget.caseId,
-                  emptyText: 'No context documents',
+                  // Clarified — this tab was "purpose unclear" (14 July
+                  // 2026 walkthrough): these are documents/invoices
+                  // imported but not yet marked submitted to the insurer.
+                  emptyText: 'No unsubmitted documents',
                   dimmed: true),
             ],
           ),
@@ -646,6 +694,7 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
               ),
             ],
           ),
+          _RepairPeriodBudgetRollup(caseId: widget.caseId),
         ],
       ),
     );
@@ -661,13 +710,18 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
           border: Border.all(color: _kAccent.withValues(alpha: 0.4)),
         ),
         child: const Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.info_outline, size: 13, color: _kAccent),
             SizedBox(width: 6),
-            Text('Purely Estimated — no invoices received yet',
-                style: TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.w600, color: _kAccent)),
+            // Flexible, not a bare Text — on any phone narrower than ~550dp
+            // logical width this label overflowed the Row (caught by a
+            // widget test, never live-reported since it's not the kind of
+            // thing a surveyor would think to screenshot-and-report).
+            Flexible(
+              child: Text('Purely Estimated — no invoices received yet',
+                  style: TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w600, color: _kAccent)),
+            ),
           ],
         ),
       );
@@ -717,6 +771,95 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
   }
 }
 
+/// Read-only rollup of the per-repair-period "Budget Estimate" items entered
+/// on the Repair Periods screen (`_BudgetSection` there) — those are a
+/// separate mechanism from the manual line items above and previously had
+/// no visibility anywhere else once entered (14 July 2026 walkthrough §22:
+/// "No feedback/rollup of cost estimates entered at the repair-period level
+/// — not visible anywhere once entered"). Deliberately NOT summed into the
+/// "Cost Estimate" total above — that would silently conflate two distinct
+/// figures (case-level manual estimate vs. per-period underwriter budgets),
+/// which risks being misread as the case's total exposure.
+class _RepairPeriodBudgetRollup extends ConsumerWidget {
+  const _RepairPeriodBudgetRollup({required this.caseId});
+  final String caseId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final periods = ref.watch(repairPeriodsProvider(caseId)).valueOrNull ?? [];
+    final withBudget = periods.where((p) => p.budgetItems.isNotEmpty).toList();
+    if (withBudget.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: GestureDetector(
+        onTap: () => context.go('/cases/$caseId/repairs'),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: _kBudgetRollupColor.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _kBudgetRollupColor.withValues(alpha: 0.2)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.calculate_outlined,
+                      size: 13, color: _kBudgetRollupColor),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text('REPAIR-PERIOD BUDGET ESTIMATES',
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.6,
+                            color: _kBudgetRollupColor)),
+                  ),
+                  Icon(Icons.chevron_right,
+                      size: 14, color: _kBudgetRollupColor),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final p in withBudget) _budgetRow(p),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _budgetRow(RepairPeriodModel p) {
+    final total = p.budgetItems.fold(0.0, (s, i) => s + i.amount);
+    final label = p.title?.trim().isNotEmpty == true
+        ? p.title!
+        : (p.location?.trim().isNotEmpty == true
+            ? p.location!
+            : 'Repair period');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textPrimary)),
+          ),
+          Text(
+            '${_fmtMoney(total, p.budgetBaseCurrency)} (${p.budgetItems.length})',
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _kBudgetRollupColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// One editable cost-estimate line item: suggested category + free-text
 /// description + amount. Owns its own controllers, keyed by item id
 /// (`ValueKey` in the parent's list) so edits in one row survive rebuilds
@@ -759,7 +902,31 @@ class _LineItemRowState extends ConsumerState<_LineItemRow> {
   }
 
   void _commitAmount(String text) {
-    final value = double.tryParse(text.trim()) ?? 0;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      if (widget.item.amount == 0) return;
+      ref
+          .read(costEstimateItemsProvider(widget.caseId).notifier)
+          .updateItem(widget.item.copyWith(amount: 0));
+      return;
+    }
+    // Strip thousands separators/currency symbols/whitespace (e.g.
+    // "$1,234.50") before parsing rather than silently writing 0 on any
+    // unparsable input — a line item silently zeroing out (and dropping
+    // out of the cost-estimate total with no error shown) was the reported
+    // "total doesn't add up" bug, 14 July 2026 walkthrough.
+    final cleaned = trimmed.replaceAll(RegExp(r'[^0-9.\-]'), '');
+    final value = double.tryParse(cleaned);
+    if (value == null) {
+      _amountCtrl.text = widget.item.amount == 0
+          ? ''
+          : _fmtAmount(widget.item.amount);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not read that amount — reverted.')),
+      );
+      return;
+    }
     if (value == widget.item.amount) return;
     ref
         .read(costEstimateItemsProvider(widget.caseId).notifier)
@@ -773,84 +940,84 @@ class _LineItemRowState extends ConsumerState<_LineItemRow> {
         .updateItem(widget.item.copyWith(category: cat));
   }
 
+  // Condensed into one compact table-like row, not a two-row bordered card
+  // (14 July 2026 walkthrough — "oversized cards... should be condensed
+  // into a compact table instead").
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+        border: Border(
+            bottom:
+                BorderSide(color: AppColors.border.withValues(alpha: 0.5))),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<CostEstimateCategory>(
-                  initialValue: widget.item.category,
-                  isDense: true,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(8))),
-                  ),
-                  style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-                  items: CostEstimateCategory.values
-                      .map((c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(c.label, overflow: TextOverflow.ellipsis),
-                          ))
-                      .toList(),
-                  onChanged: _commitCategory,
-                ),
-              ),
-              const SizedBox(width: 8),
-              _AutoSaveField(
-                controller: _amountCtrl,
-                onCommit: _commitAmount,
-                width: 110,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  isDense: true,
-                  prefixText: '${widget.currency} ',
-                  hintText: 'Amount',
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 8),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, size: 18),
-                color: AppColors.textSecondary,
-                tooltip: 'Remove line',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => ref
-                    .read(costEstimateItemsProvider(widget.caseId).notifier)
-                    .deleteItem(widget.item.id),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          _AutoSaveField(
-            controller: _descCtrl,
-            onCommit: _commitDescription,
-            style: const TextStyle(fontSize: 12),
-            decoration: const InputDecoration(
+          SizedBox(
+            width: 108,
+            child: DropdownButtonFormField<CostEstimateCategory>(
+              initialValue: widget.item.category,
               isDense: true,
-              hintText: 'Description (optional)',
-              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8))),
+              isExpanded: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                border: InputBorder.none,
+              ),
+              style:
+                  const TextStyle(fontSize: 11.5, color: AppColors.textPrimary),
+              items: CostEstimateCategory.values
+                  .map((c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(c.label, overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
+              onChanged: _commitCategory,
             ),
+          ),
+          Expanded(
+            child: _AutoSaveField(
+              controller: _descCtrl,
+              onCommit: _commitDescription,
+              style: const TextStyle(fontSize: 12),
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: 'Description (optional)',
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          _AutoSaveField(
+            controller: _amountCtrl,
+            onCommit: _commitAmount,
+            width: 90,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(fontSize: 12),
+            decoration: InputDecoration(
+              isDense: true,
+              prefixText: '${widget.currency} ',
+              prefixStyle: const TextStyle(
+                  fontSize: 10.5, color: AppColors.textTertiary),
+              hintText: 'Amount',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              border: InputBorder.none,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 16),
+            color: AppColors.textSecondary,
+            tooltip: 'Remove line',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            onPressed: () => ref
+                .read(costEstimateItemsProvider(widget.caseId).notifier)
+                .deleteItem(widget.item.id),
           ),
         ],
       ),
@@ -929,8 +1096,17 @@ class _AutoSaveFieldState extends State<_AutoSaveField> {
       style: widget.style,
       decoration: widget.decoration,
       maxLines: widget.maxLines,
-      onSubmitted: (_) => _commit(),
-      onEditingComplete: _commit,
+      // Commit AND drop focus on submit — previously only committed, so the
+      // keyboard stayed up after pressing Enter/Done with nothing visibly
+      // happening (14 July 2026 walkthrough complaint).
+      onSubmitted: (_) {
+        _commit();
+        _focusNode.unfocus();
+      },
+      onEditingComplete: () {
+        _commit();
+        _focusNode.unfocus();
+      },
     );
     return widget.width != null ? SizedBox(width: widget.width, child: field) : field;
   }

@@ -16,6 +16,8 @@ Future<void> _pump(
   required ReportSection section,
   AssembledReportData? assembled,
   ValueChanged<String>? onRemarksChanged,
+  VoidCallback? onDraftWithAi,
+  bool settle = true,
 }) async {
   final router = GoRouter(
     initialLocation: '/test',
@@ -31,6 +33,7 @@ Future<void> _pump(
             onContentChanged: (_) {},
             onRemarksChanged: onRemarksChanged ?? (_) {},
             onSurveyorReviewChanged: (_) {},
+            onDraftWithAi: onDraftWithAi,
           ),
         ),
       ),
@@ -52,7 +55,14 @@ Future<void> _pump(
     ],
   );
   await tester.pumpWidget(MaterialApp.router(routerConfig: router));
-  await tester.pumpAndSettle();
+  // pumpAndSettle never returns while a persistent animation (the drafting
+  // spinner) is on screen — one bounded pump is enough for the router/tree
+  // to build.
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -349,6 +359,46 @@ void main() {
       expect(
           autoPopulatedTableModeTypes.every(autoPopulatedSectionTypes.contains),
           isTrue);
+    });
+  });
+
+  group('SectionEditor — "Draft with AI" drafting state (§13/§17/§23)', () {
+    testWidgets('idle: button is enabled and shows the normal label',
+        (tester) async {
+      var tapped = false;
+      const section = ReportSection(
+        type: SectionType.background,
+        title: 'Background',
+        content: '',
+      );
+      await _pump(tester, section: section, onDraftWithAi: () => tapped = true);
+
+      expect(find.text('Draft with AI'), findsOneWidget);
+      expect(find.text('Drafting…'), findsNothing);
+
+      await tester.tap(find.text('Draft with AI'));
+      expect(tapped, isTrue);
+    });
+
+    testWidgets(
+        'drafting: button is disabled, shows a spinner and "Drafting…", '
+        'and does not fire onDraftWithAi when tapped', (tester) async {
+      var tapped = false;
+      const section = ReportSection(
+        type: SectionType.background,
+        title: 'Background',
+        content: '',
+        drafting: true,
+      );
+      await _pump(tester,
+          section: section, onDraftWithAi: () => tapped = true, settle: false);
+
+      expect(find.text('Drafting…'), findsOneWidget);
+      expect(find.text('Draft with AI'), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      await tester.tap(find.text('Drafting…'));
+      expect(tapped, isFalse);
     });
   });
 }

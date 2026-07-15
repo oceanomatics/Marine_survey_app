@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import '../models/accounts_models.dart';
 import '../providers/accounts_provider.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/utils/document_warp.dart';
 import '../../../shared/theme/app_theme.dart';
@@ -393,10 +394,15 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
     try {
       if (mounted) setState(() => _busyLabel = 'Reading document details…');
       final b64 = base64Encode(bytes);
-      final extracted = await ClaudeApi.extractInvoiceData(
-        base64Content: b64,
-        mediaType: mediaType,
-      );
+      final extracted = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Reading document details',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 15),
+            action: () => ClaudeApi.extractInvoiceData(
+              base64Content: b64,
+              mediaType: mediaType,
+            ),
+          );
       final docNumber = extracted['document_number'] as String?;
       final supplier  = extracted['supplier_name']   as String?;
       final rawDate   = extracted['document_date']   as String?;
@@ -424,10 +430,15 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
       final b64 = base64Encode(_bytes!);
       if (mounted) setState(() => _busyLabel = 'Detecting document corners…');
 
-      final rawCorners = await ClaudeApi.detectDocumentCorners(
-        base64Image: b64,
-        mediaType: _mimeType,
-      );
+      final rawCorners = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Detecting document corners',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 10),
+            action: () => ClaudeApi.detectDocumentCorners(
+              base64Image: b64,
+              mediaType: _mimeType,
+            ),
+          );
       if (rawCorners == null || rawCorners.length != 4) return null;
 
       if (mounted) setState(() => _busyLabel = 'Applying perspective correction…');
@@ -480,10 +491,15 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
 
       final base64Content = base64Encode(_bytes!);
       debugPrint('[Accounts] base64 length: ${base64Content.length}');
-      final rawSegments = await ClaudeApi.analyzeMultiInvoicePdf(
-        base64Content: base64Content,
-        mediaType: _mimeType,
-      );
+      final rawSegments = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Analysing "$_filename"',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 45),
+            action: () => ClaudeApi.analyzeMultiInvoicePdf(
+              base64Content: base64Content,
+              mediaType: _mimeType,
+            ),
+          );
       debugPrint('[Accounts] Claude returned ${rawSegments.length} segments');
 
       _segments = rawSegments

@@ -9,6 +9,7 @@ import 'add_component_sheet.dart';
 import '../../photos/models/photo_model.dart';
 import '../../photos/providers/photo_provider.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
@@ -65,8 +66,13 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       final bytes = await File(resolved.localPath!).readAsBytes();
       final b64 = base64Encode(bytes);
       const mime = 'image/jpeg';
-      final result =
-          await ClaudeApi.extractNameplate(base64Image: b64, mediaType: mime);
+      final result = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Scanning nameplate photo',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 12),
+            action: () =>
+                ClaudeApi.extractNameplate(base64Image: b64, mediaType: mime),
+          );
       if (!mounted) return;
 
       // Build an updated MachineryModel from the extracted data
@@ -112,13 +118,18 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       );
       if (confirmed != true || !mounted) return;
 
+      // Pin this photo as the nameplate reference for the card thumbnail —
+      // done before updateMachinery below, not after: updateMachinery
+      // triggers a Machinery-list rebuild, and doing the link first keeps
+      // it outside that risk window (14 July 2026 walkthrough — this path
+      // wasn't reliably showing the thumbnail; the Edit-menu path, which
+      // runs inside its own modal sheet decoupled from this list, did).
+      await ref.read(photosProvider(widget.caseId).notifier).attachLink(
+          photo.id, 'machinery_nameplate', widget.machinery.machineryId);
+
       await ref
           .read(machineryProvider(widget.machinery.vesselId).notifier)
           .updateMachinery(updated);
-
-      // Pin this photo as the nameplate reference for the card thumbnail.
-      await ref.read(photosProvider(widget.caseId).notifier).attachLink(
-          photo.id, 'machinery_nameplate', widget.machinery.machineryId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

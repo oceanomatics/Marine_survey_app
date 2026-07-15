@@ -8,6 +8,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/chip_row.dart';
 import '../../vessel/widgets/survey_field.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 
@@ -218,14 +219,19 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
           .map((n) => n.content)
           .toList();
 
-      final text = await ClaudeApi.draftSubCausation(
-        occurrenceTitle:    occ.title ?? 'Occurrence ${occ.occurrenceNo}',
-        causeTypeLabel:     _causeType?.label ?? 'Unknown cause',
-        allegationType:     _allegationType,
-        briefDescription:   occ.briefDescription,
-        backgroundNarrative: occ.backgroundNarrative,
-        contextCues:        causationCues,
-      );
+      final text = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Drafting sub-causation comment',
+            caseId: occ.caseId,
+            estimate: const Duration(seconds: 15),
+            action: () => ClaudeApi.draftSubCausation(
+              occurrenceTitle: occ.title ?? 'Occurrence ${occ.occurrenceNo}',
+              causeTypeLabel: _causeType?.label ?? 'Unknown cause',
+              allegationType: _allegationType,
+              briefDescription: occ.briefDescription,
+              backgroundNarrative: occ.backgroundNarrative,
+              contextCues: causationCues,
+            ),
+          );
       if (mounted) {
         _commentCtrl.text = text;
       }
@@ -549,10 +555,16 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
               const SizedBox(height: 22),
 
               // ── ADDITIONAL ANALYTICAL NOTES ─────────────────────────
+              // Expanded, not Spacer — on ~360-400dp phones "ADDITIONAL
+              // ANALYTICAL NOTES" plus the AI Draft pill genuinely doesn't
+              // fit on one line; Spacer can't shrink already-overflowing
+              // content, only Expanded (letting the label wrap) can.
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const _SectionLabel('ADDITIONAL ANALYTICAL NOTES'),
-                  const Spacer(),
+                  const Expanded(
+                      child: _SectionLabel('ADDITIONAL ANALYTICAL NOTES')),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: _generating ? null : _generateSubCausation,
                     child: AnimatedContainer(

@@ -28,6 +28,7 @@ import '../../../core/utils/drive_filename.dart';
 import '../../../core/utils/eml_parser.dart';
 import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../models/correspondence_model.dart';
 
 const _uuid = Uuid();
@@ -360,22 +361,32 @@ class CorrespondenceNotifier
 
       Map<String, dynamic> result;
       if (corr.isEml && corr.bodyText != null) {
-        result = await ClaudeApi.extractCorrespondenceFromText(
-          subject: corr.title,
-          bodyText: corr.bodyText!,
-          from: corr.sender,
-          to: corr.recipient,
-        );
+        result = await ref.read(aiTasksProvider.notifier).run(
+              label: 'Extracting "${corr.title}"',
+              caseId: corr.caseId,
+              estimate: const Duration(seconds: 15),
+              action: () => ClaudeApi.extractCorrespondenceFromText(
+                subject: corr.title,
+                bodyText: corr.bodyText!,
+                from: corr.sender,
+                to: corr.recipient,
+              ),
+            );
       } else {
         if (!corr.hasLocalFile) {
           throw Exception('Correspondence file not available');
         }
         final bytes = await File(corr.localPath!).readAsBytes();
         final base64Pdf = base64Encode(bytes);
-        result = await ClaudeApi.extractCorrespondence(
-          base64Pdf: base64Pdf,
-          filename: corr.title,
-        );
+        result = await ref.read(aiTasksProvider.notifier).run(
+              label: 'Extracting "${corr.title}"',
+              caseId: corr.caseId,
+              estimate: const Duration(seconds: 20),
+              action: () => ClaudeApi.extractCorrespondence(
+                base64Pdf: base64Pdf,
+                filename: corr.title,
+              ),
+            );
       }
 
       // Parse parties

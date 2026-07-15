@@ -267,6 +267,7 @@ class ReportPreview extends ConsumerWidget {
                     section: summarySection,
                     output: output,
                     assembled: assembled,
+                    sections: sections,
                     brand: brand,
                     headerLeft: hLeft,
                     headerRight: hRight,
@@ -856,6 +857,7 @@ class _SummaryContent extends StatelessWidget {
     required this.section,
     required this.output,
     required this.assembled,
+    required this.sections,
     required this.brand,
     required this.headerLeft,
     required this.headerRight,
@@ -866,6 +868,7 @@ class _SummaryContent extends StatelessWidget {
   final ReportSection section;
   final ReportOutput output;
   final AssembledReportData assembled;
+  final Map<SectionType, ReportSection> sections;
   final _Brand brand;
   final String headerLeft;
   final String headerRight;
@@ -949,7 +952,7 @@ class _SummaryContent extends StatelessWidget {
 
                 // (c) Advice Summary
                 _AdviceSummaryTable(
-                  rows: buildAdviceSummaryRows(output, assembled),
+                  rows: buildAdviceSummaryRows(output, assembled, sections),
                   brand: brand,
                 ),
 

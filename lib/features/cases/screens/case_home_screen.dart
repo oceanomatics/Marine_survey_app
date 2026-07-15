@@ -14,7 +14,6 @@ import '../../../core/providers/import_review.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/error_widget.dart';
-import '../../capture/screens/camera_screen.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../survey/providers/attendees_provider.dart';
 import '../../attendances/providers/attendances_provider.dart';
@@ -41,7 +40,11 @@ import '../../documents/providers/document_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
+import '../../capture/screens/camera_screen.dart' show QuickCaptureSheet;
+import '../../ai_tasks/widgets/ai_task_indicator.dart';
 import '../../../shared/widgets/app_feedback.dart';
+import '../../../shared/widgets/photo_picker_sheet.dart';
+import '../../photos/providers/photo_provider.dart';
 
 const _kTimelineColor = Color(0xFF2E7CB7);
 
@@ -282,6 +285,7 @@ class _SurveyAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
           ),
         ),
+        const AiTaskIndicator(),
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
           onSelected: (v) { if (v == 'delete') onDelete(); },
@@ -380,7 +384,11 @@ class _SurveyNavRail extends ConsumerWidget {
                   ),
                   _NavItem(
                     icon: Icons.label_outline,
-                    label: 'Context',
+                    // "Context Cues" renamed to "Advice to Owner" (14 July
+                    // 2026 walkthrough — the old name no longer matched what
+                    // this screen actually does); shortened to one word to
+                    // fit the nav grid tile, same convention as "Mail"/"Docs".
+                    label: 'Advice',
                     accent: const Color(0xFF4A7A5A),
                     badgeCount: unallocatedCount,
                     onTap: () => context.go('/cases/$caseId/notes'),
@@ -459,12 +467,31 @@ class _CaseEditorButton extends StatelessWidget {
 
 // ── Bottom capture toolbar ────────────────────────────────────────────────
 
-class _CaptureToolbar extends StatelessWidget {
+class _CaptureToolbar extends ConsumerWidget {
   const _CaptureToolbar({required this.caseId});
   final String caseId;
 
+  // The dedicated /camera route was a stub ("coming next session") that
+  // never actually captured anything — a live regression flagged in the
+  // 14 July 2026 walkthrough. Reuse the same camera-capture + upload path
+  // already used everywhere else in the app (PhotoPickerSheet.resolveBytes
+  // + photosProvider.addPhoto) instead of routing to the stub screen.
+  Future<void> _captureAndUpload(BuildContext context, WidgetRef ref) async {
+    final bytesList = await PhotoPickerSheet.resolveBytes(
+        PhotoPickSource.camera,
+        context: context);
+    if (bytesList.isEmpty || !context.mounted) return;
+    await ref
+        .read(photosProvider(caseId).notifier)
+        .addPhoto(caseId: caseId, bytes: bytesList.first);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Photo added')));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       height: 68,
       decoration: const BoxDecoration(
@@ -477,7 +504,7 @@ class _CaptureToolbar extends StatelessWidget {
             icon: Icons.camera_alt_outlined,
             label: 'Camera',
             accent: AppColors.navy,
-            onTap: () => context.go('/cases/$caseId/camera'),
+            onTap: () => _captureAndUpload(context, ref),
           ),
           _CaptureToolButton(
             icon: Icons.record_voice_over_outlined,
@@ -1015,10 +1042,22 @@ class _PseudoReport extends ConsumerWidget {
             surveyorNotes, repairPeriods, CaseSection.generalExpenses),
       ),
 
+      // Split into two separate cards, not one merged "Accounts" card
+      // (14 July 2026 walkthrough — the combined card read as unclear
+      // about which numbers belonged to the estimate vs. actual invoices).
+      _SectionCard(
+        accentColor: AppColors.green,
+        icon: Icons.calculate_outlined,
+        title: 'Cost Estimate',
+        countLabel: null,
+        onOpen: () => ctx.go('/cases/$caseId/accounts'),
+        child: _costEstimateMiniContent(survey),
+      ),
+
       _SectionCard(
         accentColor: AppColors.green,
         icon: Icons.receipt_outlined,
-        title: 'Accounts',
+        title: 'Accounts Summary',
         countLabel: repairDocs.isEmpty ? null : '${repairDocs.length}',
         onOpen: () => ctx.go('/cases/$caseId/accounts'),
         child: _accountsContent(repairDocs, damage?.occurrences ?? []),
@@ -1919,11 +1958,12 @@ class _PseudoReport extends ConsumerWidget {
     );
   }
 
-  /// Compact one-line Cost Estimate indicator, always rendered above the
-  /// Account Summary content below (§3.12 item 44 — the same ordering as the
-  /// full Accounts screen, `accounts_screen.dart`'s `_Body`). Status and
-  /// total are read straight off `survey` — `estimated_repair_cost` is kept
-  /// in sync with the sum of `case_cost_estimate_items` by
+  /// Compact one-line Cost Estimate indicator — its own "Cost Estimate"
+  /// card, separate from Accounts Summary below (14 July 2026 walkthrough;
+  /// previously stacked together in one "Accounts" card, which read as
+  /// unclear which numbers belonged to which). Status and total are read
+  /// straight off `survey` — `estimated_repair_cost` is kept in sync with
+  /// the sum of `case_cost_estimate_items` by
   /// `CostEstimateItemsNotifier._syncEstimatedTotal()`, so no separate
   /// line-item fetch is needed just for this summary line.
   Widget _costEstimateMiniContent(CaseModel survey) {
@@ -1964,15 +2004,20 @@ class _PseudoReport extends ConsumerWidget {
     List<RepairDocumentModel> docs,
     List<OccurrenceModel> occurrences,
   ) {
-    final costEstimateMini = _costEstimateMiniContent(survey);
     if (docs.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          costEstimateMini,
-          const _SectionEmpty('No invoices imported yet'),
-        ],
-      );
+      // Nothing invoiced yet doesn't mean nothing to report — the whole
+      // estimate is effectively outstanding/unallocated until invoices
+      // land. Previously this branch just said "No invoices imported yet"
+      // with no visibility into that (14 July 2026 walkthrough).
+      final estimate = survey.estimatedRepairCost;
+      final currency = survey.baseCurrency ?? '';
+      if (estimate != null && estimate > 0.005) {
+        return _accountAmountRow(
+            'Unallocated (nothing invoiced yet)',
+            '$currency ${estimate.toStringAsFixed(0)}',
+            AppColors.textSecondary);
+      }
+      return const _SectionEmpty('No invoices imported yet');
     }
     final summary  = AccountsSummary.fromDocuments(docs);
     final allLines = docs.expand((d) => d.accountLines).toList();
@@ -2049,7 +2094,6 @@ class _PseudoReport extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        costEstimateMini,
         const Text('Summary',
             style: TextStyle(
                 color: AppColors.textSecondary,

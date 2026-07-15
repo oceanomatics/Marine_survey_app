@@ -37,6 +37,14 @@ class SherpaService {
   StreamController<SherpaResult>? _resultCtrl;
   StreamSubscription<Uint8List>?  _audioSub;
 
+  // Raw PCM buffered from the same chunk stream already driving STT below
+  // (14 July 2026 walkthrough — "fully functional recorder with audio
+  // save", the raw audio was previously discarded entirely once
+  // transcribed). Deliberately *not* a second concurrent `AudioRecorder`
+  // — that would mean two exclusive-mic sessions racing each other; this
+  // just keeps a copy of the bytes already flowing through here.
+  final BytesBuilder _rawPcm = BytesBuilder(copy: false);
+
   bool get isInitialized => _recognizer != null;
   bool get isStreaming    => _audioSub != null;
 
@@ -96,6 +104,7 @@ class SherpaService {
     _stream     = _recognizer!.createStream();
     _recorder   = AudioRecorder();
     _resultCtrl = StreamController<SherpaResult>.broadcast();
+    _rawPcm.clear();
 
     _recorder!
         .startStream(const RecordConfig(
@@ -116,6 +125,8 @@ class SherpaService {
 
   void _onAudioChunk(Uint8List bytes) {
     if (_recognizer == null || _stream == null) return;
+
+    _rawPcm.add(bytes);
 
     final samples = _pcm16ToFloat32(bytes);
     _stream!.acceptWaveform(samples: samples, sampleRate: _sampleRate);
@@ -181,6 +192,18 @@ class SherpaService {
     _recognizer = null;
   }
 
+  /// The raw audio recorded since the last [startStreaming], as a standard
+  /// 16-bit PCM mono WAV file — playable/uploadable as-is. Call after
+  /// [stop]; returns null if nothing was recorded. Does not clear the
+  /// buffer itself (call [clearRawAudio] once the caller has taken it).
+  Uint8List? takeRawAudioWav() {
+    final pcm = _rawPcm.toBytes();
+    if (pcm.isEmpty) return null;
+    return _wrapPcmAsWav(pcm, sampleRate: _sampleRate);
+  }
+
+  void clearRawAudio() => _rawPcm.clear();
+
   // ── Audio helpers ──────────────────────────────────────────────────────────
 
   /// Convert little-endian PCM-16 bytes → Float32List in [-1, 1].
@@ -192,5 +215,38 @@ class SherpaService {
       samples[i] = data.getInt16(i * 2, Endian.little) / 32768.0;
     }
     return samples;
+  }
+
+  /// Prepends a standard 44-byte RIFF/WAVE header to raw PCM-16 mono data
+  /// so it's a normal playable .wav file, not a headerless blob.
+  static Uint8List _wrapPcmAsWav(Uint8List pcm,
+      {required int sampleRate, int numChannels = 1, int bitsPerSample = 16}) {
+    final byteRate = sampleRate * numChannels * bitsPerSample ~/ 8;
+    final blockAlign = numChannels * bitsPerSample ~/ 8;
+    final header = ByteData(44);
+    void s(int offset, String v) {
+      for (var i = 0; i < v.length; i++) {
+        header.setUint8(offset + i, v.codeUnitAt(i));
+      }
+    }
+
+    s(0, 'RIFF');
+    header.setUint32(4, 36 + pcm.length, Endian.little);
+    s(8, 'WAVE');
+    s(12, 'fmt ');
+    header.setUint32(16, 16, Endian.little); // fmt chunk size
+    header.setUint16(20, 1, Endian.little); // PCM
+    header.setUint16(22, numChannels, Endian.little);
+    header.setUint32(24, sampleRate, Endian.little);
+    header.setUint32(28, byteRate, Endian.little);
+    header.setUint16(32, blockAlign, Endian.little);
+    header.setUint16(34, bitsPerSample, Endian.little);
+    s(36, 'data');
+    header.setUint32(40, pcm.length, Endian.little);
+
+    final out = BytesBuilder();
+    out.add(header.buffer.asUint8List());
+    out.add(pcm);
+    return out.toBytes();
   }
 }

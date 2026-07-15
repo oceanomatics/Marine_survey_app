@@ -4,6 +4,11 @@ import '../../features/accounts/models/accounts_models.dart';
 import '../../features/cases/models/case_model.dart';
 import '../../features/survey/providers/damage_provider.dart';
 import '../../features/surveyor_notes/models/surveyor_note_model.dart';
+import '../../features/interviews/models/interview_model.dart';
+import '../../features/correspondence/models/correspondence_model.dart';
+import '../../features/documents/providers/document_provider.dart';
+import '../../features/parties/models/party_model.dart';
+import '../../features/photos/models/photo_model.dart';
 
 /// Assembles all available case data into a plain-text context string
 /// suitable for injection into the Claude system prompt.
@@ -14,6 +19,13 @@ class CaseContextBuilder {
     required DamageState? damage,
     required List<SurveyorNote>? notes,
     List<RepairDocumentModel>? repairDocuments,
+    List<CostEstimateItemModel>? costEstimateItems,
+    List<InterviewModel>? interviews,
+    List<CorrespondenceModel>? correspondence,
+    List<DocumentModel>? documents,
+    CasePartiesModel? parties,
+    List<AssuredContactModel>? contacts,
+    List<PhotoModel>? photos,
   }) {
     final buf = StringBuffer();
 
@@ -59,6 +71,38 @@ class CaseContextBuilder {
       buf.writeln('(vessel data not loaded)');
     }
     buf.writeln();
+
+    // ── Parties & contacts ─────────────────────────────────────────────────
+    if (parties != null || (contacts != null && contacts.isNotEmpty)) {
+      buf.writeln('## PARTIES');
+      if (parties != null) {
+        if (parties.principalName != null) {
+          buf.writeln('Instructing principal: ${parties.principalName}'
+              '${parties.principalCompany != null ? " (${parties.principalCompany})" : ""}');
+        }
+        if (parties.underwriterName != null) {
+          buf.writeln('Underwriter: ${parties.underwriterName}'
+              '${parties.underwriterCompany != null ? " (${parties.underwriterCompany})" : ""}');
+        }
+        if (parties.adjusterName != null) {
+          buf.writeln('Adjuster: ${parties.adjusterName}'
+              '${parties.adjusterCompany != null ? " (${parties.adjusterCompany})" : ""}');
+        }
+        if (parties.assuredRepName != null) {
+          buf.writeln('Assured/owner\'s representative: ${parties.assuredRepName}'
+              '${parties.assuredRepCompany != null ? " (${parties.assuredRepCompany})" : ""}');
+        }
+      }
+      if (contacts != null && contacts.isNotEmpty) {
+        buf.writeln('Contacts:');
+        for (final c in contacts) {
+          final role = c.roleTitle != null ? ' — ${c.roleTitle}' : '';
+          final company = c.company != null ? ' (${c.company})' : '';
+          buf.writeln('  - ${c.fullName}$role$company [${c.stakeholderGroup?.label ?? "Other"}]');
+        }
+      }
+      buf.writeln();
+    }
 
     // ── Occurrences ─────────────────────────────────────────────────────────
     if (damage != null && damage.occurrences.isNotEmpty) {
@@ -212,6 +256,80 @@ class CaseContextBuilder {
         }
         buf.writeln();
       }
+    }
+
+    // ── Interviews ──────────────────────────────────────────────────────────
+    if (interviews != null && interviews.isNotEmpty) {
+      buf.writeln('## INTERVIEWS');
+      for (final iv in interviews) {
+        final who = iv.participants.map((p) => p.displayName).join(', ');
+        buf.writeln('### ${iv.displayTitle}  (${_fmtDate(iv.createdAt)})'
+            '${who.isNotEmpty ? " — $who" : ""}');
+        if (iv.summary != null && iv.summary!.isNotEmpty) {
+          buf.writeln('Summary: ${iv.summary}');
+        } else if (iv.transcript.isNotEmpty) {
+          final excerpt = iv.transcript.length > 600
+              ? '${iv.transcript.substring(0, 600)}…'
+              : iv.transcript;
+          buf.writeln('Transcript excerpt: $excerpt');
+        }
+        buf.writeln();
+      }
+    }
+
+    // ── Correspondence ─────────────────────────────────────────────────────
+    if (correspondence != null && correspondence.isNotEmpty) {
+      buf.writeln('## CORRESPONDENCE');
+      for (final c in correspondence) {
+        final date = c.corrDate != null ? ' (${_fmtDate(c.corrDate!)})' : '';
+        final from = c.sender != null ? ' from ${c.sender}' : '';
+        buf.writeln('- ${c.title}$date$from'
+            '${c.summary != null && c.summary!.isNotEmpty ? " — ${c.summary}" : ""}');
+      }
+      buf.writeln();
+    }
+
+    // ── General documents ───────────────────────────────────────────────────
+    if (documents != null && documents.isNotEmpty) {
+      buf.writeln('## DOCUMENTS');
+      for (final d in documents) {
+        final cat = d.docCategory != null ? '[${d.docCategory!.label}] ' : '';
+        final date = d.docDate != null ? ' (${_fmtDate(d.docDate!)})' : '';
+        buf.writeln('- $cat${d.title}$date — ${d.availability.label}');
+      }
+      buf.writeln();
+    }
+
+    // ── Photos (captions only) ─────────────────────────────────────────────
+    if (photos != null && photos.isNotEmpty) {
+      final captioned = photos.where((p) =>
+          (p.caption != null && p.caption!.isNotEmpty) ||
+          (p.significanceToClaim != null && p.significanceToClaim!.isNotEmpty));
+      if (captioned.isNotEmpty) {
+        buf.writeln('## PHOTOS');
+        for (final p in captioned) {
+          final loc = p.locationComponent != null ? '[${p.locationComponent}] ' : '';
+          final caption = p.caption ?? '';
+          final sig = p.significanceToClaim != null && p.significanceToClaim!.isNotEmpty
+              ? ' — ${p.significanceToClaim}'
+              : '';
+          buf.writeln('- $loc$caption$sig');
+        }
+        buf.writeln();
+      }
+    }
+
+    // ── Cost estimate ────────────────────────────────────────────────────────
+    if (costEstimateItems != null && costEstimateItems.isNotEmpty) {
+      buf.writeln('## COST ESTIMATE');
+      double total = 0;
+      for (final item in costEstimateItems) {
+        total += item.amount;
+        buf.writeln('- [${item.category.label}] '
+            '${item.description ?? "(no description)"} — ${_fmtAmt(item.amount)}');
+      }
+      buf.writeln('Total estimate: ${_fmtAmt(total)}');
+      buf.writeln();
     }
 
     return buf.toString().trim();

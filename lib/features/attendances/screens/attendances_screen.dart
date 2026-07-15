@@ -17,69 +17,80 @@ import '../../../shared/widgets/back_app_bar.dart';
 
 const _kVisitsColor = Color(0xFFBF7E3A);
 
-/// Compact title-bar badge (TODO.md §3.13, 8 July 2026 — moved out of the
-/// screen body) showing the case-level "is a follow-up attendance
-/// required" flag; tapping opens the full toggle+detail editor in a sheet.
+/// Compact title-bar control (TODO.md §3.13, 8 July 2026 — moved out of the
+/// screen body) for the case-level "is a follow-up attendance required"
+/// flag. 14 July 2026 walkthrough: the previous version opened a bottom
+/// sheet just to flip a boolean — "over-engineered... should just be a
+/// simple on/off switch, no popup warranted". A Switch now toggles the flag
+/// directly; the free-text detail note (only meaningful once the answer is
+/// Yes) is still reachable via a small edit icon, so that capability isn't
+/// lost, but is no longer required just to say Yes/No.
 class _FollowUpBadge extends ConsumerWidget {
   const _FollowUpBadge({required this.caseId});
   final String caseId;
 
+  void _openDetailSheet(BuildContext context) => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: _FollowUpDetailField(caseId: caseId),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final caseModel = ref.watch(caseProvider(caseId)).value;
-    final required = caseModel?.followUpRequired;
-    final label = required == true
-        ? 'Follow-up: Yes'
-        : required == false
-            ? 'Follow-up: No'
-            : 'Follow-up?';
+    final required = caseModel?.followUpRequired ?? false;
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (_) => Padding(
-            padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom),
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: _FollowUpAttendanceCard(caseId: caseId),
-            ),
-          ),
-        ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: required == true ? 0.25 : 0.12),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(label,
-              style: const TextStyle(
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Follow-up',
+              style: TextStyle(
                   color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-        ),
+          Switch(
+            value: required,
+            activeTrackColor: Colors.white,
+            activeThumbColor: _kVisitsColor,
+            onChanged: (v) => ref
+                .read(caseProvider(caseId).notifier)
+                .updateCaseRefs(followUpRequired: v),
+          ),
+          if (required)
+            IconButton(
+              icon: const Icon(Icons.edit_note, color: Colors.white, size: 20),
+              tooltip: 'Follow-up detail',
+              onPressed: () => _openDetailSheet(context),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _FollowUpAttendanceCard extends ConsumerStatefulWidget {
-  const _FollowUpAttendanceCard({required this.caseId});
+/// Just the free-text follow-up note — the Yes/No decision itself now lives
+/// on the title-bar Switch in [_FollowUpBadge], not here.
+class _FollowUpDetailField extends ConsumerStatefulWidget {
+  const _FollowUpDetailField({required this.caseId});
   final String caseId;
 
   @override
-  ConsumerState<_FollowUpAttendanceCard> createState() =>
-      _FollowUpAttendanceCardState();
+  ConsumerState<_FollowUpDetailField> createState() =>
+      _FollowUpDetailFieldState();
 }
 
-class _FollowUpAttendanceCardState
-    extends ConsumerState<_FollowUpAttendanceCard> {
+class _FollowUpDetailFieldState extends ConsumerState<_FollowUpDetailField> {
   final _detailCtrl = TextEditingController();
   bool _initialised = false;
 
@@ -87,12 +98,6 @@ class _FollowUpAttendanceCardState
   void dispose() {
     _detailCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _updateRequired(bool value) async {
-    await ref
-        .read(caseProvider(widget.caseId).notifier)
-        .updateCaseRefs(followUpRequired: value);
   }
 
   Future<void> _updateDetail(String text) async {
@@ -118,67 +123,30 @@ class _FollowUpAttendanceCardState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Follow-Up Attendance Required?',
+          const Text('Follow-Up Attendance Detail',
               style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5)),
           const SizedBox(height: 6),
-          Row(
-            children: [
-              for (final opt in const [(true, 'Yes'), (false, 'No')])
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: GestureDetector(
-                    onTap: () => _updateRequired(opt.$1),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: caseModel.followUpRequired == opt.$1
-                            ? _kVisitsColor.withValues(alpha: 0.12)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: caseModel.followUpRequired == opt.$1
-                                ? _kVisitsColor
-                                : AppColors.border,
-                            width: caseModel.followUpRequired == opt.$1 ? 1.5 : 1),
-                      ),
-                      child: Text(opt.$2,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: caseModel.followUpRequired == opt.$1
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: caseModel.followUpRequired == opt.$1
-                                  ? _kVisitsColor
-                                  : AppColors.textSecondary)),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          if (caseModel.followUpRequired == true) ...[
-            const SizedBox(height: 8),
-            TextField(
-              controller: _detailCtrl,
-              maxLines: 2,
-              minLines: 1,
-              style: const TextStyle(fontSize: 12),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Nature and expected timeline of follow-up',
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onSubmitted: _updateDetail,
-              onEditingComplete: () => _updateDetail(_detailCtrl.text),
+          TextField(
+            controller: _detailCtrl,
+            maxLines: 2,
+            minLines: 1,
+            autofocus: true,
+            style: const TextStyle(fontSize: 12),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Nature and expected timeline of follow-up',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ],
+            onSubmitted: _updateDetail,
+            onEditingComplete: () => _updateDetail(_detailCtrl.text),
+          ),
         ],
       ),
     );
@@ -271,6 +239,8 @@ class AttendancesScreen extends ConsumerWidget {
         initialAttendees: currentAttendees,
         onAdd: (a) =>
             ref.read(attendeesProvider(caseId).notifier).addAttendee(a),
+        onUpdate: (a) =>
+            ref.read(attendeesProvider(caseId).notifier).updateAttendee(a),
         onDelete: (id) =>
             ref.read(attendeesProvider(caseId).notifier).deleteAttendee(id),
         onReorder: (orderedIds) => ref
@@ -501,21 +471,30 @@ class _AttendanceCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 9, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: tc.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                    border:
-                        Border.all(color: tc.withValues(alpha: 0.3)),
-                  ),
-                  child: Text(
-                    attendance.attendanceType.label,
-                    style: TextStyle(
-                        color: tc,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600),
+                // Flexible, not a bare Container — "Remote / Desk Review"
+                // (the longest AttendanceType label) plus the date and the
+                // overflow icon didn't all fit on ~400-430dp phones (same
+                // overflow class as the Accounts/Causation/Advice-to-Owner
+                // fixes earlier this session; caught by a widget test here
+                // too, 15 July 2026).
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: tc.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border:
+                          Border.all(color: tc.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      attendance.attendanceType.label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: tc,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),

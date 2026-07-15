@@ -48,14 +48,18 @@ enum ConditionStatus {
 enum AverageStatus {
   yes('yes', 'Yes'),
   no('no', 'No'),
-  partial('partial', 'Partial');
+  challenged('challenged', 'Challenged');
 
   const AverageStatus(this.value, this.label);
   final String value;
   final String label;
 
-  static AverageStatus fromValue(String v) =>
-      values.firstWhere((e) => e.value == v, orElse: () => AverageStatus.yes);
+  // 'partial' is the pre-14-July-2026 stored value for this same third
+  // state, relabelled Challenged per that walkthrough — mapped here so
+  // existing rows keep resolving correctly without a data migration.
+  static AverageStatus fromValue(String v) => v == 'partial'
+      ? AverageStatus.challenged
+      : values.firstWhere((e) => e.value == v, orElse: () => AverageStatus.yes);
 }
 
 /// Third-party confirmation of a damage item (spec §7 "Third-Party

@@ -222,7 +222,7 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
             ? _confirmationMethodCtrl.text.trim()
             : null,
         averageStatus: _averageStatus,
-        averagePartialDetail: _averageStatus == AverageStatus.partial &&
+        averagePartialDetail: _averageStatus == AverageStatus.challenged &&
                 _averagePartialCtrl.text.trim().isNotEmpty
             ? _averagePartialCtrl.text.trim()
             : null,
@@ -467,24 +467,42 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
             ],
 
             // ── Specific part / affected component ────────────────
-            SurveyField(
-              label: 'Affected Part / Component *',
-              controller: _componentCtrl,
-              hint: 'e.g. Connecting rod cap, Fuel injector No.3',
-              important: true,
-            ),
+            // Hidden once the Sub-component/Part picker above has resolved
+            // a value (existing pick, or a just-added new component) — the
+            // picker and this field are the same underlying data
+            // (componentName), so showing both looked like two competing
+            // ways to enter the same thing (14 July 2026 walkthrough). Kept
+            // visible whenever there's no machinery selected (nothing to
+            // pick from) or an existing value the picker hasn't resolved
+            // (legacy free-text entries, or edits made before this field
+            // existed) — never hidden out from under real data.
+            if (_selectedMachineryId == null ||
+                (_selectedComponentId == null &&
+                    !_addingNewComponent &&
+                    _componentCtrl.text.trim().isEmpty))
+              SurveyField(
+                label: 'Affected Part / Component *',
+                controller: _componentCtrl,
+                hint: 'e.g. Connecting rod cap, Fuel injector No.3',
+                important: true,
+              ),
 
-            // ── Location on Vessel (row 19) — always shown: hiding this
-            // whenever a machinery item was selected (2026-07-13 review)
-            // left no way to view/edit a location note on an item that
-            // also has a machinery link, even though the value survives in
-            // the model regardless. Still most meaningful for hull-type
-            // damage, hence the hint copy, but never unreachable.
-            SurveyField(
-              label: 'Location on Vessel',
-              controller: _locationCtrl,
-              hint: 'e.g. Engine room — port side',
-            ),
+            // ── Location on Vessel (row 19) — hidden once Machinery/System
+            // is selected (14 July 2026 walkthrough: the location is
+            // already known from the Vessel Particulars Machinery tab in
+            // that case) UNLESS there's already a value here — hiding
+            // unconditionally was tried and reverted 13 July 2026 because
+            // it left no way to view/edit a location note on an item that
+            // also had a machinery link, even though the value survives in
+            // the model regardless. Still the primary field for hull-type
+            // damage with no machinery link.
+            if (_selectedMachineryId == null ||
+                _locationCtrl.text.trim().isNotEmpty)
+              SurveyField(
+                label: 'Location on Vessel',
+                controller: _locationCtrl,
+                hint: 'e.g. Engine room — port side',
+              ),
 
             SurveyField(
               label: 'Damage Description',
@@ -505,34 +523,48 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
             const SizedBox(height: 16),
 
             // ── Confirmed by (third-party confirmation) ────────────
+            // Compact toggleable pills, not a tall stacked checkbox list
+            // (14 July 2026 walkthrough — the old widget was oversized for
+            // what's just a multi-select over 8 options).
             const _FieldLabel('Confirmed By'),
             const SizedBox(height: 6),
-            Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.border),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                children: ConfirmedByRole.values.map((role) {
-                  final checked = _confirmedBy.contains(role);
-                  return CheckboxListTile(
-                    value: checked,
-                    dense: true,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    activeColor: AppColors.coral,
-                    title: Text(role.label,
-                        style: const TextStyle(
-                            fontSize: 13, color: AppColors.textPrimary)),
-                    onChanged: (v) => setState(() {
-                      if (v == true) {
-                        _confirmedBy.add(role);
-                      } else {
-                        _confirmedBy.remove(role);
-                      }
-                    }),
-                  );
-                }).toList(),
-              ),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: ConfirmedByRole.values.map((role) {
+                final checked = _confirmedBy.contains(role);
+                return GestureDetector(
+                  onTap: () => setState(() {
+                    if (checked) {
+                      _confirmedBy.remove(role);
+                    } else {
+                      _confirmedBy.add(role);
+                    }
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: checked
+                          ? AppColors.coral.withValues(alpha: 0.12)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: checked ? AppColors.coral : AppColors.border,
+                        width: checked ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Text(role.label,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                checked ? FontWeight.w600 : FontWeight.w400,
+                            color: checked
+                                ? AppColors.coral
+                                : AppColors.textSecondary)),
+                  ),
+                );
+              }).toList(),
             ),
             if (_confirmedBy.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -627,7 +659,7 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
             ),
             const SizedBox(height: 4),
 
-            // ── Average status (Yes / No / Partial) ────────────────
+            // ── Average status (Yes / No / Challenged) ──────────────
             const _FieldLabel('Concerning Average'),
             const SizedBox(height: 8),
             ChipRow<AverageStatus>(
@@ -645,10 +677,10 @@ class _DamageItemEditorScreenState extends ConsumerState<DamageItemEditorScreen>
                 hint: 'e.g. Pre-existing condition unrelated to casualty',
               ),
             ],
-            if (_averageStatus == AverageStatus.partial) ...[
+            if (_averageStatus == AverageStatus.challenged) ...[
               const SizedBox(height: 10),
               SurveyField(
-                label: 'Partial average detail',
+                label: 'Challenged average detail',
                 controller: _averagePartialCtrl,
                 hint: 'What part is/isn\'t concerning average, and why',
               ),

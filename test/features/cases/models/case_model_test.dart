@@ -49,6 +49,32 @@ void main() {
       expect(merged.classStatus, ClassStatus.classed);
     });
 
+    test('statutory fields DO fill from extraction when currently empty (15 July 2026)', () {
+      const vessel = VesselModel(vesselId: 'v1', name: 'MV Existing');
+      final merged = vessel.applyExtraction(const {
+        'official_number': 'OFF-001',
+        'class_status': 'conditional',
+        'pi_club': 'Gard',
+        'registered_owner': 'Acme Shipping Pty Ltd',
+        'last_drydock_date': '2025-03-10',
+        'last_drydock_yard': 'Sembcorp Marine',
+        'psc_last_inspection': '2025-06-01',
+        'psc_last_result': 'deficiencies',
+        'psc_summary': 'Two minor deficiencies noted, both rectified.',
+        'isps_status': 'compliant',
+      });
+      expect(merged.officialNumber, 'OFF-001');
+      expect(merged.classStatus, ClassStatus.conditional);
+      expect(merged.piClub, 'Gard');
+      expect(merged.registeredOwner, 'Acme Shipping Pty Ltd');
+      expect(merged.lastDrydockDate, DateTime.parse('2025-03-10'));
+      expect(merged.lastDrydockYard, 'Sembcorp Marine');
+      expect(merged.pscLastInspection, DateTime.parse('2025-06-01'));
+      expect(merged.pscLastResult, PscResult.deficiencies);
+      expect(merged.pscSummary, 'Two minor deficiencies noted, both rectified.');
+      expect(merged.ispsStatus, IspsStatus.compliant);
+    });
+
     test('vesselId is always preserved regardless of extraction content', () {
       final vessel = _baseVessel();
       final merged = vessel.applyExtraction({'vessel_id': 'someone-elses-id'});

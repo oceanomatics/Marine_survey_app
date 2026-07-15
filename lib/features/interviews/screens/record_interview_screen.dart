@@ -1,11 +1,12 @@
 // lib/features/interviews/screens/record_interview_screen.dart
 
-import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/interview_model.dart';
 import '../providers/interview_provider.dart';
+import '../providers/interview_recording_provider.dart';
 import '../../parties/models/party_model.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/model_manager.dart';
@@ -36,14 +37,15 @@ class _RecordInterviewScreenState
   double _dlProgress    = 0;
   String _dlFile        = '';
 
-  // Recording
-  bool   _isRecording   = false;
+  // "Done" (stopped, reviewing before save) is screen-local — the
+  // recording session itself lives in interviewRecordingProvider (14 July
+  // 2026 walkthrough: "recording should keep running... not require
+  // staying on the Interview screen") so it survives navigating away and
+  // back mid-recording. Deliberately NOT calling _sherpa.stop() in
+  // dispose() any more — that would defeat the whole point.
   bool   _done          = false;
   bool   _saving        = false;
-  String _liveWords     = '';
-  int    _seconds       = 0;
-  Timer? _timer;
-  StreamSubscription<SherpaResult>? _sherpaSub;
+  Uint8List? _pendingAudioWav;
 
   // Participants
   final List<InterviewParticipant> _participants = [];
@@ -52,13 +54,17 @@ class _RecordInterviewScreenState
   void initState() {
     super.initState();
     _initModel();
+    // Reopening a screen whose recording is still running elsewhere —
+    // reflect its current transcript immediately rather than waiting for
+    // the next result event.
+    final rec = ref.read(interviewRecordingProvider);
+    if (rec.caseId == widget.caseId) {
+      _transcriptCtrl.text = rec.transcript;
+    }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _sherpaSub?.cancel();
-    _sherpa.stop();
     _titleCtrl.dispose();
     _transcriptCtrl.dispose();
     super.dispose();
@@ -93,52 +99,21 @@ class _RecordInterviewScreenState
   }
 
   // ── Recording ──────────────────────────────────────────────────────────────
+  // Delegates to interviewRecordingProvider — see that file for why.
 
-  Future<void> _startRecording() async {
+  void _startRecording() {
     if (!_modelReady) return;
-    setState(() {
-      _liveWords = '';
-      _done      = false;
-      _seconds   = 0;
-    });
-
-    final stream = _sherpa.startStreaming();
-    _sherpaSub?.cancel();
-    _sherpaSub = stream.listen(_onResult);
-
-    setState(() => _isRecording = true);
-    _timer = Timer.periodic(const Duration(seconds: 1),
-        (_) => setState(() => _seconds++));
-  }
-
-  void _onResult(SherpaResult result) {
-    if (result.isFinal) {
-      final existing  = _transcriptCtrl.text.trimRight();
-      final sep       = existing.isEmpty ? '' : ' ';
-      _transcriptCtrl.text = '$existing$sep${result.text}';
-      _transcriptCtrl.selection = TextSelection.fromPosition(
-          TextPosition(offset: _transcriptCtrl.text.length));
-      setState(() => _liveWords = '');
-    } else {
-      setState(() => _liveWords = result.text);
-    }
+    setState(() => _done = false);
+    ref.read(interviewRecordingProvider.notifier).startForCase(widget.caseId);
   }
 
   Future<void> _stopRecording() async {
-    _timer?.cancel();
-    _sherpaSub?.cancel();
-    _sherpaSub = null;
-
-    final trailing = await _sherpa.stop();
-    if (trailing.isNotEmpty) {
-      final existing = _transcriptCtrl.text.trimRight();
-      final sep      = existing.isEmpty ? '' : ' ';
-      _transcriptCtrl.text = '$existing$sep$trailing';
-    }
+    final result = await ref.read(interviewRecordingProvider.notifier).stop();
+    if (!mounted) return;
     setState(() {
-      _isRecording = false;
-      _done        = true;
-      _liveWords   = '';
+      _transcriptCtrl.text = result.transcript;
+      _pendingAudioWav = result.audioWav;
+      _done = true;
     });
   }
 
@@ -154,15 +129,18 @@ class _RecordInterviewScreenState
 
     setState(() => _saving = true);
     try {
+      final seconds = ref.read(interviewRecordingProvider).seconds;
       await ref.read(interviewsProvider(widget.caseId).notifier).save(
             caseId:       widget.caseId,
             participants: _participants,
             transcript:   transcript,
-            durationSecs: _seconds,
+            durationSecs: seconds,
             title:        _titleCtrl.text.trim().isEmpty
                 ? null
                 : _titleCtrl.text.trim(),
+            audioWav:     _pendingAudioWav,
           );
+      ref.read(interviewRecordingProvider.notifier).clearSession();
       if (mounted) {
         showSavedToast(context, label: 'Interview saved');
         context.go('/cases/${widget.caseId}/interviews');
@@ -220,6 +198,21 @@ class _RecordInterviewScreenState
   Widget build(BuildContext context) {
     // Preload contacts for participant picker
     ref.watch(assuredContactsProvider(widget.caseId));
+
+    final rec = ref.watch(interviewRecordingProvider);
+    final isRecording = rec.isRecording && rec.caseId == widget.caseId;
+    final recordingElsewhere =
+        rec.isRecording && rec.caseId != null && rec.caseId != widget.caseId;
+    final seconds = rec.caseId == widget.caseId ? rec.seconds : 0;
+    final liveWords = isRecording ? rec.liveWords : '';
+    // Keep the transcript field in sync with the live provider while
+    // recording is active for this case, without fighting manual edits
+    // once stopped (_done).
+    if (isRecording && _transcriptCtrl.text != rec.transcript) {
+      _transcriptCtrl.text = rec.transcript;
+      _transcriptCtrl.selection = TextSelection.fromPosition(
+          TextPosition(offset: _transcriptCtrl.text.length));
+    }
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -319,34 +312,36 @@ class _RecordInterviewScreenState
                 children: [
                   Row(children: [
                     GestureDetector(
-                      onTap: _isRecording
+                      onTap: isRecording
                           ? _stopRecording
-                          : (_modelReady ? _startRecording : null),
+                          : (_modelReady && !recordingElsewhere
+                              ? _startRecording
+                              : null),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         width: 64,
                         height: 64,
                         decoration: BoxDecoration(
-                          color: _isRecording
+                          color: isRecording
                               ? AppColors.error
-                              : _modelReady
+                              : (_modelReady && !recordingElsewhere)
                                   ? AppColors.navy
                                   : AppColors.textTertiary,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: (_isRecording
+                              color: (isRecording
                                       ? AppColors.error
                                       : AppColors.navy)
                                   .withValues(
-                                      alpha: _isRecording ? 0.3 : 0.12),
-                              blurRadius:  _isRecording ? 18 : 6,
-                              spreadRadius: _isRecording ? 3  : 0,
+                                      alpha: isRecording ? 0.3 : 0.12),
+                              blurRadius:  isRecording ? 18 : 6,
+                              spreadRadius: isRecording ? 3  : 0,
                             ),
                           ],
                         ),
                         child: Icon(
-                          _isRecording ? Icons.stop : Icons.mic,
+                          isRecording ? Icons.stop : Icons.mic,
                           color: Colors.white,
                           size: 26,
                         ),
@@ -358,17 +353,17 @@ class _RecordInterviewScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _formatDuration(_seconds),
+                            _formatDuration(seconds),
                             style: const TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.textPrimary),
                           ),
                           Text(
-                            _statusLabel(),
+                            _statusLabel(isRecording, recordingElsewhere),
                             style: TextStyle(
                               fontSize: 11,
-                              color: _isRecording
+                              color: isRecording
                                   ? AppColors.error
                                   : AppColors.textSecondary,
                             ),
@@ -376,11 +371,11 @@ class _RecordInterviewScreenState
                         ],
                       ),
                     ),
-                    if (_isRecording) _PulseDot(),
+                    if (isRecording) _PulseDot(),
                   ]),
 
                   // Live words
-                  if (_isRecording && _liveWords.isNotEmpty) ...[
+                  if (isRecording && liveWords.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
@@ -393,7 +388,7 @@ class _RecordInterviewScreenState
                                 AppColors.midBlue.withValues(alpha: 0.3)),
                       ),
                       child: Text(
-                        _liveWords,
+                        liveWords,
                         style: const TextStyle(
                             fontSize: 12,
                             color: AppColors.midBlue,
@@ -466,10 +461,11 @@ class _RecordInterviewScreenState
     return '$m:$sec';
   }
 
-  String _statusLabel() {
+  String _statusLabel(bool isRecording, bool recordingElsewhere) {
     if (_modelLoading)  return 'Loading speech model…';
     if (!_modelReady)   return 'Speech model unavailable';
-    if (_isRecording)   return 'Recording — tap to stop';
+    if (recordingElsewhere) return 'Recording in progress for another case';
+    if (isRecording)   return 'Recording — tap to stop';
     if (_done)          return 'Done — review and save';
     return 'Tap microphone to start';
   }

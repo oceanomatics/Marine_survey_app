@@ -34,20 +34,28 @@ String _fmtAmt(num v) {
 /// repairPeriods`) rather than the per-report-output `advice_*` columns —
 /// per surveyor direction: "generally speaking... I would like to have all
 /// the data input in the case page. The report builder is only for
-/// drafting the paragraphs." Only genuinely per-report prose (Description
-/// of Damage, Nature of Repairs, Remarks) and the Confirmed flag still live
+/// drafting the paragraphs." Only Remarks and the Confirmed flag still live
 /// on `report_outputs`; see `AdviceSummaryCard` for the corresponding
 /// editor. The old `advice_cost_amount`/`advice_status_of_repairs`/
 /// `advice_follow_up_required` etc. columns are left in place in the
 /// schema (unused going forward) rather than dropped, since already-issued
 /// reports may still reference them.
 ///
-/// Always returns the full fixed 8-row spec layout — rows are never
-/// omitted for missing data, matching the spec's own suggested layout
-/// (which shows bracketed placeholders like "[auto or TBD]" for every
-/// field).
-List<List<String>> buildAdviceSummaryRows(
-    ReportOutput output, AssembledReportData assembled) {
+/// 14 July 2026: Description of Damage / Nature of Repairs stopped being
+/// per-report free text (`output.adviceDescriptionOfDamage`/
+/// `adviceNatureOfRepairs` are no longer written to by any UI) — this table
+/// now reads the same computed `SectionType.damageDescription`/
+/// `natureOfRepairs` content the report body renders (`sections`, already
+/// AI-draft-aware as of the same date), so the two independent renderers
+/// (this table and the body sections) can never drift from each other.
+/// Assured/Instructing Party were also missing from the original 12-field
+/// spec (docs/AUDIT_delta.md) — added back from `assembled.caseData`.
+///
+/// Always returns the full fixed row layout — rows are never omitted for
+/// missing data, matching the spec's own suggested layout (which shows
+/// bracketed placeholders like "[auto or TBD]" for every field).
+List<List<String>> buildAdviceSummaryRows(ReportOutput output,
+    AssembledReportData assembled, Map<SectionType, ReportSection> sections) {
   final occ =
       assembled.occurrences.isNotEmpty ? assembled.occurrences.first : null;
   final caseData = assembled.caseData;
@@ -103,18 +111,28 @@ List<List<String>> buildAdviceSummaryRows(
   // UCR / Reference reuses the case-level Claim Reference field (Edit Case
   // Details) rather than duplicating it per report-output.
   final claimReference = caseData['claim_reference'] as String?;
+  final assured = caseData['assured'] as String?;
+  final instructingParty = caseData['instructing_party'] as String?;
+
+  final damageContent =
+      sections[SectionType.damageDescription]?.fullContent ?? '';
+  final natureContent =
+      sections[SectionType.natureOfRepairs]?.fullContent ?? '';
 
   return [
     ['UCR / Reference',
      (claimReference ?? '').isNotEmpty ? claimReference! : '[TBD]'],
+    ['Assured', (assured ?? '').isNotEmpty ? assured! : '[TBD]'],
+    ['Instructing Party',
+     (instructingParty ?? '').isNotEmpty ? instructingParty! : '[TBD]'],
     ['Date and Nature of Casualty', dateAndNature],
     ['Description of Damage',
-     (output.adviceDescriptionOfDamage ?? '').isNotEmpty
-         ? output.adviceDescriptionOfDamage!
+     damageContent.isNotEmpty
+         ? damageContent
          : '[description of damage — pending]'],
     ['Nature of Repairs',
-     (output.adviceNatureOfRepairs ?? '').isNotEmpty
-         ? output.adviceNatureOfRepairs!
+     natureContent.isNotEmpty
+         ? natureContent
          : '[nature of repairs — pending]'],
     ['Status of Repairs', derivedStatus.label],
     [

@@ -98,11 +98,23 @@ class DamageItemCard extends StatelessWidget {
                   icon: const Icon(Icons.more_vert,
                       size: 18, color: AppColors.textTertiary),
                   onSelected: (v) {
+                    if (v == 'edit') onEdit();
                     if (v == 'delete') onDelete();
                   },
-                  // 'Edit' removed from the menu (row 22) — the whole card
-                  // now opens the editor directly on tap.
+                  // 'Edit' re-added (14 July 2026 walkthrough): the
+                  // whole-card tap-to-open still works too — both entry
+                  // points now exist side by side, for consistency with
+                  // other screens, rather than either/or.
                   itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_outlined,
+                            color: AppColors.textSecondary, size: 15),
+                        SizedBox(width: 8),
+                        Text('Edit', style: TextStyle(fontSize: 13)),
+                      ]),
+                    ),
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(children: [
@@ -148,14 +160,11 @@ class DamageItemCard extends StatelessWidget {
                     fontSize: 12,
                     color: AppColors.textPrimary,
                     height: 1.4),
-                // 4, not 2 (2026-07-13 review): the old layout showed
-                // Damage Description (3 lines) and Condition Found
-                // (unclipped) as separate blocks; composing both into one
-                // string but still capping at 2 lines could hide content
-                // that used to be fully visible in the register without
-                // opening the editor.
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
+                // No cap (14 July 2026 walkthrough): even the 4-line cap
+                // still cropped this summary on the register — the surveyor
+                // wants the full auto-composed text readable here without
+                // opening the editor, same as the old unclipped Condition
+                // Found block this replaced.
               ),
             ],
 

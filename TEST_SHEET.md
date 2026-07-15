@@ -4,7 +4,7 @@ Status: `[ ]` Not tested · `[✓]` OK · `[~]` Partial · `[✗]` Broken · `[�
 
 Auto: `Unit` pure-logic unit test (no UI/network, could write today) · `Widget` widget test w/ mocked providers (moderate setup, no external service) · `Integ` integration_test w/ faked backend (bigger investment) · `Manual` needs a real external service (Google OAuth/Gmail/Drive/Photos, camera/mic hardware, a second real device/email) or subjective/visual judgement — not practically automatable in this stack.
 
-**Automation status (2026-07-10):** all 9 `Unit`-tagged rows are automated (`test/features/...`, `test/core/...` — pure-logic tests, no mocking needed). Widget coverage now spans seven areas, all using the same pattern: override the Riverpod provider directly with a fake `Notifier` subclass in `test/support/fakes/` (no mocktail, no fake Supabase client needed): Checklist (rows 144-147, the harness pilot), Reports (rows 158-175, 12 of 14 fully covered + 2 partial), Vessel Particulars (rows 11-20 covered — see note on rows 21/22/24 below, they're stale against a screen restructure, not yet re-targeted), Occurrences (rows 25-28, all covered), Damage Register (rows 29-33, all covered), Repairs (rows 36-38 covered, row 41 partial — panel renders but add/edit-cue interaction untested; rows 39-40 are separate screens, not covered), Attendees (rows 42-45 covered; row 46 not covered). Roughly 100 Widget rows and the 1 `Integ` row are still unautomated. `Manual` rows are tracked separately in `MANUAL_QA_CHECKLIST.md` (39 rows) since they need real external services or human judgement and can't be automated in this stack. Test count: 172 automated tests total (`flutter test`), 171 passing — sole failure is the pre-existing unrelated `test/widget_test.dart` placeholder (default counter-app smoke test, predates this work, confirmed independent of it).
+**Automation status (2026-07-15, end of day):** all 9 `Unit`-tagged rows are automated. Widget coverage now spans essentially every screen: Checklist, Reports, Vessel Particulars incl. `VesselComplianceScreen`, Occurrences, Damage Register, Causation, Repairs (36-38, 39-40 Nature of Repairs/Additional Information, 41 partial), Attendees (42-46, all done), Document Vault (47 + AppBar covered; 48-52/91/98-105 are `[⛔]` — file_picker/image_picker/Supabase-signed-URL calls with no injection seam), Photos (70/74 covered, 72 `[⛔]` same reason, 73/75 partial — full-screen viewer not exercised), Parties & Stakeholders (81-87, all done), Correspondence (89-90/92-95/97/108-114 covered; 91/98-105 `[⛔]` file_picker; 96/107/115-118 Manual, real external services), Surveyor Notes/"Advice to Owner" (125-127, all done), Background & Context Cues (128-132, all done), API Usage (197, degrades gracefully — no provider seam on this screen to fake real data), Timeline, Quick Capture, Interviews, Case Analyst, Account/Organisation Settings, Accounts. Same fake-Riverpod-notifier pattern throughout — no mocktail, no fake Supabase client. Test count: 466 automated tests (`flutter test`), 465 passing — sole failure is the pre-existing unrelated `test/widget_test.dart` placeholder. This pass found and fixed **7 real bugs** purely because a test forced the code path: 5 RenderFlex overflows on ~360-430dp phones (Causation's AI-Draft row, Advice to Owner's tab labels, Accounts' "Purely Estimated" badge, the Attendance card header), a biometric-check hang with no timeout, an invisible-tap-feedback switch on `VesselComplianceScreen`, and a genuine Riverpod race condition (`addFromExtracted`'s dedupe check could read a not-yet-loaded provider's `state.value` as empty). None were previously reported live. What's left: ~25 rows, almost all Manual (real Gmail/file-picker/camera/mic) or the handful of `[⛔]` gaps noted above — the remaining automatable surface is essentially exhausted for this stack.
 
 Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, not test failures — they exist so the sheet doubles as a punch list toward a finished product.
 
@@ -48,10 +48,10 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 | 18 | Globe → no credentials → snackbar + Account link | Widget | `[✓]` | |
 | 19 | Globe → valid credentials → Equasis PDF fetched | Manual | `[ ]` | |
 | 20 | Equasis PDF appears in Document Vault | Manual | `[ ]` | |
-| 21 | Class/Statutory tab: certificate list, add certificate, delete (confirm dialog) | Widget | `[⛔]` | **stale row** — Cluster B (§2.17 row 11, 9 July 2026) moved certificates off this screen onto a case-level `VesselComplianceScreen`; no test for that screen exists yet |
-| 22 | Class/Statutory tab: conditions of class — empty-state hint, add condition, delete (confirm dialog) | Widget | `[⛔]` | same restructure as row 21 — moved to `VesselComplianceScreen`, untested there |
+| 21 | Class/Statutory tab: certificate list, add certificate, delete (confirm dialog) | Widget | `[✓]` | now covered on `VesselComplianceScreen` (`vessel_compliance_screen_test.dart`) — also found+fixed a real bug: the "Related to an occurrence" switch had invisible tap feedback (DecoratedBox shadowing its Material ancestor) |
+| 22 | Class/Statutory tab: conditions of class — empty-state hint, add condition, delete (confirm dialog) | Widget | `[✓]` | now covered on `VesselComplianceScreen` |
 | 23 | "Add vessel general view" photo picker sets the shared case cover photo (same photo used in Gallery/Report cover) | Manual | `[ ]` | |
-| 24 | Vessel statutory fields (psc_last_inspection, last_drydock_date, pi_club, isps_status) present and saved | Widget | `[⛔]` | same restructure as row 21 — also moved to `VesselComplianceScreen`; this screen now only shows static class-society/notation/P&I fields + a deep link, which is covered |
+| 24 | Vessel statutory fields (psc_last_inspection, last_drydock_date, pi_club, isps_status) present and saved | Widget | `[~]` | class-status field + save mechanism covered; drydock/PSC/ISPS fields render on the same screen via the same `_save()` but weren't individually exercised |
 
 ---
 
@@ -82,8 +82,8 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 34 | Causation screen loads with existing data | Widget | `[ ]` | |
-| 35 | Edit cause type, allegation, narrative → save | Widget | `[ ]` | |
+| 34 | Causation screen loads with existing data | Widget | `[✓]` | |
+| 35 | Edit cause type, allegation, narrative → save | Widget | `[✓]` | found+fixed a real RenderFlex overflow in the AI Draft row on ~360-400dp phones |
 
 ---
 
@@ -94,8 +94,8 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 | 36 | Repair periods screen loads | Widget | `[✓]` | |
 | 37 | Add repair record | Widget | `[✓]` | incl. diversion port-call context |
 | 38 | Edit repair record | Widget | `[✓]` | |
-| 39 | Nature of Repairs screen loads and saves | Widget | `[ ]` | not in prior sheet; separate screen, not covered by the Repair Periods test file |
-| 40 | Additional Information screen loads and saves | Widget | `[ ]` | not in prior sheet; separate screen, not covered by the Repair Periods test file |
+| 39 | Nature of Repairs screen loads and saves | Widget | `[✓]` | covers all 5 question toggles, debounced comment save, and the repair-sequence bullet list add |
+| 40 | Additional Information screen loads and saves | Widget | `[✓]` | covers the 4 cue-register subsections + Advice to Assured clause ticklist (tick/untick) + debounced notes save |
 | 41 | Repair-period-scoped Context Cues: add/edit a cue tied to a specific repair period | Widget | `[~]` | partial — confirms the panel renders, doesn't exercise add/edit-cue interaction. Also surfaced a real (cosmetic) pre-existing bug: this panel's collapsed height is a couple of px short of its own header's content height, logging a RenderFlex overflow on every relayout |
 
 ---
@@ -108,7 +108,7 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 | 43 | Add attendee | Widget | `[✓]` | |
 | 44 | Edit attendee | Widget | `[✓]` | |
 | 45 | Delete attendee (with confirm) | Widget | `[✓]` | |
-| 46 | Create attendance record | Widget | `[ ]` | not covered |
+| 46 | Create attendance record | Widget | `[✓]` | also found+fixed a real bug: the attendance card's header Row (type badge + date + overflow menu) overflowed for the longest AttendanceType label on ~400-430dp phones |
 
 ---
 
@@ -116,12 +116,12 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 47 | Document vault loads and shows documents | Widget | `[ ]` | screen had a large rewrite — re-check against current UI |
-| 48 | Upload PDF → appears in list | Widget | `[ ]` | |
-| 49 | Upload DOCX → appears in list | Widget | `[ ]` | |
-| 50 | Upload image → appears in list | Widget | `[ ]` | |
-| 51 | Tap PDF → opens preview | Widget | `[ ]` | |
-| 52 | Tap image → opens full-screen | Widget | `[ ]` | |
+| 47 | Document vault loads and shows documents | Widget | `[✓]` | covers load, empty state, grouping by category, AppBar actions |
+| 48 | Upload PDF → appears in list | Widget | `[⛔]` | needs file_picker — real platform channel, no test-mode support in this stack |
+| 49 | Upload DOCX → appears in list | Widget | `[⛔]` | same as row 48 |
+| 50 | Upload image → appears in list | Widget | `[⛔]` | needs image_picker — same class of blocker |
+| 51 | Tap PDF → opens preview | Widget | `[⛔]` | `_previewDocument()` calls `SupabaseService.client.storage.createSignedUrl()` directly, no injection seam — silently no-ops in a widget test rather than navigating |
+| 52 | Tap image → opens full-screen | Widget | `[⛔]` | same as row 51 |
 
 ---
 
@@ -160,12 +160,12 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 70 | Photo gallery loads for case; By Visit / By Inspection tabs both populate | Widget | `[ ]` | |
+| 70 | Photo gallery loads for case; By Visit / By Inspection tabs both populate | Widget | `[✓]` | covers empty state, By Visit grouped by attendance + unassigned bucket, By Inspection general/unlinked bucket |
 | 71 | Take photo with camera → appears in gallery | Manual | `[ ]` | |
-| 72 | Upload photo from device → appears in gallery | Widget | `[ ]` | |
-| 73 | Tap photo → full-screen viewer | Widget | `[ ]` | |
-| 74 | Delete photo (with confirm) | Widget | `[ ]` | |
-| 75 | Set / override cover photo and allocation | Widget | `[ ]` | |
+| 72 | Upload photo from device → appears in gallery | Widget | `[⛔]` | needs image_picker — same no-test-mode blocker as Document Vault rows 48-50 |
+| 73 | Tap photo → full-screen viewer | Widget | `[ ]` | not attempted |
+| 74 | Delete photo (with confirm) | Widget | `[✓]` | long-press → confirm dialog → removed; also confirmed Cancel leaves it in place |
+| 75 | Set / override cover photo and allocation | Widget | `[~]` | allocation badge display confirmed; the set/override interaction itself (via the full-screen viewer, row 73) not exercised |
 | 76 | Photo added under an attendance lands in Drive `Photos/{attendance label}/` | Manual | `[ ]` | not yet live-smoke-tested |
 | 77 | Drive Folder Picker screen: browse & pick a Drive folder | Manual | `[ ]` | |
 | 78 | Local Folder Picker screen: browse & pick a local folder (desktop) | Manual | `[ ]` | |
@@ -179,13 +179,13 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 81 | Parties screen loads and shows grouped sections | Widget | `[ ]` | |
-| 82 | Empty state shows "No stakeholders" message | Widget | `[ ]` | |
-| 83 | Add stakeholder manually: name, company, role, group, phone, email, notes | Widget | `[ ]` | |
-| 84 | Group dropdown shows all 6 groups (Insured, Underwriter, Broker, Surveyors, Technical Contractors, Other) | Widget | `[ ]` | |
-| 85 | Stakeholder card shows initials avatar, name, company, role chip, contact rows | Widget | `[ ]` | |
-| 86 | Delete stakeholder: confirm dialog → removed from list | Widget | `[ ]` | |
-| 87 | Group header "Add" button pre-selects that group in the sheet | Widget | `[ ]` | |
+| 81 | Parties screen loads and shows grouped sections | Widget | `[✓]` | |
+| 82 | Empty state shows "No stakeholders" message | Widget | `[✓]` | |
+| 83 | Add stakeholder manually: name, company, role, group, phone, email, notes | Widget | `[✓]` | |
+| 84 | Group dropdown shows all 6 groups (Insured, Underwriter, Broker, Surveyors, Technical Contractors, Other) | Widget | `[✓]` | |
+| 85 | Stakeholder card shows initials avatar, name, company, role chip, contact rows | Widget | `[✓]` | |
+| 86 | Delete stakeholder: confirm dialog → removed from list | Widget | `[✓]` | |
+| 87 | Group header "Add" button pre-selects that group in the sheet | Widget | `[✓]` | |
 
 ---
 
@@ -194,32 +194,32 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
 | 88 | Inbox screen loads | Widget | `[ ]` | screen is a stub ("coming next session") — confirm placeholder only |
-| 89 | Correspondence screen loads for case | Widget | `[ ]` | |
-| 90 | FAB "Add" opens bottom sheet with PDF and EML options | Widget | `[ ]` | |
-| 91 | Upload PDF → card appears collapsed in list | Widget | `[ ]` | |
-| 92 | Tap card header → expands to show full card | Widget | `[ ]` | |
-| 93 | Collapsed card shows: icon, title (1 line), status chip, date, party/action counts | Widget | `[ ]` | |
-| 94 | Three-dot menu: Preview / Extract with AI / Delete | Widget | `[ ]` | |
-| 95 | Delete: confirm dialog → card removed | Widget | `[ ]` | |
-| 96 | Extract with AI → status changes to completed, summary + parties + actions populated | Manual | `[ ]` | |
-| 97 | corrDate field populated after extraction (shows date in header) | Widget | `[ ]` | |
-| 98 | Import .eml → card appears; From/To/Date pre-filled | Widget | `[ ]` | |
-| 99 | EML import: attachment dialog appears with file list | Widget | `[ ]` | |
-| 100 | Attachment dialog: image thumbnails shown; tap → full-screen zoom | Widget | `[ ]` | |
-| 101 | Attachment dialog: size filter slider hides small images (default 20 KB) | Widget | `[ ]` | |
-| 102 | Attachment dialog: "N small image(s) hidden" label appears when filter active | Widget | `[ ]` | |
-| 103 | Attachment dialog: per-item checkboxes; "Save Selected (N)" button | Widget | `[ ]` | |
-| 104 | Attachment dialog: "Skip All" closes without saving | Widget | `[ ]` | |
-| 105 | Selected attachments appear in Document Vault after import | Widget | `[ ]` | |
-| 106 | EML card: "View Email" opens preview with From/To/Date headers + selectable body | Widget | `[ ]` | |
+| 89 | Correspondence screen loads for case | Widget | `[✓]` | |
+| 90 | FAB "Add" opens bottom sheet with PDF and EML options | Widget | `[✓]` | |
+| 91 | Upload PDF → card appears collapsed in list | Widget | `[⛔]` | needs file_picker — no-test-mode blocker |
+| 92 | Tap card header → expands to show full card | Widget | `[✓]` | |
+| 93 | Collapsed card shows: icon, title (1 line), status chip, date, party/action counts | Widget | `[✓]` | |
+| 94 | Three-dot menu: Preview / Extract with AI / Delete | Widget | `[✓]` | also confirms Reply via Gmail only appears for EML items with a sender |
+| 95 | Delete: confirm dialog → card removed | Widget | `[✓]` | |
+| 96 | Extract with AI → status changes to completed, summary + parties + actions populated | Manual | `[ ]` | real Claude API call, deliberately never tapped in tests |
+| 97 | corrDate field populated after extraction (shows date in header) | Widget | `[✓]` | tested via a seeded corrDate rather than a live extraction |
+| 98 | Import .eml → card appears; From/To/Date pre-filled | Widget | `[⛔]` | needs file_picker |
+| 99 | EML import: attachment dialog appears with file list | Widget | `[⛔]` | needs file_picker |
+| 100 | Attachment dialog: image thumbnails shown; tap → full-screen zoom | Widget | `[⛔]` | needs file_picker |
+| 101 | Attachment dialog: size filter slider hides small images (default 20 KB) | Widget | `[⛔]` | needs file_picker |
+| 102 | Attachment dialog: "N small image(s) hidden" label appears when filter active | Widget | `[⛔]` | needs file_picker |
+| 103 | Attachment dialog: per-item checkboxes; "Save Selected (N)" button | Widget | `[⛔]` | needs file_picker |
+| 104 | Attachment dialog: "Skip All" closes without saving | Widget | `[⛔]` | needs file_picker |
+| 105 | Selected attachments appear in Document Vault after import | Widget | `[⛔]` | needs file_picker |
+| 106 | EML card: "View Email" opens preview with From/To/Date headers + selectable body | Widget | `[ ]` | not attempted — preview navigation not exercised |
 | 107 | EML card: Extract with AI uses body text (not PDF path) | Manual | `[ ]` | |
-| 108 | After extraction: extracted parties shown as chips in expanded card | Widget | `[ ]` | |
-| 109 | "Add to Parties" button appears when parties extracted | Widget | `[ ]` | |
-| 110 | "Add to Parties" dialog: pre-checked list of parties; deselect → excluded | Widget | `[ ]` | |
-| 111 | Confirmed parties appear in Parties screen under correct group | Widget | `[ ]` | |
-| 112 | Re-adding same party → snackbar "Already in stakeholders list" | Widget | `[ ]` | |
-| 113 | Action items listed in expanded card with → Context icon button | Widget | `[ ]` | |
-| 114 | Tap Context icon → action appears in Surveyor Notes as Follow-up / Important | Widget | `[ ]` | |
+| 108 | After extraction: extracted parties shown as chips in expanded card | Widget | `[✓]` | |
+| 109 | "Add to Parties" button appears when parties extracted | Widget | `[✓]` | |
+| 110 | "Add to Parties" dialog: pre-checked list of parties; deselect → excluded | Widget | `[✓]` | pre-checked state + confirm-adds covered; explicit deselect-then-confirm not separately tested |
+| 111 | Confirmed parties appear in Parties screen under correct group | Widget | `[~]` | both halves covered independently (addFromExtracted's group derivation here, Parties screen's grouping-by-group in parties_screen_test.dart) — not cross-verified in one end-to-end test |
+| 112 | Re-adding same party → snackbar "Already in stakeholders list" | Widget | `[✓]` | also surfaced and fixed a real bug: `addFromExtracted`'s dedupe check read `state.value` without waiting for the provider's first load, so a same-session first call could silently skip the check — fixed with `?? await future` |
+| 113 | Action items listed in expanded card with → Context icon button | Widget | `[✓]` | |
+| 114 | Tap Context icon → action appears in Surveyor Notes as Follow-up / Important | Widget | `[✓]` | verified the note is filed with `NatureOfContent.followUpOpenQuestion` + `CuePriority.important` — same as TEST_SHEET row 127 |
 | 115 | Gmail Message Picker: lists threads matching a case-derived keyword query | Manual | `[ ]` | new — needs real Google account |
 | 116 | Gmail thread detail screen shows full message list in the thread | Manual | `[ ]` | new |
 | 117 | "Import N Conversation(s)" downloads raw messages and feeds the same EML importer | Manual | `[ ]` | new |
@@ -251,9 +251,9 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 125 | Notes screen loads | Widget | `[ ]` | |
-| 126 | Create/edit a note | Widget | `[ ]` | |
-| 127 | Action item sent from correspondence appears as Follow-up / Important | Widget | `[ ]` | |
+| 125 | Notes screen loads | Widget | `[✓]` | screen is now "Advice to Owner" (renamed 14 July); covers all 4 tabs (Retained/Suggested/Unallocated/Ignored) |
+| 126 | Create/edit a note | Widget | `[✓]` | also found+fixed a real Tab-label RenderFlex overflow on ~400dp phones |
+| 127 | Action item sent from correspondence appears as Follow-up / Important | Widget | `[✓]` | covered in correspondence_screen_test.dart (row 114) — same code path, not a separate Surveyor Notes test |
 
 ---
 
@@ -261,11 +261,11 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 128 | Background screen loads existing text | Widget | `[ ]` | not in prior sheet |
-| 129 | Edit background text → autosaves | Widget | `[ ]` | |
-| 130 | Context Cues panel: add a cue | Widget | `[ ]` | |
-| 131 | Context Cues panel: edit / delete a cue | Widget | `[ ]` | |
-| 132 | Cues stay consistent between Background panel and repair-period-scoped cues (row 41) | Widget | `[ ]` | shared component — check for divergence |
+| 128 | Background screen loads existing text | Widget | `[✓]` | |
+| 129 | Edit background text → autosaves | Widget | `[✓]` | covers both debounced autosave and manual Save tap |
+| 130 | Context Cues panel: add a cue | Widget | `[✓]` | |
+| 131 | Context Cues panel: edit / delete a cue | Widget | `[✓]` | |
+| 132 | Cues stay consistent between Background panel and repair-period-scoped cues (row 41) | Widget | `[✓]` | structurally guaranteed, not a separate test — both screens render the exact same shared `ContextCuesPanel` widget |
 
 ---
 
@@ -393,7 +393,7 @@ Rows marked `[⛔]` or with a "verify if implemented" comment are gap markers, n
 
 | # | Feature | Auto | Status | Comments |
 |---|---------|------|--------|----------|
-| 197 | Usage screen loads | Widget | `[ ]` | |
+| 197 | Usage screen loads | Widget | `[✓]` | no Riverpod seam on this screen — verified it loads and degrades to its own error state gracefully rather than crashing; real usage data isn't faked |
 | 198 | Token counts increment after an extraction | Manual | `[ ]` | |
 
 ---

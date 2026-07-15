@@ -132,5 +132,58 @@ void main() {
       expect(state.occurrences, isEmpty);
       expect(state.damageItems, isEmpty);
     });
+
+    testWidgets(
+        'multi-occurrence case: adding a cue shows a "Route to" picker and '
+        'routes it to the chosen occurrence (14 July 2026 walkthrough §4)',
+        (tester) async {
+      final container = await _pump(tester, occurrences: [
+        fixtureOccurrence(occurrenceId: 'occ-1', title: 'Main engine failure'),
+        fixtureOccurrence(occurrenceId: 'occ-2', title: 'Grounding'),
+      ]);
+
+      // Expand the Context Cues panel and add a cue.
+      await tester.tap(find.text('+ Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Route to'), findsOneWidget);
+      expect(find.text('Main engine failure'), findsWidgets);
+      expect(find.text('Grounding'), findsWidgets);
+
+      await tester.enterText(
+          find.byType(TextField).first, 'Owner disputes cause');
+      await tester.tap(find.text('Grounding').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save Cue'));
+      await tester.pumpAndSettle();
+
+      final notes =
+          container.read(surveyorNotesProvider(_caseId)).value ?? [];
+      expect(notes, hasLength(1));
+      expect(notes.single.linkedToType, 'occurrence');
+      expect(notes.single.linkedToId, 'occ-2');
+    });
+
+    testWidgets(
+        'single-occurrence case: no "Route to" picker shown, cue auto-scopes',
+        (tester) async {
+      final container = await _pump(tester, occurrences: [
+        fixtureOccurrence(occurrenceId: 'occ-1', title: 'Main engine failure'),
+      ]);
+
+      await tester.tap(find.text('+ Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Route to'), findsNothing);
+
+      await tester.enterText(find.byType(TextField).first, 'Single-occ cue');
+      await tester.tap(find.text('Save Cue'));
+      await tester.pumpAndSettle();
+
+      final notes =
+          container.read(surveyorNotesProvider(_caseId)).value ?? [];
+      expect(notes.single.linkedToType, 'occurrence');
+      expect(notes.single.linkedToId, 'occ-1');
+    });
   });
 }

@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/correspondence/models/correspondence_model.dart';
 import 'package:marine_survey_app/features/correspondence/providers/correspondence_provider.dart';
 
@@ -9,4 +10,10 @@ class FakeCorrespondenceNotifier extends CorrespondenceNotifier {
 
   @override
   Future<List<CorrespondenceModel>> build(String caseId) async => _seed;
+
+  @override
+  Future<void> delete(String corrId) async {
+    final current = state.value ?? [];
+    state = AsyncData(current.where((c) => c.id != corrId).toList());
+  }
 }

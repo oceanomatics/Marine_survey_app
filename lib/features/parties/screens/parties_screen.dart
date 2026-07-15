@@ -11,6 +11,7 @@ import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 import '../../../shared/widgets/app_feedback.dart';
+import '../../../shared/widgets/save_bar.dart';
 
 const _kPartiesColor = Color(0xFF2F80ED);
 
@@ -64,6 +65,15 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   bool _saving = false;
+  // Persistent "unsaved changes" indicator (14 July 2026 walkthrough) — the
+  // old blue Save button gave no signal of whether the page was currently
+  // modified-and-unsaved vs already-saved; a one-off "saved" toast after
+  // tapping Save only solved half of that. Same pattern as
+  // vessel_particulars_screen.dart's SaveBar.
+  bool _hasChanges = false;
+  void _markChanged() {
+    if (!_hasChanges) setState(() => _hasChanges = true);
+  }
 
   // ── Text controllers — one per field ──────────────────────────────────────
   late final TextEditingController _principalName;
@@ -116,6 +126,14 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
     _assuredRepCompany = TextEditingController(text: p?.assuredRepCompany ?? '');
     _assuredRepEmail   = TextEditingController(text: p?.assuredRepEmail ?? '');
     _assuredRepPhone   = TextEditingController(text: p?.assuredRepPhone ?? '');
+
+    for (final c in [
+      _principalName, _principalCompany, _principalEmail,
+      _reviewerName,  _reviewerCompany,  _reviewerEmail,
+      _underwriterName, _underwriterCompany, _underwriterEmail,
+      _adjusterName, _adjusterCompany, _adjusterEmail, _adjusterPhone,
+      _assuredRepName, _assuredRepCompany, _assuredRepEmail, _assuredRepPhone,
+    ]) { c.addListener(_markChanged); }
   }
 
   @override
@@ -163,6 +181,7 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
       );
       await ref.read(partiesProvider(widget.caseId).notifier).save(model);
       if (mounted) {
+        setState(() => _hasChanges = false);
         showSavedToast(context, label: 'Parties saved');
       }
     } catch (e, st) {
@@ -270,20 +289,11 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
           ],
         ),
       ),
+      // Parties tab save now lives in the persistent SaveBar below (which
+      // also doubles as the unsaved-changes indicator) instead of a FAB —
+      // same pattern as vessel_particulars_screen.dart.
       floatingActionButton: onPartiesTab
-          ? FloatingActionButton.extended(
-              onPressed: _saving ? null : _save,
-              backgroundColor: _kPartiesColor,
-              foregroundColor: Colors.white,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.save_outlined),
-              label: const Text('Save',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            )
+          ? null
           : FloatingActionButton.extended(
               onPressed: () => _showAddContact(),
               backgroundColor: AppColors.coral,
@@ -299,6 +309,13 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
           _buildStakeholdersTab(contacts),
         ],
       ),
+      bottomNavigationBar: onPartiesTab
+          ? SaveBar(
+              visible: _hasChanges,
+              saving: _saving,
+              onSave: _save,
+            )
+          : null,
     );
   }
 

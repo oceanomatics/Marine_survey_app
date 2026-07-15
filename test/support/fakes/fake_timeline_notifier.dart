@@ -81,14 +81,11 @@ class FakeTimelineRatingsNotifier extends TimelineRatingsNotifier {
 
   @override
   Future<void> setRelevance(String eventKey, EventRelevance relevance) async {
-    final next =
-        _blank(eventKey).copyWith(relevance: relevance, pendingReview: false);
-    state = AsyncData({..._cur, eventKey: next});
-  }
-
-  @override
-  Future<void> setIncluded(String eventKey, bool included) async {
-    final next = _blank(eventKey).copyWith(includedInChronology: included);
+    final next = _blank(eventKey).copyWith(
+      relevance: relevance,
+      pendingReview: false,
+      includedInChronology: relevance == EventRelevance.important,
+    );
     state = AsyncData({..._cur, eventKey: next});
   }
 

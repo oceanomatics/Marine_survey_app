@@ -13,10 +13,12 @@ import '../providers/timeline_ratings_provider.dart';
 import '../widgets/add_timeline_event_sheet.dart';
 import '../../survey/providers/damage_provider.dart';
 import '../../attendances/providers/attendances_provider.dart';
-import '../../surveyor_notes/models/surveyor_note_model.dart' show CaseSection;
+import '../../correspondence/providers/correspondence_provider.dart';
+import '../../documents/providers/document_provider.dart';
+import '../../reports/providers/report_provider.dart' show reportOutputsProvider;
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../shared/theme/app_theme.dart';
-import '../../../shared/widgets/context_cues_panel.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2E7CB7);
@@ -45,9 +47,12 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
 
   @override
   Widget build(BuildContext context) {
-    final manual      = ref.watch(timelineProvider(caseId)).value ?? [];
-    final attendances = ref.watch(attendancesProvider(caseId)).value ?? [];
-    final damage      = ref.watch(damageProvider(caseId)).value;
+    final manual        = ref.watch(timelineProvider(caseId)).value ?? [];
+    final attendances   = ref.watch(attendancesProvider(caseId)).value ?? [];
+    final damage        = ref.watch(damageProvider(caseId)).value;
+    final correspondence = ref.watch(correspondenceProvider(caseId)).value ?? [];
+    final documents     = ref.watch(documentProvider(caseId)).value ?? [];
+    final reportOutputs = ref.watch(reportOutputsProvider(caseId)).value ?? [];
     final ratings     = ref.watch(timelineRatingsProvider(caseId)).value ??
         const <String, TimelineEventRating>{};
 
@@ -60,6 +65,9 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
       manualEvents:       manual,
       attendances:        attendances,
       damage:             damage,
+      correspondence:     correspondence,
+      documents:          documents,
+      reportOutputs:      reportOutputs,
       ratingsByKey:       ratings,
       promotedSourceKeys: promotedKeys,
     );
@@ -88,6 +96,11 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
+            icon: const Icon(Icons.edit_note, size: 24),
+            tooltip: 'Quick note → event',
+            onPressed: () => _showQuickNoteFlow(context),
+          ),
+          IconButton(
             icon: const Icon(Icons.add, size: 24),
             tooltip: 'Add event',
             onPressed: () => _showAddSheet(context),
@@ -107,33 +120,39 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
           ],
         ),
       ),
-      body: Column(
+      // No raw context-cues panel here any more (14 July 2026 walkthrough —
+      // "listing raw cues in the timeline is just bloating the page").
+      // Cues relevant to the timeline now go through "Quick note -> event"
+      // above instead, converting straight into a real event rather than
+      // sitting as a reference-only listed cue.
+      body: TabBarView(
+        controller: _tab,
         children: [
-          Expanded(
-            child: TabBarView(
-              controller: _tab,
-              children: [
-                // Tab 1 — curated condensed timeline (non-ignored)
-                _CondensedTab(caseId: caseId, entries: active),
-                // Tab 2 — full event log with relevance + chronology curation
-                _FullEventLogTab(caseId: caseId, entries: visible),
-                // Tab 3 — ignored review (mirrors the cue "review" pattern)
-                _IgnoredTab(caseId: caseId, entries: ignored),
-              ],
-            ),
-          ),
-          ContextCuesPanel(caseId: caseId, section: CaseSection.timeline),
+          // Tab 1 — curated condensed timeline (non-ignored)
+          _CondensedTab(caseId: caseId, entries: active),
+          // Tab 2 — full event log with relevance + chronology curation
+          _FullEventLogTab(caseId: caseId, entries: visible),
+          // Tab 3 — ignored review (mirrors the cue "review" pattern)
+          _IgnoredTab(caseId: caseId, entries: ignored),
         ],
       ),
     );
   }
 
-  Future<void> _showAddSheet(BuildContext context) {
+  Future<void> _showAddSheet(BuildContext context,
+      {String? initialTitle,
+      DateTime? initialDate,
+      String? initialDescription,
+      String? sourceKey}) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => AddTimelineEventSheet(
+        initialTitle: initialTitle,
+        initialDate: initialDate,
+        initialDescription: initialDescription,
+        sourceKey: sourceKey,
         onSave: (model) async {
           final m = TimelineEventModel(
             eventId:     '',
@@ -143,10 +162,80 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
             title:       model.title,
             location:    model.location,
             description: model.description,
+            sourceKey:   model.sourceKey,
           );
           await ref.read(timelineProvider(caseId).notifier).add(m);
         },
       ),
+    );
+  }
+
+  /// "The vessel departed Perth for Hobart on 29/10/2025…" -> a real
+  /// timeline event, immediately — not a raw listed cue (14 July 2026
+  /// walkthrough). AI extracts a title+date from free text; the surveyor
+  /// always reviews/edits in the normal Add Event sheet before it saves
+  /// (never auto-committed), same human-in-the-loop convention used
+  /// everywhere else AI drafts something in this app.
+  Future<void> _showQuickNoteFlow(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quick note → event'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'e.g. The vessel departed Perth for Hobart on 29/10/2025…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Convert'),
+          ),
+        ],
+      ),
+    );
+    if (text == null || text.isEmpty || !context.mounted) return;
+
+    final loadingCtx = context;
+    showDialog<void>(
+      context: loadingCtx,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    Map<String, dynamic> result = const {};
+    try {
+      result = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Reading event details from note',
+            caseId: caseId,
+            estimate: const Duration(seconds: 10),
+            action: () =>
+                ClaudeApi.extractEventFromNote(text: text, caseId: caseId),
+          );
+    } catch (_) {
+      // Fall through with an empty result — the surveyor still gets the
+      // Add Event sheet, just without a pre-filled date/title.
+    }
+    if (loadingCtx.mounted) Navigator.of(loadingCtx, rootNavigator: true).pop();
+    if (!context.mounted) return;
+
+    final extractedDate = result['date'] != null
+        ? DateTime.tryParse(result['date'].toString())
+        : null;
+    final extractedTitle = (result['title'] as String?)?.trim();
+
+    await _showAddSheet(
+      context,
+      initialTitle: extractedTitle?.isNotEmpty == true ? extractedTitle : null,
+      initialDate: extractedDate,
+      initialDescription: text,
     );
   }
 }
@@ -208,17 +297,22 @@ class _FullEventLogTabState extends ConsumerState<_FullEventLogTab> {
     }
     setState(() => _rating = true);
     try {
-      final raw = await ClaudeApi.rateTimelineEvents(
-        caseId: widget.caseId,
-        events: unrated
-            .map((e) => {
-                  'event_key':   e.eventKey,
-                  'date':        e.date?.toIso8601String(),
-                  'title':       e.title,
-                  'description': e.description,
-                })
-            .toList(),
-      );
+      final raw = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Suggesting relevance for ${unrated.length} event(s)',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 15),
+            action: () => ClaudeApi.rateTimelineEvents(
+              caseId: widget.caseId,
+              events: unrated
+                  .map((e) => {
+                        'event_key': e.eventKey,
+                        'date': e.date?.toIso8601String(),
+                        'title': e.title,
+                        'description': e.description,
+                      })
+                  .toList(),
+            ),
+          );
       final suggestions = <TimelineAiSuggestion>[];
       for (final r in raw) {
         final key = r['event_key'] as String?;
@@ -282,8 +376,9 @@ class _FullEventLogTabState extends ConsumerState<_FullEventLogTab> {
         children: [
           const Expanded(
             child: Text(
-              'Rate each event, then select which appear in the report '
-              'Chronology.',
+              'Rate each event — Important goes straight into the report '
+              'Chronology, Normal stays here, Ignored moves to the Ignored '
+              'tab.',
               style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
             ),
           ),
@@ -461,26 +556,44 @@ class _TimelineItem extends StatelessWidget {
 }
 
 // ── Full-log item (relevance + chronology controls) ───────────────────────
+// Compact 2-line collapsed card, full detail only on tap — same
+// collapsed/expand pattern as Correspondence's cards
+// (correspondence_screen.dart's _CorrCard), replacing the old
+// always-expanded "massive" cards (14 July 2026 walkthrough).
 
-class _FullLogItem extends ConsumerWidget {
+class _FullLogItem extends ConsumerStatefulWidget {
   const _FullLogItem({required this.caseId, required this.entry});
   final String caseId;
   final TimelineEntry entry;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FullLogItem> createState() => _FullLogItemState();
+}
+
+class _FullLogItemState extends ConsumerState<_FullLogItem> {
+  bool _expanded = false;
+
+  String get caseId => widget.caseId;
+  TimelineEntry get entry => widget.entry;
+
+  @override
+  Widget build(BuildContext context) {
     final color = _sourceColor(entry.sourceType);
     final ignored = entry.isIgnored;
     final dateStr = entry.date != null
         ? DateFormat('dd/MM/yyyy').format(entry.date!)
         : 'Date TBC';
     final ratings = ref.read(timelineRatingsProvider(caseId).notifier);
+    // Always expandable: even an entry with no subtitle/description/AI
+    // reason still has real controls behind the tap (relevance menu,
+    // Restore, delete) — making the tap conditional on "has extra detail"
+    // made Restore unreachable on a plain ignored entry with no subtitle/
+    // description of its own.
 
     return Opacity(
       opacity: ignored ? 0.55 : 1,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: AppColors.background,
           borderRadius: BorderRadius.circular(10),
@@ -494,71 +607,127 @@ class _FullLogItem extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                _pill(dateStr, _kColor),
-                if (entry.badge != null) ...[
-                  const SizedBox(width: 6),
-                  _pill(entry.badge!, color),
-                ],
-                const Spacer(),
-                if (entry.pendingReview)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _pill('Suggested', AppColors.midBlue),
-                  ),
-                _relevanceMenu(context, ratings),
-              ],
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    _pill(dateStr, _kColor),
+                    if (entry.badge != null) ...[
+                      const SizedBox(width: 6),
+                      _pill(entry.badge!, color),
+                    ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(entry.title,
+                          maxLines: _expanded ? null : 1,
+                          overflow: _expanded
+                              ? TextOverflow.visible
+                              : TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary)),
+                    ),
+                    if (entry.pendingReview)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: _pill('Suggested', AppColors.midBlue),
+                      ),
+                    Icon(
+                          _expanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          size: 18,
+                          color: AppColors.textTertiary),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(entry.title,
-                style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary)),
-            if (entry.subtitle != null && entry.subtitle!.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(entry.subtitle!,
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textSecondary)),
-            ],
-            if (entry.description != null &&
-                entry.description!.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                entry.description!.length > 200
-                    ? '${entry.description!.substring(0, 200)}…'
-                    : entry.description!,
-                style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                    height: 1.45),
+            if (_expanded) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _relevanceMenu(context, ref, ratings),
+                    ),
+                    if (entry.subtitle != null &&
+                        entry.subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(entry.subtitle!,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary)),
+                    ],
+                    if (entry.description != null &&
+                        entry.description!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        entry.description!,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                            height: 1.45),
+                      ),
+                    ],
+                    if (entry.aiReason != null &&
+                        entry.aiReason!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        const Icon(Icons.auto_awesome,
+                            size: 11, color: AppColors.midBlue),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text('AI: ${entry.aiReason!}',
+                              style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontStyle: FontStyle.italic,
+                                  color: AppColors.midBlue)),
+                        ),
+                      ]),
+                    ],
+                    const SizedBox(height: 6),
+                    _controlRow(context, ref, ratings),
+                  ],
+                ),
               ),
             ],
-            if (entry.aiReason != null && entry.aiReason!.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Row(children: [
-                const Icon(Icons.auto_awesome,
-                    size: 11, color: AppColors.midBlue),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text('AI: ${entry.aiReason!}',
-                      style: const TextStyle(
-                          fontSize: 10.5,
-                          fontStyle: FontStyle.italic,
-                          color: AppColors.midBlue)),
-                ),
-              ]),
-            ],
-            const SizedBox(height: 10),
-            _controlRow(context, ref, ratings),
           ],
         ),
       ),
     );
   }
 
-  Widget _relevanceMenu(BuildContext context, TimelineRatingsNotifier ratings) {
+  /// Rating an event IS the chronology-inclusion mechanism (14 July 2026
+  /// walkthrough simplification) — Important auto-promotes an aggregated
+  /// entry into a real `timeline_events` row (so it feeds the report
+  /// Chronology, which only reads that table); moving away from Important
+  /// auto-removes that row again. Manual (already-real) events don't need
+  /// this — their row already exists — so only non-manual sources go
+  /// through the promote/unpromote step.
+  Future<void> _rate(
+    BuildContext context,
+    WidgetRef ref,
+    TimelineRatingsNotifier ratings,
+    EventRelevance v,
+  ) =>
+      _run(context, () async {
+        await ratings.setRelevance(entry.eventKey, v);
+        if (entry.sourceType == TimelineSourceType.manual) return;
+        final timeline = ref.read(timelineProvider(caseId).notifier);
+        if (v == EventRelevance.important && !entry.promoted) {
+          await timeline.promote(entry);
+        } else if (v != EventRelevance.important && entry.promoted) {
+          await timeline.unpromoteByKey(entry.eventKey);
+        }
+      });
+
+  Widget _relevanceMenu(BuildContext context, WidgetRef ref,
+      TimelineRatingsNotifier ratings) {
     final rel = entry.relevance;
     final (label, c) = switch (rel) {
       EventRelevance.important => ('Important', AppColors.warning),
@@ -567,7 +736,7 @@ class _FullLogItem extends ConsumerWidget {
     };
     return PopupMenuButton<EventRelevance>(
       tooltip: 'Set relevance',
-      onSelected: (v) => _run(context, () => ratings.setRelevance(entry.eventKey, v)),
+      onSelected: (v) => _rate(context, ref, ratings, v),
       itemBuilder: (_) => [
         for (final r in EventRelevance.values)
           PopupMenuItem(value: r, child: Text(r.label)),
@@ -592,8 +761,6 @@ class _FullLogItem extends ConsumerWidget {
 
   Widget _controlRow(
       BuildContext context, WidgetRef ref, TimelineRatingsNotifier ratings) {
-    final timeline = ref.read(timelineProvider(caseId).notifier);
-
     // Confirm an AI suggestion.
     final confirm = entry.pendingReview
         ? TextButton.icon(
@@ -607,51 +774,32 @@ class _FullLogItem extends ConsumerWidget {
           )
         : const SizedBox.shrink();
 
-    // Chronology inclusion control.
+    // Chronology inclusion is now just a read-only reflection of relevance
+    // (set via _relevanceMenu above) — Important goes straight in, no
+    // separate "add to chronology" action anymore. "Restore" (ignored ->
+    // Normal) is the one remaining control here.
     Widget chrono;
     if (entry.isIgnored) {
       chrono = TextButton.icon(
-        onPressed: () => _run(context,
-            () => ratings.setRelevance(entry.eventKey, EventRelevance.normal)),
+        onPressed: () => _rate(context, ref, ratings, EventRelevance.normal),
         style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             minimumSize: const Size(0, 32)),
         icon: const Icon(Icons.undo, size: 15),
         label: const Text('Restore', style: TextStyle(fontSize: 12)),
       );
-    } else if (entry.sourceType == TimelineSourceType.manual) {
-      final included = entry.includedInChronology;
-      chrono = TextButton.icon(
-        onPressed: () =>
-            _run(context, () => ratings.setIncluded(entry.eventKey, !included)),
-        style: TextButton.styleFrom(
-            foregroundColor: included ? _kColor : AppColors.textSecondary,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            minimumSize: const Size(0, 32)),
-        icon: Icon(included ? Icons.playlist_add_check : Icons.playlist_add,
-            size: 16),
-        label: Text(included ? 'In Chronology' : 'Add to Chronology',
-            style: const TextStyle(fontSize: 12)),
-      );
-    } else if (entry.promoted) {
-      chrono = TextButton.icon(
-        onPressed: () => timeline.unpromoteByKey(entry.eventKey),
-        style: TextButton.styleFrom(
-            foregroundColor: _kColor,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            minimumSize: const Size(0, 32)),
-        icon: const Icon(Icons.playlist_add_check, size: 16),
-        label: const Text('In Chronology', style: TextStyle(fontSize: 12)),
+    } else if (entry.includedInChronology) {
+      chrono = const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.playlist_add_check, size: 16, color: _kColor),
+          SizedBox(width: 4),
+          Text('In Chronology',
+              style: TextStyle(fontSize: 12, color: _kColor)),
+        ]),
       );
     } else {
-      chrono = TextButton.icon(
-        onPressed: () => timeline.promote(entry),
-        style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            minimumSize: const Size(0, 32)),
-        icon: const Icon(Icons.playlist_add, size: 16),
-        label: const Text('Add to Chronology', style: TextStyle(fontSize: 12)),
-      );
+      chrono = const SizedBox.shrink();
     }
 
     return Row(
@@ -770,15 +918,21 @@ Widget _emptyState({
 }
 
 Color _sourceColor(TimelineSourceType t) => switch (t) {
-      TimelineSourceType.occurrence => AppColors.coral,
-      TimelineSourceType.attendance => const Color(0xFFBF7E3A),
-      TimelineSourceType.repair     => AppColors.success,
-      TimelineSourceType.manual     => _kColor,
+      TimelineSourceType.occurrence     => AppColors.coral,
+      TimelineSourceType.attendance     => const Color(0xFFBF7E3A),
+      TimelineSourceType.repair         => AppColors.success,
+      TimelineSourceType.manual         => _kColor,
+      TimelineSourceType.correspondence => const Color(0xFF2A6099),
+      TimelineSourceType.document       => AppColors.midBlue,
+      TimelineSourceType.report         => AppColors.purple,
     };
 
 IconData _sourceIcon(TimelineSourceType t) => switch (t) {
-      TimelineSourceType.occurrence => Icons.warning_amber_outlined,
-      TimelineSourceType.attendance => Icons.calendar_today_outlined,
-      TimelineSourceType.repair     => Icons.verified_outlined,
-      TimelineSourceType.manual     => Icons.event_note_outlined,
+      TimelineSourceType.occurrence     => Icons.warning_amber_outlined,
+      TimelineSourceType.attendance     => Icons.calendar_today_outlined,
+      TimelineSourceType.repair         => Icons.verified_outlined,
+      TimelineSourceType.manual         => Icons.event_note_outlined,
+      TimelineSourceType.correspondence => Icons.mail_outline,
+      TimelineSourceType.document       => Icons.description_outlined,
+      TimelineSourceType.report         => Icons.task_alt_outlined,
     };

@@ -62,16 +62,21 @@ class TimelineRatingsNotifier
 
   /// Set relevance from an explicit surveyor action — this counts as review, so
   /// [TimelineEventRating.pendingReview] is cleared.
+  ///
+  /// Simplified 14 July 2026 walkthrough: rating an event **is** the
+  /// chronology-inclusion mechanism now, no separate "add to chronology"
+  /// step — see `chronologyIncludeForRating` (timeline_aggregation.dart) for
+  /// the actual inclusion rule this column mirrors informationally. Whether
+  /// an *aggregated* (non-manual) event's underlying `timeline_events` row
+  /// gets created/removed to match is handled by the caller — see
+  /// `TimelineScreen._rate` — since that needs `timelineProvider` too, which
+  /// this ratings-only notifier doesn't depend on.
   Future<void> setRelevance(String eventKey, EventRelevance relevance) async {
-    final next = _existingOrBlank(eventKey)
-        .copyWith(relevance: relevance, pendingReview: false);
-    await _persist(next);
-  }
-
-  /// Select / deselect an event for the report Chronology.
-  Future<void> setIncluded(String eventKey, bool included) async {
-    final next = _existingOrBlank(eventKey)
-        .copyWith(includedInChronology: included);
+    final next = _existingOrBlank(eventKey).copyWith(
+      relevance: relevance,
+      pendingReview: false,
+      includedInChronology: relevance == EventRelevance.important,
+    );
     await _persist(next);
   }
 

@@ -8,6 +8,7 @@ import '../providers/vessel_provider.dart';
 import '../../photos/providers/photo_provider.dart';
 import 'survey_field.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/case_photo_picker_sheet.dart';
 
@@ -99,10 +100,15 @@ class _AddComponentSheetState extends ConsumerState<AddComponentSheet> {
       final b64   = base64Encode(bytes);
       const mime  = 'image/jpeg';
 
-      final result = await ClaudeApi.extractNameplate(
-        base64Image: b64,
-        mediaType:   mime,
-      );
+      final result = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Scanning nameplate photo',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 12),
+            action: () => ClaudeApi.extractNameplate(
+              base64Image: b64,
+              mediaType: mime,
+            ),
+          );
       if (!mounted) return;
 
       setState(() {

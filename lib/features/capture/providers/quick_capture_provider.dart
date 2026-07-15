@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart' show CaseSection;
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -101,6 +104,20 @@ class QuickCaptureState {
   int get pendingCount => pending.length;
 }
 
+/// Which CaseSection a routed destination maps to for the real cue it
+/// creates — see [QuickCaptureNotifier.routeCapture]. Destinations with no
+/// clean cue-system home (checklist/doc request/interview question/general
+/// note) map to `null` (unallocated) rather than being force-fit into the
+/// wrong section; the surveyor re-tags from there via the existing Advice
+/// to Owner "Unallocated" tab, same as any other untagged cue. Top-level
+/// (not a private notifier method) so it's independently unit-testable and
+/// the test fake can call the exact same function instead of a duplicate.
+CaseSection? sectionForRoutedTo(RoutedTo r) => switch (r) {
+      RoutedTo.damageItem     => CaseSection.damage,
+      RoutedTo.occurrenceNote => CaseSection.occurrence,
+      _                       => null,
+    };
+
 // ── Provider ───────────────────────────────────────────────────────────────
 
 final quickCaptureProvider = AsyncNotifierProviderFamily<
@@ -161,12 +178,24 @@ class QuickCaptureNotifier
     }
   }
 
-  /// Route an item to its destination
+  /// Route an item to its destination.
+  ///
+  /// 14 July 2026 walkthrough — this used to only flip `status`/`routed_to`
+  /// on the `quick_captures` row itself; nothing downstream (cues, report
+  /// drafting) ever saw the content, so "routing" didn't actually connect
+  /// to anything. It now also creates the real `SurveyorNote` cue the rest
+  /// of the app reads from — capturing at a high, undifferentiated level
+  /// still works (destinations with no clean section land unallocated
+  /// instead of forcing a choice), but the content is no longer stranded
+  /// once triaged.
   Future<void> routeCapture({
     required String captureId,
     required RoutedTo destination,
     String? linkedId,
   }) async {
+    final current0 = state.value!;
+    final capture = current0.items.firstWhere((i) => i.captureId == captureId);
+
     await SupabaseService.client
         .from('quick_captures')
         .update({
@@ -175,6 +204,15 @@ class QuickCaptureNotifier
           if (linkedId != null) 'linked_id': linkedId,
         })
         .eq('capture_id', captureId);
+
+    if (destination != RoutedTo.discarded) {
+      await ref.read(surveyorNotesProvider(capture.caseId).notifier).add(
+            caseId: capture.caseId,
+            content: capture.content,
+            caseSection: sectionForRoutedTo(destination),
+            source: 'Quick Capture',
+          );
+    }
 
     final current = state.value!;
     state = AsyncData(QuickCaptureState(
@@ -221,11 +259,24 @@ class QuickCaptureNotifier
   /// Route all pending items at once using Claude suggestions
   Future<void> routeAllWithAI() async {
     final current = state.value!;
-    for (final item in current.pending) {
-      final suggestion = await getSuggestion(item.content);
-      await routeCapture(
-          captureId: item.captureId, destination: suggestion);
-    }
+    final pending = current.pending;
+    if (pending.isEmpty) return;
+    // One task for the whole batch, not one per item — reads better in the
+    // AI Activity panel ("Routing 5 cues") than N flickering entries for a
+    // single "Route All" tap.
+    await ref.read(aiTasksProvider.notifier).run(
+          label: 'Routing ${pending.length} capture'
+              '${pending.length == 1 ? '' : 's'}',
+          caseId: arg,
+          estimate: Duration(seconds: 6 * pending.length),
+          action: () async {
+            for (final item in pending) {
+              final suggestion = await getSuggestion(item.content);
+              await routeCapture(
+                  captureId: item.captureId, destination: suggestion);
+            }
+          },
+        );
   }
 
   Future<void> refresh() async {

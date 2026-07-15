@@ -152,34 +152,52 @@ void main() {
       );
     });
 
-    test('explicit include on an aggregated event includes it', () {
+    // 14 July 2026 walkthrough simplification: rating *is* the chronology-
+    // inclusion mechanism now — Important includes, Ignore excludes,
+    // Normal doesn't (except manual events, which default included). The
+    // standalone `includedInChronology`/`promoted` flags no longer
+    // independently drive inclusion (the underlying `timeline_events` row
+    // for an aggregated Important entry is now created/removed
+    // automatically to follow the relevance decision instead — see
+    // TimelineScreen._rate — so `promoted` here is just a mirror of that,
+    // not an alternate inclusion path).
+    test('important relevance on an aggregated event includes it', () {
       expect(
         chronologyIncludeForRating(
           sourceType: TimelineSourceType.attendance,
-          rating: _rating('attendance:a1', included: true),
+          rating: _rating('attendance:a1', relevance: EventRelevance.important),
         ),
         isTrue,
       );
     });
 
-    test('promoted overrides the aggregated default-exclude', () {
+    test('normal relevance on an aggregated event does not include it', () {
       expect(
         chronologyIncludeForRating(
           sourceType: TimelineSourceType.repair,
-          rating: null,
-          promoted: true,
+          rating: _rating('repair:rp1', relevance: EventRelevance.normal),
         ),
-        isTrue,
+        isFalse,
       );
     });
 
-    test('explicit exclude on a manual event removes it from chronology', () {
+    test('ignore relevance on a manual event removes it from chronology', () {
       expect(
         chronologyIncludeForRating(
           sourceType: TimelineSourceType.manual,
-          rating: _rating('manual:m1', included: false),
+          rating: _rating('manual:m1', relevance: EventRelevance.ignore),
         ),
         isFalse,
+      );
+    });
+
+    test('normal relevance on a manual event still defaults to included', () {
+      expect(
+        chronologyIncludeForRating(
+          sourceType: TimelineSourceType.manual,
+          rating: _rating('manual:m1', relevance: EventRelevance.normal),
+        ),
+        isTrue,
       );
     });
   });

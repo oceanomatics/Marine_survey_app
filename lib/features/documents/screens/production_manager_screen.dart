@@ -246,7 +246,7 @@ class _ItemCardState extends ConsumerState<_ItemCard> {
   void _open(BuildContext context) {
     final base = '/cases/${widget.caseId}';
     context.push(widget.item.kind == _ItemKind.document
-        ? '$base/documents'
+        ? '$base/documents?reviewDocId=${widget.item.id}'
         : '$base/accounts/${widget.item.id}');
   }
 

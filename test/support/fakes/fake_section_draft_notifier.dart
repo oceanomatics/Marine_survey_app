@@ -5,10 +5,12 @@
 // the screen renders/reacts to section state correctly, not that the AI
 // drafting or persistence pipeline works (that's Manual/Integ — see
 // TEST_SHEET.md).
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/reports/providers/report_provider.dart';
 
 class FakeSectionDraftNotifier extends SectionDraftNotifier {
-  FakeSectionDraftNotifier(super.caseId, super.outputId, this._seed);
+  FakeSectionDraftNotifier(Ref ref, String caseId, String outputId, this._seed)
+      : super(ref, caseId, outputId);
   final Map<SectionType, ReportSection> _seed;
 
   @override
@@ -34,6 +36,20 @@ class FakeSectionDraftNotifier extends SectionDraftNotifier {
     if (existing != null) {
       state = {...state, type: existing.copyWith(remarks: remarks)};
     }
+  }
+
+  @override
+  void insertAiChatContent(SectionType type, String content) {
+    final existing = state[type];
+    if (existing == null ||
+        existing.isLocked ||
+        autoPopulatedSectionTypes.contains(type)) {
+      return;
+    }
+    state = {
+      ...state,
+      type: existing.copyWith(content: content, aiDrafted: true),
+    };
   }
 
   @override

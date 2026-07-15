@@ -255,20 +255,14 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
     // copy rather than spiking with multiple concurrent reads.
     for (var i = 0; i < xFiles.length; i++) {
       if (!mounted) break;
-      var bytes = await xFiles[i].readAsBytes();
-      // Dart-side compression — equivalent quality to the removed imageQuality: 90
-      // but applied per-photo so processing overlaps with UI rendering.
-      try {
-        bytes = await FlutterImageCompress.compressWithList(
-          bytes,
-          minWidth: 2048,
-          minHeight: 2048,
-          quality: 85,
-          format: CompressFormat.jpeg,
-        );
-      } catch (_) {
-        // If compression fails (e.g. unsupported format) keep original bytes.
-      }
+      // Pass raw bytes straight to addPhoto — it already reads EXIF and
+      // compresses internally (same pipeline as camera/files/folder
+      // imports via _importBytes). This loop used to compress a second
+      // time here first, which stripped DateTimeOriginal before addPhoto
+      // ever saw it, so every gallery-imported photo fell back to the
+      // import timestamp instead of its real taken-date and silently broke
+      // attendance auto-match (14 July 2026 walkthrough finding).
+      final bytes = await xFiles[i].readAsBytes();
       await ref.read(photosProvider(widget.caseId).notifier).addPhoto(
             caseId: widget.caseId,
             bytes: bytes,
@@ -1379,6 +1373,45 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     );
   }
 
+  /// Manual photo → attendance allocation (14 July 2026 walkthrough — a
+  /// working version of this existed as `PhotoDetailSheet`, but that widget
+  /// was never actually wired into any screen; this is the viewer that's
+  /// really reachable). Applies immediately, not deferred to the caption/
+  /// allocation Save button — this viewer already watches `photosProvider`
+  /// reactively so the badge updates on its own.
+  String _attendanceLabelFor(PhotoModel photo) {
+    if (photo.attendanceId == null) return 'Not allocated';
+    final attendances =
+        ref.read(attendancesProvider(widget.caseId)).value ?? [];
+    final i = attendances.indexWhere((a) => a.attendanceId == photo.attendanceId);
+    if (i == -1) return 'Attendance';
+    final date = attendances[i].attendanceDate;
+    return 'Attendance ${i + 1}${date != null ? ' — ${_fmtShortDate(date)}' : ''}';
+  }
+
+  static String _fmtShortDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+
+  void _showAttendancePicker() {
+    final attendances =
+        ref.read(attendancesProvider(widget.caseId)).value ?? [];
+    final ph = _livePhoto();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AttendancePickerSheet(
+        attendances: attendances,
+        currentAttendanceId: ph.attendanceId,
+        onSelected: (id) async {
+          Navigator.pop(context);
+          await ref
+              .read(photosProvider(widget.caseId).notifier)
+              .updateAttendanceId(ph.id, id);
+        },
+      ),
+    );
+  }
+
   /// §2.4: Annexure E photo register fields (spec §4.8) — kept out of the
   /// main inline edit panel (already tight, especially with the keyboard
   /// open) and behind a dedicated sheet instead, same pattern as allocation.
@@ -1672,11 +1705,51 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 7),
+                        // Significance to Claim surfaced here, not just
+                        // buried in the Register Details sheet (14 July
+                        // 2026 walkthrough) — still edited in that sheet
+                        // (it's part of the wider Annexure E field set),
+                        // this is just a visible preview + shortcut to it.
+                        GestureDetector(
+                          onTap: _showRegisterDetails,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 7),
+                            child: Row(children: [
+                              const Icon(Icons.flag_outlined,
+                                  size: 12, color: AppColors.textTertiary),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  (currentPhoto.significanceToClaim
+                                              ?.isNotEmpty ==
+                                          true)
+                                      ? currentPhoto.significanceToClaim!
+                                      : 'Add significance to claim…',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                      color: (currentPhoto.significanceToClaim
+                                                  ?.isNotEmpty ==
+                                              true)
+                                          ? AppColors.textSecondary
+                                          : AppColors.textTertiary),
+                                ),
+                              ),
+                            ]),
+                          ),
+                        ),
                         Row(children: [
                           GestureDetector(
                             onTap: _showAllocationPicker,
                             child: _AllocationBadge(allocation: _allocation),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: _showAttendancePicker,
+                            child: _AttendanceBadge(
+                                label: _attendanceLabelFor(_livePhoto())),
                           ),
                           const Spacer(),
                           saveBtn,
@@ -1834,6 +1907,103 @@ class _AllocationBadge extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Icon(Icons.expand_more, size: 14, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttendanceBadge extends StatelessWidget {
+  const _AttendanceBadge({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final allocated = label != 'Not allocated';
+    final color = allocated ? AppColors.midBlue : AppColors.textTertiary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+            color: allocated ? color.withValues(alpha: 0.35) : AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.event_outlined, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more, size: 14, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+/// Manual photo → attendance picker (14 July 2026 walkthrough).
+class _AttendancePickerSheet extends StatelessWidget {
+  const _AttendancePickerSheet({
+    required this.attendances,
+    required this.currentAttendanceId,
+    required this.onSelected,
+  });
+  final List<SurveyAttendanceModel> attendances;
+  final String? currentAttendanceId;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Allocate to Attendance',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.link_off_outlined,
+                color: AppColors.textTertiary),
+            title: const Text('Not allocated'),
+            trailing: currentAttendanceId == null
+                ? const Icon(Icons.check, color: AppColors.midBlue)
+                : null,
+            onTap: () => onSelected(null),
+          ),
+          for (var i = 0; i < attendances.length; i++)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading:
+                  const Icon(Icons.event_outlined, color: AppColors.midBlue),
+              title: Text('Attendance ${i + 1}'
+                  '${attendances[i].attendanceDate != null ? ' — ${_PhotoViewerState._fmtShortDate(attendances[i].attendanceDate!)}' : ''}'),
+              trailing: currentAttendanceId == attendances[i].attendanceId
+                  ? const Icon(Icons.check, color: AppColors.midBlue)
+                  : null,
+              onTap: () => onSelected(attendances[i].attendanceId),
+            ),
+          if (attendances.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('No attendances logged yet for this case.',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textTertiary,
+                      fontStyle: FontStyle.italic)),
+            ),
         ],
       ),
     );

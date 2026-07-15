@@ -148,58 +148,61 @@ class _NatureOfRepairsScreenState
                         data.foreseeableDifficulties, t)),
               ),
               const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        color: Colors.white,
-                        padding: const EdgeInsets.all(14),
-                        child: const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Anticipated Sequence of Repairs',
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.textPrimary)),
-                            SizedBox(height: 2),
-                            Text(
-                                'Free list, presented as a bullet list in the '
-                                'report — e.g. temporary repairs, permanent '
-                                'repairs, class attendance, sea trials…',
-                                style: TextStyle(
-                                    fontSize: 10.5,
-                                    color: AppColors.textTertiary)),
-                          ],
-                        ),
+              Container(
+                // Single Container owning both border and clip (same RRect
+                // for both) instead of a separate outer ClipRRect — two
+                // independently computed rounded paths at the same nominal
+                // radius don't align pixel-for-pixel, producing a corner
+                // seam. Same fix as CueSectionCard in context_cues_panel.dart.
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      color: Colors.white,
+                      padding: const EdgeInsets.all(14),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Anticipated Sequence of Repairs',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary)),
+                          SizedBox(height: 2),
+                          Text(
+                              'Free list, presented as a bullet list in the '
+                              'report — e.g. temporary repairs, permanent '
+                              'repairs, class attendance, sea trials…',
+                              style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: AppColors.textTertiary)),
+                        ],
                       ),
-                      AddableBulletList(
-                        label: 'SEQUENCE OF REPAIRS',
-                        items: data.sequenceItems
-                            .map((e) =>
-                                BulletListItem(id: e.itemId, text: e.text))
-                            .toList(),
-                        emptyText:
-                            'No items added. Tap Add to record an anticipated step.',
-                        onAdd: () => showAddBulletItemDialog(
-                          context,
-                          title: 'Add Repair Step',
-                          hintText: 'Describe the anticipated step…',
-                          onAdd: notifier.addSequenceItem,
-                        ),
-                        onRemove: notifier.removeSequenceItem,
-                        onReorder: notifier.reorderSequenceItems,
+                    ),
+                    AddableBulletList(
+                      label: 'SEQUENCE OF REPAIRS',
+                      items: data.sequenceItems
+                          .map((e) =>
+                              BulletListItem(id: e.itemId, text: e.text))
+                          .toList(),
+                      emptyText:
+                          'No items added. Tap Add to record an anticipated step.',
+                      onAdd: () => showAddBulletItemDialog(
+                        context,
+                        title: 'Add Repair Step',
+                        hintText: 'Describe the anticipated step…',
+                        onAdd: notifier.addSequenceItem,
                       ),
-                    ],
-                  ),
+                      onRemove: notifier.removeSequenceItem,
+                      onReorder: notifier.reorderSequenceItems,
+                    ),
+                  ],
                 ),
               ),
             ],

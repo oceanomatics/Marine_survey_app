@@ -85,10 +85,10 @@ class PhotoPickerSheet extends StatelessWidget {
           isGoogleDrive
               ? 'Google Drive folders cannot be browsed directly on this device.\n\n'
                   'To import Drive photos:\n'
-                  '• Use "Files / Cloud Drive" → navigate to the folder → select files individually\n'
+                  '• Use "Files" → navigate to the folder → select files individually\n'
                   '• Or open Google Drive, make the folder available offline, then try again'
               : 'This folder is provided by a cloud storage app and cannot '
-                  'be read directly.\n\nUse "Files / Cloud Drive" to select '
+                  'be read directly.\n\nUse "Files" to select '
                   'individual files instead.',
         ),
         actions: [
@@ -131,6 +131,18 @@ class PhotoPickerSheet extends StatelessWidget {
       return null;
     }
 
+    // Scanning a large folder synchronously can take a visible moment with
+    // nothing on screen to show for it — looked "frozen" (14 July 2026
+    // walkthrough). Drive's folder picker already had its own loading
+    // spinner; this local scan didn't, since it runs before any screen of
+    // its own exists to hold one.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: Colors.white)),
+    );
+
     List<File> imageFiles = [];
     try {
       imageFiles = Directory(dirPath)
@@ -143,6 +155,7 @@ class PhotoPickerSheet extends StatelessWidget {
     } catch (e) {
       debugPrint('[FolderImport] ERROR listing directory: $e');
       if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('Could not read folder: $e'),
@@ -151,6 +164,7 @@ class PhotoPickerSheet extends StatelessWidget {
       }
       return null;
     }
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
     if (imageFiles.isEmpty) {
       if (context.mounted) {
@@ -325,65 +339,80 @@ class PhotoPickerSheet extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(2),
+          // SingleChildScrollView, not a bare Column — 5 tiles with fuller
+          // subtitles (14 July 2026 walkthrough §11 clarification) plus a
+          // larger system text-scale setting can exceed a small phone's
+          // available height with nothing to scroll (same overflow class
+          // as several other bottom sheets fixed earlier this session).
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(title,
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary)),
-              const SizedBox(height: 6),
-              _Tile(
-                icon: Icons.camera_alt_outlined,
-                title: 'Camera',
-                subtitle: 'Take a new photo',
-                color: accentColor,
-                onTap: () => Navigator.pop(context, PhotoPickSource.camera),
-              ),
-              _Tile(
-                icon: Icons.photo_library_outlined,
-                title: 'Photo Library',
-                subtitle: 'Select one or more — includes iCloud, Google Photos',
-                color: accentColor,
-                onTap: () => Navigator.pop(context, PhotoPickSource.gallery),
-              ),
-              _Tile(
-                icon: Icons.folder_open_outlined,
-                title: 'Files / Cloud Drive',
-                subtitle:
-                    'Select individual files — Downloads, email attachments, cloud drives',
-                color: accentColor,
-                onTap: () => Navigator.pop(context, PhotoPickSource.files),
-              ),
-              _Tile(
-                icon: Icons.drive_folder_upload_outlined,
-                title: 'Import from Folder',
-                subtitle: 'Pick a folder and select all images at once',
-                color: accentColor,
-                onTap: () =>
-                    Navigator.pop(context, PhotoPickSource.localFolder),
-              ),
-              _Tile(
-                icon: Icons.add_to_drive_outlined,
-                title: 'Google Drive',
-                subtitle: 'Browse a Drive folder and select images',
-                color: accentColor,
-                onTap: () =>
-                    Navigator.pop(context, PhotoPickSource.driveFolder),
-              ),
-            ],
+                const SizedBox(height: 14),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary)),
+                const SizedBox(height: 6),
+                _Tile(
+                  icon: Icons.camera_alt_outlined,
+                  title: 'Camera',
+                  subtitle: 'Take a new photo right now',
+                  color: accentColor,
+                  onTap: () => Navigator.pop(context, PhotoPickSource.camera),
+                ),
+                // The four import options below all sound similar and were
+                // flagged as "awkward" (14 July 2026 walkthrough §11) — each
+                // subtitle now names the actual source app/location so it's
+                // clear which one to reach for, rather than a generic
+                // description that could apply to more than one option.
+                _Tile(
+                  icon: Icons.photo_library_outlined,
+                  title: 'Photo Library',
+                  subtitle:
+                      "This device's own Photos app — includes anything already synced there from iCloud or Google Photos",
+                  color: accentColor,
+                  onTap: () => Navigator.pop(context, PhotoPickSource.gallery),
+                ),
+                _Tile(
+                  icon: Icons.folder_open_outlined,
+                  title: 'Files',
+                  subtitle:
+                      "The system Files picker — Downloads, email attachments, or any other app's storage, one or more at a time",
+                  color: accentColor,
+                  onTap: () => Navigator.pop(context, PhotoPickSource.files),
+                ),
+                _Tile(
+                  icon: Icons.drive_folder_upload_outlined,
+                  title: 'Import from Folder',
+                  subtitle:
+                      'A folder on this device — imports every image inside it in one go, faster than picking files one by one',
+                  color: accentColor,
+                  onTap: () =>
+                      Navigator.pop(context, PhotoPickSource.localFolder),
+                ),
+                _Tile(
+                  icon: Icons.add_to_drive_outlined,
+                  title: 'Google Drive',
+                  subtitle:
+                      "Browse a folder in this app's Google Drive integration directly — not the same as picking a Drive file via Files above",
+                  color: accentColor,
+                  onTap: () =>
+                      Navigator.pop(context, PhotoPickSource.driveFolder),
+                ),
+              ],
+            ),
           ),
         ));
   }

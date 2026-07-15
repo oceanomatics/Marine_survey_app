@@ -8,86 +8,103 @@ import '../providers/organisations_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
+/// Create-new-organisation dialog + navigation to the new org's detail
+/// screen — shared by [OrganisationListScreen]'s own FAB and the
+/// Organisations tab on the unified Account & Organisation screen
+/// (14 July 2026 walkthrough restructure), so both trigger the identical
+/// flow rather than two copies of the same dialog.
+Future<void> createOrganisation(BuildContext context, WidgetRef ref) async {
+  final ctrl = TextEditingController();
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('New Organisation'),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Firm name',
+          hintText: 'e.g. Oceanoservices Pty Ltd',
+        ),
+        textCapitalization: TextCapitalization.words,
+        onSubmitted: (_) => Navigator.of(ctx).pop(ctrl.text.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+  if (name == null || name.isEmpty) return;
+  if (!context.mounted) return;
+  final org =
+      await ref.read(organisationsProvider.notifier).createOrganisation(name: name);
+  if (context.mounted) {
+    context.push('/organisations/${org.organisationId}');
+  }
+}
+
 class OrganisationListScreen extends ConsumerWidget {
   const OrganisationListScreen({super.key});
 
-  Future<void> _createNew(BuildContext context, WidgetRef ref) async {
-    final ctrl = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Organisation'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Firm name',
-            hintText: 'e.g. Oceanoservices Pty Ltd',
-          ),
-          textCapitalization: TextCapitalization.words,
-          onSubmitted: (_) => Navigator.of(ctx).pop(ctrl.text.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      appBar: const BackAppBar(title: Text('Organisations')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => createOrganisation(context, ref),
+        icon: const Icon(Icons.add),
+        label: const Text('New Organisation'),
       ),
+      body: const OrganisationsTabBody(),
     );
-    if (name == null || name.isEmpty) return;
-    if (!context.mounted) return;
-    final org = await ref
-        .read(organisationsProvider.notifier)
-        .createOrganisation(name: name);
-    if (context.mounted) {
-      context.push('/organisations/${org.organisationId}');
-    }
   }
+}
+
+/// The list content itself, with no Scaffold/AppBar/FAB of its own — reused
+/// as-is by [OrganisationListScreen] (still a directly-routable screen,
+/// `/organisations`) and as the Organisations tab body on the unified
+/// Account & Organisation screen.
+class OrganisationsTabBody extends ConsumerWidget {
+  const OrganisationsTabBody({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(organisationsProvider);
 
-    return Scaffold(
-      appBar: const BackAppBar(title: Text('Organisations')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _createNew(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('New Organisation'),
-      ),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: AppColors.error),
-              const SizedBox(height: 12),
-              Text(e.toString(),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.textSecondary)),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => ref.invalidate(organisationsProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+            const SizedBox(height: 12),
+            Text(e.toString(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => ref.invalidate(organisationsProvider),
+              child: const Text('Retry'),
+            ),
+          ],
         ),
-        data: (orgs) => orgs.isEmpty
-            ? _EmptyState(onAdd: () => _createNew(context, ref))
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                itemCount: orgs.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) => _OrgTile(org: orgs[i]),
-              ),
       ),
+      data: (orgs) => orgs.isEmpty
+          ? _EmptyState(onAdd: () => createOrganisation(context, ref))
+          : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              itemCount: orgs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (_, i) => _OrgTile(org: orgs[i]),
+            ),
     );
   }
 }

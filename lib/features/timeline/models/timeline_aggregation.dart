@@ -8,6 +8,9 @@
 // top-of-file note in reports/utils/section_table_rows.dart).
 
 import '../../attendances/models/attendance_model.dart';
+import '../../correspondence/models/correspondence_model.dart';
+import '../../documents/providers/document_provider.dart' show DocumentModel;
+import '../../reports/providers/report_provider.dart' show ReportOutput;
 import '../../survey/providers/damage_provider.dart';
 import 'timeline_entry.dart';
 import 'timeline_event_rating.dart';
@@ -18,19 +21,26 @@ import 'timeline_event_model.dart';
 /// timeline filter, so the in-app selection and the rendered report never
 /// disagree.
 ///
-/// - Ignored events never appear.
-/// - A promoted or explicitly-included event appears.
-/// - With no rating, a manual (`timeline_events`) row defaults to included
-///   (preserves the report builder's long-standing "list every timeline row"
-///   behaviour); aggregated non-timeline events default to excluded.
+/// Simplified 14 July 2026 walkthrough: rating an event **is** the
+/// chronology-inclusion mechanism — no separate promote/select-for-
+/// chronology step. Important -> included; Ignored -> never; Normal ->
+/// stays Full-Log-only unless it's a manual (`timeline_events`-backed)
+/// event, which stays included by default absent an explicit Normal/Ignore
+/// rating (preserves "list every timeline row" for un-curated cases, and
+/// custom event creation's existing behaviour — that flow wasn't changed).
+/// [promoted] is kept in the signature for call-site compatibility but no
+/// longer independently drives inclusion — see
+/// `TimelineRatingsNotifier.setRelevance` for how an aggregated entry's
+/// underlying `timeline_events` row is now created/removed automatically
+/// to follow the relevance decision instead of a separate manual action.
 bool chronologyIncludeForRating({
   required TimelineSourceType sourceType,
   required TimelineEventRating? rating,
   bool promoted = false,
 }) {
-  if (rating?.relevance == EventRelevance.ignore) return false;
-  if (promoted) return true;
-  if (rating != null) return rating.includedInChronology;
+  final relevance = rating?.relevance ?? EventRelevance.normal;
+  if (relevance == EventRelevance.ignore) return false;
+  if (relevance == EventRelevance.important) return true;
   return sourceType == TimelineSourceType.manual;
 }
 
@@ -44,6 +54,9 @@ List<TimelineEntry> aggregateTimelineEntries({
   List<TimelineEventModel> manualEvents = const [],
   List<SurveyAttendanceModel> attendances = const [],
   DamageState? damage,
+  List<CorrespondenceModel> correspondence = const [],
+  List<DocumentModel> documents = const [],
+  List<ReportOutput> reportOutputs = const [],
   Map<String, TimelineEventRating> ratingsByKey = const {},
   Set<String> promotedSourceKeys = const {},
 }) {
@@ -98,6 +111,54 @@ List<TimelineEntry> aggregateTimelineEntries({
       title:       r.description ?? '${r.repairType.label} repairs completed',
       description: r.notes,
       badge:       '${r.repairType.label} · Completed',
+    )));
+  }
+
+  // Correspondence (14 July 2026 walkthrough — was entirely absent from
+  // the Full Log).
+  for (final c in correspondence) {
+    list.add(join(TimelineEntry(
+      sourceType:  TimelineSourceType.correspondence,
+      sourceId:    c.id,
+      date:        c.corrDate,
+      title:       c.title,
+      subtitle:    [
+        if (c.sender != null) 'From: ${c.sender}',
+        if (c.recipient != null) 'To: ${c.recipient}',
+      ].join(' · '),
+      description: c.summary,
+      badge:       'Correspondence',
+    )));
+  }
+
+  // Documents — the date extracted from the document's own content
+  // (docDate), never the import/upload timestamp. Documents with no
+  // extracted content date simply don't appear here (there's nothing
+  // dated to log).
+  for (final d in documents) {
+    if (d.docDate == null) continue;
+    list.add(join(TimelineEntry(
+      sourceType: TimelineSourceType.document,
+      sourceId:   d.docId,
+      date:       d.docDate,
+      title:      d.title,
+      badge:      d.docCategory?.label ?? 'Document',
+    )));
+  }
+
+  // Report issuance — the surveyor's own issued-report milestone.
+  // issuedDate only, never createdAt (report-generation timestamps stay
+  // excluded from the log).
+  for (final r in reportOutputs) {
+    if (r.issuedDate == null) continue;
+    list.add(join(TimelineEntry(
+      sourceType: TimelineSourceType.report,
+      sourceId:   r.outputId,
+      date:       r.issuedDate,
+      title:      '${r.outputType.label} issued'
+          '${r.reportNumber != null ? ' (${r.reportNumber})' : ''}',
+      subtitle:   r.issuedTo,
+      badge:      'Report',
     )));
   }
 

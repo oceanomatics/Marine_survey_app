@@ -48,10 +48,14 @@ class SectionReferencePanel extends StatelessWidget {
 
   Widget? _build(BuildContext context) {
     switch (type) {
-      case SectionType.opening:
-        final rows = buildOccurrenceRows(assembled.occurrences);
-        if (rows.isEmpty) return null;
-        return _panel('Occurrence(s) on file', _RegisterTable(rows: rows));
+      // Deliberately no reference panel for SectionType.opening — this
+      // section's content is fixed, surveyor-approved legal wording (see
+      // _fillOpeningClause), not composed from the occurrence register the
+      // way e.g. Attending Representatives is literally built from
+      // attendance blocks. An occurrence table underneath read as unrelated
+      // clutter next to a "read only" legal clause (14 July 2026 live bug
+      // report — surveyor circled both this and the class-status sentence
+      // below as "wrong place for these items").
 
       case SectionType.vesselParticulars:
         final rows = buildVesselParticularsRows(assembled.vessel ?? {});

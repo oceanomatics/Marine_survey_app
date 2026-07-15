@@ -4,6 +4,7 @@
 // Exported conditionally from sherpa_service.dart when dart.library.io is absent.
 
 import 'dart:async';
+import 'dart:typed_data';
 import 'model_manager.dart';
 import '../../features/settings/providers/speech_settings_provider.dart';
 
@@ -25,6 +26,10 @@ class SherpaService {
   Stream<SherpaResult> startStreaming() => const Stream.empty();
 
   Future<String> stop() async => '';
+
+  Uint8List? takeRawAudioWav() => null;
+
+  void clearRawAudio() {}
 
   void dispose() {}
 }

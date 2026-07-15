@@ -18,6 +18,7 @@ import '../../cases/providers/cases_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../vessel/widgets/survey_field.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
@@ -39,11 +40,6 @@ const _kAftermathOptions = {
   'towed':                     'Towed',
   'proceeded_with_operations': 'Proceeded with Operations',
 };
-
-/// Polymorphic link type for cues scoped to a single occurrence — same
-/// linked_to_type/linked_to_id mechanism already used for repair periods
-/// and machinery nameplates (docs/context_cue_system_review.md).
-const occurrenceLinkType = 'occurrence';
 
 class OccurrenceEditorScreen extends ConsumerStatefulWidget {
   const OccurrenceEditorScreen({
@@ -182,18 +178,27 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
           .map((n) => n.content)
           .toList();
 
-      final text = await ClaudeApi.draftOccurrenceNarrative(
-        vesselName:         vessel?.name ?? 'the vessel',
-        occurrenceDate:     _dateTime != null ? _formatDateTime(_dateTime!) : 'unknown',
-        occurrenceLocation: _locationCtrl.text.trim().isEmpty
-            ? 'unknown' : _locationCtrl.text.trim(),
-        occurrenceTitle:    _titleCtrl.text.trim().isEmpty
-            ? (widget.occurrence.title ?? 'Occurrence ${widget.occurrence.occurrenceNo}')
-            : _titleCtrl.text.trim(),
-        damageItems:        [...damageItems, ...cues],
-        interviewTranscript: null,
-        reportFormat:       caseModel?.outputFormat?.value ?? 'abl',
-      );
+      final text = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Drafting occurrence narrative',
+            caseId: widget.caseId,
+            caseLabel: vessel?.name,
+            estimate: const Duration(seconds: 20),
+            action: () => ClaudeApi.draftOccurrenceNarrative(
+              vesselName: vessel?.name ?? 'the vessel',
+              occurrenceDate:
+                  _dateTime != null ? _formatDateTime(_dateTime!) : 'unknown',
+              occurrenceLocation: _locationCtrl.text.trim().isEmpty
+                  ? 'unknown'
+                  : _locationCtrl.text.trim(),
+              occurrenceTitle: _titleCtrl.text.trim().isEmpty
+                  ? (widget.occurrence.title ??
+                      'Occurrence ${widget.occurrence.occurrenceNo}')
+                  : _titleCtrl.text.trim(),
+              damageItems: [...damageItems, ...cues],
+              interviewTranscript: null,
+              reportFormat: caseModel?.outputFormat?.value ?? 'abl',
+            ),
+          );
       if (mounted) _narrativeCtrl.text = text;
     } catch (e) {
       if (mounted) {

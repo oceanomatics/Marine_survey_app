@@ -52,7 +52,7 @@ Future<void> _pump(
         caseProvider.overrideWith(() => FakeCaseNotifier(caseModel ?? fixtureCase())),
         photosProvider.overrideWith(() => FakePhotoNotifier(photos)),
         sectionDraftProvider.overrideWith(
-          (ref, key) => FakeSectionDraftNotifier(key.caseId, key.outputId, seedSections),
+          (ref, key) => FakeSectionDraftNotifier(ref, key.caseId, key.outputId, seedSections),
         ),
       ],
       child: MaterialApp.router(routerConfig: router),

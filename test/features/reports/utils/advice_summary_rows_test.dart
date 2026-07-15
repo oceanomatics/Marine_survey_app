@@ -30,29 +30,47 @@ AssembledReportData _assembled({
       allReportOutputs: const [],
     );
 
-ReportOutput _output({
-  String? adviceRemarks,
-  String? adviceDescriptionOfDamage,
-  String? adviceNatureOfRepairs,
-}) =>
-    ReportOutput(
+ReportOutput _output({String? adviceRemarks}) => ReportOutput(
       outputId: 'o1',
       caseId: 'c1',
       outputType: OutputType.advice,
       status: ReportStatus.draft,
       sections: const [],
       adviceRemarks: adviceRemarks,
-      adviceDescriptionOfDamage: adviceDescriptionOfDamage,
-      adviceNatureOfRepairs: adviceNatureOfRepairs,
     );
+
+/// [sections] mirrors `sectionDraftProvider`'s computed state — Description
+/// of Damage / Nature of Repairs are sourced from here (14 July 2026), not
+/// from the report output, so they always match what the report body
+/// actually shows (AI-drafted or deterministic default alike).
+Map<SectionType, ReportSection> _sections({
+  String? damageContent,
+  String? natureContent,
+}) =>
+    {
+      if (damageContent != null)
+        SectionType.damageDescription: ReportSection(
+          type: SectionType.damageDescription,
+          title: 'Extent of Damage',
+          content: damageContent,
+        ),
+      if (natureContent != null)
+        SectionType.natureOfRepairs: ReportSection(
+          type: SectionType.natureOfRepairs,
+          title: 'Nature of the Repairs',
+          content: natureContent,
+        ),
+    };
 
 void main() {
   group('buildAdviceSummaryRows', () {
-    test('always returns the full fixed 8-row layout even with no data', () {
-      final rows = buildAdviceSummaryRows(_output(), _assembled());
-      expect(rows, hasLength(8));
+    test('always returns the full fixed 10-row layout even with no data', () {
+      final rows = buildAdviceSummaryRows(_output(), _assembled(), _sections());
+      expect(rows, hasLength(10));
       expect(rows.map((r) => r[0]), [
         'UCR / Reference',
+        'Assured',
+        'Instructing Party',
         'Date and Nature of Casualty',
         'Description of Damage',
         'Nature of Repairs',
@@ -64,7 +82,7 @@ void main() {
     });
 
     test('UCR / Reference falls back to a [TBD] placeholder when unset', () {
-      final rows = buildAdviceSummaryRows(_output(), _assembled());
+      final rows = buildAdviceSummaryRows(_output(), _assembled(), _sections());
       expect(rows[0][1], '[TBD]');
     });
 
@@ -72,14 +90,29 @@ void main() {
       final rows = buildAdviceSummaryRows(
         _output(),
         _assembled(caseData: {'claim_reference': 'CLM-2026-001'}),
+        _sections(),
       );
       expect(rows[0][1], 'CLM-2026-001');
     });
 
+    test('Assured / Instructing Party come from case-level fields', () {
+      final rows = buildAdviceSummaryRows(
+        _output(),
+        _assembled(caseData: {
+          'assured': 'Owner Co Ltd',
+          'instructing_party': 'Some Underwriters',
+        }),
+        _sections(),
+      );
+      expect(rows[1][1], 'Owner Co Ltd');
+      expect(rows[2][1], 'Some Underwriters');
+    });
+
     test('Status of Repairs row title flips to "Sum Approved Without Prejudice" '
         'once repairs are complete', () {
-      final notStarted = buildAdviceSummaryRows(_output(), _assembled());
-      expect(notStarted[5][0], 'Estimated Cost of Repairs');
+      final notStarted =
+          buildAdviceSummaryRows(_output(), _assembled(), _sections());
+      expect(notStarted[7][0], 'Estimated Cost of Repairs');
 
       final complete = buildAdviceSummaryRows(
         _output(),
@@ -89,8 +122,9 @@ void main() {
             'start_date': '2026-01-01', 'end_date': '2026-01-10',
           },
         ]),
+        _sections(),
       );
-      expect(complete[5][0], 'Sum Approved Without Prejudice');
+      expect(complete[7][0], 'Sum Approved Without Prejudice');
     });
 
     test('estimated cost is formatted with currency and thousands separator', () {
@@ -100,8 +134,9 @@ void main() {
           'base_currency': 'USD',
           'estimated_repair_cost': 125000.5,
         }),
+        _sections(),
       );
-      expect(rows[5][1], contains('USD 125,000.50'));
+      expect(rows[7][1], contains('USD 125,000.50'));
     });
 
     test('Remarks includes the allegation status and any advice remarks', () {
@@ -110,9 +145,10 @@ void main() {
         _assembled(occurrences: [
           {'allegation_type': 'formal_allegation'},
         ]),
+        _sections(),
       );
-      expect(rows[7][1], contains('Allegation made'));
-      expect(rows[7][1], contains('Follow-up survey recommended.'));
+      expect(rows[9][1], contains('Allegation made'));
+      expect(rows[9][1], contains('Follow-up survey recommended.'));
     });
 
     test('follow-up line reflects case-level follow_up_required flag', () {
@@ -122,20 +158,30 @@ void main() {
           'follow_up_required': true,
           'follow_up_detail': 'Recheck shaft alignment',
         }),
+        _sections(),
       );
-      expect(rows[7][1], contains('Follow-up attendance required: Recheck shaft alignment'));
+      expect(rows[9][1], contains('Follow-up attendance required: Recheck shaft alignment'));
     });
 
-    test('Description of Damage / Nature of Repairs come from the report output, not the case', () {
+    test('Description of Damage / Nature of Repairs come from the computed '
+        'report sections, not a per-report-output field', () {
       final rows = buildAdviceSummaryRows(
-        _output(
-          adviceDescriptionOfDamage: 'Dented shell plating port side.',
-          adviceNatureOfRepairs: 'Renew and fair plating.',
-        ),
+        _output(),
         _assembled(),
+        _sections(
+          damageContent: 'Dented shell plating port side.',
+          natureContent: 'Renew and fair plating.',
+        ),
       );
-      expect(rows[2][1], 'Dented shell plating port side.');
-      expect(rows[3][1], 'Renew and fair plating.');
+      expect(rows[4][1], 'Dented shell plating port side.');
+      expect(rows[5][1], 'Renew and fair plating.');
+    });
+
+    test('Description of Damage / Nature of Repairs fall back to a pending '
+        'placeholder when no section content exists yet', () {
+      final rows = buildAdviceSummaryRows(_output(), _assembled(), _sections());
+      expect(rows[4][1], '[description of damage — pending]');
+      expect(rows[5][1], '[nature of repairs — pending]');
     });
   });
 }

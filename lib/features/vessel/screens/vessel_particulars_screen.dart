@@ -85,27 +85,17 @@ const _classSocieties = [
   'P.R.S',
 ];
 
-const _propulsionTypes = [
-  'single screw, motor driven',
-  'twin screw, motor driven',
-  'single screw, steam turbine driven',
-];
+// Propulsion Particulars reorganised into three independent fields (14 July
+// 2026 walkthrough §3 Q5) — the old lists conflated screw count with prime
+// mover type ("single screw, motor driven"...) and again with thruster type,
+// forcing one combined choice instead of three genuinely separate facts.
+const _primeMoverTypes = ['Motor', 'Steam', 'Electric'];
 
-const _propellerTypes = [
-  'Single screw fixed pitch',
-  'Twin screw fixed pitch',
-  'Single Azipod',
-  'Twin Azipods',
-  'Single screw variable pitch',
-  'Twin screw variable pitch',
-  'Water Jet',
-];
-
-const _propulsionDriveTypes = [
-  'Direct drive',
-  'Via reduction gearbox',
-  'Via double reduction gearbox',
-  'Electric Motor',
+const _thrusterTypes = [
+  'Fixed pitch',
+  'Variable pitch',
+  'Azipods',
+  'Waterjet',
 ];
 
 const _tankerTypes = {
@@ -175,6 +165,7 @@ class _VesselParticularsScreenState
   final _tanksCtrl = TextEditingController();
   final _mcrValueCtrl = TextEditingController();
   final _mcrRpmCtrl = TextEditingController();
+  final _screwCountCtrl = TextEditingController();
   // Fields moved to Identity tab
   final _officialNumberCtrl = TextEditingController();
   // TODO.md §2.11: registered_owner has existed on VesselModel since the
@@ -198,9 +189,12 @@ class _VesselParticularsScreenState
   // Dropdown / chip selections
   String? _vesselType;
   String? _classSociety;
+  // "Type of Prime Mover" (Motor/Steam/Electric) in the UI — see
+  // _primeMoverTypes.
   String? _propulsionType;
+  // "Thruster Type" (Fixed pitch/Variable pitch/Azipods/Waterjet) in the UI
+  // — see _thrusterTypes.
   String? _propellerType;
-  String? _propulsionDriveType;
   String _mcrPowerUnit = 'kW';
 
   String? _vesselId;
@@ -244,6 +238,7 @@ class _VesselParticularsScreenState
       _tanksCtrl,
       _mcrValueCtrl,
       _mcrRpmCtrl,
+      _screwCountCtrl,
       _officialNumberCtrl,
       _registeredOwnerCtrl,
       _constructionStandardCtrl,
@@ -309,10 +304,10 @@ class _VesselParticularsScreenState
     _speedCtrl.text = v.serviceSpeed?.toString() ?? '';
     _propulsionType = v.propulsionType;
     _propellerType = v.propellerType;
-    _propulsionDriveType = v.propulsionDriveType;
     _mcrValueCtrl.text = v.mcrPowerValue?.toString() ?? '';
     _mcrRpmCtrl.text = v.mcrRpm?.toString() ?? '';
     _mcrPowerUnit = v.mcrPowerUnit ?? 'kW';
+    _screwCountCtrl.text = v.screwCount?.toString() ?? '';
     _officialNumberCtrl.text = v.officialNumber ?? '';
     _registeredOwnerCtrl.text = v.registeredOwner ?? '';
     _constructionStandardCtrl.text = v.constructionStandard ?? '';
@@ -369,9 +364,9 @@ class _VesselParticularsScreenState
             ? null
             : _notationCtrl.text.trim(),
         'service_speed': double.tryParse(_speedCtrl.text.trim()),
+        'screw_count': int.tryParse(_screwCountCtrl.text.trim()),
         'propulsion_type': _propulsionType,
         'propeller_type': _propellerType,
-        'propulsion_drive_type': _propulsionDriveType,
         'mcr_power_value': double.tryParse(_mcrValueCtrl.text.trim()),
         'mcr_rpm': int.tryParse(_mcrRpmCtrl.text.trim()),
         'mcr_power_unit': _mcrPowerUnit,
@@ -836,6 +831,7 @@ class _VesselParticularsScreenState
             mmsiCtrl: _mmsiCtrl,
             officialNumberCtrl: _officialNumberCtrl,
             registeredOwnerCtrl: _registeredOwnerCtrl,
+            piClubCtrl: _piClubCtrl,
             regulatoryStandard: _regulatoryStandard,
             amsaVesselUseClass: _amsaVesselUseClass,
             amsaServiceCategory: _amsaServiceCategory,
@@ -888,7 +884,6 @@ class _VesselParticularsScreenState
             regulatoryStandard: _regulatoryStandard,
             classSociety: _classSociety,
             notationCtrl: _notationCtrl,
-            piClubCtrl: _piClubCtrl,
             onChanged: _markChanged,
             onClassSocietyChanged: (v) {
               setState(() {
@@ -919,9 +914,9 @@ class _VesselParticularsScreenState
               ? _MachineryTab(
                   vesselId: vessel!.vesselId,
                   caseId: widget.caseId,
+                  screwCountCtrl: _screwCountCtrl,
                   propulsionType: _propulsionType,
                   propellerType: _propellerType,
-                  propulsionDriveType: _propulsionDriveType,
                   mcrPowerUnit: _mcrPowerUnit,
                   mcrValueCtrl: _mcrValueCtrl,
                   mcrRpmCtrl: _mcrRpmCtrl,
@@ -934,12 +929,6 @@ class _VesselParticularsScreenState
                   onPropellerTypeChanged: (v) {
                     setState(() {
                       _propellerType = v;
-                      _hasChanges = true;
-                    });
-                  },
-                  onDriveTypeChanged: (v) {
-                    setState(() {
-                      _propulsionDriveType = v;
                       _hasChanges = true;
                     });
                   },
@@ -1308,6 +1297,7 @@ class _RegistrationTab extends StatelessWidget {
     required this.mmsiCtrl,
     required this.officialNumberCtrl,
     required this.registeredOwnerCtrl,
+    required this.piClubCtrl,
     required this.regulatoryStandard,
     required this.amsaVesselUseClass,
     required this.amsaServiceCategory,
@@ -1330,6 +1320,7 @@ class _RegistrationTab extends StatelessWidget {
   final TextEditingController callSignCtrl, mmsiCtrl;
   final TextEditingController officialNumberCtrl;
   final TextEditingController registeredOwnerCtrl;
+  final TextEditingController piClubCtrl;
   final RegulatoryStandard? regulatoryStandard;
   final AmsaVesselUseClass? amsaVesselUseClass;
   final AmsaServiceCategory? amsaServiceCategory;
@@ -1401,6 +1392,23 @@ class _RegistrationTab extends StatelessWidget {
           label: 'Registered Owner',
           controller: registeredOwnerCtrl,
           hint: 'Name on the certificate of registry',
+          onChanged: (_) => onChanged(),
+        ),
+        const SizedBox(height: 20),
+
+        // Insurance — moved here from Classification (14 July 2026
+        // walkthrough: P&I Club was misplaced there, wanted as its own
+        // standalone subsection on Registration).
+        const VesselSectionHeader(
+          title: 'Insurance',
+          icon: Icons.shield_outlined,
+          color: AppColors.teal,
+        ),
+        const SizedBox(height: 12),
+        SurveyField(
+          label: 'P&I Club',
+          controller: piClubCtrl,
+          hint: 'e.g. Gard, Skuld, West of England',
           onChanged: (_) => onChanged(),
         ),
         const SizedBox(height: 20),
@@ -1510,7 +1518,6 @@ class _ClassificationTab extends StatelessWidget {
     required this.regulatoryStandard,
     required this.classSociety,
     required this.notationCtrl,
-    required this.piClubCtrl,
     required this.onChanged,
     required this.onClassSocietyChanged,
   });
@@ -1519,7 +1526,6 @@ class _ClassificationTab extends StatelessWidget {
   final RegulatoryStandard? regulatoryStandard;
   final String? classSociety;
   final TextEditingController notationCtrl;
-  final TextEditingController piClubCtrl;
   final VoidCallback onChanged;
   final ValueChanged<String?> onClassSocietyChanged;
 
@@ -1590,12 +1596,6 @@ class _ClassificationTab extends StatelessWidget {
             hint: 'e.g. A1, ATB, Towing vessel, AMS',
             onChanged: (_) => onChanged(),
           ),
-          SurveyField(
-            label: 'P&I Club',
-            controller: piClubCtrl,
-            hint: 'e.g. Gard, Skuld, West of England',
-            onChanged: (_) => onChanged(),
-          ),
         ],
         const SizedBox(height: 32),
       ],
@@ -1604,6 +1604,28 @@ class _ClassificationTab extends StatelessWidget {
 }
 
 // ── Tab 4: Dimensions ─────────────────────────────────────────────────────────
+
+/// Small-caps sub-header for the Longitudinal/Transversal/Vertical groups
+/// within Principal Dimensions — lighter than [VesselSectionHeader], which
+/// is sized for the tab's top-level sections (Tonnage/Principal
+/// Dimensions/Performance), not a third-level grouping inside one of them.
+class _DimensionGroupLabel extends StatelessWidget {
+  const _DimensionGroupLabel(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+        color: AppColors.midBlue,
+      ),
+    );
+  }
+}
 
 class _DimensionsTab extends StatelessWidget {
   const _DimensionsTab({
@@ -1704,6 +1726,15 @@ class _DimensionsTab extends StatelessWidget {
           color: AppColors.midBlue,
         ),
         const SizedBox(height: 12),
+
+        // Regrouped into Longitudinal / Transversal / Vertical (14 July
+        // 2026 walkthrough §3 Q3 — the previous flat list, plus a full-width
+        // Moulded Breadth field breaking the half-width pattern of its
+        // siblings, made the tab feel disorganised). Every field stays
+        // half-width for a compact, aligned grid; an unpaired third field in
+        // a group gets an invisible filler so the grid doesn't skew.
+        const _DimensionGroupLabel('LONGITUDINAL'),
+        const SizedBox(height: 8),
         Row(children: [
           Expanded(
               child: SurveyField(
@@ -1723,7 +1754,10 @@ class _DimensionsTab extends StatelessWidget {
             onChanged: (_) => onChanged(),
           )),
         ]),
+        const SizedBox(height: 16),
 
+        const _DimensionGroupLabel('TRANSVERSAL'),
+        const SizedBox(height: 4),
         // Breadth — independent fields, fill in whichever were collected.
         const Text(
           'Fill in whichever breadth figures were collected — not every '
@@ -1734,38 +1768,45 @@ class _DimensionsTab extends StatelessWidget {
               fontStyle: FontStyle.italic),
         ),
         const SizedBox(height: 8),
-        SurveyField(
-          label: 'Moulded Breadth (m)',
-          controller: breadthMouldedCtrl,
-          hint: 'e.g. 16.80',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
-        SurveyField(
-          label: 'Extreme Breadth (m)',
-          controller: breadthExtremeCtrl,
-          hint: 'e.g. 17.10',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
-        SurveyField(
-          label: 'Beam (OA) (m)',
-          controller: beamOaCtrl,
-          hint: 'e.g. 16.80',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Moulded Breadth (m)',
+              controller: breadthMouldedCtrl,
+              hint: 'e.g. 16.80',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SurveyField(
+              label: 'Extreme Breadth (m)',
+              controller: breadthExtremeCtrl,
+              hint: 'e.g. 17.10',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+        ]),
         const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Beam (OA) (m)',
+              controller: beamOaCtrl,
+              hint: 'e.g. 16.80',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: SizedBox()),
+        ]),
+        const SizedBox(height: 16),
 
-        SurveyField(
-          label: 'Depth (m)',
-          controller: depthCtrl,
-          hint: 'e.g. 7.20',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
-        const SizedBox(height: 12),
-
+        const _DimensionGroupLabel('VERTICAL'),
+        const SizedBox(height: 4),
         // Draft — independent fields, same rationale as breadth above.
         const Text(
           'Fill in whichever draft figures were collected.',
@@ -1775,20 +1816,41 @@ class _DimensionsTab extends StatelessWidget {
               fontStyle: FontStyle.italic),
         ),
         const SizedBox(height: 8),
-        SurveyField(
-          label: 'Load Line Draft (m)',
-          controller: draftLoadLineCtrl,
-          hint: 'e.g. 5.80',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
-        SurveyField(
-          label: 'Max Draft (m)',
-          controller: draftMaxCtrl,
-          hint: 'e.g. 6.10',
-          keyboard: TextInputType.number,
-          onChanged: (_) => onChanged(),
-        ),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Depth (m)',
+              controller: depthCtrl,
+              hint: 'e.g. 7.20',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SurveyField(
+              label: 'Load Line Draft (m)',
+              controller: draftLoadLineCtrl,
+              hint: 'e.g. 5.80',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: SurveyField(
+              label: 'Max Draft (m)',
+              controller: draftMaxCtrl,
+              hint: 'e.g. 6.10',
+              keyboard: TextInputType.number,
+              onChanged: (_) => onChanged(),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: SizedBox()),
+        ]),
         const SizedBox(height: 20),
 
         const VesselSectionHeader(
@@ -1816,30 +1878,32 @@ class _MachineryTab extends ConsumerWidget {
   const _MachineryTab({
     required this.vesselId,
     required this.caseId,
+    required this.screwCountCtrl,
     required this.propulsionType,
     required this.propellerType,
-    required this.propulsionDriveType,
     required this.mcrPowerUnit,
     required this.mcrValueCtrl,
     required this.mcrRpmCtrl,
     required this.onPropulsionTypeChanged,
     required this.onPropellerTypeChanged,
-    required this.onDriveTypeChanged,
     required this.onMcrUnitChanged,
     required this.onChanged,
   });
 
   final String vesselId;
   final String caseId;
+  final TextEditingController screwCountCtrl;
+  /// "Type of Prime Mover" in the UI (Motor / Steam / Electric) — see
+  /// _primeMoverTypes.
   final String? propulsionType;
+  /// "Thruster Type" in the UI (Fixed pitch / Variable pitch / Azipods /
+  /// Waterjet) — see _thrusterTypes.
   final String? propellerType;
-  final String? propulsionDriveType;
   final String mcrPowerUnit;
   final TextEditingController mcrValueCtrl;
   final TextEditingController mcrRpmCtrl;
   final ValueChanged<String?> onPropulsionTypeChanged;
   final ValueChanged<String?> onPropellerTypeChanged;
-  final ValueChanged<String?> onDriveTypeChanged;
   final ValueChanged<String> onMcrUnitChanged;
   final VoidCallback onChanged;
 
@@ -1866,27 +1930,28 @@ class _MachineryTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 14),
 
+                  SurveyField(
+                    label: 'Number of Screws',
+                    controller: screwCountCtrl,
+                    hint: 'e.g. 1',
+                    keyboard: TextInputType.number,
+                    onChanged: (_) => onChanged(),
+                  ),
+                  const SizedBox(height: 12),
+
                   _ChipSelector(
-                    label: 'Propulsion Type',
-                    options: _propulsionTypes,
+                    label: 'Type of Prime Mover',
+                    options: _primeMoverTypes,
                     selected: propulsionType,
                     onSelected: onPropulsionTypeChanged,
                   ),
                   const SizedBox(height: 12),
 
-                  _PickerField(
-                    label: 'Propeller / Thruster Type',
-                    value: propellerType,
-                    hint: 'Select propeller type',
-                    options: _propellerTypes,
-                    onChanged: onPropellerTypeChanged,
-                  ),
-
                   _ChipSelector(
-                    label: 'Propulsion Drive Type',
-                    options: _propulsionDriveTypes,
-                    selected: propulsionDriveType,
-                    onSelected: onDriveTypeChanged,
+                    label: 'Thruster Type',
+                    options: _thrusterTypes,
+                    selected: propellerType,
+                    onSelected: onPropellerTypeChanged,
                   ),
                   const SizedBox(height: 12),
 
@@ -1949,6 +2014,19 @@ class _MachineryTab extends ConsumerWidget {
                 itemCount: machinery.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (_, i) => MachineryCard(
+                  // Stable key, not just position: the on-card nameplate
+                  // scan (machinery_card.dart) awaits updateMachinery()
+                  // *before* attachLink() — without a key, an in-place
+                  // Machinery list rebuild during that await risks Flutter
+                  // reusing the wrong Element for this index (or tearing
+                  // down the one running the async flow), silently
+                  // dropping the attachLink call with no visible error.
+                  // The Edit-menu path (add_machinery_sheet.dart) doesn't
+                  // hit this because it runs inside its own modal sheet,
+                  // decoupled from this list's rebuilds — matching the
+                  // reported "works via Edit menu, not via the tab" split
+                  // (14 July 2026 walkthrough).
+                  key: ValueKey(machinery[i].machineryId),
                   machinery: machinery[i],
                   caseId: caseId,
                   onEdit: () => _showAddEdit(context, ref,
@@ -2455,41 +2533,39 @@ class _ChipSelector extends StatelessWidget {
                   color: AppColors.textSecondary,
                   letterSpacing: 0.3)),
           const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: options.map((opt) {
-                final isSelected = opt == selected;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: GestureDetector(
-                    onTap: () => onSelected(isSelected ? null : opt),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppColors.lightBlue : Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color:
-                              isSelected ? AppColors.midBlue : AppColors.border,
-                          width: isSelected ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Text(opt,
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: isSelected
-                                  ? AppColors.midBlue
-                                  : AppColors.textSecondary)),
+          // Wrap, not a horizontally-scrolling Row: long option labels (e.g.
+          // "single screw, steam turbine driven") were getting visually
+          // cropped at the edge since the horizontal-scroll affordance
+          // wasn't discoverable (14 July 2026 walkthrough).
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: options.map((opt) {
+              final isSelected = opt == selected;
+              return GestureDetector(
+                onTap: () => onSelected(isSelected ? null : opt),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.lightBlue : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected ? AppColors.midBlue : AppColors.border,
+                      width: isSelected ? 1.5 : 1,
                     ),
                   ),
-                );
-              }).toList(),
-            ),
+                  child: Text(opt,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w400,
+                          color: isSelected
+                              ? AppColors.midBlue
+                              : AppColors.textSecondary)),
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),

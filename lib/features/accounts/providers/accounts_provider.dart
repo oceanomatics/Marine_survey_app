@@ -12,6 +12,7 @@ import '../../../core/api/claude_api.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../cases/providers/cases_provider.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 
 const _uuid = Uuid();
 
@@ -280,10 +281,15 @@ class RepairDocumentsNotifier
     };
 
     final base64Content = base64Encode(bytes);
-    final extracted = await ClaudeApi.extractInvoiceData(
-      base64Content: base64Content,
-      mediaType: mimeType,
-    );
+    final extracted = await ref.read(aiTasksProvider.notifier).run(
+          label: 'Extracting "${doc.effectiveName}"',
+          caseId: _caseId,
+          estimate: const Duration(seconds: 20),
+          action: () => ClaudeApi.extractInvoiceData(
+            base64Content: base64Content,
+            mediaType: mimeType,
+          ),
+        );
 
     // Parse and build auto display name
     final docNumber = extracted['document_number'] as String?;
@@ -381,10 +387,15 @@ class RepairDocumentsNotifier
       _               => 'application/pdf',
     };
 
-    final cues = await ClaudeApi.extractInvoiceContextCues(
-      base64Content: base64Encode(bytes),
-      mediaType: mimeType,
-    );
+    final cues = await ref.read(aiTasksProvider.notifier).run(
+          label: 'Extracting context cues from "${doc.effectiveName}"',
+          caseId: doc.caseId,
+          estimate: const Duration(seconds: 18),
+          action: () => ClaudeApi.extractInvoiceContextCues(
+            base64Content: base64Encode(bytes),
+            mediaType: mimeType,
+          ),
+        );
 
     final notesNotifier =
         ref.read(surveyorNotesProvider(doc.caseId).notifier);
