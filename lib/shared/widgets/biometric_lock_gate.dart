@@ -23,6 +23,21 @@ class _BiometricLockGateState extends State<BiometricLockGate>
   bool _locked = false;
   bool _lockEnabled = false;
 
+  /// How long the app can sit in the background before a resume re-locks it.
+  /// Anything shorter (glancing at the camera, mail, a notification, or the
+  /// system biometric prompt itself — all of which background the app for a
+  /// few seconds) resumes straight back in without re-prompting. This is the
+  /// "semi-permanent, unlock rarely" behaviour the surveyor asked for; the
+  /// underlying Supabase login already persists indefinitely on its own, so
+  /// this gate is purely the fast local re-entry layer on top. Tune this one
+  /// constant to trade convenience against how quickly a set-down tablet
+  /// re-locks.
+  static const _backgroundGrace = Duration(seconds: 60);
+
+  /// When the app last went to the background (paused). Null while in the
+  /// foreground. Used to measure how long it was away on the next resume.
+  DateTime? _backgroundedAt;
+
   @override
   void initState() {
     super.initState();
@@ -38,8 +53,24 @@ class _BiometricLockGateState extends State<BiometricLockGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _lockEnabled) {
-      setState(() => _locked = true);
+    if (!_lockEnabled) return;
+
+    // Record the moment we truly go to the background — only `paused`, not
+    // the transient `inactive` that fires for notification shades / the
+    // biometric prompt / permission dialogs, so those never start the clock.
+    if (state == AppLifecycleState.paused) {
+      _backgroundedAt ??= DateTime.now();
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      final since = _backgroundedAt;
+      _backgroundedAt = null;
+      // No recorded background (a transient interruption only) or still
+      // within the grace window → stay unlocked. Otherwise re-lock.
+      if (since != null && DateTime.now().difference(since) >= _backgroundGrace) {
+        setState(() => _locked = true);
+      }
     }
   }
 
