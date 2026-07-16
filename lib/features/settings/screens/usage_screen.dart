@@ -118,14 +118,21 @@ class _UsageScreenState extends State<UsageScreen> {
       Map<String, String> caseLabels = {};
       if (caseIds.isNotEmpty) {
         try {
+          // `cases` has no vessel_name column (vessel lives on the joined
+          // vessels table via vessel_id) — selecting it threw, the catch
+          // below swallowed it, and every case fell into "deleted". `title`
+          // is the composite label ("TechNo – Vessel – Type – …") already
+          // used on the case list, so use it, falling back to the file no.
           final cases = await SupabaseService.client
               .from('cases')
-              .select('case_id, vessel_name, technical_file_no')
+              .select('case_id, title, technical_file_no')
               .inFilter('case_id', caseIds.toList());
           caseLabels = {
             for (final c in cases as List)
-              c['case_id'] as String:
-                  '${c['vessel_name'] ?? 'Unknown vessel'} — ${c['technical_file_no'] ?? ''}',
+              c['case_id'] as String: ((c['title'] as String?)?.trim().isNotEmpty ??
+                      false)
+                  ? c['title'] as String
+                  : (c['technical_file_no'] as String? ?? 'Unknown case'),
           };
         } catch (_) {
           // Cases may have been deleted — proceed with empty labels; the

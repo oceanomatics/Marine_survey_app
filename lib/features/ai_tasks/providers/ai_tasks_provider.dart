@@ -20,6 +20,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/claude_api.dart' show aiTaskCaseIdZoneKey;
+
 enum AiTaskStatus { running, completed, failed }
 
 class AiTaskModel {
@@ -119,7 +121,14 @@ class AiTasksNotifier extends Notifier<List<AiTaskModel>> {
       ),
     ];
     try {
-      final result = await action();
+      // Run the action inside a zone carrying this caseId so ClaudeApi's
+      // usage/audit interceptor can attribute token_usage.case_id even when
+      // the call site didn't thread caseId into the ClaudeApi method
+      // itself (14 July 2026 walkthrough §25). aiTaskCaseIdZoneKey is the
+      // symbol the interceptor reads.
+      final result = caseId == null
+          ? await action()
+          : await runZoned(action, zoneValues: {aiTaskCaseIdZoneKey: caseId});
       _finish(id, AiTaskStatus.completed);
       return result;
     } catch (e) {

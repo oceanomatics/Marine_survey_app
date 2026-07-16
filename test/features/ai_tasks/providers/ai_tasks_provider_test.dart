@@ -1,8 +1,53 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marine_survey_app/core/api/claude_api.dart'
+    show aiTaskCaseIdZoneKey;
 import 'package:marine_survey_app/features/ai_tasks/providers/ai_tasks_provider.dart';
 
 void main() {
+  group('AiTasksNotifier.run — ambient caseId zone (§25 usage attribution)', () {
+    test('the caseId is readable via Zone.current inside the action, '
+        'including across an async gap', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(aiTasksProvider.notifier);
+
+      String? seenBefore;
+      String? seenAfterAwait;
+      await notifier.run(
+        label: 'Zone test',
+        caseId: 'case-42',
+        action: () async {
+          seenBefore = Zone.current[aiTaskCaseIdZoneKey] as String?;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          seenAfterAwait = Zone.current[aiTaskCaseIdZoneKey] as String?;
+        },
+      );
+
+      expect(seenBefore, 'case-42');
+      expect(seenAfterAwait, 'case-42',
+          reason: 'zone value must survive async gaps (Dio interceptor '
+              'runs after an await)');
+    });
+
+    test('no zone value leaks when caseId is null', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(aiTasksProvider.notifier);
+
+      String? seen = 'sentinel';
+      await notifier.run(
+        label: 'No-case test',
+        action: () async {
+          seen = Zone.current[aiTaskCaseIdZoneKey] as String?;
+        },
+      );
+      expect(seen, isNull);
+    });
+  });
+
   group('AiTasksNotifier.run', () {
     test('registers a running task immediately, before the action resolves',
         () async {

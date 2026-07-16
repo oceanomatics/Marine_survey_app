@@ -1,10 +1,21 @@
 // lib/core/api/claude_api.dart
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../services/ai_log_service.dart';
 import 'usage_tracker.dart';
+
+/// Zone key carrying the case a Claude call belongs to. Set by
+/// AiTasksNotifier.run() (which wraps every AI call in the app and already
+/// receives the caseId), read by the usage/audit interceptor below as a
+/// fallback when a call site didn't thread caseId explicitly into the
+/// ClaudeApi method. This is how token_usage.case_id gets populated without
+/// adding a caseId parameter to ~25 call sites (14 July 2026 walkthrough §25
+/// — the by-case usage grouping was empty because case_id was null on nearly
+/// every row).
+const aiTaskCaseIdZoneKey = #aiTaskCaseId;
 
 /// Shared instruction block appended to every narrative report-section
 /// drafting prompt. Encodes the non-negotiable parts of the Writing Style
@@ -52,7 +63,11 @@ class ClaudeApi {
             final model = data?['model'] as String? ?? AppConfig.claudeModel;
             final inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? 0;
             final outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
-            final caseId = extra['case_id'] as String?;
+            // Prefer an explicit case_id on the request; fall back to the
+            // ambient one set by AiTasksNotifier.run() (see zone key above)
+            // so calls that don't thread caseId still attribute correctly.
+            final caseId = (extra['case_id'] as String?) ??
+                (Zone.current[aiTaskCaseIdZoneKey] as String?);
 
             // Pass caseId so token_usage attributes cost to the case (14 July
             // 2026 walkthrough §25 — the API Usage screen's by-case grouping
