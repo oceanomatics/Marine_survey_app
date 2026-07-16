@@ -17,62 +17,48 @@ import '../../../shared/widgets/back_app_bar.dart';
 
 const _kVisitsColor = Color(0xFFBF7E3A);
 
-/// Compact title-bar control (TODO.md §3.13, 8 July 2026 — moved out of the
-/// screen body) for the case-level "is a follow-up attendance required"
-/// flag. 14 July 2026 walkthrough: the previous version opened a bottom
-/// sheet just to flip a boolean — "over-engineered... should just be a
-/// simple on/off switch, no popup warranted". A Switch now toggles the flag
-/// directly; the free-text detail note (only meaningful once the answer is
-/// Yes) is still reachable via a small edit icon, so that capability isn't
-/// lost, but is no longer required just to say Yes/No.
-class _FollowUpBadge extends ConsumerWidget {
-  const _FollowUpBadge({required this.caseId});
+/// Inline "is a follow-up attendance required" control, rendered as the last
+/// item in the attendance list — right after the final attendance card (16
+/// July 2026 report: it previously lived on the title bar, but reads better
+/// here, next to the attendances it refers to). Toggling it on reveals the
+/// free-text detail inline; off hides it. No popup — just a switch + a note.
+class _FollowUpFooter extends ConsumerWidget {
+  const _FollowUpFooter({required this.caseId});
   final String caseId;
-
-  void _openDetailSheet(BuildContext context) => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => Padding(
-          padding:
-              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: _FollowUpDetailField(caseId: caseId),
-          ),
-        ),
-      );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final caseModel = ref.watch(caseProvider(caseId)).value;
     final required = caseModel?.followUpRequired ?? false;
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.fromLTRB(14, 6, 8, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Follow-up',
-              style: TextStyle(
-                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-          Switch(
-            value: required,
-            activeTrackColor: Colors.white,
-            activeThumbColor: _kVisitsColor,
-            onChanged: (v) => ref
-                .read(caseProvider(caseId).notifier)
-                .updateCaseRefs(followUpRequired: v),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Follow-up attendance required',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+              Switch(
+                value: required,
+                activeThumbColor: _kVisitsColor,
+                onChanged: (v) => ref
+                    .read(caseProvider(caseId).notifier)
+                    .updateCaseRefs(followUpRequired: v),
+              ),
+            ],
           ),
-          if (required)
-            IconButton(
-              icon: const Icon(Icons.edit_note, color: Colors.white, size: 20),
-              tooltip: 'Follow-up detail',
-              onPressed: () => _openDetailSheet(context),
-            ),
+          // Comment only when ticked.
+          if (required) _FollowUpDetailField(caseId: caseId),
         ],
       ),
     );
@@ -116,10 +102,8 @@ class _FollowUpDetailFieldState extends ConsumerState<_FollowUpDetailField> {
       _detailCtrl.text = caseModel.followUpDetail ?? '';
     }
 
-    return Container(
-      width: double.infinity,
-      color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, right: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -134,7 +118,7 @@ class _FollowUpDetailFieldState extends ConsumerState<_FollowUpDetailField> {
             controller: _detailCtrl,
             maxLines: 2,
             minLines: 1,
-            autofocus: true,
+            autofocus: false,
             style: const TextStyle(fontSize: 12),
             decoration: InputDecoration(
               isDense: true,
@@ -175,13 +159,7 @@ class AttendancesScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      appBar: BackAppBar(
-        title: const Text('Attendance'),
-        // TODO.md §3.13 (8 July 2026): moved out of the screen body into
-        // the title bar — a compact tappable badge here instead of the
-        // full toggle+detail card taking up body space.
-        actions: [_FollowUpBadge(caseId: caseId)],
-      ),
+      appBar: const BackAppBar(title: Text('Attendance')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSheet(context, ref, uniquePrevious),
         backgroundColor: _kVisitsColor,
@@ -391,9 +369,11 @@ class _AttendanceList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount: attendances.length,
+      // +1 for the follow-up footer rendered after the last attendance card.
+      itemCount: attendances.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
+        if (i == attendances.length) return _FollowUpFooter(caseId: caseId);
         final attendance = attendances[i];
         // Include attendees linked to this attendance OR case-level
         // attendees (attendance_id == null) from the pre-attendance-linking era.

@@ -470,43 +470,134 @@ class _PartyPickerRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final contacts = ref.watch(assuredContactsProvider(caseId)).value ?? [];
     if (contacts.isEmpty) return const SizedBox.shrink();
+    // A button that opens a searchable picker rather than an inline chip list
+    // — the inline list bloated the sheet when a case had a lot of logged
+    // stakeholders (e.g. a big email trail). 16 July 2026 report.
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Pick from Parties',
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: contacts.map((c) {
-              return GestureDetector(
-                onTap: () => onPick(c),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Text(
-                    c.company != null
-                        ? '${c.fullName} — ${c.company}'
-                        : c.fullName,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textPrimary),
-                  ),
-                ),
-              );
-            }).toList(),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () => showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => _PartyPickerSheet(
+              contacts: contacts,
+              onPick: (c) {
+                Navigator.pop(context);
+                onPick(c);
+              },
+            ),
           ),
-        ],
+          icon: const Icon(Icons.groups_outlined, size: 18),
+          label: Text('Pick from stakeholders (${contacts.length})'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            side: const BorderSide(color: AppColors.border),
+            alignment: Alignment.centerLeft,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Searchable modal list of the case's logged stakeholders. Kept in its own
+/// sheet so a long contact list never bloats the Edit Attendees form.
+class _PartyPickerSheet extends StatefulWidget {
+  const _PartyPickerSheet({required this.contacts, required this.onPick});
+  final List<AssuredContactModel> contacts;
+  final ValueChanged<AssuredContactModel> onPick;
+
+  @override
+  State<_PartyPickerSheet> createState() => _PartyPickerSheetState();
+}
+
+class _PartyPickerSheetState extends State<_PartyPickerSheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.contacts
+        : widget.contacts
+            .where((c) =>
+                c.fullName.toLowerCase().contains(q) ||
+                (c.company?.toLowerCase().contains(q) ?? false))
+            .toList();
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Pick from stakeholders',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 10),
+            TextField(
+              autofocus: true,
+              onChanged: (v) => setState(() => _query = v),
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search, size: 20),
+                hintText: 'Search name or company',
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: filtered.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                          child: Text('No matches',
+                              style:
+                                  TextStyle(color: AppColors.textTertiary))),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final c = filtered[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(c.fullName,
+                              style: const TextStyle(fontSize: 14)),
+                          subtitle: c.company != null
+                              ? Text(c.company!,
+                                  style: const TextStyle(fontSize: 12))
+                              : null,
+                          onTap: () => widget.onPick(c),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
