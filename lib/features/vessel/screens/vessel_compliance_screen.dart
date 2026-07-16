@@ -680,38 +680,49 @@ class _ConditionTile extends StatelessWidget {
               ),
             ]),
             const SizedBox(height: 4),
-            Row(children: [
-              const Icon(Icons.event_outlined,
-                  size: 12, color: AppColors.textTertiary),
-              const SizedBox(width: 4),
-              Text('Expires ${_fmtDate(condition.expiryDate)}',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textTertiary)),
-              if (condition.duration != null &&
-                  condition.duration!.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                const Icon(Icons.hourglass_bottom_outlined,
-                    size: 12, color: AppColors.midBlue),
-                const SizedBox(width: 4),
-                Text(condition.duration!,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.midBlue)),
+            // Wrap, not Row: a long duration string plus a linked-occurrence
+            // title overflowed this metadata line by ~73px on narrow devices
+            // (16 July 2026 report). Wrapping flows the chips to a new line.
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.event_outlined,
+                      size: 12, color: AppColors.textTertiary),
+                  const SizedBox(width: 4),
+                  Text('Expires ${_fmtDate(condition.expiryDate)}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textTertiary)),
+                ]),
+                if (condition.duration != null &&
+                    condition.duration!.isNotEmpty)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.hourglass_bottom_outlined,
+                        size: 12, color: AppColors.midBlue),
+                    const SizedBox(width: 4),
+                    Text(condition.duration!,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.midBlue)),
+                  ]),
+                if (linkedOcc != null)
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.link, size: 12, color: AppColors.amber),
+                    const SizedBox(width: 4),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Text(
+                        linkedOcc.title ??
+                            'Occurrence #${linkedOcc.occurrenceNo}',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.amber),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
               ],
-              if (linkedOcc != null) ...[
-                const SizedBox(width: 12),
-                const Icon(Icons.link, size: 12, color: AppColors.amber),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    linkedOcc.title ??
-                        'Occurrence #${linkedOcc.occurrenceNo}',
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.amber),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ]),
+            ),
           ],
         ),
       ),
