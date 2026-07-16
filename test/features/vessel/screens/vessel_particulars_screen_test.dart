@@ -35,7 +35,10 @@ Future<ProviderContainer> _pump(
   // Identity/Dimensions/Class & Stat. tabs are plain ListViews with a lot of
   // content — widen the surface so fields below the fold are still built and
   // hit-testable without needing to scroll first (see report_builder pattern).
-  await tester.binding.setSurfaceSize(const Size(1000, 4000));
+  // 1400 wide so the scrollable tab bar shows all five tabs without the
+  // later ones (Dimensions/Machinery) sitting off-screen — the "Registration
+  // & Insurance" label widened the bar past the old 1000 (16 July 2026).
+  await tester.binding.setSurfaceSize(const Size(1400, 4000));
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   final container = ProviderContainer(overrides: [

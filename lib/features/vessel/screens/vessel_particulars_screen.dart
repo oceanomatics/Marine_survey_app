@@ -781,7 +781,7 @@ class _VesselParticularsScreenState
           unselectedLabelColor: Colors.white.withValues(alpha: 0.6),
           tabs: const [
             Tab(text: 'Identity & Ownership'),
-            Tab(text: 'Registration'),
+            Tab(text: 'Registration & Insurance'),
             Tab(text: 'Classification'),
             Tab(text: 'Dimensions'),
             Tab(text: 'Machinery'),
@@ -1556,20 +1556,6 @@ class _ClassificationTab extends StatelessWidget {
               fontStyle: FontStyle.italic),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => VesselComplianceScreen(caseId: caseId))),
-            icon: const Icon(Icons.shield_outlined, size: 16),
-            label: const Text('Open Certificates & Class'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.purple,
-              side: const BorderSide(color: AppColors.purple),
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
         if (!applies)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
@@ -1597,6 +1583,22 @@ class _ClassificationTab extends StatelessWidget {
             onChanged: (_) => onChanged(),
           ),
         ],
+        const SizedBox(height: 20),
+        // Link to the case-level Certificates & Class screen — sits below the
+        // static class fields (16 July 2026 bug report: was above them).
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => VesselComplianceScreen(caseId: caseId))),
+            icon: const Icon(Icons.shield_outlined, size: 16),
+            label: const Text('Open Certificates & Class'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.purple,
+              side: const BorderSide(color: AppColors.purple),
+            ),
+          ),
+        ),
         const SizedBox(height: 32),
       ],
     );
@@ -1930,13 +1932,21 @@ class _MachineryTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 14),
 
-                  SurveyField(
-                    label: 'Number of Screws',
-                    controller: screwCountCtrl,
-                    hint: 'e.g. 1',
-                    keyboard: TextInputType.number,
-                    onChanged: (_) => onChanged(),
-                  ),
+                  // A single-digit value — constrain to ~a third width rather
+                  // than a full-width field (16 July 2026 bug report).
+                  Row(children: [
+                    Expanded(
+                      flex: 1,
+                      child: SurveyField(
+                        label: 'Number of Screws',
+                        controller: screwCountCtrl,
+                        hint: 'e.g. 1',
+                        keyboard: TextInputType.number,
+                        onChanged: (_) => onChanged(),
+                      ),
+                    ),
+                    const Expanded(flex: 2, child: SizedBox()),
+                  ]),
                   const SizedBox(height: 12),
 
                   _ChipSelector(

@@ -55,6 +55,7 @@ import '../providers/other_matters_clauses_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
 import '../../../shared/widgets/back_app_bar.dart';
+import '../../vessel/widgets/machinery_equipment_section.dart';
 
 class AdditionalInformationScreen extends ConsumerWidget {
   const AdditionalInformationScreen({super.key, required this.caseId});
@@ -90,6 +91,14 @@ class AdditionalInformationScreen extends ConsumerWidget {
               child: ContextCuesPanel(caseId: caseId, section: s.$1),
             ),
             const SizedBox(height: 16),
+            // Repeat the vessel's Machinery & Equipment entry right under
+            // Previous Work — a clear entry point for capturing units while
+            // documenting prior works, instead of digging into
+            // Vessel → Machinery three menus away (16 July 2026 report).
+            if (s.$1 == CaseSection.previousWorks) ...[
+              MachineryEquipmentSection(caseId: caseId),
+              const SizedBox(height: 16),
+            ],
           ],
           _AdviceToAssuredSection(
             caseId: caseId,
