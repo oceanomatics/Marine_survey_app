@@ -59,7 +59,17 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
     if (fallbackRoute != null) return fallbackRoute;
     final path = GoRouterState.of(context).uri.path;
     final segments = path.split('/').where((s) => s.isNotEmpty).toList();
-    if (segments.length <= 1) return null;
+    if (segments.isEmpty) return null;
+    if (segments.length == 1) {
+      // Single-segment top-level route reached via context.go() (e.g.
+      // /inbox, /timesheet, /speech-settings): there's no parent segment to
+      // strip, so the old code returned null and no back button appeared —
+      // the "no back button" reports of 16 July 2026. Fall back to the app
+      // home hub so there's always a way back, except on the home screen
+      // itself (which *is* the hub — must stay back-button-less). Screens
+      // with a more specific parent should pass [fallbackRoute] explicitly.
+      return path == '/cases' ? null : '/cases';
+    }
     return '/${segments.sublist(0, segments.length - 1).join('/')}';
   }
 

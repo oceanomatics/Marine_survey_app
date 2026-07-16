@@ -9,7 +9,7 @@ class TimesheetScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      appBar: BackAppBar(title: Text('TimesheetScreen')),
+      appBar: BackAppBar(title: Text('Timesheet')),
       body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.construction_outlined, size: 48, color: AppColors.textTertiary),
         SizedBox(height: 12),
