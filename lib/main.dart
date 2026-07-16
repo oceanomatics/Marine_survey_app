@@ -43,7 +43,29 @@ void main() async {
   // checked once at cold start and again on every resume from background;
   // a no-op wrapper when the surveyor hasn't turned the setting on.
   runApp(BiometricLockGate(
-      child: kDebugMode ? BetterFeedback(child: app) : app));
+      child: kDebugMode
+          ? BetterFeedback(
+              // Default FeedbackThemeData renders a dark sheet with near-black
+              // text — barely readable (bug report, 16 July 2026). Force a
+              // light sheet with dark text for both the prompt and the typed
+              // note, matching the app's light surface.
+              theme: FeedbackThemeData(
+                background: Colors.grey.shade600,
+                feedbackSheetColor: AppColors.surface,
+                activeFeedbackModeColor: AppColors.navy,
+                bottomSheetDescriptionStyle: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                bottomSheetTextInputStyle: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                ),
+              ),
+              child: app,
+            )
+          : app));
 }
 
 class MarineSurveyApp extends StatelessWidget {

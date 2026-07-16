@@ -72,12 +72,12 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
     return notesAsync.when(
       loading: () => const Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: BackAppBar(title: Text('Advice to Owner')),
+        appBar: BackAppBar(title: Text('Notes')),
         body: AppLoadingWidget(message: 'Loading cues…'),
       ),
       error: (e, _) => Scaffold(
         backgroundColor: AppColors.surface,
-        appBar: const BackAppBar(title: Text('Advice to Owner')),
+        appBar: const BackAppBar(title: Text('Notes')),
         body: Center(child: Text('Error: $e')),
       ),
       data: (notes) {
@@ -102,7 +102,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
         return Scaffold(
           backgroundColor: AppColors.surface,
           appBar: BackAppBar(
-            title: const Text('Advice to Owner'),
+            title: const Text('Notes'),
             bottom: TabBar(
               controller: _tabCtrl,
               labelColor: _kColor,
@@ -177,7 +177,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
             backgroundColor: _kColor,
             foregroundColor: Colors.white,
             icon: const Icon(Icons.add),
-            label: const Text('Add Cue',
+            label: const Text('Add Note',
                 style: TextStyle(fontWeight: FontWeight.w600)),
           ),
           body: TabBarView(
@@ -1430,7 +1430,7 @@ class _EmptyState extends StatelessWidget {
           ElevatedButton.icon(
             onPressed: onAdd,
             icon: const Icon(Icons.add),
-            label: const Text('Add Cue'),
+            label: const Text('Add Note'),
             style: ElevatedButton.styleFrom(
               backgroundColor: _kColor,
               foregroundColor: Colors.white,

@@ -383,12 +383,12 @@ class _SurveyNavRail extends ConsumerWidget {
                     onTap: () => context.go('/cases/$caseId/correspondence'),
                   ),
                   _NavItem(
-                    icon: Icons.label_outline,
-                    // "Context Cues" renamed to "Advice to Owner" (14 July
-                    // 2026 walkthrough — the old name no longer matched what
-                    // this screen actually does); shortened to one word to
-                    // fit the nav grid tile, same convention as "Mail"/"Docs".
-                    label: 'Advice',
+                    icon: Icons.sticky_note_2_outlined,
+                    // Reverted to "Notes" (16 July 2026): the 14 July rename to
+                    // "Advice to Owner" was a misunderstanding — this is the
+                    // surveyor's notes screen (SurveyorNotesScreen, /notes),
+                    // not an owner-advice document. Kept the /notes route.
+                    label: 'Notes',
                     accent: const Color(0xFF4A7A5A),
                     badgeCount: unallocatedCount,
                     onTap: () => context.go('/cases/$caseId/notes'),
