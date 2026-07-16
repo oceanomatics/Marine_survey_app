@@ -52,9 +52,15 @@ class ClaudeApi {
             final model = data?['model'] as String? ?? AppConfig.claudeModel;
             final inputTokens = (usage['input_tokens'] as num?)?.toInt() ?? 0;
             final outputTokens = (usage['output_tokens'] as num?)?.toInt() ?? 0;
+            final caseId = extra['case_id'] as String?;
 
+            // Pass caseId so token_usage attributes cost to the case (14 July
+            // 2026 walkthrough §25 — the API Usage screen's by-case grouping
+            // was showing nothing because this call dropped the case_id that
+            // was sitting right here in `extra`, writing every row null).
             // ignore: discarded_futures
             UsageTracker.log(
+              caseId: caseId,
               feature: feature,
               model: model,
               inputTokens: inputTokens,
@@ -62,7 +68,6 @@ class ClaudeApi {
             );
 
             // GPN-AI audit log — only for calls tagged with a case_id
-            final caseId = extra['case_id'] as String?;
             final callType = extra['call_type'] as String?;
             if (caseId != null && callType != null) {
               // Extract prompt text from the last user message in the request
