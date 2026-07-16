@@ -11,16 +11,22 @@
 // release builds.
 
 import 'dart:io' show Platform;
+import 'dart:ui' as ui;
 
 import 'package:feedback/feedback.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
 import '../api/supabase_client.dart';
 import '../config/app_router.dart';
 import '../../shared/theme/app_theme.dart';
+
+/// Wraps the whole app in main.dart so the bug button can capture a still of
+/// the exact frame it's tapped on (before any transient error snackbar fades).
+final GlobalKey debugFeedbackBoundaryKey = GlobalKey();
 
 class DebugFeedbackButton extends StatefulWidget {
   const DebugFeedbackButton({super.key});
@@ -35,6 +41,27 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
   // page content, e.g. the first field on Account, on first render).
   Offset? _offset;
   bool _submitting = false;
+
+  // The frame captured the instant the button is tapped — uploaded alongside
+  // the feedback package's (later, annotated) screenshot so a transient error
+  // that has since vanished is still on record.
+  Uint8List? _instantShot;
+
+  Future<Uint8List?> _captureInstant() async {
+    try {
+      final ctx = debugFeedbackBoundaryKey.currentContext;
+      if (ctx == null) return null;
+      final boundary = ctx.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final dpr = View.of(ctx).devicePixelRatio.clamp(1.0, 2.0);
+      final image = await boundary.toImage(pixelRatio: dpr);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      return bytes?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
 
   // Uses the top-level `appRouter` singleton directly rather than
   // GoRouter.of(context) — this widget lives in MaterialApp.router's
@@ -69,6 +96,19 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
           .uploadBinary(fileName, feedback.screenshot,
               fileOptions: const FileOptions(contentType: 'image/png'));
 
+      // The tap-time still (captured before the feedback UI opened) — uploaded
+      // as a second image so a since-vanished error is preserved.
+      String? instantFileName;
+      final instant = _instantShot;
+      if (instant != null) {
+        instantFileName = 'fb_${DateTime.now().millisecondsSinceEpoch}_'
+            '${identityHashCode(feedback)}_instant.png';
+        await SupabaseService.client.storage
+            .from('debug-feedback')
+            .uploadBinary(instantFileName, instant,
+                fileOptions: const FileOptions(contentType: 'image/png'));
+      }
+
       String? appVersion;
       try {
         final info = await PackageInfo.fromPlatform();
@@ -82,6 +122,7 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
         'created_by': SupabaseService.currentUser?.id,
         'note': feedback.text,
         'screenshot_path': fileName,
+        if (instantFileName != null) 'screenshot_instant_path': instantFileName,
         'route': route,
         'platform': kIsWeb ? 'web' : Platform.operatingSystem,
         'app_version': appVersion,
@@ -103,6 +144,7 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
         );
       }
     } finally {
+      _instantShot = null;
       if (mounted) setState(() => _submitting = false);
     }
   }
@@ -130,8 +172,14 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
         child: GestureDetector(
           onTap: _submitting
               ? null
-              : () => fb.BetterFeedback.of(context)
-                  .show((f) => _submit(context, f)),
+              : () async {
+                  // Freeze the frame NOW, before the feedback UI opens, so a
+                  // transient error still on screen is captured.
+                  _instantShot = await _captureInstant();
+                  if (!context.mounted) return;
+                  fb.BetterFeedback.of(context)
+                      .show((f) => _submit(context, f));
+                },
           child: _button(dragging: false),
         ),
       ),

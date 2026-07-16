@@ -63,7 +63,15 @@ void main() async {
                   fontSize: 14,
                 ),
               ),
-              child: app,
+              // Keyed boundary so the bug button can grab a still of the exact
+              // frame the instant it's tapped — the feedback package captures
+              // a beat later, by which point a transient error snackbar has
+              // already animated away (16 July 2026 report). Wraps the whole
+              // app (above the ScaffoldMessenger) so snackbars are included.
+              child: RepaintBoundary(
+                key: debugFeedbackBoundaryKey,
+                child: app,
+              ),
             )
           : app));
 }
