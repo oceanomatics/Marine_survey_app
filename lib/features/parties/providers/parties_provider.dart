@@ -106,12 +106,39 @@ class AssuredContactsNotifier
     // in flight, so the dedupe check below would silently miss every
     // existing contact. `?? await future` waits for that first fetch to
     // land instead of racing it (found via a widget test, 15 July 2026).
-    final existing = (state.value ?? await future)
-        .map((c) => c.fullName.toLowerCase())
-        .toSet();
-    var added = 0;
+    // Merge, don't skip: an extracted party whose name already exists may
+    // carry data the stored contact is missing (16 July 2026 — a second email
+    // from Ryan Allison finally included his address, but re-importing him
+    // dropped it because he "already existed"). Fill any blank field on the
+    // existing record; only insert a genuinely new contact. Returns the number
+    // of contacts added OR updated.
+    final current = List<AssuredContactModel>.from(state.value ?? await future);
+    final byName = {for (final c in current) c.fullName.toLowerCase(): c};
+    final processed = <String>{};
+    var affected = 0;
     for (final p in parties) {
-      if (existing.contains(p.name.toLowerCase())) continue;
+      final key = p.name.toLowerCase();
+      if (!processed.add(key)) continue; // handle each name once per batch
+      final existing = byName[key];
+      if (existing != null) {
+        final merged = AssuredContactModel(
+          contactId:        existing.contactId,
+          caseId:           existing.caseId,
+          fullName:         existing.fullName,
+          company:          _fill(existing.company, p.company),
+          roleTitle:        _fill(existing.roleTitle, p.role),
+          stakeholderGroup: existing.stakeholderGroup ??
+              StakeholderGroup.fromRole(p.role),
+          phone:            _fill(existing.phone, p.phone),
+          email:            _fill(existing.email, p.email),
+          notes:            existing.notes,
+        );
+        if (!_sameContact(merged, existing)) {
+          await editContact(merged);
+          affected++;
+        }
+        continue;
+      }
       await add(
         caseId:           caseId,
         fullName:         p.name,
@@ -121,11 +148,21 @@ class AssuredContactsNotifier
         phone:            p.phone,
         email:            p.email,
       );
-      existing.add(p.name.toLowerCase());
-      added++;
+      affected++;
     }
-    return added;
+    return affected;
   }
+
+  /// Prefer an existing non-blank value; otherwise take the incoming one.
+  String? _fill(String? existing, String? incoming) =>
+      (existing != null && existing.trim().isNotEmpty) ? existing : incoming;
+
+  bool _sameContact(AssuredContactModel a, AssuredContactModel b) =>
+      a.company == b.company &&
+      a.roleTitle == b.roleTitle &&
+      a.stakeholderGroup == b.stakeholderGroup &&
+      a.phone == b.phone &&
+      a.email == b.email;
 
   Future<void> editContact(AssuredContactModel contact) async {
     await SupabaseService.client

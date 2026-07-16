@@ -455,8 +455,8 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
           added == 0
-              ? 'All parties already in the stakeholders list'
-              : '$added stakeholder(s) added to Parties',
+              ? 'All parties already in the stakeholders list (no new details)'
+              : '$added stakeholder(s) added or updated',
         ),
       ));
     }

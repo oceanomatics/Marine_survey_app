@@ -169,7 +169,7 @@ void main() {
     await tester.tap(find.text('Add 1'));
     await tester.pumpAndSettle();
 
-    expect(find.text('1 stakeholder(s) added to Parties'), findsOneWidget);
+    expect(find.text('1 stakeholder(s) added or updated'), findsOneWidget);
   });
 
   testWidgets('re-adding an already-present party shows the "already in stakeholders" snackbar',
@@ -179,9 +179,15 @@ void main() {
       items: [
         _item(parties: const [ExtractedParty(name: 'Jane Doe', role: 'Owner')]),
       ],
+      // Already fully in the list (same role) — re-importing brings nothing
+      // new, so the merge is a no-op and the "already in" message shows.
       existingContacts: [
-        const AssuredContactModel(
-            contactId: 'ct1', caseId: _caseId, fullName: 'Jane Doe'),
+        AssuredContactModel(
+            contactId: 'ct1',
+            caseId: _caseId,
+            fullName: 'Jane Doe',
+            roleTitle: 'Owner',
+            stakeholderGroup: StakeholderGroup.fromRole('Owner')),
       ],
     );
     await tester.tap(find.text('Re: Survey attendance'));
@@ -191,7 +197,39 @@ void main() {
     await tester.tap(find.text('Add 1'));
     await tester.pumpAndSettle();
 
-    expect(find.text('All parties already in the stakeholders list'), findsOneWidget);
+    expect(find.text('All parties already in the stakeholders list (no new details)'), findsOneWidget);
+  });
+
+  testWidgets('re-adding an existing party with newly-available data merges it (added or updated)',
+      (tester) async {
+    await _pump(
+      tester,
+      items: [
+        _item(parties: const [
+          ExtractedParty(
+              name: 'Ryan Allison',
+              role: 'Owner',
+              email: 'ryan@example.com')
+        ]),
+      ],
+      // Ryan is already known, but without an email — the second email now
+      // supplies it, so the import must update rather than skip (16 Jul 2026).
+      existingContacts: [
+        const AssuredContactModel(
+            contactId: 'ct1',
+            caseId: _caseId,
+            fullName: 'Ryan Allison',
+            roleTitle: 'Owner'),
+      ],
+    );
+    await tester.tap(find.text('Re: Survey attendance'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add to Parties'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add 1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 stakeholder(s) added or updated'), findsOneWidget);
   });
 
   testWidgets('action items list with a Send to context notes icon that files a cue',
