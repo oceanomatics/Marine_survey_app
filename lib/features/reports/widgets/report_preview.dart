@@ -1940,6 +1940,20 @@ class _SectionContent extends StatelessWidget {
             ),
           ),
         ),
+        // House-style italic purpose line beneath the heading (docs/
+        // house_style.md convention).
+        if (purposeLineFor(section.type) != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            purposeLineFor(section.type)!,
+            style: const TextStyle(
+              fontSize: 9.5,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF6B7280),
+              height: 1.35,
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
 
         // Locked clauses get a tinted accent background

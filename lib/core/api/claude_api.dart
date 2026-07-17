@@ -392,7 +392,17 @@ Dates in ISO format. Return null for missing fields.''',
 
   // ── Narrative Drafting ────────────────────────────────────────────────────
 
-  /// Draft the occurrence background narrative from structured case data
+  /// Draft the occurrence narrative from structured case data.
+  ///
+  /// Rewritten to the house style (docs/house_style.md, docs/
+  /// occurrence_narrative_spec.md): a mandatory reported-register opening
+  /// ("It was reported by the [role] that on [date], the subject vessel was
+  /// …"), the three-act Before / Incident / Aftermath structure, a hard
+  /// data-capture rule, and enforced concision. When the ordered phase
+  /// buckets ([beforeCues]/[incidentCues]/[aftermathCues]) are supplied the
+  /// narrative is drafted strictly from them in order; otherwise it falls
+  /// back to the flat [damageItems] list (the report-builder Background
+  /// caller, which has no phase forking).
   static Future<String> draftOccurrenceNarrative({
     required String vesselName,
     required String occurrenceDate,
@@ -403,6 +413,17 @@ Dates in ISO format. Return null for missing fields.''',
     required String reportFormat, // 'nordic' or 'abl'
     String? caseId,
 
+    /// Role/rank of the person whose account this is (Master, Chief Engineer,
+    /// Owner's Representative …). Fills the "[role]" slot in the opening.
+    String? reporterRole,
+
+    /// Ordered occurrence-phase cue buckets. When any is non-empty the three
+    /// acts are drafted from these; the flat [damageItems] then supplies only
+    /// supplementary claim-object context.
+    List<String>? beforeCues,
+    List<String>? incidentCues,
+    List<String>? aftermathCues,
+
     /// Successive-report carry-forward (docs/report_builder_editor_notes.md
     /// gap #10): the prior report output's already-approved Background
     /// text for this case, when this is not the first report. When
@@ -410,13 +431,35 @@ Dates in ISO format. Return null for missing fields.''',
     /// developments since that text — rather than restating it.
     String? priorApprovedText,
   }) async {
-    final damages = damageItems.join('\n- ');
+    final role = (reporterRole != null && reporterRole.trim().isNotEmpty)
+        ? reporterRole.trim()
+        : "vessel's Master";
     final transcriptSection = interviewTranscript != null
         ? '\n\nINTERVIEW TRANSCRIPT EXTRACT:\n$interviewTranscript'
         : '';
+
+    String bucket(String heading, List<String>? cues) {
+      if (cues == null || cues.isEmpty) {
+        return '$heading:\n- (no information given — write "Not confirmed" '
+            'where a fact for this phase is missing rather than inventing one)';
+      }
+      return '$heading:\n- ${cues.join('\n- ')}';
+    }
+
+    final hasPhases = (beforeCues?.isNotEmpty ?? false) ||
+        (incidentCues?.isNotEmpty ?? false) ||
+        (aftermathCues?.isNotEmpty ?? false);
+
+    final contextBlock = hasPhases
+        ? '${bucket('BEFORE THE INCIDENT (Act 1 — prelude)', beforeCues)}\n\n'
+            '${bucket('THE INCIDENT (Act 2 — the event, in tick-tock order)', incidentCues)}\n\n'
+            '${bucket('AFTERMATH (Act 3 — response through to a place of safety)', aftermathCues)}'
+            '${damageItems.isNotEmpty ? '\n\nCLAIM OBJECTS / DAMAGE (supplementary context only):\n- ${damageItems.join('\n- ')}' : ''}'
+        : 'OCCURRENCE CONTEXT:\n- ${damageItems.join('\n- ')}';
+
     final amendSection = priorApprovedText != null &&
             priorApprovedText.isNotEmpty
-        ? '\n\nPRIOR APPROVED BACKGROUND (already issued in an earlier report '
+        ? '\n\nPRIOR APPROVED NARRATIVE (already issued in an earlier report '
             'on this case — do not repeat or restate any of this; it is '
             'shown only so you know what has already been said):\n'
             '"""\n$priorApprovedText\n"""\n\n'
@@ -440,24 +483,79 @@ Dates in ISO format. Return null for missing fields.''',
             {
               'role': 'user',
               'content':
-                  '''You are a marine surveyor drafting a Hull & Machinery survey report section in the $reportFormat format.
+                  '''You are a marine surveyor drafting the OCCURRENCE NARRATIVE section of a Hull & Machinery survey report ($reportFormat format). This is the reported account of the casualty — not the surveyor's own findings.
 
-Draft the BACKGROUND / OCCURRENCE section (the owners' description of events leading up to the casualty) using the following information. Write in a precise, semi-legalistic technical register appropriate for a marine insurance report. Do not use bullet points — write flowing prose. Do not include headings. Do not add information not provided. Synthesise the events into a short narrative of what led to the casualty — do not write it as a day-by-day diary of the surveyor's activities. Do not state or imply a cause of the casualty here — causation belongs in a separate section; confine this section to the owners' account of what happened.
+Write flowing prose (no bullet points, no headings, no markdown).
 
-VESSEL: $vesselName
-DATE: $occurrenceDate
-LOCATION: $occurrenceLocation
+MANDATORY OPENING — begin with exactly this shape:
+"It was reported by the $role that on $occurrenceDate, the subject vessel was [pre-incident activity] …"
+- Name the vessel once as "$vesselName" if natural, then refer to it only as "the subject vessel" thereafter — never repeat the name.
+- Keep the WHOLE account in reported register ("it was reported", "the crew observed", "it was found"). Do not adopt any statement as the surveyor's own finding — that belongs in Damage Description.
+
+THREE-ACT STRUCTURE, drafted strictly in this order:
+1. BEFORE THE INCIDENT — the operating state immediately before: who was on watch, the operation underway, prevailing conditions, systems running normally. Anchor with time and place.
+2. THE INCIDENT — in tick-tock sequence: the first sign (noise / alarm / shudder / level) with its exact time, who detected it and what they did, what was then found, each cascading failure in order with its own time, loss of function, and the point the situation was contained.
+3. AFTERMATH — this act is ALWAYS INCLUDED and never dropped: notifications up the chain (managers / ERT / AMSA / P&I) with times or references, immediate mitigation, the tow or voyage to a place of safety, and any initial crew/contractor inspection, through to the endpoint that hands over to repairs.
+
+DATA-CAPTURE RULE: consume every hard datum in the context before writing — exact dates and clock times as given (e.g. "At 1719 hours"), positions, port/berth names, named persons by rank/role, named equipment and its state, every alarm with its label/time/response, weather (actual vs forecast), cascading failures in sequence, and notifications with reference numbers. Work them all in; do not summarise past them. Where a hard fact is absent, write "Not confirmed" rather than inventing or glossing it.
+
+CONCISION: this is a summary, not a diary — keep it tight and avoid convolution. Do NOT state or imply a cause of the casualty; causation is a separate section.
+
 OCCURRENCE: $occurrenceTitle
-DAMAGE ITEMS:
-- $damages$transcriptSection
+LOCATION: $occurrenceLocation
+
+$contextBlock$transcriptSection
 $_writingStyleGuardrails$amendSection
 
-Draft the background narrative paragraph now:''',
+Draft the occurrence narrative now:''',
             },
           ],
         });
 
     return _extractText(response.data);
+  }
+
+  /// AI pre-sort for occurrence cue forking (docs/occurrence_narrative_spec.md)
+  /// — classifies a single occurrence-section cue into one of the three
+  /// narrative phases. "Surveyor picks, AI pre-sorts": this only *suggests*
+  /// a phase; the surveyor can override it with the on-cue 3-way selector.
+  /// Returns 'before', 'incident', or 'aftermath' (defaults to 'incident'
+  /// when the model is unclear).
+  static Future<String> classifyOccurrenceCuePhase({
+    required String cueText,
+    String? occurrenceTitle,
+    String? caseId,
+  }) async {
+    final context = occurrenceTitle != null && occurrenceTitle.isNotEmpty
+        ? '\nThe occurrence being described is: "$occurrenceTitle".'
+        : '';
+    final response = await _dio.post('/messages',
+        options: Options(extra: {
+          'feature': 'occurrence_cue_phase_sort',
+          if (caseId != null) 'case_id': caseId,
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 12,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''Classify the following context cue into ONE phase of a marine casualty narrative:
+- "before": conditions, watch, or operation in the lead-up immediately BEFORE the incident.
+- "incident": the event itself — first sign, alarms, failures, loss of function, containment.
+- "aftermath": AFTER the event — notifications, mitigation, tow/voyage to safety, first inspection.$context
+
+CUE: "$cueText"
+
+Answer with exactly one word: before, incident, or aftermath.''',
+            },
+          ],
+        });
+    final raw = _extractText(response.data).toLowerCase();
+    if (raw.contains('before')) return 'before';
+    if (raw.contains('aftermath')) return 'aftermath';
+    return 'incident';
   }
 
   /// Draft the cause consideration section. [ownersAllegation] is the

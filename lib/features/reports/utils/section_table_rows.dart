@@ -576,21 +576,35 @@ List<List<String>> buildRepairTimesRows(
   final hasTime = periods.any((p) =>
       p.drydockDaysTotal > 0 || p.alongsideDaysTotal > 0 || p.ownerDaysTotal > 0);
   if (!hasTime) return const [];
+  // House-style column labels — "In Dry Dock | Afloat" (docs/house_style.md
+  // Repair Times). R10 (17 Jul reports): drop the literal word "Days" from the
+  // headers and carry the unit inline with each figure instead. The per-period
+  // Total is the average (dry-dock + afloat) work; Owners' own work is kept in
+  // its own column, never folded into the average total ("no grand total
+  // across periods").
   return [
-    ['Repair', 'Drydock Days', 'Afloat Days', "Owner's Days", 'Total'],
+    ['Repair Period', 'In Dry Dock', 'Afloat', "Owners'", 'Total'],
     ...periods.map((p) {
       final dd = p.drydockDaysTotal;
       final ad = p.alongsideDaysTotal;
       final od = p.ownerDaysTotal;
       return [
         p.displayTitle,
-        dd > 0 ? dd.toStringAsFixed(1) : '—',
-        ad > 0 ? ad.toStringAsFixed(1) : '—',
-        od > 0 ? od.toStringAsFixed(1) : '—',
-        (dd + ad).toStringAsFixed(1),
+        dd > 0 ? _daysInline(dd) : '—',
+        ad > 0 ? _daysInline(ad) : '—',
+        od > 0 ? _daysInline(od) : '—',
+        _daysInline(dd + ad),
       ];
     }),
   ];
+}
+
+/// Formats a day count with the unit inline (R10) — "3 days" / "3.5 days" /
+/// "1 day" — dropping a redundant trailing ".0".
+String _daysInline(double days) {
+  final whole = days == days.truncateToDouble();
+  final n = whole ? days.toInt().toString() : days.toStringAsFixed(1);
+  return '$n ${days == 1 ? 'day' : 'days'}';
 }
 
 // ── Section 16: Documents Retained on File — §2.18 (10 July 2026) ────────
@@ -600,13 +614,15 @@ List<List<String>> buildRepairTimesRows(
 List<List<String>> buildDocumentsOnFileRows(
     List<Map<String, dynamic>> caseDocuments) {
   if (caseDocuments.isEmpty) return const [];
+  // R5 (17 Jul reports): the oversized "#" number column added little value —
+  // dropped. (Later, when a document lands in an annexure, its cell becomes a
+  // hyperlink to that annexure rather than a bare number.)
   return [
-    ['#', 'Document', 'Category', 'Date'],
-    ...caseDocuments.asMap().entries.map((e) => [
-          '${e.key + 1}',
-          e.value['title'] as String? ?? '',
-          (e.value['doc_category'] as String? ?? '').replaceAll('_', ' '),
-          formatSectionDate(e.value['doc_date'] as String? ?? ''),
+    ['Document', 'Category', 'Date'],
+    ...caseDocuments.map((e) => [
+          e['title'] as String? ?? '',
+          (e['doc_category'] as String? ?? '').replaceAll('_', ' '),
+          formatSectionDate(e['doc_date'] as String? ?? ''),
         ]),
   ];
 }

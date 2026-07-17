@@ -108,6 +108,53 @@ enum CueOrigin {
       };
 }
 
+// ── Occurrence narrative phase ─────────────────────────────────────────────
+//
+// A cue allocated to the Occurrence section forks into one of three ordered
+// phases (docs/occurrence_narrative_spec.md). Only meaningful when
+// [SurveyorNote.caseSection] == CaseSection.occurrence; null everywhere else,
+// and null for an occurrence cue not yet sorted ("Unsorted" bucket). Mirrors
+// the repair-period cue scoping pattern — surveyor picks, AI pre-sorts.
+
+enum OccurrencePhase {
+  before,
+  incident,
+  aftermath;
+
+  static OccurrencePhase? fromValue(String? v) => switch (v) {
+        'before'    => before,
+        'incident'  => incident,
+        'aftermath' => aftermath,
+        _           => null,
+      };
+
+  String get value => name;
+
+  String get label => switch (this) {
+        before    => 'Before the Incident',
+        incident  => 'The Incident',
+        aftermath => 'Aftermath',
+      };
+
+  String get shortLabel => switch (this) {
+        before    => 'Before',
+        incident  => 'Incident',
+        aftermath => 'Aftermath',
+      };
+
+  /// One-line prompt to orient the surveyor when the bucket is empty.
+  String get hint => switch (this) {
+        before =>
+          'Prevailing conditions, watch, operation underway just before the event.',
+        incident =>
+          'The event itself — first sign, sequence, alarms and responses, loss of function.',
+        aftermath =>
+          'Notifications, mitigation, tow/voyage to a place of safety, first inspection.',
+      };
+
+  static const ordered = [before, incident, aftermath];
+}
+
 // ── Case section tag ───────────────────────────────────────────────────────
 //
 // Allocates a cue to a case-screen section. Renamed from `ReportSection`
@@ -244,6 +291,7 @@ class SurveyorNote {
     this.evidentiaryWeight,
     this.origin,
     this.caseSection,
+    this.occurrencePhase,
     this.priority = CuePriority.normal,
     this.lostRelevanceAt,
     this.linkedToType,
@@ -261,6 +309,10 @@ class SurveyorNote {
   final EvidentiaryWeight? evidentiaryWeight;
   final CueOrigin? origin;
   final CaseSection? caseSection;
+  /// Occurrence narrative phase (before/incident/aftermath) — only meaningful
+  /// when [caseSection] == CaseSection.occurrence; null otherwise, and null
+  /// for an occurrence cue not yet sorted into a phase. See [OccurrencePhase].
+  final OccurrencePhase? occurrencePhase;
   final CuePriority priority;
   /// When this cue stopped being relevant — auto-set when [priority] is set
   /// to [CuePriority.ignored] (docs/context_cue_system_review.md §3.6),
@@ -287,6 +339,7 @@ class SurveyorNote {
         evidentiaryWeight: EvidentiaryWeight.fromValue(m['evidentiary_weight'] as String?),
         origin:            CueOrigin.fromValue(m['origin'] as String?),
         caseSection:       CaseSection.fromValue(m['case_section'] as String?),
+        occurrencePhase:   OccurrencePhase.fromValue(m['occurrence_phase'] as String?),
         priority:          CuePriority.fromValue(m['priority'] as String?),
         lostRelevanceAt:   m['lost_relevance_at'] != null
             ? DateTime.tryParse(m['lost_relevance_at'] as String)
@@ -307,6 +360,10 @@ class SurveyorNote {
         'evidentiary_weight': evidentiaryWeight?.value,
         'origin':             origin?.value,
         'case_section':       caseSection?.value,
+        // Only emitted for occurrence cues that carry a phase — keeps every
+        // other cue's save shape unchanged (and unaffected before the
+        // occurrence_phase column migration is applied).
+        if (occurrencePhase != null) 'occurrence_phase': occurrencePhase!.value,
         'priority':           priority.value,
         'lost_relevance_at':  lostRelevanceAt?.toIso8601String(),
         if (linkedToType != null) 'linked_to_type': linkedToType,
@@ -323,6 +380,7 @@ class SurveyorNote {
     Object? evidentiaryWeight = _sentinel,
     Object? origin = _sentinel,
     Object? caseSection = _sentinel,
+    Object? occurrencePhase = _sentinel,
     CuePriority? priority,
     Object? lostRelevanceAt = _sentinel,
     String? linkedToType,
@@ -344,6 +402,9 @@ class SurveyorNote {
         caseSection: caseSection == _sentinel
             ? this.caseSection
             : caseSection as CaseSection?,
+        occurrencePhase: occurrencePhase == _sentinel
+            ? this.occurrencePhase
+            : occurrencePhase as OccurrencePhase?,
         priority:      priority ?? this.priority,
         lostRelevanceAt: lostRelevanceAt == _sentinel
             ? this.lostRelevanceAt

@@ -86,6 +86,24 @@ class RepairPeriodScope {
   final bool isUnassignedBucket;
 }
 
+// ── Occurrence-phase scoping ────────────────────────────────────────────────
+//
+// The Occurrence Narrative forks a section's cues into before/incident/
+// aftermath phases (docs/occurrence_narrative_spec.md) — deliberately the
+// same two-level pattern as [RepairPeriodScope], applied on top of the
+// occurrence's own [itemScope]. A phase-scoped panel shows either the cues
+// in one specific phase, or the "Unsorted" bucket (occurrence cues with no
+// phase yet). Irrelevant for every non-occurrence section.
+class OccurrencePhaseScope {
+  const OccurrencePhaseScope.forPhase(this.phase) : isUnsortedBucket = false;
+  const OccurrencePhaseScope.unsorted()
+      : phase = null,
+        isUnsortedBucket = true;
+
+  final OccurrencePhase? phase;
+  final bool isUnsortedBucket;
+}
+
 /// Shared scope-matching logic — the single source of truth for "does this
 /// cue belong to this panel" used both inside [ContextCuesPanel] itself and
 /// by callers that need a count *before* the panel is built (e.g.
@@ -97,18 +115,35 @@ bool cueMatchesScope(
   CaseSection section, {
   RepairPeriodScope? periodScope,
   CueItemScope? itemScope,
+  OccurrencePhaseScope? phaseScope,
 }) {
   if (n.caseSection != section) return false;
+  // Each provided scope is an AND filter — unlike the earlier early-return
+  // form, this lets an occurrence panel combine [itemScope] (which occurrence)
+  // with [phaseScope] (which narrative phase). periodScope/itemScope-only
+  // callers behave exactly as before.
   if (periodScope != null) {
     if (periodScope.isUnassignedBucket) {
-      return n.linkedToType != repairPeriodLinkType || n.linkedToId == null;
+      if (!(n.linkedToType != repairPeriodLinkType || n.linkedToId == null)) {
+        return false;
+      }
+    } else if (!(n.linkedToType == repairPeriodLinkType &&
+        n.linkedToId == periodScope.periodId)) {
+      return false;
     }
-    return n.linkedToType == repairPeriodLinkType &&
-        n.linkedToId == periodScope.periodId;
   }
   if (itemScope != null) {
-    return n.linkedToType == itemScope.linkedToType &&
-        n.linkedToId == itemScope.linkedToId;
+    if (!(n.linkedToType == itemScope.linkedToType &&
+        n.linkedToId == itemScope.linkedToId)) {
+      return false;
+    }
+  }
+  if (phaseScope != null) {
+    if (phaseScope.isUnsortedBucket) {
+      if (n.occurrencePhase != null) return false;
+    } else if (n.occurrencePhase != phaseScope.phase) {
+      return false;
+    }
   }
   return true;
 }
@@ -205,6 +240,7 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     this.title,
     this.periodScope,
     this.itemScope,
+    this.occurrencePhaseScope,
     this.routingLinkType,
     this.routingOptions,
     this.initiallyExpanded = true,
@@ -226,6 +262,12 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
   /// repair period embedded on its own screen, etc.) — see [CueItemScope].
   /// Mutually exclusive with [periodScope].
   final CueItemScope? itemScope;
+  /// Occurrence Narrative phase scoping (docs/occurrence_narrative_spec.md).
+  /// Combined *with* [itemScope] (which occurrence) — the panel then shows one
+  /// before/incident/aftermath bucket, or the Unsorted bucket, and its add/
+  /// edit sheet stamps the chosen phase onto the cue. Ignored for every
+  /// non-occurrence section.
+  final OccurrencePhaseScope? occurrencePhaseScope;
   /// When there's more than one possible target of [itemScope]'s kind (e.g.
   /// a multi-occurrence case), pass the shared `linkedToType` here plus
   /// [routingOptions] instead of [itemScope] — the add/edit cue sheet then
@@ -270,6 +312,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
         widget.section,
         periodScope: widget.periodScope,
         itemScope: widget.itemScope,
+        phaseScope: widget.occurrencePhaseScope,
       );
 
   /// §3.10/§3.11: expanded height scales with [itemCount] instead of always
@@ -576,6 +619,12 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
       builder: (_) => _CuePanelSheet(
         section: widget.section,
         existing: existing,
+        // Occurrence panels let the surveyor pick/override the narrative
+        // phase right on the cue (the AI pre-sort's suggestion is an initial
+        // value, never a lock) — docs/occurrence_narrative_spec.md.
+        phaseSelectable: widget.occurrencePhaseScope != null,
+        initialPhase: existing?.occurrencePhase ??
+            widget.occurrencePhaseScope?.phase,
         routingLinkType: widget.routingOptions != null &&
                 widget.routingOptions!.length > 1
             ? widget.routingLinkType
@@ -594,11 +643,17 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                 Navigator.pop(context);
                 widget.onPromote!(existing);
               },
-        onSave: (content, priority, nature, weight, origin, routedId) async {
+        onSave:
+            (content, priority, nature, weight, origin, routedId, phase) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
           final scope = widget.periodScope;
           final item = widget.itemScope;
+          // Phase to persist: the sheet's picked value when the panel is
+          // phase-scoped, otherwise leave the cue's phase untouched (null →
+          // add stores null, editNote preserves the existing phase).
+          final OccurrencePhase? phaseForSave =
+              widget.occurrencePhaseScope != null ? phase : null;
           final String? linkedToType;
           final String? linkedToId;
           if (scope != null && !scope.isUnassignedBucket) {
@@ -624,6 +679,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               evidentiaryWeight: weight,
               origin:            origin,
               caseSection:       widget.section,
+              occurrencePhase:   phaseForSave,
               linkedToType:      linkedToType,
               linkedToId:        linkedToId,
             );
@@ -636,6 +692,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               evidentiaryWeight: weight,
               origin:            origin,
               caseSection:       widget.section,
+              occurrencePhase:   phaseForSave,
               linkedToType:      linkedToType,
               linkedToId:        linkedToId,
             );
@@ -880,6 +937,7 @@ typedef _CueSaveCallback = Future<void> Function(
   EvidentiaryWeight? weight,
   CueOrigin? origin,
   String? routedId,
+  OccurrencePhase? phase,
 );
 
 class _CuePanelSheet extends StatefulWidget {
@@ -891,11 +949,18 @@ class _CuePanelSheet extends StatefulWidget {
     this.routingLinkType,
     this.routingOptions,
     this.initialRoutedId,
+    this.phaseSelectable = false,
+    this.initialPhase,
   });
 
   final CaseSection section;
   final SurveyorNote? existing;
   final _CueSaveCallback onSave;
+  /// Occurrence Narrative: show a before/incident/aftermath phase selector
+  /// (docs/occurrence_narrative_spec.md). [initialPhase] seeds it — the
+  /// cue's own phase, else the bucket's phase, else null (Unsorted).
+  final bool phaseSelectable;
+  final OccurrencePhase? initialPhase;
   /// Duplicated here from the list tile (14 July 2026 walkthrough — the
   /// list tile's promote control was "too tiny/hard to hit"), positioned
   /// next to "Tagged: X" so it's reachable right where a cue is being
@@ -918,6 +983,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
   String? _routedId;
+  OccurrencePhase? _phase;
   bool _saving = false;
 
   @override
@@ -929,6 +995,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
     _routedId = widget.initialRoutedId;
+    _phase = widget.initialPhase;
   }
 
   @override
@@ -1030,6 +1097,32 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
                       colorOf: (_) => accent,
                       onTap: (id) => setState(
                           () => _routedId = _routedId == id ? null : id),
+                      allowDeselect: true,
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Occurrence phase (before/incident/aftermath) ────────────
+            if (widget.phaseSelectable)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Narrative phase',
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textTertiary)),
+                    const SizedBox(height: 5),
+                    CueChipRow<OccurrencePhase>(
+                      values: OccurrencePhase.ordered,
+                      selected: _phase,
+                      labelOf: (p) => p.shortLabel,
+                      colorOf: (_) => accent,
+                      onTap: (p) =>
+                          setState(() => _phase = _phase == p ? null : p),
                       allowDeselect: true,
                     ),
                   ],
@@ -1186,7 +1279,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     setState(() => _saving = true);
     try {
       await widget.onSave(
-          content, _priority, _nature, _weight, _origin, _routedId);
+          content, _priority, _nature, _weight, _origin, _routedId, _phase);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);

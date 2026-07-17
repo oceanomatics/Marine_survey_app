@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:marine_survey_app/features/survey/providers/attendees_provider.dart';
 import 'package:marine_survey_app/features/survey/providers/damage_provider.dart';
 import 'package:marine_survey_app/features/survey/screens/occurrence_screen.dart';
 import 'package:marine_survey_app/features/surveyor_notes/providers/surveyor_notes_provider.dart';
@@ -11,6 +12,11 @@ import '../../../support/fixtures/survey_fixtures.dart';
 import '../../../support/pump_with_router.dart';
 
 const _caseId = 'case-1';
+
+class _FakeAttendeesNotifier extends AttendeesNotifier {
+  @override
+  Future<List<AttendeeModel>> build(String caseId) async => const [];
+}
 
 Future<ProviderContainer> _pump(
   WidgetTester tester, {
@@ -23,6 +29,10 @@ Future<ProviderContainer> _pump(
     damageProvider.overrideWith(
         () => FakeDamageNotifier(fixtureDamageState(occurrences: occurrences))),
     surveyorNotesProvider.overrideWith(() => FakeSurveyorNotesNotifier()),
+    // The occurrence editor's "Reported by" picker watches attendeesProvider
+    // (docs/occurrence_narrative_spec.md); stub it so the widget test doesn't
+    // reach the real Supabase fetch.
+    attendeesProvider.overrideWith(_FakeAttendeesNotifier.new),
   ]);
   addTearDown(container.dispose);
 
