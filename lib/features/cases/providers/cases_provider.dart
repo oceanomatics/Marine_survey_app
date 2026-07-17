@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/case_model.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/services/drive_storage_service.dart';
+import '../../checklist/providers/checklist_provider.dart';
 
 // ── All cases list ─────────────────────────────────────────────────────────
 
@@ -401,19 +402,14 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
 
 final checklistProgressProvider =
     FutureProvider.family<double, String>((ref, caseId) async {
-  final data = await SupabaseService.client
-      .from('checklists')
-      .select('response')
-      .eq('case_id', caseId);
-
-  // N/A items are excluded from the denominator entirely, matching
-  // ChecklistState.progress's semantics (checklist_provider.dart) — this
-  // is a separate lightweight query so it has to repeat that exclusion.
-  final items =
-      (data as List).where((i) => i['response'] != 'na').toList();
-  if (items.isEmpty) return 0;
-  final done = items.where((i) => i['response'] == 'yes').length;
-  return done / items.length;
+  // Derive from the live checklist state (single source of truth) so the
+  // case-home % updates the moment an item is ticked. Previously this ran its
+  // own one-shot query that never re-ran on a tick, so the header % went stale
+  // until the screen was rebuilt from scratch (17 July 2026 report). Watching
+  // checklistProvider's future makes this recompute whenever the checklist
+  // changes, and reuses ChecklistState.progress's na-excluded semantics.
+  final cl = await ref.watch(checklistProvider(caseId).future);
+  return cl.progress;
 });
 
 // ── Quick capture count (pending items) ───────────────────────────────────
