@@ -44,7 +44,7 @@ enum CorrStatus {
   String get label => switch (this) {
         pending => 'Not extracted',
         processing => 'Processing…',
-        completed => 'Extracted',
+        completed => 'AI extracted',
         failed => 'Failed',
       };
 }

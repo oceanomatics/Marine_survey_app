@@ -56,16 +56,26 @@ class CorrespondenceNotifier
   // up-to-date refresh. The same race can resurrect a just-deleted item.
   int _mutationGeneration = 0;
 
+  // Ids already run through the auto-extraction sweep this session, so a
+  // rebuild / refresh / connectivity event doesn't re-fire a (paid) Claude
+  // call on an item that already had one queued. See [autoExtractPending].
+  final Set<String> _autoExtractHandled = {};
+
   @override
   Future<List<CorrespondenceModel>> build(String caseId) async {
     ref.listen<AsyncValue<bool>>(connectivityProvider, (_, next) {
       if (next.value == true) _refresh();
     });
     if (kIsWeb) {
-      return _fetchSupabase(caseId);
+      final rows = await _fetchSupabase(caseId);
+      // state isn't set yet inside build(); sweep after it lands.
+      Future.microtask(autoExtractPending);
+      return rows;
     }
     _refresh();
-    return _fetchOffline(caseId);
+    final rows = await _fetchOffline(caseId);
+    Future.microtask(autoExtractPending);
+    return rows;
   }
 
   // ── Supabase (canonical metadata) ─────────────────────────────────────────
@@ -93,6 +103,7 @@ class CorrespondenceNotifier
         final fetched = await _fetchSupabase(_caseId);
         if (_mutationGeneration != startGeneration) return;
         state = AsyncData(fetched);
+        unawaited(autoExtractPending());
         return;
       }
       await _syncPending();
@@ -102,6 +113,7 @@ class CorrespondenceNotifier
       final offline = await _fetchOffline(_caseId);
       if (_mutationGeneration != startGeneration) return;
       state = AsyncData(offline);
+      unawaited(autoExtractPending());
     } catch (e, st) {
       debugPrint('CorrespondenceNotifier._refresh error: $e\n$st');
     } finally {
@@ -320,6 +332,42 @@ class CorrespondenceNotifier
 
     final current = state.value ?? [];
     state = AsyncData([corr, ...current]);
+
+    // Auto-queue AI extraction for the freshly imported item so the surveyor
+    // only reviews the result rather than tapping Extract on each (16 July
+    // 2026 reports). Fire-and-forget through the shared aiTasks queue.
+    unawaited(autoExtractPending());
+  }
+
+  /// Auto-queues AI extraction for every still-"Not extracted" imported item
+  /// so the surveyor only reviews results instead of tapping Extract on each
+  /// (16 July 2026 reports). Runs each pending item through the same [extract]
+  /// path — and therefore the shared aiTasksProvider queue — once per session
+  /// per item, sequentially so a batch import doesn't fire a dozen parallel
+  /// Claude calls. Best-effort: a failure just leaves that item marked failed
+  /// (extract() already does that) and the sweep moves on.
+  Future<void> autoExtractPending() async {
+    final items = List<CorrespondenceModel>.from(state.value ?? const []);
+    for (final c in items) {
+      if (c.status != CorrStatus.pending) continue;
+      if (_autoExtractHandled.contains(c.id)) continue;
+      // Only extract what we can actually read here: an EML with body text
+      // works via the text path (incl. web); PDFs need a local/Drive file and
+      // only extract off-web (web has no local cache to stream from).
+      final eligible = (c.isEml && (c.bodyText?.isNotEmpty ?? false)) ||
+          (!kIsWeb && (c.hasLocalFile || c.driveFileId != null));
+      if (!eligible) continue;
+      _autoExtractHandled.add(c.id);
+      // Skip if it's already been picked up (e.g. a manual Extract in flight).
+      final live = (state.value ?? const [])
+          .firstWhere((x) => x.id == c.id, orElse: () => c);
+      if (live.status != CorrStatus.pending) continue;
+      try {
+        await extract(c.id);
+      } catch (_) {
+        // extract() already set status=failed and logged; keep sweeping.
+      }
+    }
   }
 
   /// Downloads the file from Drive and caches it locally — for viewing a

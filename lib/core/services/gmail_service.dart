@@ -84,6 +84,7 @@ class GmailService {
   /// keep using [listRecent], which is allowed to prompt.
   static Future<List<GmailMessageSummary>?> listRecentSilent({
     int maxResults = 10,
+    String? query,
   }) async {
     final token = await GoogleAuthService.silentAccessToken();
     if (token == null) return null;
@@ -91,7 +92,10 @@ class GmailService {
 
     final listResp = await _dio.get<Map<String, dynamic>>(
       'messages',
-      queryParameters: {'maxResults': maxResults},
+      queryParameters: {
+        'maxResults': maxResults,
+        if (query != null && query.isNotEmpty) 'q': query,
+      },
       options: headers,
     );
     final ids = (listResp.data!['messages'] as List? ?? [])
