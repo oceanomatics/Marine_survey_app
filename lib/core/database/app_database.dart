@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 15,
+      version: 16,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -94,6 +94,7 @@ class AppDatabase {
         evidentiary_weight  TEXT,
         origin              TEXT,
         case_section        TEXT,
+        occurrence_phase    TEXT,
         priority            TEXT NOT NULL DEFAULT 'normal',
         lost_relevance_at   TEXT,
         linked_to_type      TEXT,
@@ -171,6 +172,14 @@ class AppDatabase {
           .execute('ALTER TABLE photos ADD COLUMN direction_context TEXT');
       await db.execute(
           'ALTER TABLE photos ADD COLUMN significance_to_claim TEXT');
+    }
+    if (oldVersion < 16) {
+      // Occurrence Narrative feature (docs/occurrence_narrative_spec.md) —
+      // mirrors Supabase migration 059. A cue tagged to the Occurrence
+      // section forks into a before/incident/aftermath phase; null for
+      // every other cue and for occurrence cues not yet sorted.
+      await db.execute(
+          'ALTER TABLE surveyor_notes ADD COLUMN occurrence_phase TEXT');
     }
   }
 }

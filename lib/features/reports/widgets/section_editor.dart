@@ -186,6 +186,22 @@ class _SectionEditorState extends State<SectionEditor> {
           if (_expanded) ...[
             const Divider(height: 1),
 
+            // House-style purpose line — orients the surveyor on what this
+            // section must achieve (docs/house_style.md convention). Same
+            // sentence rendered under the heading in Preview/docx.
+            if (purposeLineFor(section.type) != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: Text(
+                  purposeLineFor(section.type)!,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.textTertiary,
+                      height: 1.35),
+                ),
+              ),
+
             // Carried-forward text from the prior report in this case's
             // successive chain (spec gap #10) — frozen, read-only, shown
             // above the new-content box below so the two are visually

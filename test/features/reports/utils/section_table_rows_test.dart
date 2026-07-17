@@ -393,4 +393,75 @@ void main() {
       expect(photoRegisterCaption(const {}, 2), '[Photo 2]');
     });
   });
+
+  // House-style Repair Times (mods doc R10): house-style column labels, no
+  // literal "Days" in the header, the unit carried inline with each figure.
+  group('buildRepairTimesRows', () {
+    List<Map<String, dynamic>> onePeriod({
+      double dd = 0,
+      double ad = 0,
+      double od = 0,
+    }) =>
+        [
+          {
+            'period_id': 'p1',
+            'case_id': 'c1',
+            'period_no': 1,
+            'title': 'Fremantle',
+            'repair_times': {
+              'occ_1': {'drydock': dd, 'alongside': ad},
+              'owners': {'drydock': od, 'alongside': 0.0},
+            },
+          },
+        ];
+
+    test('header uses house-style labels with no literal "Days"', () {
+      final rows = buildRepairTimesRows(onePeriod(dd: 2));
+      expect(rows.first, ['Repair Period', 'In Dry Dock', 'Afloat', "Owners'", 'Total']);
+    });
+
+    test('figures carry the unit inline and drop a redundant .0', () {
+      final rows = buildRepairTimesRows(onePeriod(dd: 3, ad: 1.5));
+      // Dry dock 3 -> "3 days", afloat 1.5 -> "1.5 days", total 4.5 -> "4.5 days".
+      expect(rows[1][1], '3 days');
+      expect(rows[1][2], '1.5 days');
+      expect(rows[1][4], '4.5 days');
+    });
+
+    test('singular "day" for exactly one', () {
+      final rows = buildRepairTimesRows(onePeriod(ad: 1));
+      expect(rows[1][2], '1 day');
+    });
+
+    test('an empty cell stays an em dash, not "0 days"', () {
+      final rows = buildRepairTimesRows(onePeriod(dd: 2));
+      expect(rows[1][2], '—'); // afloat unset
+    });
+
+    test('no periods with any time returns no rows', () {
+      expect(buildRepairTimesRows(onePeriod()), isEmpty);
+    });
+  });
+
+  // Documents Retained on File (mods doc R5): the oversized "#" number column
+  // is dropped.
+  group('buildDocumentsOnFileRows', () {
+    test('header has no number column', () {
+      final rows = buildDocumentsOnFileRows([
+        {'title': 'Class cert', 'doc_category': 'class_survey', 'doc_date': '2026-01-02'},
+      ]);
+      expect(rows.first, ['Document', 'Category', 'Date']);
+    });
+
+    test('a data row is title / category / date only', () {
+      final rows = buildDocumentsOnFileRows([
+        {'title': 'Class cert', 'doc_category': 'class_survey', 'doc_date': '2026-01-02'},
+      ]);
+      expect(rows[1], ['Class cert', 'class survey', '02-Jan-2026']);
+    });
+
+    test('empty input returns no rows', () {
+      expect(buildDocumentsOnFileRows(const []), isEmpty);
+    });
+  });
 }

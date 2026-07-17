@@ -313,6 +313,10 @@ class DocxExportService {
       // nothing carried forward.
       if (section == null || section.fullContent.trim().isEmpty) return;
       doc.addHeading(heading, 2);
+      // House-style italic purpose line beneath the heading (docs/
+      // house_style.md convention), before any content.
+      final purpose = purposeLineFor(type);
+      if (purpose != null) doc.addParagraph(purpose, italic: true);
       for (final para in splitSectionParagraphs(section.fullContent)) {
         doc.addParagraph(para);
       }
@@ -1033,8 +1037,9 @@ class DocxExportService {
         doc.addParagraph(docsHeader);
         doc.addSpacer();
       }
+      // R5: number column dropped — three columns now (Document/Category/Date).
       doc.addTable(docRows, boldFirstRow: true,
-          colWidths: [400, 5200, 2000, 1755]);
+          colWidths: [5600, 2000, 1755]);
       doc.addSpacer();
       renderRemarks(SectionType.documentsOnFile);
     }

@@ -60,4 +60,44 @@ void main() {
       expect(filterRequestedDocuments(const []), isEmpty);
     });
   });
+
+  // House-style italic purpose lines (docs/house_style.md convention).
+  group('sectionPurposeLine / purposeLineFor', () {
+    test('narrative sections carry a "This section …" purpose line', () {
+      for (final t in [
+        SectionType.opening,
+        SectionType.background,
+        SectionType.occurrence,
+        SectionType.damageDescription,
+        SectionType.causation,
+        SectionType.repairTimes,
+        SectionType.waiver,
+      ]) {
+        final line = purposeLineFor(t);
+        expect(line, isNotNull, reason: '$t should have a purpose line');
+        expect(line, startsWith('This section'));
+      }
+    });
+
+    test('Vessel Particulars deliberately has no lead sentence (mods §E20)', () {
+      expect(purposeLineFor(SectionType.vesselParticulars), isNull);
+    });
+
+    test('the cover/summary block has no purpose line', () {
+      expect(purposeLineFor(SectionType.executiveSummary), isNull);
+    });
+  });
+
+  group('sectionNoDataSentence', () {
+    test('extra-expenses negative statement matches the house-style example', () {
+      expect(sectionNoDataSentence[SectionType.extraExpenses],
+          'No indication was given that additional expenses were engaged to reduce delay.');
+    });
+
+    test('every negative statement reads as a "No …" sentence', () {
+      for (final s in sectionNoDataSentence.values) {
+        expect(s, startsWith('No '));
+      }
+    });
+  });
 }

@@ -101,6 +101,7 @@ class SurveyorNotesNotifier
     EvidentiaryWeight? evidentiaryWeight,
     CueOrigin? origin,
     CaseSection? caseSection,
+    OccurrencePhase? occurrencePhase,
     CuePriority priority = CuePriority.normal,
     String? linkedToType,
     String? linkedToId,
@@ -116,6 +117,7 @@ class SurveyorNotesNotifier
       evidentiaryWeight: evidentiaryWeight,
       origin:            origin,
       caseSection:       caseSection,
+      occurrencePhase:   occurrencePhase,
       priority:          priority,
       // A cue created already-ignored gets its lost-relevance timestamp set
       // immediately, same as flipping an existing cue to ignored would.
@@ -150,6 +152,7 @@ class SurveyorNotesNotifier
     EvidentiaryWeight? evidentiaryWeight,
     CueOrigin? origin,
     CaseSection? caseSection,
+    OccurrencePhase? occurrencePhase,
     CuePriority? priority,
     String? linkedToType,
     String? linkedToId,
@@ -173,6 +176,10 @@ class SurveyorNotesNotifier
       evidentiaryWeight: evidentiaryWeight ?? note.evidentiaryWeight,
       origin:            origin ?? note.origin,
       caseSection:       caseSection,
+      // Preserve an existing phase when the caller doesn't specify one (only
+      // the occurrence phase-scoped panel passes it), same preserve-on-null
+      // convention as linkedTo below.
+      occurrencePhase:   occurrencePhase ?? note.occurrencePhase,
       priority:          newPriority,
       lostRelevanceAt:   lostRelevanceAt,
       linkedToType:      linkedToType ?? note.linkedToType,

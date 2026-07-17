@@ -205,6 +205,11 @@ class ThirdPartyFinding {
 
 // ── Occurrence model ───────────────────────────────────────────────────────
 
+/// Sentinel for [OccurrenceModel.copyWith] so a nullable field (e.g.
+/// `reportedByAttendeeId`) can be explicitly cleared to null, distinct from
+/// "not passed".
+const Object _occSentinel = Object();
+
 @immutable
 class OccurrenceModel {
   const OccurrenceModel({
@@ -227,6 +232,7 @@ class OccurrenceModel {
     this.vesselStatusAtCasualty,
     this.aftermathStatus,
     this.aftermathPort,
+    this.reportedByAttendeeId,
     this.ownersStatedCause,
     this.ownersStatedCauseSource,
     this.thirdPartyFindings = const [],
@@ -256,6 +262,10 @@ class OccurrenceModel {
   final String? aftermathStatus;
   /// Clause F-1 (Aftermath): named port, if applicable.
   final String? aftermathPort;
+  /// Occurrence Narrative: the attendee whose account this occurrence is
+  /// reported from (docs/occurrence_narrative_spec.md). Their role fills the
+  /// "[role]" slot in the narrative opening. FK -> attendees, nullable.
+  final String? reportedByAttendeeId;
   /// Owner's voice — spec §10 "Owners' stated cause". Not endorsed by the
   /// surveyor here; the surveyor's own view lives in [surveyorsAssessment].
   final String? ownersStatedCause;
@@ -291,6 +301,7 @@ class OccurrenceModel {
         vesselStatusAtCasualty: j['vessel_status_at_casualty'] as String?,
         aftermathStatus:        j['aftermath_status'] as String?,
         aftermathPort:          j['aftermath_port'] as String?,
+        reportedByAttendeeId:   j['reported_by_attendee_id'] as String?,
         ownersStatedCause:       j['owners_stated_cause'] as String?,
         ownersStatedCauseSource: j['owners_stated_cause_source'] as String?,
         thirdPartyFindings: (j['third_party_findings'] as List?)
@@ -307,6 +318,7 @@ class OccurrenceModel {
     String? location,
     String? title,
     String? briefDescription,
+    Object? reportedByAttendeeId = _occSentinel,
   }) =>
       OccurrenceModel(
         occurrenceId: occurrenceId,
@@ -328,6 +340,9 @@ class OccurrenceModel {
         vesselStatusAtCasualty: vesselStatusAtCasualty,
         aftermathStatus: aftermathStatus,
         aftermathPort: aftermathPort,
+        reportedByAttendeeId: reportedByAttendeeId == _occSentinel
+            ? this.reportedByAttendeeId
+            : reportedByAttendeeId as String?,
         ownersStatedCause: ownersStatedCause,
         ownersStatedCauseSource: ownersStatedCauseSource,
         thirdPartyFindings: thirdPartyFindings,
@@ -355,6 +370,8 @@ class OccurrenceModel {
           'vessel_status_at_casualty': vesselStatusAtCasualty,
         if (aftermathStatus != null)   'aftermath_status':   aftermathStatus,
         if (aftermathPort != null)     'aftermath_port':     aftermathPort,
+        if (reportedByAttendeeId != null)
+          'reported_by_attendee_id': reportedByAttendeeId,
         if (ownersStatedCause != null) 'owners_stated_cause': ownersStatedCause,
         if (ownersStatedCauseSource != null)
           'owners_stated_cause_source': ownersStatedCauseSource,

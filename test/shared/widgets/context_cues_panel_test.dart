@@ -11,13 +11,16 @@ SurveyorNote _note({
   CaseSection section = CaseSection.notAverage,
   String? linkedToType,
   String? linkedToId,
+  OccurrencePhase? occurrencePhase,
 }) {
   final now = DateTime(2026, 7, 13);
   return SurveyorNote(
-    id: 'n-${linkedToType ?? 'none'}-${linkedToId ?? 'none'}',
+    id: 'n-${linkedToType ?? 'none'}-${linkedToId ?? 'none'}-'
+        '${occurrencePhase?.value ?? 'nophase'}',
     caseId: 'case-1',
     content: 'A cue',
     caseSection: section,
+    occurrencePhase: occurrencePhase,
     linkedToType: linkedToType,
     linkedToId: linkedToId,
     createdAt: now,
@@ -98,6 +101,68 @@ void main() {
     test('no scope at all matches any cue in the section', () {
       final n = _note(linkedToType: 'anything', linkedToId: 'x');
       expect(cueMatchesScope(n, CaseSection.notAverage), isTrue);
+    });
+  });
+
+  // Occurrence Narrative phase forking (docs/occurrence_narrative_spec.md) —
+  // the same two-level scoping applied on top of the occurrence's itemScope.
+  group('cueMatchesScope — occurrence phase', () {
+    const occScope = CueItemScope(
+        linkedToType: occurrenceLinkType, linkedToId: 'occ-1');
+
+    SurveyorNote occCue(OccurrencePhase? phase) => _note(
+          section: CaseSection.occurrence,
+          linkedToType: occurrenceLinkType,
+          linkedToId: 'occ-1',
+          occurrencePhase: phase,
+        );
+
+    test('a phase bucket matches only cues with that exact phase', () {
+      final incident = occCue(OccurrencePhase.incident);
+      final before = occCue(OccurrencePhase.before);
+      expect(
+        cueMatchesScope(incident, CaseSection.occurrence,
+            itemScope: occScope,
+            phaseScope:
+                const OccurrencePhaseScope.forPhase(OccurrencePhase.incident)),
+        isTrue,
+      );
+      expect(
+        cueMatchesScope(before, CaseSection.occurrence,
+            itemScope: occScope,
+            phaseScope:
+                const OccurrencePhaseScope.forPhase(OccurrencePhase.incident)),
+        isFalse,
+      );
+    });
+
+    test('the Unsorted bucket matches only cues with no phase yet', () {
+      expect(
+        cueMatchesScope(occCue(null), CaseSection.occurrence,
+            itemScope: occScope,
+            phaseScope: const OccurrencePhaseScope.unsorted()),
+        isTrue,
+      );
+      expect(
+        cueMatchesScope(occCue(OccurrencePhase.aftermath),
+            CaseSection.occurrence,
+            itemScope: occScope,
+            phaseScope: const OccurrencePhaseScope.unsorted()),
+        isFalse,
+      );
+    });
+
+    test('phase + item scope combine (AND) — wrong occurrence excluded even '
+        'with the right phase', () {
+      final n = occCue(OccurrencePhase.incident); // linked to occ-1
+      expect(
+        cueMatchesScope(n, CaseSection.occurrence,
+            itemScope: const CueItemScope(
+                linkedToType: occurrenceLinkType, linkedToId: 'occ-2'),
+            phaseScope:
+                const OccurrencePhaseScope.forPhase(OccurrencePhase.incident)),
+        isFalse,
+      );
     });
   });
 }

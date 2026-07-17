@@ -131,6 +131,87 @@ int? oceanoSectionNumber(SectionType type) {
   return idx > 0 ? idx : null;
 }
 
+// ── House-style italic purpose lines (docs/house_style.md convention) ───────
+//
+// One italic present-tense sentence beneath every (narrative) section heading,
+// stating the purpose of the section — it orients the surveyor and gives the
+// AI an explicit intent anchor. Rendered under the heading in Preview and
+// docx. Table-only sections that deliberately have "no lead sentence" (Vessel
+// Particulars — mods doc §E20) are intentionally omitted, as are the
+// non-numbered cover/summary/disclaimer blocks.
+const Map<SectionType, String> sectionPurposeLine = {
+  SectionType.opening:
+      'This section sets out who instructed the survey, when and where the vessel was attended, and the purpose of the attendance.',
+  SectionType.attendees:
+      'This section records the persons present at the survey and meetings and the party each represented.',
+  SectionType.machineryParticulars:
+      'This section describes the particulars of the machinery forming the subject of the claim.',
+  SectionType.classStatutory:
+      'This section evaluates the classification and statutory certification status of the subject vessel.',
+  SectionType.informationSources:
+      'This section lists the information sources relied upon in the preparation of this report.',
+  SectionType.background:
+      'This section sets out the vessel\'s employment and the operation or voyage in progress leading up to the incident.',
+  SectionType.occurrence:
+      'This section records, as reported, the circumstances of the incident from the prevailing conditions through to the vessel reaching a place of safety.',
+  SectionType.damageDescription:
+      'This section sets out the damage established on inspection, identifying each affected component and its condition.',
+  SectionType.allegation:
+      'This section records the owner\'s stated allegation as to the cause of the casualty.',
+  SectionType.causation:
+      'This section provides the surveyor\'s reasoned opinion as to how the damage arose, on the basis of the available evidence.',
+  SectionType.natureOfRepairs:
+      'This section describes the temporary and permanent repairs carried out or proposed.',
+  SectionType.repairs:
+      'This section describes the repairs carried out or proposed in respect of the casualty.',
+  SectionType.generalServices:
+      'This section records the general services and access provided to enable inspection and repair.',
+  SectionType.previousWorks:
+      'This section records prior work carried out on the damaged item before the incident.',
+  SectionType.extraExpenses:
+      'This section records measures taken, if any, to reduce delay to the subject vessel.',
+  SectionType.contractualHire:
+      'This section records the contractual and hire matters arising from the incident.',
+  SectionType.otherMatters:
+      'This section records other matters of relevance not covered elsewhere in this report.',
+  SectionType.accounts:
+      'This section assesses the costs presented in respect of the casualty-related repairs.',
+  SectionType.repairTimes:
+      'This section estimates, per repair period, the time attributable to average repairs and to the Owners\' own work.',
+  SectionType.surveyorNotes:
+      'This section sets out the advice provided to the Assured in respect of this matter.',
+  SectionType.documentsOnFile:
+      'This section lists the documents retained on file in respect of this survey.',
+  SectionType.documentsRequested:
+      'This section lists the documents requested and still outstanding.',
+  SectionType.waiver:
+      'This section sets out the basis and limitations on which this report is issued.',
+};
+
+/// Purpose line for [type], or null where the section deliberately has none.
+String? purposeLineFor(SectionType type) => sectionPurposeLine[type];
+
+// ── Empty-section negative statements (mods doc §A2, R15/R18/R19) ───────────
+//
+// House style: a section with no data is either dropped if genuinely optional
+// (the default — Preview/docx already omit empty sections) OR carries an
+// explicit negative statement. This map supplies the per-section negative
+// sentence for the sections where an explicit "nothing to report" reads
+// better than silent omission, and doubles as the AI drafters' "no
+// information given" fallback wording.
+const Map<SectionType, String> sectionNoDataSentence = {
+  SectionType.extraExpenses:
+      'No indication was given that additional expenses were engaged to reduce delay.',
+  SectionType.generalServices:
+      'No general services or access requirements were reported in respect of this matter.',
+  SectionType.previousWorks:
+      'No previous work on the damaged item was reported.',
+  SectionType.contractualHire:
+      'No contractual or hire matters were reported in respect of this matter.',
+  SectionType.otherMatters:
+      'No other matters of relevance were reported.',
+};
+
 // ── §2.18 Section Editor redesign — auto-populated sections ────────────────
 //
 // The section types where `content` is deterministically computed from case
