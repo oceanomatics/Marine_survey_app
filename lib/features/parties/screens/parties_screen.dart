@@ -209,7 +209,7 @@ class _PartiesBodyState extends ConsumerState<_PartiesBody>
     if (picked == null || !mounted) return;
     setState(() {
       nameCtrl.text    = picked.fullName;
-      companyCtrl.text = picked.company ?? '';
+      companyCtrl.text = picked.displayCompany ?? '';
       emailCtrl.text   = picked.email ?? '';
       phoneCtrl?.text  = picked.phone ?? '';
     });
@@ -771,7 +771,7 @@ class _StakeholderPickerSheetState extends State<_StakeholderPickerSheet> {
                                 w.isNotEmpty ? w[0].toUpperCase() : '')
                             .join();
                         final subtitle = [
-                          if (c.company != null) c.company!,
+                          if (c.displayCompany != null) c.displayCompany!,
                           if (c.roleTitle != null) c.roleTitle!,
                         ].join(' · ');
 
@@ -938,13 +938,13 @@ class _StakeholderCard extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary)),
-                if (contact.company != null) ...[
+                if (contact.displayCompany != null) ...[
                   const SizedBox(height: 1),
-                  Text(contact.company!,
+                  Text(contact.displayCompany!,
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textSecondary)),
                 ],
-                if (contact.roleTitle != null) ...[
+                if (contact.roleTitle != null && !contact.roleRestatesGroup) ...[
                   const SizedBox(height: 3),
                   Container(
                     padding: const EdgeInsets.symmetric(
