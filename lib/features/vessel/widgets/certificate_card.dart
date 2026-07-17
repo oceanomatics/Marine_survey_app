@@ -1,10 +1,16 @@
 // lib/features/vessel/widgets/certificate_card.dart
 
 import 'package:flutter/material.dart';
-import '../providers/certificates_provider.dart';
-import '../../../shared/theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-class CertificateCard extends StatelessWidget {
+import '../providers/certificates_provider.dart';
+import '../../documents/providers/document_provider.dart';
+import '../../../core/api/supabase_client.dart';
+import '../../../shared/theme/app_theme.dart';
+import '../../../shared/utils/error_handler.dart';
+
+class CertificateCard extends ConsumerWidget {
   const CertificateCard({
     super.key,
     required this.cert,
@@ -17,10 +23,22 @@ class CertificateCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final status  = cert.effectiveStatus;
     final expiring = cert.isExpiringSoon &&
         status != CertStatus.expired;
+
+    // Resolve the source document (if any) from the Doc Vault.
+    final docs = ref.watch(documentProvider(cert.caseId)).value ?? const [];
+    DocumentModel? sourceDoc;
+    if (cert.sourceDocId != null) {
+      for (final d in docs) {
+        if (d.docId == cert.sourceDocId) {
+          sourceDoc = d;
+          break;
+        }
+      }
+    }
 
     return Card(
       child: Padding(
@@ -169,8 +187,18 @@ class CertificateCard extends StatelessWidget {
               ),
             ],
 
+            // ── Source document (Doc Vault link + thumbnail) ─────────
+            if (sourceDoc != null) ...[
+              const SizedBox(height: 10),
+              _SourceDocRow(
+                doc: sourceDoc,
+                extractionSource: _extractionSource(cert, sourceDoc),
+              ),
+            ],
+
             // ── Footer ───────────────────────────────────────────────
-            if (cert.certNumber != null || cert.extractedAuto) ...[
+            if (cert.certNumber != null ||
+                (cert.extractedAuto && sourceDoc == null)) ...[
               const SizedBox(height: 8),
               Row(children: [
                 if (cert.certNumber != null)
@@ -179,7 +207,9 @@ class CertificateCard extends StatelessWidget {
                           fontSize: 10,
                           color: AppColors.textTertiary)),
                 const Spacer(),
-                if (cert.extractedAuto)
+                // Fallback badge when the source doc is not (or no longer)
+                // in the vault but the cert was AI-extracted.
+                if (cert.extractedAuto && sourceDoc == null)
                   const Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.auto_awesome,
                         size: 11, color: AppColors.purple),
@@ -199,6 +229,20 @@ class CertificateCard extends StatelessWidget {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────
+
+  /// Human-readable extraction provenance for the certificate.
+  String _extractionSource(CertificateModel cert, DocumentModel doc) {
+    final from = switch (doc.docCategory) {
+      DocCategory.certificate => 'the certificate',
+      DocCategory.classSurveyReport => 'a class survey report',
+      DocCategory.conditionOfClass => 'a condition-of-class report',
+      DocCategory.inspectionReport => 'an inspection report',
+      _ => doc.docCategory?.label ?? 'source document',
+    };
+    return cert.extractedAuto
+        ? 'AI-extracted from $from'
+        : 'Linked to $from';
+  }
 
   Color _statusBg(CertStatus s) => switch (s) {
         CertStatus.valid     => AppColors.lightGreen,
@@ -226,6 +270,222 @@ class CertificateCard extends StatelessWidget {
         CertType.dpCertificate      => Icons.gps_fixed_outlined,
         _                           => Icons.description_outlined,
       };
+}
+
+// ── Source document row (thumbnail + tap-to-view + provenance) ──────────────
+
+class _SourceDocRow extends StatefulWidget {
+  const _SourceDocRow({required this.doc, required this.extractionSource});
+  final DocumentModel doc;
+  final String extractionSource;
+
+  @override
+  State<_SourceDocRow> createState() => _SourceDocRowState();
+}
+
+class _SourceDocRowState extends State<_SourceDocRow> {
+  Future<String?>? _urlFuture;
+  bool _opening = false;
+
+  bool get _hasFile => widget.doc.hasFile && widget.doc.filePath != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_hasFile) {
+      _urlFuture = _signedUrl();
+    }
+  }
+
+  Future<String?> _signedUrl() async {
+    try {
+      return await SupabaseService.client.storage
+          .from('documents')
+          .createSignedUrl(widget.doc.filePath!, 3600);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _open() async {
+    if (!_hasFile || _opening) return;
+    setState(() => _opening = true);
+    try {
+      final url = await (_urlFuture ?? _signedUrl());
+      if (url == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not open document')));
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (widget.doc.isImage) {
+        await showDialog<void>(
+          context: context,
+          builder: (_) => _ImageDialog(url: url, title: widget.doc.title),
+        );
+      } else {
+        final uri = Uri.parse(url);
+        final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not open document')));
+        }
+      }
+    } catch (e, st) {
+      if (mounted) {
+        showError(context, 'Cannot open document: $e',
+            error: e, stack: st, tag: 'Certificate');
+      }
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: _hasFile ? _open : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: AppColors.midBlue.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.midBlue.withValues(alpha: 0.15)),
+        ),
+        child: Row(children: [
+          _thumbnail(),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.doc.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary)),
+                const SizedBox(height: 2),
+                Row(children: [
+                  Icon(
+                    widget.doc.hasFile
+                        ? Icons.folder_open_outlined
+                        : Icons.link,
+                    size: 11,
+                    color: AppColors.textTertiary,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(widget.extractionSource,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 10.5,
+                            color: AppColors.textTertiary)),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+          if (_hasFile)
+            _opening
+                ? const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.open_in_new,
+                    size: 15, color: AppColors.midBlue),
+        ]),
+      ),
+    );
+  }
+
+  Widget _thumbnail() {
+    const size = 44.0;
+    if (!_hasFile) {
+      return _iconBox(Icons.link, size);
+    }
+    if (widget.doc.isImage && _urlFuture != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: FutureBuilder<String?>(
+          future: _urlFuture,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return _iconBox(Icons.image_outlined, size);
+            }
+            final url = snap.data;
+            if (url == null) return _iconBox(Icons.broken_image_outlined, size);
+            return Image.network(
+              url,
+              width: size, height: size, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  _iconBox(Icons.broken_image_outlined, size),
+            );
+          },
+        ),
+      );
+    }
+    // PDF / docx / other
+    return _iconBox(
+      widget.doc.isPdf ? Icons.picture_as_pdf_outlined : Icons.description_outlined,
+      size,
+    );
+  }
+
+  Widget _iconBox(IconData icon, double size) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          color: AppColors.midBlue.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(icon, size: 20, color: AppColors.midBlue),
+      );
+}
+
+class _ImageDialog extends StatelessWidget {
+  const _ImageDialog({required this.url, required this.title});
+  final String url;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      backgroundColor: Colors.black,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(children: [
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 13)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ]),
+          Flexible(
+            child: InteractiveViewer(
+              child: Image.network(url,
+                  errorBuilder: (_, __, ___) => const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('Could not load image',
+                            style: TextStyle(color: Colors.white)),
+                      )),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StatusBadge extends StatelessWidget {

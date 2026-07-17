@@ -30,8 +30,10 @@ class ClassConditionsNotifier
     required String vesselId,
     String? reference,
     String? description,
+    DateTime? issuedDate,
     DateTime? expiryDate,
     String? duration,
+    String status = 'open',
     bool occurrenceRelated = false,
     String? occurrenceId,
   }) async {
@@ -39,9 +41,12 @@ class ClassConditionsNotifier
       'vessel_id':          vesselId,
       if (reference != null)    'reference':    reference,
       if (description != null)  'description':  description,
+      if (issuedDate != null)
+        'issued_date': issuedDate.toIso8601String().split('T').first,
       if (expiryDate != null)
         'expiry_date': expiryDate.toIso8601String().split('T').first,
       if (duration != null)     'duration':     duration,
+      'status':             status,
       'occurrence_related': occurrenceRelated,
       if (occurrenceId != null) 'occurrence_id': occurrenceId,
     });
@@ -51,18 +56,30 @@ class ClassConditionsNotifier
   Future<void> updateCondition(String conditionId, {
     String? reference,
     String? description,
+    DateTime? issuedDate,
     DateTime? expiryDate,
     String? duration,
+    String? status,
     bool? occurrenceRelated,
     String? occurrenceId,
+    bool clearIssuedDate = false,
+    bool clearExpiryDate = false,
   }) async {
     final updates = <String, dynamic>{};
     if (reference != null)         updates['reference']          = reference;
     if (description != null)       updates['description']        = description;
-    if (expiryDate != null) {
+    if (clearIssuedDate) {
+      updates['issued_date'] = null;
+    } else if (issuedDate != null) {
+      updates['issued_date'] = issuedDate.toIso8601String().split('T').first;
+    }
+    if (clearExpiryDate) {
+      updates['expiry_date'] = null;
+    } else if (expiryDate != null) {
       updates['expiry_date'] = expiryDate.toIso8601String().split('T').first;
     }
     if (duration != null)          updates['duration']           = duration;
+    if (status != null)            updates['status']             = status;
     if (occurrenceRelated != null) updates['occurrence_related'] = occurrenceRelated;
     if (occurrenceId != null)      updates['occurrence_id']      = occurrenceId;
     if (updates.isEmpty) return;

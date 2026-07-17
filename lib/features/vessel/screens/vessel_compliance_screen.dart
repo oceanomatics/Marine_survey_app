@@ -11,16 +11,16 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/chip_row.dart';
 import '../../../shared/widgets/tri_state_row.dart';
-import '../../../shared/widgets/app_feedback.dart';
 import '../models/class_condition_model.dart';
+import '../models/detention_model.dart';
 import '../models/psc_deficiency_model.dart';
 import '../providers/certificates_provider.dart';
 import '../providers/class_conditions_provider.dart';
+import '../providers/detentions_provider.dart';
 import '../providers/psc_deficiencies_provider.dart';
 import '../providers/vessel_provider.dart';
 import '../widgets/add_certificate_sheet.dart';
 import '../widgets/certificate_card.dart';
-import '../../../shared/widgets/back_app_bar.dart';
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
@@ -43,6 +43,7 @@ class _VesselComplianceScreenState
   PscResult?   _pscResult;
   final _pscSummaryCtrl  = TextEditingController();
   IspsStatus?  _ispsStatus;
+  IspsStatus?  _ismStatus;
   bool?        _ismIncident;
   bool?        _classIncident;
 
@@ -60,6 +61,7 @@ class _VesselComplianceScreenState
     _pscResult         = v.pscLastResult;
     _pscSummaryCtrl.text  = v.pscSummary ?? '';
     _ispsStatus        = v.ispsStatus;
+    _ismStatus         = v.ismStatus;
     _ismIncident       = v.ismIncidentReported;
     _classIncident     = v.classIncidentReported;
   }
@@ -81,11 +83,11 @@ class _VesselComplianceScreenState
         'psc_summary':             _pscSummaryCtrl.text.trim().isEmpty
             ? null : _pscSummaryCtrl.text.trim(),
         'isps_status':             _ispsStatus?.value,
+        'ism_status':              _ismStatus?.value,
         'ism_incident_reported':   _ismIncident,
         'class_incident_reported': _classIncident,
       });
       setState(() => _hasChanges = false);
-      if (mounted) showSavedToast(context);
     } catch (e, st) {
       if (mounted) {
         showError(context, 'Save failed: $e', error: e, stack: st, tag: 'Compliance');
@@ -116,13 +118,16 @@ class _VesselComplianceScreenState
     final deficiencies = vesselId != null
         ? (ref.watch(pscDeficienciesProvider(vesselId)).value ?? [])
         : <PscDeficiencyModel>[];
+    final detentions = vesselId != null
+        ? (ref.watch(detentionsProvider(vesselId)).value ?? [])
+        : <DetentionModel>[];
     final occurrences = ref.watch(damageProvider(widget.caseId)).value?.occurrences ?? [];
     final primaryOcc  = occurrences.where((o) => o.isPrimary).firstOrNull
         ?? occurrences.firstOrNull;
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: BackAppBar(
+      appBar: AppBar(
         title: const Text('Certificates & Class'),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
@@ -333,15 +338,79 @@ class _VesselComplianceScreenState
                             .delete(d.deficiencyId),
                       )),
 
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Expanded(child: _FieldLabel('Detentions')),
+                    TextButton.icon(
+                      icon: const Icon(Icons.add, size: 15),
+                      label: const Text('Add'),
+                      style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact),
+                      onPressed: () =>
+                          _showDetentionSheet(context, vesselId!),
+                    ),
+                  ],
+                ),
+                if (detentions.isEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.25)),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 14, color: AppColors.success),
+                      const SizedBox(width: 6),
+                      Text('No detentions',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.success.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w600)),
+                    ]),
+                  )
+                else
+                  ...detentions.map((d) => _DetentionTile(
+                        detention: d,
+                        onEdit: () => _showDetentionSheet(context, vesselId!,
+                            existing: d),
+                        onDelete: () => ref
+                            .read(detentionsProvider(vesselId!).notifier)
+                            .delete(d.detentionId),
+                      )),
+                const SizedBox(height: 4),
+                Text(
+                  'Detentions, ISM and ISPS status are typically taken from the '
+                  'Equasis report — auto-populate is a follow-up.',
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.textTertiary.withValues(alpha: 0.9)),
+                ),
+
                 const SizedBox(height: 20),
 
-                // ── ISPS ────────────────────────────────────────────────────
+                // ── ISM / ISPS ──────────────────────────────────────────────
                 const _SectionHeader(
-                  title: 'ISPS',
+                  title: 'ISM / ISPS',
                   icon: Icons.security_outlined,
                   color: AppColors.midBlue,
                 ),
                 const SizedBox(height: 8),
+                const _FieldLabel('ISM status (DOC / SMC)'),
+                ChipRow<IspsStatus>(
+                  values: IspsStatus.values,
+                  selected: _ismStatus,
+                  label: (s) => s.label,
+                  onChanged: (v) { setState(() { _ismStatus = v; _hasChanges = true; }); },
+                ),
+                const SizedBox(height: 12),
+                const _FieldLabel('ISPS status'),
                 ChipRow<IspsStatus>(
                   values: IspsStatus.values,
                   selected: _ispsStatus,
@@ -422,14 +491,17 @@ class _VesselComplianceScreenState
         vesselId: vesselId,
         occurrences: occurrences,
         existing: existing,
-        onSave: (ref_, desc, expiry, dur, occRelated, occId) async {
+        onSave: (ref_, desc, issued, expiry, duration, status, occRelated,
+            occId) async {
           if (existing == null) {
             await ref.read(classConditionsProvider(vesselId).notifier).add(
                   vesselId: vesselId,
                   reference: ref_,
                   description: desc,
+                  issuedDate: issued,
                   expiryDate: expiry,
-                  duration: dur,
+                  duration: duration,
+                  status: status,
                   occurrenceRelated: occRelated,
                   occurrenceId: occId,
                 );
@@ -440,10 +512,52 @@ class _VesselComplianceScreenState
                   existing.conditionId,
                   reference: ref_,
                   description: desc,
+                  issuedDate: issued,
                   expiryDate: expiry,
-                  duration: dur,
+                  duration: duration,
+                  status: status,
                   occurrenceRelated: occRelated,
                   occurrenceId: occId,
+                  clearIssuedDate: issued == null,
+                  clearExpiryDate: expiry == null,
+                );
+          }
+        },
+      ),
+    );
+  }
+
+  void _showDetentionSheet(BuildContext ctx, String vesselId,
+      {DetentionModel? existing}) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DetentionSheet(
+        existing: existing,
+        onSave: (detained, released, port, authority, reason, resolved) async {
+          if (existing == null) {
+            await ref.read(detentionsProvider(vesselId).notifier).add(
+                  vesselId: vesselId,
+                  detainedDate: detained,
+                  releasedDate: released,
+                  port: port,
+                  authority: authority,
+                  reason: reason,
+                  resolved: resolved,
+                );
+          } else {
+            await ref
+                .read(detentionsProvider(vesselId).notifier)
+                .updateDetention(
+                  existing.detentionId,
+                  detainedDate: detained,
+                  releasedDate: released,
+                  port: port,
+                  authority: authority,
+                  reason: reason,
+                  resolved: resolved,
+                  clearReleasedDate: released == null,
                 );
           }
         },
@@ -609,7 +723,7 @@ class _Empty extends StatelessWidget {
 
 // ── Condition tile ─────────────────────────────────────────────────────────────
 
-class _ConditionTile extends StatelessWidget {
+class _ConditionTile extends StatefulWidget {
   const _ConditionTile({
     required this.condition,
     required this.occurrences,
@@ -621,16 +735,29 @@ class _ConditionTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
+  @override
+  State<_ConditionTile> createState() => _ConditionTileState();
+}
+
+class _ConditionTileState extends State<_ConditionTile> {
+  bool _expanded = false;
+
   String _fmtDate(DateTime? d) => d == null
       ? '—'
       : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
   @override
   Widget build(BuildContext context) {
+    final condition = widget.condition;
     final linkedOcc = condition.occurrenceId != null
-        ? occurrences.where((o) => o.occurrenceId == condition.occurrenceId)
+        ? widget.occurrences
+            .where((o) => o.occurrenceId == condition.occurrenceId)
             .firstOrNull
         : null;
+    final desc = condition.description ?? 'No description';
+    // Long descriptions collapse to 2 lines; short ones never need a toggle.
+    final canExpand = desc.length > 90 || desc.contains('\n');
+    final closed = condition.isClosed;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -642,7 +769,8 @@ class _ConditionTile extends StatelessWidget {
             Row(children: [
               if (condition.reference != null) ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.midBlue.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
@@ -655,79 +783,149 @@ class _ConditionTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
               ],
-              Expanded(
-                child: Text(
-                  condition.description ?? 'No description',
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.textPrimary),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              // Status pill (open / closed)
+              _StatusPill(
+                label: closed ? 'Closed' : 'Open',
+                color: closed ? AppColors.success : AppColors.amber,
+                icon: closed
+                    ? Icons.check_circle_outline
+                    : Icons.radio_button_unchecked,
               ),
+              if (condition.occurrenceRelated) ...[
+                const SizedBox(width: 6),
+                const _StatusPill(
+                  label: 'Related to incident',
+                  color: AppColors.coral,
+                  icon: Icons.warning_amber_outlined,
+                ),
+              ],
+              const Spacer(),
               IconButton(
                 icon: const Icon(Icons.edit_outlined,
                     size: 16, color: AppColors.textTertiary),
-                onPressed: onEdit,
+                onPressed: widget.onEdit,
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline,
                     size: 16, color: AppColors.textTertiary),
-                onPressed: onDelete,
+                onPressed: widget.onDelete,
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
               ),
             ]),
-            const SizedBox(height: 4),
-            // Wrap, not Row: a long duration string plus a linked-occurrence
-            // title overflowed this metadata line by ~73px on narrow devices
-            // (16 July 2026 report). Wrapping flows the chips to a new line.
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.event_outlined,
-                      size: 12, color: AppColors.textTertiary),
-                  const SizedBox(width: 4),
-                  Text('Expires ${_fmtDate(condition.expiryDate)}',
+            const SizedBox(height: 6),
+            // Full condition description — expandable.
+            Text(
+              desc,
+              style: const TextStyle(
+                  fontSize: 13, color: AppColors.textPrimary, height: 1.35),
+              maxLines: _expanded ? null : 2,
+              overflow: _expanded ? null : TextOverflow.ellipsis,
+            ),
+            if (canExpand)
+              GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(_expanded ? 'Show less' : 'Show more',
                       style: const TextStyle(
-                          fontSize: 11, color: AppColors.textTertiary)),
-                ]),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.midBlue)),
+                ),
+              ),
+            const SizedBox(height: 8),
+            // Issued / Duration / Expiry
+            Wrap(
+              spacing: 14,
+              runSpacing: 4,
+              children: [
+                _MetaChip(
+                  icon: Icons.event_available_outlined,
+                  label: 'Issued ${_fmtDate(condition.issuedDate)}',
+                ),
                 if (condition.duration != null &&
-                    condition.duration!.isNotEmpty)
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.hourglass_bottom_outlined,
-                        size: 12, color: AppColors.midBlue),
-                    const SizedBox(width: 4),
-                    Text(condition.duration!,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.midBlue)),
-                  ]),
-                if (linkedOcc != null)
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.link, size: 12, color: AppColors.amber),
-                    const SizedBox(width: 4),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: Text(
-                        linkedOcc.title ??
-                            'Occurrence #${linkedOcc.occurrenceNo}',
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.amber),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ]),
+                    condition.duration!.trim().isNotEmpty)
+                  _MetaChip(
+                    icon: Icons.timelapse_outlined,
+                    label: 'Duration ${condition.duration}',
+                  ),
+                _MetaChip(
+                  icon: Icons.event_outlined,
+                  label: 'Expires ${_fmtDate(condition.expiryDate)}',
+                ),
               ],
             ),
+            if (linkedOcc != null) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                const Icon(Icons.link, size: 12, color: AppColors.coral),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    linkedOcc.title ?? 'Occurrence #${linkedOcc.occurrenceNo}',
+                    style: const TextStyle(fontSize: 11, color: AppColors.coral),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ]),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+// ── Small status pill ──────────────────────────────────────────────────────
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: color)),
+        ]),
+      );
+}
+
+// ── Meta chip (icon + label) ────────────────────────────────────────────────
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12, color: AppColors.textTertiary),
+        const SizedBox(width: 4),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11, color: AppColors.textTertiary)),
+      ]);
 }
 
 // ── Deficiency tile ────────────────────────────────────────────────────────────
@@ -886,8 +1084,10 @@ class _ClassConditionSheet extends StatefulWidget {
   final Future<void> Function(
     String? reference,
     String? description,
+    DateTime? issuedDate,
     DateTime? expiryDate,
     String? duration,
+    String status,
     bool occurrenceRelated,
     String? occurrenceId,
   ) onSave;
@@ -897,10 +1097,12 @@ class _ClassConditionSheet extends StatefulWidget {
 }
 
 class _ClassConditionSheetState extends State<_ClassConditionSheet> {
-  final _refCtrl  = TextEditingController();
-  final _descCtrl = TextEditingController();
+  final _refCtrl      = TextEditingController();
+  final _descCtrl     = TextEditingController();
   final _durationCtrl = TextEditingController();
+  DateTime? _issued;
   DateTime? _expiry;
+  String    _status = 'open';
   bool      _occRelated = false;
   String?   _occId;
   bool      _saving = false;
@@ -910,12 +1112,14 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
     super.initState();
     final e = widget.existing;
     if (e == null) return;
-    _refCtrl.text  = e.reference  ?? '';
-    _descCtrl.text = e.description ?? '';
-    _durationCtrl.text = e.duration ?? '';
-    _expiry        = e.expiryDate;
-    _occRelated    = e.occurrenceRelated;
-    _occId         = e.occurrenceId;
+    _refCtrl.text      = e.reference   ?? '';
+    _descCtrl.text     = e.description ?? '';
+    _durationCtrl.text = e.duration    ?? '';
+    _issued            = e.issuedDate;
+    _expiry            = e.expiryDate;
+    _status            = e.status;
+    _occRelated        = e.occurrenceRelated;
+    _occId             = e.occurrenceId;
   }
 
   @override
@@ -937,14 +1141,7 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
         left: 20, right: 20, top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      // Material(transparency), not a bare child — the sheet's own
-      // DecoratedBox (the background colour above) otherwise sits between
-      // this sheet's SwitchListTile and the nearest real Material ancestor,
-      // so its tap ripple/ink never paints (caught by Flutter's own debug
-      // assertion via a widget test).
-      child: Material(
-        type: MaterialType.transparency,
-        child: SingleChildScrollView(
+      child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Center(
             child: Container(
@@ -984,6 +1181,11 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
           ),
           const SizedBox(height: 12),
           _DatePickerRow(
+            label: 'Issued on',
+            date: _issued,
+            onChanged: (d) => setState(() => _issued = d),
+          ),
+          _DatePickerRow(
             label: 'Expiry date',
             date: _expiry,
             onChanged: (d) => setState(() => _expiry = d),
@@ -993,10 +1195,22 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
             controller: _durationCtrl,
             decoration: const InputDecoration(
               labelText: 'Duration',
-              hintText: 'e.g. Until next class renewal, 90 days',
+              hintText: 'e.g. 3 months, next drydock',
               border: OutlineInputBorder(),
               isDense: true,
             ),
+          ),
+          const SizedBox(height: 14),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: _FieldLabel('Status'),
+          ),
+          const SizedBox(height: 6),
+          ChipRow<String>(
+            values: const ['open', 'closed'],
+            selected: _status,
+            label: (s) => s == 'closed' ? 'Closed' : 'Open',
+            onChanged: (v) => setState(() => _status = v ?? 'open'),
           ),
           const SizedBox(height: 8),
           SwitchListTile(
@@ -1039,19 +1253,17 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
                   await widget.onSave(
                     _refCtrl.text.trim().isEmpty ? null : _refCtrl.text.trim(),
                     _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+                    _issued,
                     _expiry,
                     _durationCtrl.text.trim().isEmpty
-                        ? null
-                        : _durationCtrl.text.trim(),
+                        ? null : _durationCtrl.text.trim(),
+                    _status,
                     _occRelated,
                     _occRelated ? _occId : null,
                   );
-                  if (mounted) {
-                    showSavedToast(context);
-                    Navigator.pop(context);
-                  }
+                  if (context.mounted) Navigator.pop(context);
                 } catch (e, st) {
-                  if (mounted) {
+                  if (context.mounted) {
                     showError(context, 'Save failed: $e',
                         error: e, stack: st, tag: 'Condition');
                   }
@@ -1070,7 +1282,6 @@ class _ClassConditionSheetState extends State<_ClassConditionSheet> {
             ),
           ),
         ]),
-      ),
       ),
     );
   }
@@ -1134,14 +1345,7 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
         left: 20, right: 20, top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      // Material(transparency), not a bare child — the sheet's own
-      // DecoratedBox (the background colour above) otherwise sits between
-      // this sheet's SwitchListTile and the nearest real Material ancestor,
-      // so its tap ripple/ink never paints (caught by Flutter's own debug
-      // assertion via a widget test).
-      child: Material(
-        type: MaterialType.transparency,
-        child: SingleChildScrollView(
+      child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Center(
             child: Container(
@@ -1213,12 +1417,9 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
                     _actionCtrl.text.trim().isEmpty ? null : _actionCtrl.text.trim(),
                     _rectified,
                   );
-                  if (mounted) {
-                    showSavedToast(context);
-                    Navigator.pop(context);
-                  }
+                  if (context.mounted) Navigator.pop(context);
                 } catch (e, st) {
-                  if (mounted) {
+                  if (context.mounted) {
                     showError(context, 'Save failed: $e',
                         error: e, stack: st, tag: 'PSCDeficiency');
                   }
@@ -1238,6 +1439,271 @@ class _PscDeficiencySheetState extends State<_PscDeficiencySheet> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+// ── Detention tile ─────────────────────────────────────────────────────────────
+
+class _DetentionTile extends StatelessWidget {
+  const _DetentionTile({
+    required this.detention,
+    required this.onEdit,
+    required this.onDelete,
+  });
+  final DetentionModel detention;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  String _fmtDate(DateTime? d) => d == null
+      ? '—'
+      : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  @override
+  Widget build(BuildContext context) {
+    final d = detention;
+    final title = [
+      if (d.port != null && d.port!.trim().isNotEmpty) d.port!.trim(),
+      if (d.authority != null && d.authority!.trim().isNotEmpty)
+        d.authority!.trim(),
+    ].join(' · ');
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 8, height: 8,
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: d.resolved ? AppColors.success : AppColors.coral,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title.isEmpty ? 'Detention' : title,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary)),
+                const SizedBox(height: 2),
+                Text(
+                  'Detained ${_fmtDate(d.detainedDate)}'
+                  '${d.releasedDate != null ? " · Released ${_fmtDate(d.releasedDate)}" : ""}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textTertiary),
+                ),
+                if (d.reason != null && d.reason!.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(d.reason!.trim(),
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                  ),
+                const SizedBox(height: 2),
+                Text(
+                  d.resolved ? '✓ Released / resolved' : 'Outstanding',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: d.resolved ? AppColors.success : AppColors.coral),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined,
+                size: 16, color: AppColors.textTertiary),
+            onPressed: onEdit,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline,
+                size: 16, color: AppColors.textTertiary),
+            onPressed: onDelete,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Detention sheet ────────────────────────────────────────────────────────────
+
+class _DetentionSheet extends StatefulWidget {
+  const _DetentionSheet({
+    required this.onSave,
+    this.existing,
+  });
+  final DetentionModel? existing;
+  final Future<void> Function(
+    DateTime? detainedDate,
+    DateTime? releasedDate,
+    String? port,
+    String? authority,
+    String? reason,
+    bool resolved,
+  ) onSave;
+
+  @override
+  State<_DetentionSheet> createState() => _DetentionSheetState();
+}
+
+class _DetentionSheetState extends State<_DetentionSheet> {
+  final _portCtrl      = TextEditingController();
+  final _authorityCtrl = TextEditingController();
+  final _reasonCtrl    = TextEditingController();
+  DateTime? _detained;
+  DateTime? _released;
+  bool      _resolved = false;
+  bool      _saving   = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e == null) return;
+    _portCtrl.text      = e.port      ?? '';
+    _authorityCtrl.text = e.authority ?? '';
+    _reasonCtrl.text    = e.reason    ?? '';
+    _detained           = e.detainedDate;
+    _released           = e.releasedDate;
+    _resolved           = e.resolved;
+  }
+
+  @override
+  void dispose() {
+    _portCtrl.dispose();
+    _authorityCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            widget.existing == null ? 'Add Detention' : 'Edit Detention',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _portCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Port',
+              hintText: 'e.g. Newcastle, AU',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _authorityCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Authority / MoU',
+              hintText: 'e.g. AMSA (Tokyo MoU)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _reasonCtrl,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Reason / detainable deficiencies',
+              hintText: 'Grounds for detention',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DatePickerRow(
+            label: 'Detained on',
+            date: _detained,
+            onChanged: (d) => setState(() => _detained = d),
+          ),
+          _DatePickerRow(
+            label: 'Released on',
+            date: _released,
+            onChanged: (d) => setState(() => _released = d),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Released / resolved',
+                style: TextStyle(fontSize: 13)),
+            value: _resolved,
+            onChanged: (v) => setState(() => _resolved = v),
+            activeThumbColor: AppColors.success,
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _saving ? null : () async {
+                setState(() => _saving = true);
+                try {
+                  await widget.onSave(
+                    _detained,
+                    _released,
+                    _portCtrl.text.trim().isEmpty
+                        ? null : _portCtrl.text.trim(),
+                    _authorityCtrl.text.trim().isEmpty
+                        ? null : _authorityCtrl.text.trim(),
+                    _reasonCtrl.text.trim().isEmpty
+                        ? null : _reasonCtrl.text.trim(),
+                    _resolved,
+                  );
+                  if (context.mounted) Navigator.pop(context);
+                } catch (e, st) {
+                  if (context.mounted) {
+                    showError(context, 'Save failed: $e',
+                        error: e, stack: st, tag: 'Detention');
+                  }
+                } finally {
+                  if (mounted) setState(() => _saving = false);
+                }
+              },
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.midBlue),
+              child: _saving
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Save'),
+            ),
+          ),
+        ]),
       ),
     );
   }

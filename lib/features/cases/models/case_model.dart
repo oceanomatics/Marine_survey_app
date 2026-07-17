@@ -614,6 +614,7 @@ class VesselModel {
     this.pscSummary,
     this.piClub,
     this.ispsStatus,
+    this.ismStatus,
     this.regulatoryStandard,
     this.amsaVesselUseClass,
     this.amsaServiceCategory,
@@ -702,6 +703,10 @@ class VesselModel {
   final PscResult? pscLastResult;
   final String? piClub;
   final IspsStatus? ispsStatus;
+
+  /// ISM (DOC/SMC) compliance status. Reuses [IspsStatus]'s
+  /// compliant / non-compliant / tbc value set. Typically from Equasis.
+  final IspsStatus? ismStatus;
   final RegulatoryStandard? regulatoryStandard;
   final AmsaVesselUseClass? amsaVesselUseClass;
   final AmsaServiceCategory? amsaServiceCategory;
@@ -786,6 +791,9 @@ class VesselModel {
       piClub:              json['pi_club'] as String?,
       ispsStatus:          json['isps_status'] != null
           ? IspsStatus.fromValue(json['isps_status'] as String)
+          : null,
+      ismStatus:           json['ism_status'] != null
+          ? IspsStatus.fromValue(json['ism_status'] as String)
           : null,
       regulatoryStandard:  json['regulatory_standard'] != null
           ? RegulatoryStandard.fromValue(json['regulatory_standard'] as String)
@@ -875,6 +883,7 @@ class VesselModel {
     if (pscSummary != null)           'psc_summary':            pscSummary,
     if (piClub != null)               'pi_club':                piClub,
     if (ispsStatus != null)           'isps_status':            ispsStatus!.value,
+    if (ismStatus != null)            'ism_status':             ismStatus!.value,
     if (regulatoryStandard != null)   'regulatory_standard':    regulatoryStandard!.value,
     if (amsaVesselUseClass != null)   'amsa_vessel_use_class':  amsaVesselUseClass!.value,
     if (amsaServiceCategory != null)  'amsa_service_category':  amsaServiceCategory!.value,
@@ -977,6 +986,10 @@ class VesselModel {
       ispsStatus: ispsStatus ??
           (extracted['isps_status'] is String
               ? IspsStatus.fromValue(extracted['isps_status'] as String)
+              : null),
+      ismStatus: ismStatus ??
+          (extracted['ism_status'] is String
+              ? IspsStatus.fromValue(extracted['ism_status'] as String)
               : null),
       regulatoryStandard:      regulatoryStandard,
       amsaVesselUseClass:      amsaVesselUseClass,
