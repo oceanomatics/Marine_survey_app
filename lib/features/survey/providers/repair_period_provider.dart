@@ -232,6 +232,26 @@ class RepairPeriodsNotifier
     );
   }
 
+  // ── Post-repair sea trial ─────────────────────────────────────────────────
+
+  /// Persists (or clears) the post-repair sea-trial record for a period.
+  /// Passing an empty [SeaTrial] (or null) writes SQL NULL so the record can
+  /// be removed. Stored in the JSONB `sea_trial` column on repair_periods.
+  Future<void> saveSeaTrial(String periodId, SeaTrial? trial) async {
+    final periods = state.value ?? [];
+    final cleared = trial == null || trial.isEmpty;
+    final toStore = cleared ? null : trial;
+    await SupabaseService.client
+        .from('repair_periods')
+        .update({'sea_trial': toStore?.toJson()}).eq('period_id', periodId);
+    state = AsyncData(
+      periods
+          .map((p) =>
+              p.periodId == periodId ? p.copyWith(seaTrial: toStore) : p)
+          .toList(),
+    );
+  }
+
   Future<void> _persistBudget(RepairPeriodModel period) async {
     final metaJson = {
       'display_currency': period.budgetDisplayCurrency,

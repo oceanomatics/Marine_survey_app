@@ -22,6 +22,7 @@ import '../../../shared/widgets/app_feedback.dart';
 const _kRepairColor = Color(0xFF1A6B9E);
 const _kTimesColor  = Color(0xFF0F766E);
 const _kBudgetColor = Color(0xFF7B5EA7);
+const _kSeaTrialColor = Color(0xFF0369A1);
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
@@ -720,6 +721,13 @@ class _PeriodCardState extends ConsumerState<_PeriodCard> {
             // ── Budget Estimate ──────────────────────────────────────
             const Divider(height: 1, thickness: 0.5),
             _BudgetSection(
+              caseId: widget.caseId,
+              period: period,
+            ),
+
+            // ── Post-repair sea trial ────────────────────────────────
+            const Divider(height: 1, thickness: 0.5),
+            _SeaTrialSection(
               caseId: widget.caseId,
               period: period,
             ),
@@ -1649,6 +1657,17 @@ class _BudgetItemRow extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                             color: statusColor)),
                   ),
+                  if (item.hasBreakdown) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '${fmt.format(item.quantity)} ${item.unit ?? ''}'
+                      ' @ ${fmt.format(item.unitRate)}'.trim(),
+                      style: const TextStyle(
+                          fontSize: 9.5,
+                          color: AppColors.textTertiary,
+                          fontStyle: FontStyle.italic),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1711,6 +1730,9 @@ class _BudgetItemSheet extends StatefulWidget {
 class _BudgetItemSheetState extends State<_BudgetItemSheet> {
   late final TextEditingController _descCtrl;
   late final TextEditingController _amountCtrl;
+  late final TextEditingController _qtyCtrl;
+  late final TextEditingController _unitCtrl;
+  late final TextEditingController _rateCtrl;
   late String _currency;
   late BudgetItemStatus _status;
   bool _saving = false;
@@ -1722,15 +1744,62 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
     _descCtrl = TextEditingController(text: e?.description ?? '');
     _amountCtrl = TextEditingController(
         text: e != null ? e.amount.toStringAsFixed(2) : '');
+    _qtyCtrl = TextEditingController(text: _fmtNum(e?.quantity));
+    _unitCtrl = TextEditingController(text: e?.unit ?? '');
+    _rateCtrl = TextEditingController(text: _fmtNum(e?.unitRate));
     _currency = e?.currency ?? widget.defaultCurrency;
     _status   = e?.status ?? BudgetItemStatus.estimated;
+    // Keep the amount in sync with qty × rate whenever either changes.
+    _qtyCtrl.addListener(_recomputeAmount);
+    _rateCtrl.addListener(_recomputeAmount);
+  }
+
+  static String _fmtNum(double? v) {
+    if (v == null) return '';
+    // Drop trailing .0 for whole numbers so "5" not "5.0".
+    return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString();
+  }
+
+  void _recomputeAmount() {
+    final qty = double.tryParse(_qtyCtrl.text.trim());
+    final rate = double.tryParse(_rateCtrl.text.trim());
+    if (qty != null && rate != null) {
+      final computed = qty * rate;
+      final text = computed.toStringAsFixed(2);
+      if (_amountCtrl.text != text) _amountCtrl.text = text;
+    }
   }
 
   @override
   void dispose() {
+    _qtyCtrl.removeListener(_recomputeAmount);
+    _rateCtrl.removeListener(_recomputeAmount);
     _descCtrl.dispose();
     _amountCtrl.dispose();
+    _qtyCtrl.dispose();
+    _unitCtrl.dispose();
+    _rateCtrl.dispose();
     super.dispose();
+  }
+
+  void _applyPreset(RepairCostPreset preset) {
+    setState(() {
+      _descCtrl.text = preset.description;
+      _unitCtrl.text = preset.unit;
+      _qtyCtrl.text = _fmtNum(preset.defaultQuantity);
+      _rateCtrl.text = _fmtNum(preset.typicalRate);
+    });
+    _recomputeAmount();
+  }
+
+  Future<void> _pickPreset() async {
+    final preset = await showModalBottomSheet<RepairCostPreset>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _CostPresetPickerSheet(),
+    );
+    if (preset != null) _applyPreset(preset);
   }
 
   @override
@@ -1782,6 +1851,23 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
                   controller: ctrl,
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                   children: [
+                    // Cost preset shortcut — pre-fills description, unit and a
+                    // typical rate; everything stays editable afterward.
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _pickPreset,
+                        icon: const Icon(Icons.list_alt_outlined, size: 16),
+                        label: const Text('Choose from cost presets'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _kBudgetColor,
+                          side: const BorderSide(color: _kBudgetColor),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     _sheetLabel('Description'),
                     TextField(
                       controller: _descCtrl,
@@ -1790,6 +1876,52 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
                       decoration: _sheetDec(hint: 'e.g. Hull plating repairs'),
                       style: const TextStyle(fontSize: 13),
                     ),
+                    const SizedBox(height: 14),
+
+                    // Quantity × unit rate — optional breakdown. When both are
+                    // filled, Amount auto-computes but stays editable.
+                    _sheetLabel('Quantity × rate (optional)'),
+                    Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _qtyCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d*')),
+                          ],
+                          decoration: _sheetDec(hint: 'Qty'),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _unitCtrl,
+                          decoration: _sheetDec(hint: 'unit'),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('@',
+                          style: TextStyle(
+                              fontSize: 14, color: AppColors.textTertiary)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _rateCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d*')),
+                          ],
+                          decoration: _sheetDec(hint: 'rate'),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ]),
                     const SizedBox(height: 14),
 
                     _sheetLabel('Amount'),
@@ -1928,6 +2060,9 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
     final desc = _descCtrl.text.trim();
     if (desc.isEmpty) return;
     final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    final qty = double.tryParse(_qtyCtrl.text.trim());
+    final rate = double.tryParse(_rateCtrl.text.trim());
+    final unit = _unitCtrl.text.trim();
     setState(() => _saving = true);
     try {
       final item = BudgetItem(
@@ -1936,6 +2071,9 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
         amount: amount,
         currency: _currency,
         status: _status,
+        quantity: qty,
+        unit: unit.isEmpty ? null : unit,
+        unitRate: rate,
       );
       await widget.onSave(item);
       if (mounted) {
@@ -1945,6 +2083,140 @@ class _BudgetItemSheetState extends State<_BudgetItemSheet> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+// ── Cost preset picker ──────────────────────────────────────────────────────
+//
+// Starter catalogue so the surveyor can pick a common cost line rather than
+// typing every one from scratch (16 July 2026 sweep). Returns the chosen
+// [RepairCostPreset]; the caller pre-fills the item sheet, all fields editable.
+
+class _CostPresetPickerSheet extends StatelessWidget {
+  const _CostPresetPickerSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = NumberFormat('#,##0.##');
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.92,
+      minChildSize: 0.4,
+      expand: false,
+      builder: (_, ctrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 4),
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('Cost Presets',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary)),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                'Pick a line to add — rates are indicative (USD) and every '
+                'field stays editable once added.',
+                style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textTertiary,
+                    fontStyle: FontStyle.italic),
+              ),
+            ),
+            const Divider(height: 1, thickness: 0.5),
+            Expanded(
+              child: ListView(
+                controller: ctrl,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                children: [
+                  for (final group in CostPresetGroup.values) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+                      child: Text(group.label.toUpperCase(),
+                          style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                              color: _kBudgetColor)),
+                    ),
+                    for (final p in kRepairCostPresets
+                        .where((e) => e.group == group))
+                      InkWell(
+                        onTap: () => Navigator.pop(context, p),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _kBudgetColor.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color:
+                                    _kBudgetColor.withValues(alpha: 0.15)),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(p.description,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      p.typicalRate != null
+                                          ? 'per ${p.unit} · ~USD ${fmt.format(p.typicalRate)}'
+                                          : 'per ${p.unit} · quote',
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textSecondary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.add_circle_outline,
+                                  size: 18, color: _kBudgetColor),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -2382,5 +2654,690 @@ class _EmptyRepairs extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+// ── Post-repair sea trial section ────────────────────────────────────────────
+//
+// Records the confirmation that repairs performed as intended (16 July 2026
+// sweep — surveyor: "we have not managed a post repair seatrial entry").
+// One optional record per repair period.
+
+class _SeaTrialSection extends ConsumerWidget {
+  const _SeaTrialSection({required this.caseId, required this.period});
+  final String caseId;
+  final RepairPeriodModel period;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final trial = period.seaTrial;
+    final hasTrial = trial != null && !trial.isEmpty;
+    final df = DateFormat('dd MMM yyyy');
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sailing_outlined,
+                  size: 13, color: _kSeaTrialColor),
+              const SizedBox(width: 5),
+              const Expanded(
+                child: Text('POST-REPAIR SEA TRIAL',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: _kSeaTrialColor)),
+              ),
+              if (hasTrial)
+                _SeaTrialOutcomeBadge(satisfactory: trial.satisfactory),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (!hasTrial)
+            const Text(
+              'No sea trial recorded yet. Add one to log the post-repair '
+              'trial: date, duration, parameters observed and outcome.',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textTertiary,
+                  fontStyle: FontStyle.italic),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _kSeaTrialColor.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+                border:
+                    Border.all(color: _kSeaTrialColor.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 4,
+                    children: [
+                      if (trial.date != null)
+                        _SeaTrialFact(
+                            icon: Icons.event_outlined,
+                            text: df.format(trial.date!)),
+                      if (trial.durationHours != null)
+                        _SeaTrialFact(
+                            icon: Icons.schedule_outlined,
+                            text:
+                                '${_fmtHours(trial.durationHours!)} h'),
+                      if (trial.location != null &&
+                          trial.location!.isNotEmpty)
+                        _SeaTrialFact(
+                            icon: Icons.location_on_outlined,
+                            text: trial.location!),
+                    ],
+                  ),
+                  if (trial.parameters.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final p in trial.parameters)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: _kSeaTrialColor
+                                      .withValues(alpha: 0.25)),
+                            ),
+                            child: Text.rich(TextSpan(children: [
+                              TextSpan(
+                                  text: '${p.label}: ',
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.textSecondary)),
+                              TextSpan(
+                                  text: p.value,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary)),
+                            ])),
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (trial.notes != null && trial.notes!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(trial.notes!,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            height: 1.4)),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _edit(context, ref),
+              icon: Icon(hasTrial ? Icons.edit_outlined : Icons.add, size: 15),
+              label: Text(hasTrial ? 'Edit Sea Trial' : 'Add Sea Trial'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kSeaTrialColor,
+                side: const BorderSide(color: _kSeaTrialColor),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _edit(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SeaTrialSheet(
+        existing: period.seaTrial,
+        onSave: (trial) => ref
+            .read(repairPeriodsProvider(caseId).notifier)
+            .saveSeaTrial(period.periodId, trial),
+      ),
+    );
+  }
+
+  static String _fmtHours(double h) =>
+      h == h.roundToDouble() ? h.toStringAsFixed(0) : h.toString();
+}
+
+class _SeaTrialOutcomeBadge extends StatelessWidget {
+  const _SeaTrialOutcomeBadge({required this.satisfactory});
+  final bool? satisfactory;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label, icon) = switch (satisfactory) {
+      true => (AppColors.success, 'Satisfactory', Icons.check_circle_outline),
+      false => (AppColors.error, 'Not satisfactory', Icons.cancel_outlined),
+      null => (AppColors.textTertiary, 'Not assessed', Icons.help_outline),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeaTrialFact extends StatelessWidget {
+  const _SeaTrialFact({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: _kSeaTrialColor),
+          const SizedBox(width: 4),
+          Text(text,
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.textPrimary)),
+        ],
+      );
+}
+
+// ── Sea trial add/edit sheet ─────────────────────────────────────────────────
+
+class _SeaTrialSheet extends StatefulWidget {
+  const _SeaTrialSheet({required this.existing, required this.onSave});
+  final SeaTrial? existing;
+  final Future<void> Function(SeaTrial?) onSave;
+
+  @override
+  State<_SeaTrialSheet> createState() => _SeaTrialSheetState();
+}
+
+class _ParamRow {
+  _ParamRow({String label = '', String value = ''})
+      : labelCtrl = TextEditingController(text: label),
+        valueCtrl = TextEditingController(text: value);
+  final TextEditingController labelCtrl;
+  final TextEditingController valueCtrl;
+  void dispose() {
+    labelCtrl.dispose();
+    valueCtrl.dispose();
+  }
+}
+
+class _SeaTrialSheetState extends State<_SeaTrialSheet> {
+  DateTime? _date;
+  late final TextEditingController _durationCtrl;
+  late final TextEditingController _locationCtrl;
+  late final TextEditingController _notesCtrl;
+  final List<_ParamRow> _params = [];
+  bool? _satisfactory;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _date = e?.date;
+    _durationCtrl = TextEditingController(
+        text: e?.durationHours != null
+            ? _SeaTrialSection._fmtHours(e!.durationHours!)
+            : '');
+    _locationCtrl = TextEditingController(text: e?.location ?? '');
+    _notesCtrl = TextEditingController(text: e?.notes ?? '');
+    _satisfactory = e?.satisfactory;
+    for (final p in e?.parameters ?? const <SeaTrialParameter>[]) {
+      _params.add(_ParamRow(label: p.label, value: p.value));
+    }
+  }
+
+  @override
+  void dispose() {
+    _durationCtrl.dispose();
+    _locationCtrl.dispose();
+    _notesCtrl.dispose();
+    for (final p in _params) {
+      p.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.existing == null || widget.existing!.isEmpty;
+    final df = DateFormat('dd MMM yyyy');
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (_, ctrl) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 4),
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                child: Row(
+                  children: [
+                    Text(isNew ? 'Add Sea Trial' : 'Edit Sea Trial',
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, thickness: 0.5),
+              Expanded(
+                child: ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                  children: [
+                    _label('Date'),
+                    GestureDetector(
+                      onTap: _pickDate,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(children: [
+                          const Icon(Icons.event_outlined,
+                              size: 16, color: _kSeaTrialColor),
+                          const SizedBox(width: 8),
+                          Text(
+                            _date != null ? df.format(_date!) : 'Select date',
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: _date != null
+                                    ? AppColors.textPrimary
+                                    : AppColors.textTertiary),
+                          ),
+                          const Spacer(),
+                          if (_date != null)
+                            GestureDetector(
+                              onTap: () => setState(() => _date = null),
+                              child: const Icon(Icons.close,
+                                  size: 15, color: AppColors.textTertiary),
+                            ),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    Row(children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _label('Duration (hours)'),
+                            TextField(
+                              controller: _durationCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                    RegExp(r'^\d*\.?\d*')),
+                              ],
+                              decoration: _dec(hint: 'e.g. 3.5'),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _label('Location'),
+                            TextField(
+                              controller: _locationCtrl,
+                              decoration:
+                                  _dec(hint: 'e.g. Off Fremantle'),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 14),
+
+                    _label('Parameters observed'),
+                    for (int i = 0; i < _params.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: _params[i].labelCtrl,
+                              decoration: _dec(hint: 'Parameter'),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: _params[i].valueCtrl,
+                              decoration: _dec(hint: 'Value'),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => setState(() {
+                              _params.removeAt(i).dispose();
+                            }),
+                            child: const Padding(
+                              padding: EdgeInsets.only(left: 6),
+                              child: Icon(Icons.close,
+                                  size: 16, color: AppColors.textTertiary),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final preset in kSeaTrialParameterPresets)
+                          GestureDetector(
+                            onTap: () => setState(
+                                () => _params.add(_ParamRow(label: preset))),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color:
+                                    _kSeaTrialColor.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                    color: _kSeaTrialColor
+                                        .withValues(alpha: 0.25)),
+                              ),
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                const Icon(Icons.add,
+                                    size: 12, color: _kSeaTrialColor),
+                                const SizedBox(width: 3),
+                                Text(preset,
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        color: _kSeaTrialColor,
+                                        fontWeight: FontWeight.w600)),
+                              ]),
+                            ),
+                          ),
+                        GestureDetector(
+                          onTap: () =>
+                              setState(() => _params.add(_ParamRow())),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.add,
+                                      size: 12,
+                                      color: AppColors.textSecondary),
+                                  SizedBox(width: 3),
+                                  Text('Custom',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textSecondary,
+                                          fontWeight: FontWeight.w600)),
+                                ]),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    _label('Outcome'),
+                    Row(
+                      children: [
+                        _outcomeChip(true, 'Satisfactory',
+                            Icons.check_circle_outline, AppColors.success),
+                        const SizedBox(width: 8),
+                        _outcomeChip(false, 'Not satisfactory',
+                            Icons.cancel_outlined, AppColors.error),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    _label('Notes'),
+                    TextField(
+                      controller: _notesCtrl,
+                      minLines: 2,
+                      maxLines: 5,
+                      decoration: _dec(
+                          hint:
+                              'Observations, machinery behaviour, defects found…'),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 24),
+
+                    Row(children: [
+                      if (!isNew)
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _saving ? null : _clear,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              side:
+                                  const BorderSide(color: AppColors.error),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 13),
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ),
+                      if (!isNew) const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : _save,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _kSeaTrialColor,
+                            foregroundColor: Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  width: 18, height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white))
+                              : Text(isNew ? 'Add Sea Trial' : 'Save Changes',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14)),
+                        ),
+                      ),
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _outcomeChip(bool value, String label, IconData icon, Color color) {
+    final selected = _satisfactory == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(
+            () => _satisfactory = selected ? null : value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? color : color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+                color: color.withValues(alpha: selected ? 1.0 : 0.3)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 15, color: selected ? Colors.white : color),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : color)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _label(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary)),
+      );
+
+  InputDecoration _dec({String? hint}) => InputDecoration(
+        hintText: hint,
+        hintStyle:
+            const TextStyle(fontSize: 13, color: AppColors.textTertiary),
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppColors.border)),
+      );
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date ?? now,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  SeaTrial _collect() {
+    final params = <SeaTrialParameter>[];
+    for (final p in _params) {
+      final label = p.labelCtrl.text.trim();
+      final value = p.valueCtrl.text.trim();
+      if (label.isEmpty && value.isEmpty) continue;
+      params.add(SeaTrialParameter(label: label, value: value));
+    }
+    final loc = _locationCtrl.text.trim();
+    final notes = _notesCtrl.text.trim();
+    return SeaTrial(
+      date: _date,
+      durationHours: double.tryParse(_durationCtrl.text.trim()),
+      location: loc.isEmpty ? null : loc,
+      parameters: params,
+      satisfactory: _satisfactory,
+      notes: notes.isEmpty ? null : notes,
+    );
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final trial = _collect();
+      await widget.onSave(trial.isEmpty ? null : trial);
+      if (mounted) {
+        showSavedToast(context);
+        Navigator.pop(context);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _clear() async {
+    setState(() => _saving = true);
+    try {
+      await widget.onSave(null);
+      if (mounted) {
+        showSavedToast(context);
+        Navigator.pop(context);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
