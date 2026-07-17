@@ -105,8 +105,15 @@ void main() {
       expect(find.text('Original title'), findsWidgets);
       expect(find.text('Details'), findsOneWidget);
       expect(find.text('Narrative'), findsOneWidget);
+
+      // Save now surfaces through the bottom SaveBar-on-change convention
+      // (16 July 2026 occurrence/cue UX sweep, item 2) — it only appears once
+      // a field is edited, and carries the 'Save occurrence' label.
+      expect(find.text('Save occurrence'), findsNothing);
       await tester.enterText(find.byType(TextField).first, 'Updated title');
-      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save occurrence'), findsOneWidget);
+      await tester.tap(find.text('Save occurrence'));
       await tester.pumpAndSettle();
 
       final occs = container.read(damageProvider(_caseId)).value?.occurrences ?? [];

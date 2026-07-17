@@ -296,7 +296,6 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
 
 class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   late bool _expanded = widget.initiallyExpanded;
-  int _tab = 0; // 0 = active, 1 = ignored
 
   // ── Collapsed-state quick summary (docs/context_cue_system_review.md §3.3)
   // — case-screen presentation only, never fed into report content. Only
@@ -320,7 +319,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
   /// same space as a full one. Clamped so a long list scrolls inside a
   /// sane max rather than growing unboundedly.
   double _expandedHeight(int itemCount) {
-    const chrome = 92.0; // header row + tab pills row + list padding
+    const chrome = 92.0; // header row + list padding
     const itemHeight = 46.0; // approx. one cue tile incl. its bottom margin
     const emptyStateHeight = 40.0;
     final contentHeight =
@@ -366,11 +365,12 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
             .toSet() ??
         <String>{};
 
+    // Section panels show ACTIVE cues only — an ignored cue never belongs on a
+    // per-section panel, and you never ignore a brand-new cue (16 July 2026
+    // occurrence/cue UX sweep, item 1). Ignoring still lives on the Notes
+    // screen's dedicated Ignored tab, which this panel intentionally omits.
     final activeNotes =
         sectionNotes.where((n) => n.priority != CuePriority.ignored).toList();
-    final ignoredNotes =
-        sectionNotes.where((n) => n.priority == CuePriority.ignored).toList();
-    final visibleNotes = _tab == 0 ? activeNotes : ignoredNotes;
 
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _maybeFetchSummary(activeNotes));
@@ -396,7 +396,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
       // same space as a full one.
       constraints: _expanded
           ? BoxConstraints.tightFor(
-              height: _expandedHeight(visibleNotes.length))
+              height: _expandedHeight(activeNotes.length))
           : BoxConstraints(minHeight: showSummary ? 62 : 48),
       decoration: const BoxDecoration(
         color: AppColors.background,
@@ -535,71 +535,42 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               ),
             ),
 
-          // ── Tab bar + list ───────────────────────────────────────────
-          if (_expanded) ...[
-            // Tab pills
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
-              child: Row(
-                children: [
-                  _CueTabPill(
-                    label: 'Active',
-                    count: activeNotes.length,
-                    selected: _tab == 0,
-                    accent: accent,
-                    onTap: () => setState(() => _tab = 0),
-                  ),
-                  const SizedBox(width: 6),
-                  _CueTabPill(
-                    label: 'Ignored',
-                    count: ignoredNotes.length,
-                    selected: _tab == 1,
-                    accent: AppColors.textSecondary,
-                    onTap: () => setState(() => _tab = 1),
-                  ),
-                ],
-              ),
-            ),
-
-            // Notes list
+          // ── Active-cue list ─────────────────────────────────────────
+          if (_expanded)
             Expanded(
               child: notesAsync.when(
                 loading: () => const Center(
                     child: CircularProgressIndicator(strokeWidth: 2)),
                 error: (e, _) => Center(child: Text('Error: $e')),
-                data: (_) => visibleNotes.isEmpty
-                    ? _CuesPanelEmpty(
-                        section: widget.section,
-                        isIgnoredTab: _tab == 1,
-                      )
+                data: (_) => activeNotes.isEmpty
+                    ? _CuesPanelEmpty(section: widget.section)
                     : ListView.builder(
                         padding:
-                            const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                        itemCount: visibleNotes.length,
+                            const EdgeInsets.fromLTRB(14, 6, 14, 12),
+                        itemCount: activeNotes.length,
                         itemBuilder: (_, i) => _CuePanelTile(
-                          note: visibleNotes[i],
-                          accent: _tab == 0 ? accent : AppColors.textSecondary,
-                          onEdit: () => _editNote(context, visibleNotes[i]),
+                          note: activeNotes[i],
+                          accent: accent,
+                          onEdit: () => _editNote(context, activeNotes[i]),
                           onDelete: () => ref
                               .read(surveyorNotesProvider(widget.caseId)
                                   .notifier)
-                              .delete(visibleNotes[i].id),
+                              .delete(activeNotes[i].id),
                           onPromote: widget.onPromote == null
                               ? null
-                              : () => widget.onPromote!(visibleNotes[i]),
+                              : () => widget.onPromote!(activeNotes[i]),
                           hasEvent: eventSourceKeys
-                              .contains(cueEventSourceKey(visibleNotes[i].id)),
+                              .contains(cueEventSourceKey(activeNotes[i].id)),
                           onCreateEvent: () => convertCueToTimelineEvent(
                             context,
                             ref,
                             caseId: widget.caseId,
-                            note: visibleNotes[i],
+                            note: activeNotes[i],
                           ),
                         ),
                       ),
               ),
             ),
-          ],
         ],
       ),
     );
@@ -698,73 +669,6 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
             );
           }
         },
-      ),
-    );
-  }
-}
-
-// ── Tab pill ──────────────────────────────────────────────────────────────────
-
-class _CueTabPill extends StatelessWidget {
-  const _CueTabPill({
-    required this.label,
-    required this.count,
-    required this.selected,
-    required this.accent,
-    required this.onTap,
-  });
-
-  final String label;
-  final int count;
-  final bool selected;
-  final Color accent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected ? accent : accent.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: selected ? accent : accent.withValues(alpha: 0.2)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? Colors.white : accent),
-            ),
-            if (count > 0) ...[
-              const SizedBox(width: 5),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? Colors.white.withValues(alpha: 0.25)
-                      : accent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? Colors.white : accent),
-                ),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }
@@ -926,6 +830,22 @@ class _CuePanelTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Cue text normalisation ─────────────────────────────────────────────────
+
+/// Capitalises the first character of a cue's text. Voice dictation (STT)
+/// routinely returns an all-lowercase first word; a cue should read as a
+/// proper sentence fragment regardless of how it was entered (16 July 2026
+/// occurrence/cue UX sweep, item 3). No-op when the text is empty or already
+/// starts with an upper-case / non-letter character, so intentional casing
+/// elsewhere in the cue is left untouched.
+String capitalizeCueContent(String text) {
+  if (text.isEmpty) return text;
+  final first = text[0];
+  final upper = first.toUpperCase();
+  if (first == upper) return text;
+  return '$upper${text.substring(1)}';
 }
 
 // ── Quick add/edit sheet ──────────────────────────────────────────────────────
@@ -1180,6 +1100,11 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
                 autofocus: true,
                 maxLines: 5,
                 minLines: 3,
+                // Prompt the keyboard / voice dictation to capitalise the
+                // first character; _save() also hard-capitalises it so a cue
+                // reads correctly even when the STT transcript omits it
+                // (16 July 2026 occurrence/cue UX sweep, item 3).
+                textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Enter context cue…',
                   hintStyle: const TextStyle(
@@ -1274,7 +1199,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
       };
 
   Future<void> _save() async {
-    final content = _ctrl.text.trim();
+    final content = capitalizeCueContent(_ctrl.text.trim());
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
@@ -1309,11 +1234,20 @@ class LabeledCueChipRow<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // width: double.infinity forces this block to fill the sheet even when the
+    // enclosing Column is centre-aligned (as the Notes-screen editor is). Its
+    // chip row is a Wrap, which otherwise shrinks to its content width and then
+    // gets centred — the "Nature/Weight/Origin indented right, first chip
+    // clipped" bug (16 July 2026 occurrence/cue UX sweep, item 4). Full width
+    // makes the start-aligned Column left-align every chip at the 16px margin,
+    // matching Priority / Case Section.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
+          const SizedBox(width: double.infinity),
           Text(label,
               style: const TextStyle(
                   fontSize: 10.5,
@@ -1388,18 +1322,15 @@ class CueChipRow<T> extends StatelessWidget {
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 class _CuesPanelEmpty extends StatelessWidget {
-  const _CuesPanelEmpty({required this.section, this.isIgnoredTab = false});
+  const _CuesPanelEmpty({required this.section});
   final CaseSection section;
-  final bool isIgnoredTab;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
       child: Text(
-        isIgnoredTab
-            ? 'No ignored cues for ${section.label}.'
-            : 'No context cues for ${section.label} yet. Tap + Add to capture a cue.',
+        'No context cues for ${section.label} yet. Tap + Add to capture a cue.',
         style: const TextStyle(
             fontSize: 12,
             color: AppColors.textTertiary,

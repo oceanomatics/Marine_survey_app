@@ -3,24 +3,36 @@
 // can compute the Unassigned bucket's cue count *before* the panel builds
 // (to decide whether it starts collapsed) without duplicating the matching
 // rules — this pins the shared logic itself.
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/surveyor_notes/models/surveyor_note_model.dart';
+import 'package:marine_survey_app/features/surveyor_notes/providers/surveyor_notes_provider.dart';
+import 'package:marine_survey_app/features/timeline/providers/timeline_provider.dart';
 import 'package:marine_survey_app/shared/widgets/context_cues_panel.dart';
+
+import '../../support/fakes/fake_surveyor_notes_notifier.dart';
+import '../../support/fakes/fake_timeline_notifier.dart';
 
 SurveyorNote _note({
   CaseSection section = CaseSection.notAverage,
   String? linkedToType,
   String? linkedToId,
   OccurrencePhase? occurrencePhase,
+  String content = 'A cue',
+  CuePriority priority = CuePriority.normal,
+  String? id,
 }) {
   final now = DateTime(2026, 7, 13);
   return SurveyorNote(
-    id: 'n-${linkedToType ?? 'none'}-${linkedToId ?? 'none'}-'
-        '${occurrencePhase?.value ?? 'nophase'}',
+    id: id ??
+        'n-${linkedToType ?? 'none'}-${linkedToId ?? 'none'}-'
+            '${occurrencePhase?.value ?? 'nophase'}',
     caseId: 'case-1',
-    content: 'A cue',
+    content: content,
     caseSection: section,
     occurrencePhase: occurrencePhase,
+    priority: priority,
     linkedToType: linkedToType,
     linkedToId: linkedToId,
     createdAt: now,
@@ -163,6 +175,80 @@ void main() {
                 const OccurrencePhaseScope.forPhase(OccurrencePhase.incident)),
         isFalse,
       );
+    });
+  });
+
+  // Item 3 (16 July 2026 occurrence/cue UX sweep): voice dictation frequently
+  // omits the leading capital; a cue should still read as a sentence fragment.
+  group('capitalizeCueContent', () {
+    test('capitalises a lowercase first character', () {
+      expect(capitalizeCueContent('the engine failed'), 'The engine failed');
+    });
+    test('leaves an already-capitalised string unchanged', () {
+      expect(
+          capitalizeCueContent('Owner disputes cause'), 'Owner disputes cause');
+    });
+    test('is a no-op on an empty string', () {
+      expect(capitalizeCueContent(''), '');
+    });
+    test('leaves a non-letter first character untouched', () {
+      expect(capitalizeCueContent('3 cracks observed'), '3 cracks observed');
+    });
+    test('only the first character is affected', () {
+      expect(capitalizeCueContent('main engine No.3 seized'),
+          'Main engine No.3 seized');
+    });
+  });
+
+  // Item 1 (16 July 2026 occurrence/cue UX sweep): a per-section panel shows
+  // ACTIVE cues only and has no Active/Ignored toggle — an ignored cue never
+  // belongs on a section panel.
+  group('ContextCuesPanel — active-only', () {
+    Future<void> pumpPanel(
+      WidgetTester tester, {
+      required List<SurveyorNote> notes,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            surveyorNotesProvider
+                .overrideWith(() => FakeSurveyorNotesNotifier(notes)),
+            timelineProvider.overrideWith(() => FakeTimelineNotifier([])),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: ContextCuesPanel(
+                caseId: 'case-1',
+                section: CaseSection.background,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('lists active cues and never an ignored one, with no toggle',
+        (tester) async {
+      await pumpPanel(tester, notes: [
+        _note(
+            id: 'a1',
+            section: CaseSection.background,
+            content: 'Active visible cue'),
+        _note(
+            id: 'i1',
+            section: CaseSection.background,
+            content: 'Ignored hidden cue',
+            priority: CuePriority.ignored),
+      ]);
+
+      expect(find.text('Active visible cue'), findsOneWidget);
+      expect(find.text('Ignored hidden cue'), findsNothing);
+      // The removed Active/Ignored tab pills.
+      expect(find.text('Active'), findsNothing);
+      expect(find.text('Ignored'), findsNothing);
     });
   });
 }

@@ -85,8 +85,11 @@ void main() {
     await _pump(tester);
 
     expect(find.text('Context Cues'), findsOneWidget);
-    expect(find.text('Active'), findsOneWidget);
-    expect(find.text('Ignored'), findsOneWidget);
+    // Per-section panels show ACTIVE cues only — the Active/Ignored toggle was
+    // removed (16 July 2026 occurrence/cue UX sweep, item 1); ignoring lives
+    // on the Notes screen's Ignored tab, not here.
+    expect(find.text('Active'), findsNothing);
+    expect(find.text('Ignored'), findsNothing);
   });
 
   testWidgets('adding a cue via the panel creates it scoped to Background', (tester) async {

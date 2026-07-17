@@ -25,6 +25,7 @@ import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/context_cues_panel.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 import '../../../shared/widgets/app_feedback.dart';
+import '../../../shared/widgets/save_bar.dart';
 
 const _kVesselStatusOptions = {
   'at_sea':            'At Sea',
@@ -70,6 +71,14 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
   bool _saving = false;
   bool _generating = false;
   bool _sorting = false;
+  // Persistent unsaved-changes indicator surfaced through the standard
+  // bottom SaveBar (same convention as parties/vessel screens) instead of the
+  // easy-to-miss app-bar Save button (16 July 2026 occurrence/cue UX sweep,
+  // item 2).
+  bool _hasChanges = false;
+  void _markChanged() {
+    if (!_hasChanges) setState(() => _hasChanges = true);
+  }
 
   @override
   void initState() {
@@ -84,6 +93,13 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
     _vesselStatusAtCasualty = occ.vesselStatusAtCasualty;
     _aftermathStatus        = occ.aftermathStatus;
     _reportedByAttendeeId   = occ.reportedByAttendeeId;
+    // Listeners attached only after seeding the fields so the initial load
+    // doesn't count as a change.
+    for (final c in [
+      _titleCtrl, _locationCtrl, _narrativeCtrl, _aftermathPortCtrl,
+    ]) {
+      c.addListener(_markChanged);
+    }
   }
 
   @override
@@ -116,6 +132,7 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
         date.year, date.month, date.day,
         time?.hour ?? 0, time?.minute ?? 0,
       );
+      _hasChanges = true;
     });
   }
 
@@ -162,7 +179,10 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
       await ref
           .read(damageProvider(widget.caseId).notifier)
           .updateOccurrence(updated);
-      if (mounted) showSavedToast(context);
+      if (mounted) {
+        setState(() => _hasChanges = false);
+        showSavedToast(context);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -334,22 +354,6 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
         backgroundColor: AppColors.coral,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          _saving
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white)),
-                )
-              : TextButton(
-                  onPressed: _save,
-                  child: const Text('Save',
-                      style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w700)),
-                ),
-        ],
         bottom: TabBar(
           controller: _tabs,
           indicatorColor: Colors.white,
@@ -361,6 +365,14 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
       body: TabBarView(
         controller: _tabs,
         children: [_buildDetailsTab(), _buildNarrativeTab()],
+      ),
+      // Save moved off the app bar into the standard SaveBar, which doubles as
+      // the unsaved-changes indicator (16 July 2026 occurrence/cue UX sweep).
+      bottomNavigationBar: SaveBar(
+        visible: _hasChanges,
+        saving: _saving,
+        onSave: _save,
+        label: 'Save occurrence',
       ),
     );
   }
@@ -411,7 +423,10 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
               const Spacer(),
               if (_dateTime != null)
                 GestureDetector(
-                  onTap: () => setState(() => _dateTime = null),
+                  onTap: () => setState(() {
+                    _dateTime = null;
+                    _hasChanges = true;
+                  }),
                   child: const Icon(Icons.clear,
                       size: 16, color: AppColors.textTertiary),
                 ),
@@ -429,7 +444,10 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
           label: 'Vessel Status at Casualty',
           value: _vesselStatusAtCasualty,
           options: _kVesselStatusOptions,
-          onChanged: (v) => setState(() => _vesselStatusAtCasualty = v),
+          onChanged: (v) => setState(() {
+            _vesselStatusAtCasualty = v;
+            _hasChanges = true;
+          }),
         ),
         const SizedBox(height: 14),
         const Text('Aftermath',
@@ -452,7 +470,10 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
                 label: 'What happened after the casualty?',
                 value: _aftermathStatus,
                 options: _kAftermathOptions,
-                onChanged: (v) => setState(() => _aftermathStatus = v),
+                onChanged: (v) => setState(() {
+                  _aftermathStatus = v;
+                  _hasChanges = true;
+                }),
               ),
               const SizedBox(height: 10),
               SurveyField(
@@ -536,7 +557,10 @@ class _OccurrenceEditorScreenState extends ConsumerState<OccurrenceEditorScreen>
                       ),
                     )),
               ],
-              onChanged: (v) => setState(() => _reportedByAttendeeId = v),
+              onChanged: (v) => setState(() {
+                _reportedByAttendeeId = v;
+                _hasChanges = true;
+              }),
             ),
           ),
       ],
