@@ -30,7 +30,31 @@ WRITING STYLE RULES (must follow):
 - Mark any information not directly witnessed by the surveyor with an attribution phrase such as "reportedly", "according to the Master…", or "it is understood that…" — never state an unwitnessed event as if it were directly observed fact.
 - Do not use unquantified qualifiers ("apparently", "seemingly", "obviously") or vague conditions ("good condition", "fair wear and tear") without stating the standard or basis for the description.
 - Do not use emotive or speculative language ("unfortunately", "clearly", "as anyone can see").
-- Keep a neutral, factual, third-person register throughout.''';
+- Keep a neutral, factual, third-person register throughout.
+- Refer to the vessel as "the subject vessel" (name it once at most, then use "the subject vessel").''';
+
+/// Calibrated-hedging rules (docs/house_style.md GLOBAL RULE). Appended to the
+/// drafting prompts where an inference, cause, or prediction is being drawn
+/// (Cause / Damage / Repairs / Nature of Repairs). The goal is calibrated
+/// confidence — state firmly what was observed, hedge only what is inferred —
+/// NOT blanket qualification, which is itself a fault.
+const _calibratedHedging = '''
+
+CALIBRATED HEDGING (match the verb to the evidence — do not over-hedge):
+- Directly observed by the surveyor: state it as fact, no hedge.
+- Reported by others / not personally witnessed: attribute it ("it was reported that", "the Master advised"), do not adopt it as your own finding.
+- Inferred cause or mechanism: apply ONE calibrated qualifier ("is consistent with", "appears to", "likely", "on balance", "the evidence points to") — never a stack of them.
+- Predicted / future / unverified: hedge and state the dependency ("pending inspection at docking", "would be unlikely", "could foreseeably").
+Reserve "is consistent with" for the damage-to-mechanism link. One hedge per proposition — if a sentence carries two qualifiers, delete one. A run of observed facts should read cleanly; the hedge appears only at the point a conclusion is drawn from them. Where a fact could not be verified or a measurement was not taken, say so plainly ("not confirmed", "measurements were not taken").''';
+
+/// Per-object data-capture rule (docs/house_style.md). Appended to the
+/// drafting prompts whose source material is structured/object-oriented
+/// (Damage, Cause, Repairs). Forces every hard field to be consumed before
+/// prose is written, with an explicit "Not confirmed" for present-but-empty
+/// fields rather than silent omission.
+const _dataCaptureRule = '''
+
+DATA-CAPTURE RULE: consume EVERY hard field and object below before writing prose. Do not summarise past a field or collapse a per-object record into a generic statement. Carry each named object/component with its identifier, condition/mode, and measurements exactly as recorded. Where a field is present in the source but has no value, write "Not confirmed" rather than omitting it — a reader should be able to reconstruct the full inventory from your text alone.''';
 
 class ClaudeApi {
   static final _dio = () {
@@ -515,6 +539,83 @@ Draft the occurrence narrative now:''',
     return _extractText(response.data);
   }
 
+  /// Drafts the BACKGROUND section (docs/house_style.md — a distinct section
+  /// from the Occurrence Narrative). Background is narrative context that
+  /// stops JUST BEFORE the incident: the vessel's general employment, the
+  /// specific voyage/operation in progress, and the immediate circumstances
+  /// up to the point immediately preceding the occurrence. Reported register
+  /// throughout ("subject vessel"); the event itself and the surveyor's own
+  /// findings belong in later sections. Previously the Background draft path
+  /// reused draftOccurrenceNarrative, which produced the three-act event
+  /// account — semantically the wrong section (house-style item 12).
+  static Future<String> draftBackgroundSection({
+    required String vesselName,
+    required String reportFormat,
+    String? vesselType,
+    String? employmentContext,
+    String? occurrenceDate,
+    String? occurrenceLocation,
+    String? sourceReport,
+    String? caseId,
+    String? priorApprovedText,
+  }) async {
+    final srcAttribution = (sourceReport != null && sourceReport.trim().isNotEmpty)
+        ? '\n\nSOURCE ATTRIBUTION: this background is drawn from "$sourceReport" '
+            '(an owner/third-party account). Open with a single sentence '
+            'attributing it, e.g. "The following background is a summary of the '
+            'description of events in the $sourceReport."'
+        : '';
+    final ctx = (employmentContext != null && employmentContext.trim().isNotEmpty)
+        ? '\n\nCONTEXT / RAW MATERIAL:\n${employmentContext.trim()}'
+        : '';
+    final amendSection = priorApprovedText != null &&
+            priorApprovedText.isNotEmpty
+        ? '\n\nPRIOR APPROVED BACKGROUND (already issued in an earlier report '
+            'on this case — do not repeat or restate any of this; it is shown '
+            'only so you know what has already been said):\n'
+            '"""\n$priorApprovedText\n"""\n\n'
+            'Draft ONLY the new developments since the prior text above, as a '
+            'continuation that reads naturally after it. If nothing below is '
+            'genuinely new, return an empty string.'
+        : '';
+
+    final response = await _dio.post('/messages',
+        options: Options(extra: {
+          'feature': 'background_section',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'report_section',
+          if (caseId != null) 'section_label': 'background',
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 900,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''You are a marine surveyor drafting the BACKGROUND section of a Hull & Machinery survey report ($reportFormat format). This section sets the context of the claim and STOPS JUST BEFORE the incident — the occurrence itself is a separate later section and must NOT be described here.
+
+Write flowing prose (no bullet points, no headings, no markdown), in reported register, referring to the vessel as "the subject vessel" (name it once as "$vesselName" at most).
+
+CONTEXT BODY, strictly in this order:
+1. The subject vessel's general role / employment — what it is and what it is ordinarily engaged in.${vesselType != null && vesselType.trim().isNotEmpty ? ' (Vessel type: ${vesselType.trim()}.)' : ''}
+2. The specific operation or voyage in progress leading up to the incident.
+3. The immediate circumstances up to (but stopping just before) the occurrence — prevailing conditions and what the vessel/crew were doing at the point immediately preceding the event.
+
+Do NOT describe the incident, the damage, or the cause — those belong in later sections. Where a hard fact is absent, write "Not confirmed" rather than inventing it.$srcAttribution
+
+OCCURRENCE DATE (for orientation only — do not narrate the event): ${occurrenceDate ?? 'Not confirmed'}
+LOCATION: ${occurrenceLocation ?? 'Not confirmed'}$ctx
+$_writingStyleGuardrails$amendSection
+
+Draft the background now:''',
+            },
+          ],
+        });
+
+    return _extractText(response.data);
+  }
+
   /// AI pre-sort for occurrence cue forking (docs/occurrence_narrative_spec.md)
   /// — classifies a single occurrence-section cue into one of the three
   /// narrative phases. "Surveyor picks, AI pre-sorts": this only *suggests*
@@ -592,11 +693,18 @@ Answer with exactly one word: before, incident, or aftermath.''',
 
 This must be written entirely in the surveyor's own voice — introduce it with a phrase such as "It is the view of the Undersigned Surveyor that…" or "In the opinion of the Undersigned…". If owner's stated cause context is provided below, do not restate it as fact or blend it into your own sentence — your text is the surveyor's independent assessment, not a summary of the owner's account.
 
+EVIDENCE-LINKAGE RULE: every causal statement must be anchored to a specific damage finding below or a cited source. Do not assert a cause that is not traceable to the damage record or a stated fact. Structure it as: (1) the damage-to-mechanism link ("The [damage] to [object] is consistent with [mechanism/load] …"); (2) the reasoning across the evidence; (3) any gaps, untaken measurements, or conflicts between sources, called out rather than smoothed over.
+
+CERTAINTY LADDER — close on the rung the evidence supports, always framed as the surveyor's opinion:
+- Preliminary: "A final conclusion cannot be reached until [condition]. On a preliminary basis, the following potential causes are considered: …".
+- Qualified: "On balance, and on the basis of the evidence available, it is the opinion of the Undersigned Surveyor that [cause] is the likely cause.".
+- Firm (only where evidence is strong): "It is the opinion of the Undersigned Surveyor that [cause].".
+
 VESSEL: $vesselName
 OCCURRENCE: $occurrenceTitle
 DAMAGE:
 - $damages$findings$allegation
-$_writingStyleGuardrails
+$_writingStyleGuardrails$_calibratedHedging$_dataCaptureRule
 
 Draft the surveyor's assessment now:''',
             },
@@ -1052,9 +1160,11 @@ Draft the paragraph now:''',
           {
             'role': 'user',
             'content':
-                '''Draft the "Extent of Damage" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This describes, item by item, the damage found on inspection and how it was confirmed.
+                '''Draft the "Extent of Damage" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This is the surveyor's own voice — damage as evidenced observation, item by item, and how it was established.
 
-Write prose (short paragraphs, one per claim object/component group is fine) based only on the damage items and context cues below. Do not add information not provided. Do not use bullet points — write flowing prose, grouping by component/claim object where natural.
+OPEN with the basis of the findings (this sets the evidentiary weight) — the opener that matches how the damage was established, e.g. "The [component] was inspected at [facility] on [date]. The following damage was observed:" for direct inspection, or "The following damage was reported from the [Diving Survey / Class survey]:" for a third-party survey. Then work through the damage grouping by component/claim object, carrying each object's identifier, condition/mode of damage, and measurements exactly as recorded — one object is never merged into another. Close with a consequential-damage line only where the evidence supports it ("It is considered that there could have been further damage to [components] due to [reason].").
+
+Write prose (short paragraphs, one per claim object/component group is fine) based only on the damage items and context cues below. Do not add information not provided.
 
 VESSEL: $vesselName
 
@@ -1063,7 +1173,7 @@ $itemsText
 
 SURVEYOR CONTEXT CUES:
 $cuesText
-$_writingStyleGuardrails$amendSection
+$_writingStyleGuardrails$_calibratedHedging$_dataCaptureRule$amendSection
 
 Draft the section now:''',
           },
@@ -1115,7 +1225,7 @@ VESSEL: $vesselName
 
 SURVEYOR'S FLAGGED CONSIDERATIONS:
 $flagsSummary
-$_writingStyleGuardrails$amendSection
+$_writingStyleGuardrails$_calibratedHedging$amendSection
 
 Draft the paragraph now:''',
           },
@@ -1164,9 +1274,9 @@ Draft the paragraph now:''',
           {
             'role': 'user',
             'content':
-                '''Draft the "Repairs" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This records the repair period(s) — when and where repairs took place.
+                '''Draft the "Repairs" section of a marine H&M survey report${reportFormat != null ? ' ($reportFormat format)' : ''}. This records the repair period(s) — when and where repairs took place, and the average (casualty-related) versus Owners' own concurrent work where distinguished.
 
-Write one short prose paragraph based only on the repair periods and context cues below. Do not add information not provided. Do not use bullet points or headings.
+Write one short prose paragraph per repair period based only on the repair periods and context cues below, carrying each period's dates, location/yard and scope exactly as recorded. Introduce any Owners' own concurrent work separately from the average repairs. Do not sum times across periods. Do not add information not provided. Do not use bullet points or headings.
 
 VESSEL: $vesselName
 
@@ -1175,7 +1285,7 @@ $periodsText
 
 SURVEYOR CONTEXT CUES:
 $cuesText
-$_writingStyleGuardrails$amendSection
+$_writingStyleGuardrails$_dataCaptureRule$amendSection
 
 Draft the paragraph now:''',
           },

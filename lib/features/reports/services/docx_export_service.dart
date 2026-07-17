@@ -318,7 +318,14 @@ class DocxExportService {
       final purpose = purposeLineFor(type);
       if (purpose != null) doc.addParagraph(purpose, italic: true);
       for (final para in splitSectionParagraphs(section.fullContent)) {
-        doc.addParagraph(para);
+        // Analyst-inserted (or any Markdown) table blocks export as real
+        // Word tables, not flattened text (house-style item 20).
+        final table = tryParseMarkdownTable(para);
+        if (table != null) {
+          doc.addTable(table, boldFirstRow: true);
+        } else {
+          doc.addParagraph(para);
+        }
       }
       doc.addSpacer();
     }
@@ -563,9 +570,16 @@ class DocxExportService {
     }
 
     // ── Section 7: Chronology of Events ──────────────────────────────
+    // House-style: the Chronology table sits immediately before Background,
+    // as the tabular skeleton the narrative then expands. Purpose line to
+    // match the other sections' convention.
     final chronoRows = buildChronologyRows(assembled.timelineEvents);
     if (chronoRows.isNotEmpty) {
       doc.addHeading('CHRONOLOGY OF EVENTS', 2);
+      doc.addParagraph(
+          'This section presents the dated sequence of movements and events '
+          'relevant to the casualty.',
+          italic: true);
       doc.addTable(chronoRows, boldFirstRow: true, colWidths: [2000, 7355]);
       doc.addSpacer();
     }
@@ -1088,8 +1102,12 @@ class DocxExportService {
       doc.addSpacer();
     }
 
-    // ── Sign-off authentication block (Final reports only) ───────────
-    if (output.outputType == OutputType.final_) {
+    // ── Sign-off authentication block (all report types) ─────────────
+    // House-style item 9 (R7): the Reviewer/QC block is always reserved —
+    // the REVIEWING SURVEYOR column renders even when no reviewer has been
+    // picked yet (addSignOffBlock draws "Name: —" placeholders), so the
+    // structure is present in every report, not only Final ones.
+    {
       final caseData = assembled.caseData;
       String? fmtSignDate(String? iso) {
         if (iso == null) return null;

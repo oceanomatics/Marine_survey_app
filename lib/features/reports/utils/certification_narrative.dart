@@ -125,3 +125,74 @@ String composeConditionOfClassNarrative(List<Map<String, dynamic>> conditions) {
   buf.write('. Details are set out below.');
   return buf.toString();
 }
+
+/// Statutory-review addition (report_builder_house_style_mods.md item 8 / R1):
+/// Port State Control detention history. Composed from the `detentions` table
+/// rows (fields `detained_date`/`released_date`/`port`/`authority`/`reason`/
+/// `resolved`). Always emits an explicit statement — "No … detention has been
+/// recorded" when the list is empty — so the section never silently omits the
+/// point (house-style empty-section rule).
+String composeDetentionsNarrative(List<Map<String, dynamic>> detentions) {
+  if (detentions.isEmpty) {
+    return 'No Port State Control detention has been recorded against the '
+        'subject vessel.';
+  }
+
+  final n = detentions.length;
+  final buf = StringBuffer(n == 1
+      ? 'One Port State Control detention has been recorded against the '
+          'subject vessel'
+      : '$n Port State Control detentions have been recorded against the '
+          'subject vessel');
+
+  final outstanding = detentions.where((d) => d['resolved'] != true).length;
+  if (outstanding == 0) {
+    buf.write(n == 1 ? ', since released' : ', all of which have been released');
+  } else if (outstanding == n) {
+    buf.write(n == 1
+        ? ', not yet recorded as released'
+        : ', none of which are yet recorded as released');
+  } else {
+    buf.write(', of which ${outstanding == 1 ? '1 remains' : '$outstanding '
+        'remain'} not yet recorded as released');
+  }
+  buf.write('. Details are set out below.');
+  return buf.toString();
+}
+
+/// ISM (Safety Management) compliance status line (item 8 / R1). `status` is
+/// the vessel's `ism_status` column ('compliant' | 'non_compliant' | 'tbc' |
+/// null). Always surfaced — a 'tbc'/absent value states the status was not
+/// confirmed rather than dropping the line.
+String composeIsmStatusNarrative(String? status) {
+  switch (status) {
+    case 'compliant':
+      return 'The subject vessel is reported to hold valid ISM certification '
+          '(Document of Compliance and Safety Management Certificate) at the '
+          'time of the casualty.';
+    case 'non_compliant':
+      return 'The subject vessel is reported not to have been in compliance '
+          'with the ISM Code at the time of the casualty.';
+    default:
+      return 'The ISM compliance status of the subject vessel had not been '
+          'confirmed at the time of this report.';
+  }
+}
+
+/// ISPS (maritime security) compliance status line (item 8 / R1). `status` is
+/// the vessel's `isps_status` column ('compliant' | 'non_compliant' | 'tbc' |
+/// null). Same always-surfaced treatment as [composeIsmStatusNarrative].
+String composeIspsStatusNarrative(String? status) {
+  switch (status) {
+    case 'compliant':
+      return 'The subject vessel is reported to hold a valid International '
+          'Ship Security Certificate under the ISPS Code at the time of the '
+          'casualty.';
+    case 'non_compliant':
+      return 'The subject vessel is reported not to have been in compliance '
+          'with the ISPS Code at the time of the casualty.';
+    default:
+      return 'The ISPS compliance status of the subject vessel had not been '
+          'confirmed at the time of this report.';
+  }
+}

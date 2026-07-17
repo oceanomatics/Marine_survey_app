@@ -163,4 +163,91 @@ void main() {
           'are not. Details are set out below.');
     });
   });
+
+  group('composeDetentionsNarrative', () {
+    test('empty list states no detention recorded', () {
+      expect(composeDetentionsNarrative(const []),
+          'No Port State Control detention has been recorded against the '
+          'subject vessel.');
+    });
+
+    test('single released detention', () {
+      final text = composeDetentionsNarrative([
+        {'resolved': true},
+      ]);
+      expect(
+          text,
+          'One Port State Control detention has been recorded against the '
+          'subject vessel, since released. Details are set out below.');
+    });
+
+    test('single outstanding detention', () {
+      final text = composeDetentionsNarrative([
+        {'resolved': false},
+      ]);
+      expect(
+          text,
+          'One Port State Control detention has been recorded against the '
+          'subject vessel, not yet recorded as released. Details are set '
+          'out below.');
+    });
+
+    test('multiple detentions, some still outstanding', () {
+      final text = composeDetentionsNarrative([
+        {'resolved': true},
+        {'resolved': false},
+        {'resolved': false},
+      ]);
+      expect(
+          text,
+          '3 Port State Control detentions have been recorded against the '
+          'subject vessel, of which 2 remain not yet recorded as released. '
+          'Details are set out below.');
+    });
+
+    test('all detentions released', () {
+      final text = composeDetentionsNarrative([
+        {'resolved': true},
+        {'resolved': true},
+      ]);
+      expect(
+          text,
+          '2 Port State Control detentions have been recorded against the '
+          'subject vessel, all of which have been released. Details are set '
+          'out below.');
+    });
+  });
+
+  group('composeIsmStatusNarrative', () {
+    test('compliant', () {
+      expect(composeIsmStatusNarrative('compliant'), contains('hold valid ISM'));
+    });
+    test('non_compliant', () {
+      expect(composeIsmStatusNarrative('non_compliant'),
+          contains('not to have been in compliance with the ISM Code'));
+    });
+    test('tbc and null both report not confirmed', () {
+      const expected =
+          'The ISM compliance status of the subject vessel had not been '
+          'confirmed at the time of this report.';
+      expect(composeIsmStatusNarrative('tbc'), expected);
+      expect(composeIsmStatusNarrative(null), expected);
+    });
+  });
+
+  group('composeIspsStatusNarrative', () {
+    test('compliant', () {
+      expect(composeIspsStatusNarrative('compliant'),
+          contains('International Ship Security Certificate'));
+    });
+    test('non_compliant', () {
+      expect(composeIspsStatusNarrative('non_compliant'),
+          contains('not to have been in compliance with the ISPS Code'));
+    });
+    test('null reports not confirmed', () {
+      expect(composeIspsStatusNarrative(null),
+          'The ISPS compliance status of the subject vessel had not been '
+          'confirmed at the time of this report.');
+    });
+  });
 }

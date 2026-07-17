@@ -35,6 +35,7 @@ AssembledReportData fixtureAssembledData({
       surveyorNotes: const [],
       machinery: const [],
       classConditions: const [],
+      detentions: const [],
       caseDocuments: const [],
       requestedDocuments: const [],
       photos: const [],
