@@ -143,6 +143,39 @@ void main() {
     expect(saved.caseSection, CaseSection.damage);
   });
 
+  testWidgets('a lowercase-dictated cue is saved with a capitalised first '
+      'character (item 3)', (tester) async {
+    final fake = await _pump(tester);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byType(TextField).first, 'the master reported flooding');
+    await tester.tap(find.text('Save Cue'));
+    await tester.pumpAndSettle();
+
+    expect(fake.state.value!.single.content, 'The master reported flooding');
+  });
+
+  testWidgets('classification sub-sections left-align with PRIORITY in the '
+      'cue sheet (item 4)', (tester) async {
+    await _pump(tester);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    // Default priority is Normal, so the Nature/Weight/Origin rows are shown.
+    final priorityX = tester.getTopLeft(find.text('PRIORITY')).dx;
+    final natureX = tester.getTopLeft(find.text('Nature of content')).dx;
+    final weightX = tester.getTopLeft(find.text('Evidentiary weight')).dx;
+    final originX = tester.getTopLeft(find.text('Origin')).dx;
+
+    expect(natureX, moreOrLessEquals(priorityX, epsilon: 0.5));
+    expect(weightX, moreOrLessEquals(priorityX, epsilon: 0.5));
+    expect(originX, moreOrLessEquals(priorityX, epsilon: 0.5));
+  });
+
   testWidgets('editing an existing cue prefills its content and updates on save',
       (tester) async {
     final notes = [_note(id: 'n1', content: 'Original text', caseSection: CaseSection.damage)];

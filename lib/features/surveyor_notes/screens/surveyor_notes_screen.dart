@@ -1036,6 +1036,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 controller: _ctrl,
                 maxLines: 6,
                 minLines: 3,
+                // Prompt the keyboard / voice dictation to capitalise the
+                // first character; _save() also hard-capitalises it so a cue
+                // reads correctly even when the STT transcript omits it
+                // (16 July 2026 occurrence/cue UX sweep, item 3).
+                textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Enter context cue…',
                   hintStyle: const TextStyle(
@@ -1172,7 +1177,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _save() async {
-    final content = _ctrl.text.trim();
+    final content = capitalizeCueContent(_ctrl.text.trim());
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
