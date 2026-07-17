@@ -470,6 +470,15 @@ class RepairDocumentsNotifier
           'presentation_statement': line.presentationStatement,
           'repair_period_id':       line.repairPeriodId,
           'occurrence_id':          line.occurrenceId,
+          // FX fields — must be persisted so a fetched invoice rate actually
+          // reaches the reconciled base-currency summary.
+          'invoice_currency':       line.invoiceCurrency,
+          'fx_rate_to_base':        line.fxRateToBase,
+          'fx_rate_date':           line.fxRateDate
+              ?.toIso8601String()
+              .split('T')
+              .first,
+          'base_currency_amount':   line.baseCurrencyAmount,
         })
         .eq('id', line.id);
     state = AsyncData(
