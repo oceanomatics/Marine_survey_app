@@ -416,11 +416,15 @@ class _VesselParticularsScreenState
       final caseTypeLabel = caseRow['case_type'] != null
           ? CaseType.fromValue(caseRow['case_type'] as String).label
           : '';
+      // Primary (or, failing that, the first) occurrence — mirrors
+      // CaseNotifier._rebuildTitle so the occurrence brief is always
+      // re-appended, even when no occurrence is flagged is_primary.
       final occRows = await SupabaseService.client
           .from('occurrences')
-          .select('title')
+          .select('title, is_primary, occurrence_no')
           .eq('case_id', widget.caseId)
-          .eq('is_primary', true)
+          .order('is_primary', ascending: false)
+          .order('occurrence_no')
           .limit(1);
       final occTitle = (occRows as List).isNotEmpty
           ? ((occRows.first as Map)['title'] as String? ?? '').trim()

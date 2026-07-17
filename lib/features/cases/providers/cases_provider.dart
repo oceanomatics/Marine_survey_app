@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/case_model.dart';
+import '../utils/case_title.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/services/drive_storage_service.dart';
 
@@ -323,15 +324,14 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
           ? (occRows.first['title'] as String? ?? '')
           : '';
 
-      final parts = [
-        if (jobNo.isNotEmpty)    jobNo,
-        if (vName.isNotEmpty)    vName,
-        if (ctLabel.isNotEmpty)  ctLabel,
-        if (occTitle.isNotEmpty) occTitle,
-      ];
+      final newTitle = buildCaseTitle(
+        jobNo:           jobNo,
+        vesselName:      vName,
+        caseTypeLabel:   ctLabel,
+        occurrenceTitle: occTitle,
+      );
 
-      if (parts.isEmpty) return;
-      final newTitle = parts.join(' – ');
+      if (newTitle.isEmpty) return;
       await SupabaseService.client
           .from('cases')
           .update({'title': newTitle})

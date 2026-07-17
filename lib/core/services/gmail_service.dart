@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../services/google_auth_service.dart';
+import '../utils/mail_text.dart';
 
 class GmailMessageSummary {
   const GmailMessageSummary({
@@ -123,12 +124,14 @@ class GmailService {
               orElse: () => const {})['value'] as String? ??
           '';
 
+      final subject = header('Subject');
       summaries.add(GmailMessageSummary(
         id: id,
-        subject: header('Subject').isEmpty ? '(no subject)' : header('Subject'),
-        from: header('From'),
+        subject:
+            subject.isEmpty ? '(no subject)' : decodeMailHeader(subject),
+        from: decodeMailHeader(header('From')),
         date: header('Date').isEmpty ? null : header('Date'),
-        snippet: data['snippet'] as String? ?? '',
+        snippet: decodeMailText(data['snippet'] as String? ?? ''),
       ));
     }
     return summaries;
@@ -182,9 +185,9 @@ class GmailService {
         final date = headerOf(msg, 'Date');
         return GmailThreadMessage(
           id: msg['id'] as String,
-          from: headerOf(msg, 'From'),
+          from: decodeMailHeader(headerOf(msg, 'From')),
           date: date.isEmpty ? null : date,
-          snippet: msg['snippet'] as String? ?? '',
+          snippet: decodeMailText(msg['snippet'] as String? ?? ''),
         );
       }).toList();
 
@@ -192,7 +195,7 @@ class GmailService {
           headerOf(rawMessages.first as Map<String, dynamic>, 'Subject');
       threads.add(GmailThreadSummary(
         id: id,
-        subject: subject.isEmpty ? '(no subject)' : subject,
+        subject: subject.isEmpty ? '(no subject)' : decodeMailHeader(subject),
         messages: messages,
       ));
     }

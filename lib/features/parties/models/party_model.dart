@@ -206,6 +206,31 @@ class AssuredContactModel {
   final String? email;
   final String? notes;
 
+  /// The company to actually display: the stored company with surrounding
+  /// whitespace stripped, or null when it is blank. AI-extracted contacts can
+  /// arrive with an empty-string company, which otherwise renders as a stray
+  /// blank line for one contact but not another — this normalises that so a
+  /// party's full company is shown consistently or not at all.
+  String? get displayCompany {
+    final c = company?.trim();
+    return (c == null || c.isEmpty) ? null : c;
+  }
+
+  /// True when [roleTitle] merely restates the stakeholder classification
+  /// (e.g. an "Assured" role on a contact already grouped as Insured/Assured),
+  /// so the UI can drop the redundant role badge.
+  bool get roleRestatesGroup {
+    final r = roleTitle?.trim().toLowerCase();
+    final g = stakeholderGroup;
+    if (r == null || r.isEmpty || g == null) return false;
+    if (r == g.label.toLowerCase()) return true;
+    // The Insured group is commonly labelled "Assured" on marine claims.
+    if (g == StakeholderGroup.insured && (r == 'assured' || r == 'insured')) {
+      return true;
+    }
+    return false;
+  }
+
   factory AssuredContactModel.fromJson(Map<String, dynamic> j) =>
       AssuredContactModel(
         contactId:        j['contact_id'] as String,
