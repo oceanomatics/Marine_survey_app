@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -9,7 +8,7 @@ import '../providers/accounts_provider.dart';
 import '../../../core/api/claude_api.dart';
 import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/api/supabase_client.dart';
-import '../../../core/utils/document_warp.dart';
+import '../../../core/utils/document_scan.dart';
 import '../../../shared/theme/app_theme.dart';
 
 const _kAccent = Color(0xFF2E7D32);
@@ -423,49 +422,19 @@ class _ImportInvoiceSheetState extends ConsumerState<ImportInvoiceSheet> {
   }
 
   /// Detects the four corners of a document in the image, then applies a
-  /// perspective warp to produce a flat rectangular scan as a PNG.
-  /// Returns null if no document was detected (caller uses original image).
-  Future<Uint8List?> _perspectiveCorrect() async {
-    try {
-      final b64 = base64Encode(_bytes!);
-      if (mounted) setState(() => _busyLabel = 'Detecting document corners…');
-
-      final rawCorners = await ref.read(aiTasksProvider.notifier).run(
-            label: 'Detecting document corners',
-            caseId: widget.caseId,
-            estimate: const Duration(seconds: 10),
-            action: () => ClaudeApi.detectDocumentCorners(
-              base64Image: b64,
-              mediaType: _mimeType,
-            ),
-          );
-      if (rawCorners == null || rawCorners.length != 4) return null;
-
-      if (mounted) setState(() => _busyLabel = 'Applying perspective correction…');
-
-      final codec = await ui.instantiateImageCodec(Uint8List.fromList(_bytes!));
-      final frame = await codec.getNextFrame();
-      final srcImage = frame.image;
-      codec.dispose();
-
-      final corners = rawCorners
-          .map((xy) => Offset(
-                xy[0] * srcImage.width,
-                xy[1] * srcImage.height,
-              ))
-          .toList();
-
-      final result = await DocumentWarp.warp(
-        srcImage: srcImage,
-        srcCorners: corners,
+  /// perspective warp to produce a flat rectangular scan as a PNG. Returns
+  /// null if no document was detected (caller uses original image). Delegates
+  /// to the shared [DocumentScanner] (same pipeline used by the Document Vault
+  /// scan flow).
+  Future<Uint8List?> _perspectiveCorrect() => DocumentScanner.flatten(
+        ref: ref,
+        caseId: widget.caseId,
+        bytes: Uint8List.fromList(_bytes!),
+        mimeType: _mimeType,
+        onProgress: (label) {
+          if (mounted) setState(() => _busyLabel = label);
+        },
       );
-      srcImage.dispose();
-      return result;
-    } catch (e) {
-      debugPrint('[Accounts] perspectiveCorrect failed (will use original): $e');
-      return null;
-    }
-  }
 
   Future<void> _analyseBatch() async {
     if (_bytes == null) return;

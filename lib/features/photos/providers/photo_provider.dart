@@ -325,6 +325,66 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     }
   }
 
+  /// Uploads a photo's full-res + thumbnail bytes into the case's per-attendance
+  /// Drive folder (`Cases/{case}/Photos/{attendance label}/`), returning the
+  /// created Drive file ids. Best-effort: on any failure (offline, Drive not
+  /// configured) both ids come back null and the caller carries on — the photo
+  /// still saves, just without a Drive copy until a later backup retry.
+  /// Shared by [addPhoto] (on-add upload) and [backupToDrive] (the app-bar
+  /// "back up to Drive" retry button).
+  Future<({String? driveFileId, String? thumbDriveFileId})> _uploadPhotoToDrive({
+    required String caseId,
+    required String id,
+    required DateTime takenAt,
+    required String? attendanceId,
+    required String? caption,
+    required PhotoAllocation? allocation,
+    required Uint8List compressed,
+    required Uint8List thumbBytes,
+  }) async {
+    try {
+      final caseModel = await _fetchCaseModel(caseId);
+      final attendanceLabel = await _attendanceFolderLabel(attendanceId);
+      final subFolders =
+          attendanceLabel != null ? [attendanceLabel] : const <String>[];
+      final dateStr =
+          '${takenAt.year}-${takenAt.month.toString().padLeft(2, '0')}-'
+          '${takenAt.day.toString().padLeft(2, '0')} '
+          '${takenAt.hour.toString().padLeft(2, '0')}${takenAt.minute.toString().padLeft(2, '0')}';
+      final namePart = (caption?.trim().isNotEmpty ?? false)
+          ? caption!.trim()
+          : allocation?.label ?? 'Photo';
+      // Short id suffix guarantees uniqueness (same caption/minute is common
+      // when several photos are taken in quick succession).
+      final shortId = id.substring(0, 8);
+      // TODO.md §3.15: title convention includes the attendance/event label as
+      // its own part — {date} - {attendance/event label} - {description} - {id}.
+      final baseName =
+          buildDriveFilename([dateStr, attendanceLabel, namePart, shortId], 'jpg');
+      final driveFileId = await DriveStorageService.uploadCaseFile(
+        caseModel: caseModel,
+        category: CaseFileCategory.photos,
+        subFolders: subFolders,
+        bytes: compressed,
+        filename: baseName,
+        mimeType: 'image/jpeg',
+      );
+      final thumbDriveFileId = await DriveStorageService.uploadCaseFile(
+        caseModel: caseModel,
+        category: CaseFileCategory.photos,
+        subFolders: subFolders,
+        bytes: thumbBytes,
+        filename: buildDriveFilename(
+            [dateStr, attendanceLabel, namePart, shortId, 'thumb'], 'jpg'),
+        mimeType: 'image/jpeg',
+      );
+      return (driveFileId: driveFileId, thumbDriveFileId: thumbDriveFileId);
+    } catch (e) {
+      debugPrint('Drive photo upload skipped (offline or not configured): $e');
+      return (driveFileId: null, thumbDriveFileId: null);
+    }
+  }
+
   // ── Public mutations ──────────────────────────────────────────────────────
 
   /// Compresses [bytes], caches locally (native only), uploads the
@@ -339,6 +399,7 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     String? linkedToId,
     String? attendanceId,
     PhotoAllocation? allocation,
+    PhotoSource? photoSource,
   }) async {
     _mutationGeneration++;
     final id = _uuid.v4();
@@ -383,50 +444,16 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       await File(thumbPath).writeAsBytes(thumbBytes);
     }
 
-    String? driveFileId;
-    String? thumbDriveFileId;
-    try {
-      final caseModel = await _fetchCaseModel(caseId);
-      final attendanceLabel = await _attendanceFolderLabel(resolvedAttendanceId);
-      final subFolders = attendanceLabel != null ? [attendanceLabel] : const <String>[];
-      final dateStr = '${takenAt.year}-${takenAt.month.toString().padLeft(2, '0')}-'
-          '${takenAt.day.toString().padLeft(2, '0')} '
-          '${takenAt.hour.toString().padLeft(2, '0')}${takenAt.minute.toString().padLeft(2, '0')}';
-      final namePart = (caption?.trim().isNotEmpty ?? false)
-          ? caption!.trim()
-          : allocation?.label ?? 'Photo';
-      // Short id suffix guarantees uniqueness (same caption/minute is common
-      // when several photos are taken in quick succession).
-      final shortId = id.substring(0, 8);
-      // TODO.md §3.15: title convention now includes the attendance/event
-      // label as its own part (previously only used to pick the Drive
-      // subfolder, not reflected in the filename itself) — {date} -
-      // {attendance/event label} - {description} - {id}. Only reflects
-      // whatever attendanceId is known at upload time, same limitation
-      // already accepted for caption (a caption/allocation added later via
-      // the photo viewer doesn't retroactively rename the Drive file).
-      final baseName = buildDriveFilename(
-          [dateStr, attendanceLabel, namePart, shortId], 'jpg');
-      driveFileId = await DriveStorageService.uploadCaseFile(
-        caseModel: caseModel,
-        category: CaseFileCategory.photos,
-        subFolders: subFolders,
-        bytes: compressed,
-        filename: baseName,
-        mimeType: 'image/jpeg',
-      );
-      thumbDriveFileId = await DriveStorageService.uploadCaseFile(
-        caseModel: caseModel,
-        category: CaseFileCategory.photos,
-        subFolders: subFolders,
-        bytes: thumbBytes,
-        filename: buildDriveFilename(
-            [dateStr, attendanceLabel, namePart, shortId, 'thumb'], 'jpg'),
-        mimeType: 'image/jpeg',
-      );
-    } catch (e) {
-      debugPrint('Drive photo upload skipped (offline or not configured): $e');
-    }
+    final driveIds = await _uploadPhotoToDrive(
+      caseId: caseId,
+      id: id,
+      takenAt: takenAt,
+      attendanceId: resolvedAttendanceId,
+      caption: caption,
+      allocation: allocation,
+      compressed: compressed,
+      thumbBytes: thumbBytes,
+    );
 
     final photo = PhotoModel(
       id: id,
@@ -438,10 +465,11 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
       linkedToType: linkedToType,
       linkedToId: linkedToId,
       attendanceId: resolvedAttendanceId,
+      photoSource: photoSource,
       takenAt: takenAt,
       fileSizeKb: compressed.length / 1024,
-      driveFileId: driveFileId,
-      thumbnailDriveFileId: thumbDriveFileId,
+      driveFileId: driveIds.driveFileId,
+      thumbnailDriveFileId: driveIds.thumbDriveFileId,
     );
 
     var localSyncStatus = 'pending_upsert';
@@ -617,18 +645,59 @@ class PhotoNotifier extends FamilyAsyncNotifier<List<PhotoModel>, String> {
     await _applyUpdate(photoId, (ph) => ph.copyWith(allocation: allocation));
   }
 
-  /// Marks a photo as synced to an external store (Google Photos) and
-  /// records where — [remotePath] here is the shared album's URL, since
-  /// individual media-item baseUrls expire and aren't stable references.
-  Future<void> markSynced(String photoId, String? remotePath) => _applyUpdate(
+  /// Backs a single photo up to Google Drive if it isn't already there —
+  /// the app-bar "back up to Drive" action's per-photo unit of work (a retry
+  /// of the best-effort on-add upload, which silently skips when offline/not
+  /// configured). Reads the locally-cached bytes, uploads them into the
+  /// per-attendance Drive folder, and records the resulting driveFileId so the
+  /// thumbnail cloud badge flips to "backed up".
+  ///
+  /// Returns:
+  ///   true  — already had a driveFileId, or the upload just succeeded.
+  ///   false — nothing to upload (no local cache to read, e.g. web / a photo
+  ///           that only exists remotely) or the upload failed; caller counts
+  ///           these as "skipped/failed" and can retry later.
+  Future<bool> backupToDrive(String photoId) async {
+    final current = state.value ?? [];
+    final photo = current.firstWhere((ph) => ph.id == photoId);
+    if (photo.driveFileId != null) return true; // already backed up
+    if (kIsWeb || !photo.hasLocalFile) return false; // no local bytes to upload
+
+    Uint8List compressed;
+    try {
+      compressed = await File(photo.localPath!).readAsBytes();
+    } catch (_) {
+      return false;
+    }
+    // Reuse the cached thumbnail if present, else fall back to the full image.
+    Uint8List thumbBytes = compressed;
+    if (photo.thumbnailPath != null) {
+      try {
+        thumbBytes = await File(photo.thumbnailPath!).readAsBytes();
+      } catch (_) {/* fall back to full image */}
+    }
+
+    final driveIds = await _uploadPhotoToDrive(
+      caseId: photo.caseId,
+      id: photo.id,
+      takenAt: photo.takenAt,
+      attendanceId: photo.attendanceId,
+      caption: photo.caption,
+      allocation: photo.allocation,
+      compressed: compressed,
+      thumbBytes: thumbBytes,
+    );
+    if (driveIds.driveFileId == null) return false;
+
+    await _applyUpdate(
       photoId,
       (ph) => ph.copyWith(
-          syncStatus: PhotoSyncStatus.synced, remotePath: remotePath));
-
-  /// Marks a photo as failed to upload to Google Photos so the gallery can
-  /// flag it and the next sync run retries it (anything != synced is retried).
-  Future<void> markSyncFailed(String photoId) => _applyUpdate(
-      photoId, (ph) => ph.copyWith(syncStatus: PhotoSyncStatus.syncFailed));
+        driveFileId: driveIds.driveFileId,
+        thumbnailDriveFileId: driveIds.thumbDriveFileId,
+      ),
+    );
+    return true;
+  }
 
   /// Applies [transform] to the in-memory photo, then pushes it to
   /// Supabase (falling back to a queued local pending_upsert if offline)

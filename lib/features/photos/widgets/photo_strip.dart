@@ -137,8 +137,8 @@ class _Thumbnail extends StatelessWidget {
               ),
             ),
           ),
-          // Sync badge
-          if (photo.syncStatus == PhotoSyncStatus.localOnly)
+          // Drive backup badge — flag photos not yet uploaded to Google Drive.
+          if (photo.driveFileId == null)
             Positioned(
               bottom: 3,
               right: 3,

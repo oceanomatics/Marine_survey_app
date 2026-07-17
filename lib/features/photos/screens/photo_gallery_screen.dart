@@ -15,15 +15,13 @@ import 'package:intl/intl.dart';
 import 'package:photo_view/photo_view.dart';
 
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/photo_model.dart';
 import '../providers/photo_provider.dart';
 import '../services/google_photos_service.dart';
-import '../utils/google_photos_album_title.dart';
 import '../../attendances/providers/attendances_provider.dart';
 import '../../attendances/models/attendance_model.dart';
-import '../../cases/providers/cases_provider.dart';
-import '../../survey/providers/damage_provider.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/drive_photo_image.dart';
@@ -44,136 +42,147 @@ class PhotoGalleryScreen extends ConsumerStatefulWidget {
   ConsumerState<PhotoGalleryScreen> createState() => _PhotoGalleryScreenState();
 }
 
-class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tab;
+class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen> {
   bool _importing = false;
   int _importDone = 0;
   int _importTotal = 0;
-  bool _syncing = false;
-  int _syncDone = 0;
-  int _syncTotal = 0;
+  bool _backing = false;
+  int _backupDone = 0;
+  int _backupTotal = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _tab = TabController(length: 2, vsync: this);
-  }
+  // ── Back up to Google Drive ──────────────────────────────────────────────
 
-  @override
-  void dispose() {
-    _tab.dispose();
-    super.dispose();
-  }
-
-  // ── Google Photos sync ──────────────────────────────────────────────────
-
-  Future<void> _syncToGooglePhotos() async {
+  /// Uploads every photo still missing a Drive copy (driveFileId == null) into
+  /// its per-attendance Drive folder — a retry of the best-effort on-add
+  /// upload, which silently skips when offline/not configured. Replaces the
+  /// old Google-Photos shared-album export (dropped 17 Jul 2026).
+  Future<void> _backupToDrive() async {
     final all = ref.read(photosProvider(widget.caseId)).value ?? [];
-    // Anything not confirmed-synced is (re)tried — this picks up both
-    // never-synced photos and ones previously left in syncFailed.
-    final unsynced =
-        all.where((p) => p.syncStatus != PhotoSyncStatus.synced).toList();
-    if (unsynced.isEmpty) {
+    final pending = all.where((p) => p.driveFileId == null).toList();
+    if (pending.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All photos already synced')),
+        const SnackBar(content: Text('All photos already backed up to Drive')),
       );
       return;
     }
 
     setState(() {
-      _syncing = true;
-      _syncDone = 0;
-      _syncTotal = unsynced.length;
+      _backing = true;
+      _backupDone = 0;
+      _backupTotal = pending.length;
     });
 
     var failed = 0;
+    final notifier = ref.read(photosProvider(widget.caseId).notifier);
     try {
-      // The Photos scopes may not have been granted at sign-in (google_sign_in
-      // returns a token scoped to what was granted then, and Gmail/Drive were
-      // the first grants) — request them explicitly, else every album call
-      // 403s with "insufficient authentication scopes" (16 July 2026).
-      final hasScopes =
-          await GoogleAuthService.ensureScopes(GoogleAuthService.photosScopes);
-      if (!hasScopes) {
-        throw Exception('Google Photos access was not granted — re-authorise '
-            'Google, or the Photos Library scopes may be missing from the '
-            'OAuth consent screen.');
-      }
-      final caseModel = ref.read(caseProvider(widget.caseId)).value;
-      final attendances =
-          ref.read(attendancesProvider(widget.caseId)).value ?? [];
-      // 1-based visit sequence + visit date, keyed by attendance id. The list
-      // is ordered created_at ascending (see attendances_provider), so index+1
-      // is the "Attendance N" the surveyor sees elsewhere in the app.
-      final seqOf = <String, int>{};
-      final dateOf = <String, DateTime?>{};
-      for (var i = 0; i < attendances.length; i++) {
-        seqOf[attendances[i].attendanceId] = i + 1;
-        dateOf[attendances[i].attendanceId] = attendances[i].attendanceDate;
-      }
-
-      // Group photos by the visit they belong to so each visit's photos land
-      // in their own date-named album (null attendance → one "Unassigned" album).
-      final groups = <String?, List<PhotoModel>>{};
-      for (final p in unsynced) {
-        groups.putIfAbsent(p.attendanceId, () => []).add(p);
-      }
-
-      final notifier = ref.read(photosProvider(widget.caseId).notifier);
-
-      for (final entry in groups.entries) {
+      for (final photo in pending) {
         if (!mounted) return;
-        final attendanceId = entry.key;
-        final albumTitle = googlePhotosAlbumTitle(
-          visitDate: attendanceId != null ? dateOf[attendanceId] : null,
-          vesselName: caseModel?.vesselName,
-          attendanceNumber: attendanceId != null ? seqOf[attendanceId] : null,
-        );
-        final albumId = await GooglePhotosService.findOrCreateAlbum(albumTitle);
-        final shareUrl = await GooglePhotosService.shareAlbum(albumId);
-
-        for (final photo in entry.value) {
-          if (!mounted) return;
-          try {
-            final resolved = photo.hasLocalFile
-                ? photo
-                : await notifier.ensureLocalFile(photo.id);
-            if (resolved == null || !resolved.hasLocalFile) {
-              await notifier.markSyncFailed(photo.id);
-              failed++;
-              continue;
-            }
-            // The original JPEG bytes carry their EXIF DateTimeOriginal, which
-            // Google Photos reads to place the item on the survey date in the
-            // timeline (not the upload date) — no separate date field needed.
-            final bytes = await File(resolved.localPath!).readAsBytes();
-            await GooglePhotosService.addPhotoToAlbum(
-              albumId: albumId,
-              bytes: bytes,
-              filename: '${photo.id}.jpg',
-              description: photo.caption,
-            );
-            await notifier.markSynced(photo.id, shareUrl);
-          } catch (_) {
-            // Queue for retry: left in syncFailed, retried on the next sync run.
-            await notifier.markSyncFailed(photo.id);
-            failed++;
-          }
-          if (mounted) setState(() => _syncDone++);
-        }
+        final ok = await notifier.backupToDrive(photo.id);
+        if (!ok) failed++;
+        if (mounted) setState(() => _backupDone++);
       }
-
       if (mounted) {
-        final synced = _syncTotal - failed;
+        final done = _backupTotal - failed;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(failed == 0
-                ? 'Synced $synced / $_syncTotal photos to Google Photos'
-                : 'Synced $synced / $_syncTotal — $failed failed, will retry'),
+                ? 'Backed up $done / $_backupTotal photos to Drive'
+                : 'Backed up $done / $_backupTotal — $failed skipped '
+                    '(offline, not cached, or Drive not configured)'),
             backgroundColor: failed == 0 ? null : Colors.orange.shade800,
           ),
         );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Backup failed: ${_readableApiError(e)}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 10)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _backing = false);
+    }
+  }
+
+  // ── Import from Google Photos (Picker API) ───────────────────────────────
+
+  /// Imports photos the surveyor picks from their own Google Photos via the
+  /// Photos Picker API (post-March-2025 sanctioned path). Opens Google's own
+  /// picker in a browser, polls until the selection is made, downloads the
+  /// bytes, and adds them as case photos (which then back up to Drive on the
+  /// normal path). [source] tags them so the gallery groups them as the
+  /// surveyor's own or a third-party set.
+  Future<void> _importFromGooglePhotos({
+    required PhotoSource source,
+    String? attendanceId,
+  }) async {
+    PhotosPickerSession? session;
+    try {
+      final hasScopes = await GoogleAuthService.ensureScopes(
+          GoogleAuthService.photosPickerScopes);
+      if (!hasScopes) {
+        throw Exception('Google Photos access was not granted — re-authorise '
+            'Google, or the Photos Picker scope may be missing from the OAuth '
+            'consent screen.');
+      }
+
+      session = await GooglePhotosService.createSession();
+      final uri = Uri.parse(session.pickerUri);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not open the Google Photos picker.');
+      }
+      if (!mounted) return;
+
+      // Poll until the user finishes picking (or cancels the dialog).
+      final picked = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _PickerWaitDialog(
+          sessionId: session!.id,
+          pollIntervalSeconds: session.pollIntervalSeconds,
+          timeoutSeconds: session.timeoutSeconds,
+        ),
+      );
+      if (picked != true || !mounted) {
+        return; // cancelled or timed out
+      }
+
+      final items = await GooglePhotosService.listPickedMediaItems(session.id);
+      final photos = items.where((i) => i.isPhoto).toList();
+      if (photos.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No photos were selected')),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _importing = true;
+        _importDone = 0;
+        _importTotal = photos.length;
+      });
+      await SchedulerBinding.instance.endOfFrame;
+
+      final notifier = ref.read(photosProvider(widget.caseId).notifier);
+      for (final item in photos) {
+        if (!mounted) break;
+        try {
+          final bytes = await GooglePhotosService.downloadMediaItem(item);
+          await notifier.addPhoto(
+            caseId: widget.caseId,
+            bytes: bytes,
+            attendanceId: attendanceId,
+            photoSource: source,
+          );
+        } catch (e) {
+          debugPrint('[GooglePhotosImport] failed for ${item.filename}: $e');
+        }
+        if (mounted) setState(() => _importDone++);
       }
     } on GoogleSignInCancelled {
       // User cancelled sign-in — nothing to do.
@@ -181,14 +190,29 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Sync failed: ${_readableApiError(e)}'),
+              content: Text('Import failed: ${_readableApiError(e)}'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 10)),
         );
       }
     } finally {
-      if (mounted) setState(() => _syncing = false);
+      if (session != null) {
+        await GooglePhotosService.deleteSession(session.id);
+      }
+      if (mounted) setState(() => _importing = false);
     }
+  }
+
+  /// Lets the surveyor choose whether a Google Photos import is their own set
+  /// or a third-party set (divers/crew/owner) before launching the picker.
+  Future<void> _startGooglePhotosImport({String? attendanceId}) async {
+    final source = await showModalBottomSheet<PhotoSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ImportSourceSheet(),
+    );
+    if (source == null || !mounted) return;
+    await _importFromGooglePhotos(source: source, attendanceId: attendanceId);
   }
 
   /// Google's own error body carries the real reason (e.g. "… API has not been
@@ -391,29 +415,28 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
           style: const TextStyle(fontSize: 16),
         ),
         actions: [
+          // Import from Google Photos (Picker API).
+          IconButton(
+            icon: const Icon(Icons.add_to_photos_outlined, color: Colors.white),
+            tooltip: 'Import from Google Photos',
+            onPressed: _importing || _backing
+                ? null
+                : () => _startGooglePhotosImport(),
+          ),
+          // Back up to Google Drive (retry any photo not yet uploaded).
           if (photos.isNotEmpty)
             IconButton(
-              icon: _syncing
+              icon: _backing
                   ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                           color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.cloud_sync_outlined, color: Colors.white),
-              tooltip: 'Sync to Google Photos',
-              onPressed: _syncing ? null : _syncToGooglePhotos,
+                  : const Icon(Icons.backup_outlined, color: Colors.white),
+              tooltip: 'Back up to Google Drive',
+              onPressed: _backing ? null : _backupToDrive,
             ),
         ],
-        bottom: TabBar(
-          controller: _tab,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withValues(alpha: 0.6),
-          tabs: const [
-            Tab(text: 'By Visit'),
-            Tab(text: 'By Inspection'),
-          ],
-        ),
       ),
 
       // Import progress overlay
@@ -428,26 +451,13 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
                   style: TextStyle(fontWeight: FontWeight.w600)),
             ),
 
-      body: TabBarView(
-        controller: _tab,
-        children: [
-          _ByVisitTab(
-            caseId: widget.caseId,
-            photos: photos,
-            onAddPhotos: _addPhotos,
-            onDelete: (id) => ref
-                .read(photosProvider(widget.caseId).notifier)
-                .deletePhoto(id),
-          ),
-          _ByInspectionTab(
-            caseId: widget.caseId,
-            photos: photos,
-            onAddPhotos: _addPhotos,
-            onDelete: (id) => ref
-                .read(photosProvider(widget.caseId).notifier)
-                .deletePhoto(id),
-          ),
-        ],
+      body: _PhotosBody(
+        caseId: widget.caseId,
+        photos: photos,
+        onAddPhotos: _addPhotos,
+        onImportGooglePhotos: _startGooglePhotosImport,
+        onDelete: (id) =>
+            ref.read(photosProvider(widget.caseId).notifier).deletePhoto(id),
       ),
     );
   }
@@ -476,13 +486,161 @@ class _ImportProgress extends StatelessWidget {
   }
 }
 
-// ── Tab 1: By Visit ─────────────────────────────────────────────────────────
+// ── Google Photos import helpers ─────────────────────────────────────────────
 
-class _ByVisitTab extends ConsumerWidget {
-  const _ByVisitTab({
+/// Modal that polls a Photos Picker session while the user selects photos in
+/// Google's picker (opened in a browser). Pops `true` once the selection is
+/// available, `false` on cancel or timeout.
+class _PickerWaitDialog extends StatefulWidget {
+  const _PickerWaitDialog({
+    required this.sessionId,
+    required this.pollIntervalSeconds,
+    required this.timeoutSeconds,
+  });
+  final String sessionId;
+  final int pollIntervalSeconds;
+  final int timeoutSeconds;
+
+  @override
+  State<_PickerWaitDialog> createState() => _PickerWaitDialogState();
+}
+
+class _PickerWaitDialogState extends State<_PickerWaitDialog> {
+  bool _cancelled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+  }
+
+  Future<void> _poll() async {
+    final deadline =
+        DateTime.now().add(Duration(seconds: widget.timeoutSeconds));
+    final interval =
+        Duration(seconds: widget.pollIntervalSeconds.clamp(2, 10));
+    while (mounted && !_cancelled && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(interval);
+      if (!mounted || _cancelled) return;
+      try {
+        final session =
+            await GooglePhotosService.pollSession(widget.sessionId);
+        if (session.mediaItemsSet) {
+          if (mounted) Navigator.of(context).pop(true);
+          return;
+        }
+      } catch (_) {
+        // Transient poll failure — keep trying until the deadline.
+      }
+    }
+    if (mounted && !_cancelled) Navigator.of(context).pop(false); // timed out
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Waiting for Google Photos'),
+      content: const Row(
+        children: [
+          SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              'Pick your photos in the Google Photos tab, then return here — '
+              'the import starts automatically.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            setState(() => _cancelled = true);
+            Navigator.of(context).pop(false);
+          },
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Lets the surveyor tag a Google Photos import as their own set or one of the
+/// third-party sources before the picker opens.
+class _ImportSourceSheet extends StatelessWidget {
+  const _ImportSourceSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tile(PhotoSource source, IconData icon, String subtitle) => ListTile(
+          leading: Icon(icon, color: _kColor),
+          title: Text(source.label,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(subtitle,
+              style: const TextStyle(fontSize: 11.5)),
+          onTap: () => Navigator.pop(context, source),
+        );
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
+              child: Text('Import from Google Photos',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Who took these photos?',
+                  style:
+                      TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            ),
+            tile(PhotoSource.takenBySurveyor, Icons.person_outline,
+                'Your own phone shots — grouped under My Photos'),
+            tile(PhotoSource.providedByOwner, Icons.badge_outlined,
+                'Owner/operator or crew-supplied — third-party set'),
+            tile(PhotoSource.providedByContractor, Icons.engineering_outlined,
+                'Contractor, divers or workshop — third-party set'),
+            tile(PhotoSource.thirdPartyReport, Icons.description_outlined,
+                'From a third-party inspection report — third-party set'),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Photos body: My Photos vs Third-Party ───────────────────────────────────
+
+/// A photo is "third-party" when it carries a non-surveyor source (divers,
+/// crew, owner/operator, contractor, third-party report). Everything else —
+/// including photos with no source set — is treated as the surveyor's own.
+bool _isThirdParty(PhotoModel p) =>
+    p.photoSource != null && p.photoSource != PhotoSource.takenBySurveyor;
+
+/// Replaces the old By Visit / By Inspection tabs (redundant — 17 Jul 2026).
+/// Top-level split is now the surveyor's own photos vs third-party sets
+/// (divers/crew/owner-supplied). Own photos keep the useful per-attendance
+/// grouping; third-party photos group by their source.
+class _PhotosBody extends ConsumerWidget {
+  const _PhotosBody({
     required this.caseId,
     required this.photos,
     required this.onAddPhotos,
+    required this.onImportGooglePhotos,
     required this.onDelete,
   });
 
@@ -492,6 +650,7 @@ class _ByVisitTab extends ConsumerWidget {
       {String? attendanceId,
       String? linkedToType,
       String? linkedToId}) onAddPhotos;
+  final Future<void> Function({String? attendanceId}) onImportGooglePhotos;
   final void Function(String) onDelete;
 
   @override
@@ -503,42 +662,188 @@ class _ByVisitTab extends ConsumerWidget {
         return b.attendanceDate!.compareTo(a.attendanceDate!);
       });
 
-    final unassigned = photos.where((p) => p.attendanceId == null).toList();
+    final own = photos.where((p) => !_isThirdParty(p)).toList();
+    final thirdParty = photos.where(_isThirdParty).toList();
 
     if (photos.isEmpty && attendances.isEmpty) {
       return _EmptyState(onAdd: () => onAddPhotos());
     }
 
+    final ownUnassigned =
+        own.where((p) => p.attendanceId == null).toList();
+
     return CustomScrollView(
       slivers: [
+        _GroupBanner(
+          title: 'My Photos',
+          subtitle: 'Taken by the undersigned surveyor',
+          icon: Icons.person_outline,
+          color: _kColor,
+          count: own.length,
+        ),
         for (final att in sorted) ...[
           _AttendanceSectionHeader(
             attendance: att,
             photoCount:
-                photos.where((p) => p.attendanceId == att.attendanceId).length,
+                own.where((p) => p.attendanceId == att.attendanceId).length,
             onAddPhoto: () => onAddPhotos(attendanceId: att.attendanceId),
           ),
           _PhotoSliverGrid(
             caseId: caseId,
-            photos: photos
-                .where((p) => p.attendanceId == att.attendanceId)
-                .toList(),
+            photos:
+                own.where((p) => p.attendanceId == att.attendanceId).toList(),
             allPhotos: photos,
             onDelete: onDelete,
           ),
         ],
-        if (unassigned.isNotEmpty) ...[
+        if (ownUnassigned.isNotEmpty) ...[
           _SectionLabel('NOT YET ASSIGNED TO A VISIT',
               trailing: _AutoAssignButton(caseId: caseId)),
           _PhotoSliverGrid(
             caseId: caseId,
-            photos: unassigned,
+            photos: ownUnassigned,
             allPhotos: photos,
             onDelete: onDelete,
           ),
         ],
+
+        // ── Third-party sets ──────────────────────────────────────────────
+        _GroupBanner(
+          title: 'Third-Party Photos',
+          subtitle: 'Divers, crew, owner/operator or contractor-supplied',
+          icon: Icons.groups_outlined,
+          color: AppColors.teal,
+          count: thirdParty.length,
+          onImport: () => onImportGooglePhotos(),
+        ),
+        if (thirdParty.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 16, 8),
+              child: Text(
+                'No third-party photos yet. Import a set from Google Photos, '
+                'or mark a photo as third-party from its detail view.',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                    fontStyle: FontStyle.italic),
+              ),
+            ),
+          )
+        else
+          for (final source in _thirdPartySourcesIn(thirdParty)) ...[
+            _SectionLabel(source.label.toUpperCase()),
+            _PhotoSliverGrid(
+              caseId: caseId,
+              photos:
+                  thirdParty.where((p) => p.photoSource == source).toList(),
+              allPhotos: photos,
+              onDelete: onDelete,
+            ),
+          ],
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
       ],
+    );
+  }
+
+  /// The distinct non-surveyor sources present, in enum order.
+  static List<PhotoSource> _thirdPartySourcesIn(List<PhotoModel> photos) {
+    final present = photos.map((p) => p.photoSource).whereType<PhotoSource>().toSet();
+    return PhotoSource.values
+        .where((s) => s != PhotoSource.takenBySurveyor && present.contains(s))
+        .toList();
+  }
+}
+
+/// Section banner separating "My Photos" from "Third-Party Photos".
+class _GroupBanner extends StatelessWidget {
+  const _GroupBanner({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.count,
+    this.onImport,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final int count;
+  final VoidCallback? onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverToBoxAdapter(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 16, 12, 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Flexible(
+                    child: Text(title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: color)),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('$count',
+                        style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700)),
+                  ),
+                ]),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+          if (onImport != null)
+            GestureDetector(
+              onTap: onImport,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.add_to_photos_outlined, color: color, size: 15),
+                  const SizedBox(width: 4),
+                  Text('Import',
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 }
@@ -592,101 +897,6 @@ class _AutoAssignButtonState extends ConsumerState<_AutoAssignButton> {
             color: _kColor,
             letterSpacing: 0.4),
       ),
-    );
-  }
-}
-
-// ── Tab 2: By Inspection ────────────────────────────────────────────────────
-
-class _ByInspectionTab extends ConsumerWidget {
-  const _ByInspectionTab({
-    required this.caseId,
-    required this.photos,
-    required this.onAddPhotos,
-    required this.onDelete,
-  });
-
-  final String caseId;
-  final List<PhotoModel> photos;
-  final Future<void> Function(
-      {String? attendanceId,
-      String? linkedToType,
-      String? linkedToId}) onAddPhotos;
-  final void Function(String) onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final damageAsync = ref.watch(damageProvider(caseId));
-    final occurrences = damageAsync.value?.occurrences ?? [];
-    final damageItems = damageAsync.value?.damageItems ?? [];
-
-    final general = photos
-        .where((p) => p.linkedToType == null || p.linkedToType == 'case')
-        .toList();
-
-    if (photos.isEmpty) {
-      return _EmptyState(onAdd: () => onAddPhotos());
-    }
-
-    return CustomScrollView(
-      slivers: [
-        for (final occ in occurrences) ...[
-          _OccurrenceSectionHeader(occurrence: occ),
-          () {
-            final occPhotos = photos
-                .where((p) =>
-                    p.linkedToType == 'occurrence' &&
-                    p.linkedToId == occ.occurrenceId)
-                .toList();
-            if (occPhotos.isEmpty) {
-              return const SliverToBoxAdapter(child: SizedBox.shrink());
-            }
-            return _PhotoSliverGrid(
-                caseId: caseId,
-                photos: occPhotos,
-                allPhotos: photos,
-                onDelete: onDelete);
-          }(),
-          for (final item in damageItems
-              .where((d) => d.occurrenceId == occ.occurrenceId)) ...[
-            _DamageItemSubHeader(item: item),
-            () {
-              final itemPhotos = photos
-                  .where((p) =>
-                      p.linkedToType == 'damage_item' &&
-                      p.linkedToId == item.damageId)
-                  .toList();
-              if (itemPhotos.isEmpty) {
-                return const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 16, 6),
-                    child: Text('No photos for this item yet.',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textTertiary,
-                            fontStyle: FontStyle.italic)),
-                  ),
-                );
-              }
-              return _PhotoSliverGrid(
-                  caseId: caseId,
-                  photos: itemPhotos,
-                  allPhotos: photos,
-                  onDelete: onDelete);
-            }(),
-          ],
-        ],
-        if (general.isNotEmpty) ...[
-          const _SectionLabel('GENERAL / UNLINKED PHOTOS'),
-          _PhotoSliverGrid(
-            caseId: caseId,
-            photos: general,
-            allPhotos: photos,
-            onDelete: onDelete,
-          ),
-        ],
-        const SliverToBoxAdapter(child: SizedBox(height: 100)),
-      ],
     );
   }
 }
@@ -780,94 +990,6 @@ class _AttendanceSectionHeader extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(Icons.add_a_photo_outlined, color: color, size: 18),
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
-class _OccurrenceSectionHeader extends StatelessWidget {
-  const _OccurrenceSectionHeader({required this.occurrence});
-  final OccurrenceModel occurrence;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 14, 12, 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.coral.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.coral.withValues(alpha: 0.25)),
-        ),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.coral.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              'Occurrence ${occurrence.occurrenceNo}',
-              style: const TextStyle(
-                  color: AppColors.coral,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              occurrence.title ?? 'Unnamed occurrence',
-              style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary),
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
-class _DamageItemSubHeader extends StatelessWidget {
-  const _DamageItemSubHeader({required this.item});
-  final DamageItemModel item;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 16, 4),
-        child: Row(children: [
-          const Icon(Icons.chevron_right,
-              size: 14, color: AppColors.textTertiary),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              item.componentName,
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppColors.lightAmber,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              item.damageCategory.label,
-              style: const TextStyle(
-                  fontSize: 9,
-                  color: AppColors.amber,
-                  fontWeight: FontWeight.w600),
             ),
           ),
         ]),
@@ -1048,8 +1170,10 @@ class _PhotoTile extends StatelessWidget {
                 ),
               ),
             ),
-          // Sync status (bottom-right)
-          if (photo.syncStatus == PhotoSyncStatus.localOnly)
+          // Drive backup state (bottom-right) — flag photos not yet backed up
+          // to Google Drive (driveFileId == null). Backed-up photos show no
+          // badge to keep the grid clean.
+          if (photo.driveFileId == null)
             Positioned(
               bottom: 4,
               right: 4,
@@ -1060,20 +1184,6 @@ class _PhotoTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Icon(Icons.cloud_off_outlined,
-                    size: 9, color: Colors.white),
-              ),
-            )
-          else if (photo.syncStatus == PhotoSyncStatus.syncFailed)
-            Positioned(
-              bottom: 4,
-              right: 4,
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade800,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Icon(Icons.cloud_upload_outlined,
                     size: 9, color: Colors.white),
               ),
             ),
@@ -1446,6 +1556,26 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     );
   }
 
+  /// Photo source picker — moves a photo between the "My Photos" and
+  /// "Third-Party Photos" groups (17 Jul 2026). Applies immediately; the
+  /// gallery watches photosProvider so the grouping updates on its own.
+  void _showSourcePicker() {
+    final ph = _livePhoto();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SourcePickerSheet(
+        current: ph.photoSource,
+        onSelected: (source) async {
+          Navigator.pop(context);
+          await ref
+              .read(photosProvider(widget.caseId).notifier)
+              .updatePhotoSource(ph.id, source);
+        },
+      ),
+    );
+  }
+
   /// §2.4: Annexure E photo register fields (spec §4.8) — kept out of the
   /// main inline edit panel (already tight, especially with the keyboard
   /// open) and behind a dedicated sheet instead, same pattern as allocation.
@@ -1739,41 +1869,14 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                             ),
                           ],
                         ),
-                        // Significance to Claim surfaced here, not just
-                        // buried in the Register Details sheet (14 July
-                        // 2026 walkthrough) — still edited in that sheet
-                        // (it's part of the wider Annexure E field set),
-                        // this is just a visible preview + shortcut to it.
-                        GestureDetector(
-                          onTap: _showRegisterDetails,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 7),
-                            child: Row(children: [
-                              const Icon(Icons.flag_outlined,
-                                  size: 12, color: AppColors.textTertiary),
-                              const SizedBox(width: 5),
-                              Expanded(
-                                child: Text(
-                                  (currentPhoto.significanceToClaim
-                                              ?.isNotEmpty ==
-                                          true)
-                                      ? currentPhoto.significanceToClaim!
-                                      : 'Add significance to claim…',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontStyle: FontStyle.italic,
-                                      color: (currentPhoto.significanceToClaim
-                                                  ?.isNotEmpty ==
-                                              true)
-                                          ? AppColors.textSecondary
-                                          : AppColors.textTertiary),
-                                ),
-                              ),
-                            ]),
-                          ),
-                        ),
+                        // The caption is the single free-text description
+                        // field — the old "Significance to claim" preview row
+                        // that sat here duplicated it ("already submitted,
+                        // same as caption", 16 Jul Photos report) and was
+                        // deduped (17 Jul 2026). Significance / location /
+                        // direction are still captured in the Register Details
+                        // sheet (article icon) that feeds the Annexure E table.
+                        const SizedBox(height: 7),
                         Row(children: [
                           GestureDetector(
                             onTap: _showAllocationPicker,
@@ -1781,13 +1884,18 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
                           ),
                           const SizedBox(width: 8),
                           GestureDetector(
-                            onTap: _showAttendancePicker,
-                            child: _AttendanceBadge(
-                                label: _attendanceLabelFor(_livePhoto())),
+                            onTap: _showSourcePicker,
+                            child: _SourceBadge(source: currentPhoto.photoSource),
                           ),
                           const Spacer(),
                           saveBtn,
                         ]),
+                        const SizedBox(height: 7),
+                        GestureDetector(
+                          onTap: _showAttendancePicker,
+                          child: _AttendanceBadge(
+                              label: _attendanceLabelFor(_livePhoto())),
+                        ),
                       ],
                     ),
             );
@@ -1843,7 +1951,9 @@ class _EmptyState extends StatelessWidget {
                   color: AppColors.textPrimary)),
           const SizedBox(height: 6),
           const Text(
-            'Add from camera, gallery, or cloud drive.\nPhotos are sorted by visit or by inspection.',
+            'Add from camera, gallery, or cloud drive — or import a set from '
+            'Google Photos.\nYour own photos group by visit; third-party sets '
+            'group separately.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
           ),
@@ -1973,6 +2083,96 @@ class _AttendanceBadge extends StatelessWidget {
                   fontSize: 12, color: color, fontWeight: FontWeight.w600)),
           const SizedBox(width: 4),
           Icon(Icons.expand_more, size: 14, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shows a photo's source (surveyor's own vs a third-party set) and opens the
+/// source picker. Own/no-source reads as "My photo"; anything else names the
+/// third-party source.
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.source});
+  final PhotoSource? source;
+
+  @override
+  Widget build(BuildContext context) {
+    final thirdParty =
+        source != null && source != PhotoSource.takenBySurveyor;
+    final color = thirdParty ? AppColors.teal : _kColor;
+    final label = source == null || source == PhotoSource.takenBySurveyor
+        ? 'My photo'
+        : source!.label;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(thirdParty ? Icons.groups_outlined : Icons.person_outline,
+              size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 4),
+          Icon(Icons.expand_more, size: 14, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+/// Photo source picker — surveyor's own vs a third-party source.
+class _SourcePickerSheet extends StatelessWidget {
+  const _SourcePickerSheet({required this.current, required this.onSelected});
+  final PhotoSource? current;
+  final void Function(PhotoSource?) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tile(PhotoSource? source, IconData icon, String title) {
+      final selected = source == current ||
+          (source == PhotoSource.takenBySurveyor && current == null);
+      return ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon,
+            color: (source != null && source != PhotoSource.takenBySurveyor)
+                ? AppColors.teal
+                : _kColor),
+        title: Text(title),
+        trailing:
+            selected ? const Icon(Icons.check, color: AppColors.midBlue) : null,
+        onTap: () => onSelected(source),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Photo source',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          tile(PhotoSource.takenBySurveyor, Icons.person_outline, 'My photo'),
+          tile(PhotoSource.providedByOwner, Icons.badge_outlined,
+              PhotoSource.providedByOwner.label),
+          tile(PhotoSource.providedByContractor, Icons.engineering_outlined,
+              PhotoSource.providedByContractor.label),
+          tile(PhotoSource.thirdPartyReport, Icons.description_outlined,
+              PhotoSource.thirdPartyReport.label),
         ],
       ),
     );
