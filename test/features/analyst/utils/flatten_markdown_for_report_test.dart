@@ -19,7 +19,8 @@ void main() {
       expect(out, '• First item\n• Second item');
     });
 
-    test('flattens a markdown table into one line per row, header: value', () {
+    test('preserves a markdown table as a clean table block so it can export '
+        'as a real Word table (house-style item 20)', () {
       const table = '| Component | Assessment |\n'
           '|---|---|\n'
           '| Main engine | Wear consistent with age |\n'
@@ -27,8 +28,27 @@ void main() {
       final out = flattenMarkdownForReport(table);
       expect(
         out,
-        'Component: Main engine — Assessment: Wear consistent with age\n'
-        'Component: Rudder stock — Assessment: Fractured',
+        '| Component | Assessment |\n'
+        '| --- | --- |\n'
+        '| Main engine | Wear consistent with age |\n'
+        '| Rudder stock | Fractured |',
+      );
+    });
+
+    test('table sandwiched between prose keeps blank-line isolation', () {
+      const md = 'Intro sentence.\n'
+          '| A | B |\n'
+          '|---|---|\n'
+          '| 1 | 2 |\n'
+          'Closing sentence.';
+      final out = flattenMarkdownForReport(md);
+      expect(
+        out,
+        'Intro sentence.\n\n'
+        '| A | B |\n'
+        '| --- | --- |\n'
+        '| 1 | 2 |\n\n'
+        'Closing sentence.',
       );
     });
 

@@ -11,6 +11,7 @@ import '../../survey/providers/damage_provider.dart'
     show ConditionStatus, ConfirmedByRole, CertaintyLevel;
 import '../../survey/providers/attendees_provider.dart' show AttendeeTitle;
 import '../utils/certification_narrative.dart';
+import '../utils/waiver_narrative.dart';
 import '../../timeline/models/timeline_entry.dart';
 import '../../timeline/models/timeline_event_rating.dart';
 import '../../timeline/models/timeline_aggregation.dart';
@@ -603,6 +604,7 @@ class AssembledReportData {
     required this.surveyorNotes,
     required this.machinery,
     required this.classConditions,
+    required this.detentions,
     required this.caseDocuments,
     required this.requestedDocuments,
     required this.photos,
@@ -646,6 +648,10 @@ class AssembledReportData {
 
   /// Class conditions for the case.
   final List<Map<String, dynamic>> classConditions;
+
+  /// Port State Control detentions for the vessel (detentions table) — for
+  /// the Class & Statutory statutory-review addition (house-style item 8).
+  final List<Map<String, dynamic>> detentions;
 
   /// Documents on file for this case (for the documents section, Clause K-1).
   final List<Map<String, dynamic>> caseDocuments;
@@ -909,6 +915,14 @@ final assembledDataProvider =
           .order('created_at')
     else
       Future.value(<dynamic>[]),
+    if (vesselId != null)
+      SupabaseService.client
+          .from('detentions')
+          .select()
+          .eq('vessel_id', vesselId)
+          .order('detained_date', ascending: false)
+    else
+      Future.value(<dynamic>[]),
     SupabaseService.client
         .from('documents')
         .select('doc_id, title, doc_category, doc_date, annexure_assignment, '
@@ -929,10 +943,11 @@ final assembledDataProvider =
   final surveyorNotes = List<Map<String, dynamic>>.from(supplementary[0]);
   final machinery = List<Map<String, dynamic>>.from(supplementary[1]);
   final classConditions = List<Map<String, dynamic>>.from(supplementary[2]);
-  final allDocuments = List<Map<String, dynamic>>.from(supplementary[3]);
+  final detentions = List<Map<String, dynamic>>.from(supplementary[3]);
+  final allDocuments = List<Map<String, dynamic>>.from(supplementary[4]);
   final caseDocuments = filterEnclosedInReportDocuments(allDocuments);
   final requestedDocuments = filterRequestedDocuments(allDocuments);
-  final photos = List<Map<String, dynamic>>.from(supplementary[4]);
+  final photos = List<Map<String, dynamic>>.from(supplementary[5]);
 
   // Fetch org config and AI generation log in parallel
   Map<String, dynamic>? organisation;
@@ -992,6 +1007,7 @@ final assembledDataProvider =
     surveyorNotes: surveyorNotes,
     machinery: machinery,
     classConditions: classConditions,
+    detentions: detentions,
     caseDocuments: caseDocuments,
     requestedDocuments: requestedDocuments,
     photos: photos,
@@ -1230,16 +1246,14 @@ class SectionDraftNotifier
       if (aiDraft && data.occurrences.isNotEmpty) {
         final occ = data.occurrences.first;
         try {
-          backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
+          backgroundContent = await ClaudeApi.draftBackgroundSection(
             vesselName: data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate: occ['date_time'] as String? ?? '',
-            occurrenceLocation: occ['location'] as String? ?? '',
-            occurrenceTitle: occ['title'] as String? ?? '',
-            damageItems: data.damageItems
-                .map((d) => d['component_name'] as String? ?? '')
-                .toList(),
-            interviewTranscript: null,
             reportFormat: data.outputFormat,
+            vesselType: data.vessel?['vessel_type'] as String?,
+            employmentContext: occ['background_narrative'] as String?,
+            occurrenceDate: occ['date_time'] as String?,
+            occurrenceLocation: occ['location'] as String?,
+            caseId: data.caseData['case_id'] as String?,
             priorApprovedText: backgroundCarriedForward,
           );
         } catch (_) {
@@ -1256,16 +1270,14 @@ class SectionDraftNotifier
       if (backgroundContent.isEmpty && aiDraft && backgroundIsFirstBuild) {
         final occ = data.occurrences.first;
         try {
-          backgroundContent = await ClaudeApi.draftOccurrenceNarrative(
+          backgroundContent = await ClaudeApi.draftBackgroundSection(
             vesselName: data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate: occ['date_time'] as String? ?? '',
-            occurrenceLocation: occ['location'] as String? ?? '',
-            occurrenceTitle: occ['title'] as String? ?? '',
-            damageItems: data.damageItems
-                .map((d) => d['component_name'] as String? ?? '')
-                .toList(),
-            interviewTranscript: null,
             reportFormat: data.outputFormat,
+            vesselType: data.vessel?['vessel_type'] as String?,
+            employmentContext: occ['background_narrative'] as String?,
+            occurrenceDate: occ['date_time'] as String?,
+            occurrenceLocation: occ['location'] as String?,
+            caseId: data.caseData['case_id'] as String?,
           );
         } catch (_) {
           backgroundContent = '[Draft narrative — edit before issuing]';
@@ -1949,21 +1961,41 @@ class SectionDraftNotifier
     // so isLocked was always false and Waiver never got the same
     // tinted-box Preview treatment as Disclaimer (closing_disclaimer,
     // which does resolve). Root cause of that visual mismatch complaint.
+    // House-style item 10 (R8/R9): the Waiver is now auto-generated from the
+    // "ticks" of the relevant sections via the legal-clauses library, rather
+    // than a single static clause. The base limitation clause resolves
+    // org override -> clause_library -> hardcoded; conditional sentences are
+    // appended for each applicable case state (no formal allegation / report
+    // preliminary / certs not sighted / costs still subject to adjustment).
+    // See waiver_narrative.dart.
     final waiverClause = data.clauseByType('without_prejudice');
     final orgWaiver = data.organisation?['waiver_text'] as String?;
-    final waiverText = orgWaiver?.isNotEmpty == true
+    final baseWaiverText = orgWaiver?.isNotEmpty == true
         ? orgWaiver!
         : waiverClause?.clauseText ??
             'The findings and opinions in this report are submitted '
                 'without prejudice to the rights of any party. The issuing '
                 'firm reserves the right to supplement or amend this report '
                 'if additional information becomes available.';
+    final certsNotSighted =
+        data.certificates.any((c) => c['status'] == 'not_sighted');
+    final costStatus = data.caseData['cost_estimate_status'] as String?;
+    final waiverText = composeWaiverNarrative(WaiverInputs(
+      baseText: baseWaiverText,
+      noFormalAllegation: allegationType == 'no_formal_allegation',
+      isPreliminary: output.outputType != OutputType.final_,
+      certificatesNotSighted: certsNotSighted,
+      costsSubjectToAdjustment:
+          costStatus == 'ongoing' || costStatus == 'estimate_obtained',
+      withoutPrejudiceClause: data.clauseByType('allegation_none')?.clauseText,
+    ));
+    // The composed narrative is derived text (not the raw single clause), so
+    // the section is not clause-locked — the surveyor may still trim it.
     sections[SectionType.waiver] = ReportSection(
       type: SectionType.waiver,
       title: 'Limitation of Liability / Waiver',
       content: waiverText,
       clauseId: waiverClause?.clauseId,
-      isLocked: waiverClause != null,
     );
 
     // ── Closing disclaimer (spec Clause J-1) ───────────────────────
@@ -2232,16 +2264,14 @@ class SectionDraftNotifier
         case SectionType.background:
           if (data.occurrences.isEmpty) return;
           final occ = data.occurrences.first;
-          content = await ClaudeApi.draftOccurrenceNarrative(
+          content = await ClaudeApi.draftBackgroundSection(
             vesselName: data.vessel?['name'] ?? 'the vessel',
-            occurrenceDate: occ['date_time'] as String? ?? '',
-            occurrenceLocation: occ['location'] as String? ?? '',
-            occurrenceTitle: occ['title'] as String? ?? '',
-            damageItems: data.damageItems
-                .map((d) => d['component_name'] as String? ?? '')
-                .toList(),
-            interviewTranscript: null,
             reportFormat: data.outputFormat,
+            vesselType: data.vessel?['vessel_type'] as String?,
+            employmentContext: occ['background_narrative'] as String?,
+            occurrenceDate: occ['date_time'] as String?,
+            occurrenceLocation: occ['location'] as String?,
+            caseId: caseId,
             // Successive-report carry-forward (gap #10) — if this
             // section already has a frozen carried-forward base (set once
             // by buildSections() on the first mount of this output), a
@@ -3003,6 +3033,39 @@ class SectionDraftNotifier
     // 2026 per surveyor — see certification_narrative.dart for why).
     final certNarrative = composeStatutoryCertificatesNarrative(certs);
     if (certNarrative.isNotEmpty) buf.writeln(certNarrative);
+
+    // Statutory review additions (house-style item 8 / R1): ISM + ISPS
+    // compliance status, always surfaced, composed from the vessel's
+    // ism_status / isps_status columns (see certification_narrative.dart).
+    buf.writeln(composeIsmStatusNarrative(vessel?['ism_status'] as String?));
+    buf.writeln(composeIspsStatusNarrative(vessel?['isps_status'] as String?));
+
+    // Statutory review addition (house-style item 8 / R1): Port State
+    // Control detentions — "No … detention has been recorded" when none.
+    buf.writeln(composeDetentionsNarrative(data.detentions));
+    if (data.detentions.isNotEmpty) {
+      buf.writeln('Detentions:');
+      for (final d in data.detentions) {
+        final date = d['detained_date'] as String? ?? '';
+        final port = d['port'] as String? ?? '';
+        final authority = d['authority'] as String? ?? '';
+        final reason = d['reason'] as String? ?? '';
+        final released = d['released_date'] as String?;
+        final head = [
+          if (date.isNotEmpty) _formatDate(date),
+          if (port.isNotEmpty) port,
+          if (authority.isNotEmpty) authority,
+        ].join(' — ');
+        final tail = [
+          if (reason.isNotEmpty) reason,
+          if (released != null && released.isNotEmpty)
+            'released ${_formatDate(released)}'
+          else
+            'not yet released',
+        ].join('; ');
+        buf.writeln('  • ${head.isNotEmpty ? '$head: ' : ''}$tail');
+      }
+    }
 
     if (buf.isNotEmpty) buf.writeln();
 

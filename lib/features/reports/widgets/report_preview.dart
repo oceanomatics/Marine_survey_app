@@ -2065,6 +2065,19 @@ List<Widget> _trailingTables(
       final chronoRows = buildChronologyRows(assembled.timelineEvents);
       if (chronoRows.isNotEmpty) {
         heading('CHRONOLOGY OF EVENTS');
+        widgets.add(const Padding(
+          padding: EdgeInsets.only(top: 5, bottom: 5),
+          child: Text(
+            'This section presents the dated sequence of movements and events '
+            'relevant to the casualty.',
+            style: TextStyle(
+              fontSize: 9.5,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF6B7280),
+              height: 1.35,
+            ),
+          ),
+        ));
         widgets.add(_RegisterTable(rows: chronoRows, brand: brand));
       }
       break;
@@ -2242,7 +2255,11 @@ class _SectionBody extends StatelessWidget {
 
     final paragraphs = splitSectionParagraphs(section.fullContent);
 
-    if (paragraphs.length <= 1) {
+    // An Analyst-inserted (or any Markdown) table block renders as a real
+    // table here, matching the docx export (house-style item 20).
+    final hasTable = paragraphs.any((p) => tryParseMarkdownTable(p) != null);
+
+    if (paragraphs.length <= 1 && !hasTable) {
       final lines =
           section.fullContent.split('\n').map((l) => l.trimRight()).toList();
       return Column(
@@ -2264,14 +2281,21 @@ class _SectionBody extends StatelessWidget {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: paragraphs
-          .map((para) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(para,
-                    style: TextStyle(
-                        fontSize: 9.5, color: brand.bodyText, height: 1.6)),
-              ))
-          .toList(),
+      children: paragraphs.map((para) {
+        final table = tryParseMarkdownTable(para);
+        if (table != null) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _RegisterTable(rows: table, brand: brand),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(para,
+              style: TextStyle(
+                  fontSize: 9.5, color: brand.bodyText, height: 1.6)),
+        );
+      }).toList(),
     );
   }
 }

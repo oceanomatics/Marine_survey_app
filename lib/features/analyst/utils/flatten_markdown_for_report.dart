@@ -1,20 +1,28 @@
 // lib/features/analyst/utils/flatten_markdown_for_report.dart
 //
-// Report section `content` is plain prose — docx_export_service.dart has no
-// markdown parser, it just writes paragraphs (see buildVesselParticularsRows
-// and friends for the app's *only* table mechanism, which is a fixed
-// data-driven table, not free markdown). A Case Analyst chat reply can
-// contain markdown (headings, bold, and — per the "insert a table of
-// defects" walkthrough ask, 14 July 2026 §21 — tables), so inserting it
-// verbatim into a section would export literal `| col | col |` pipe syntax.
-// This flattens that down to something that reads correctly as plain
-// prose: headings become a capitalised line, bold/italic markers are
-// stripped, and a markdown table becomes one line per row in
-// "Header: value — Header: value" form.
+// A Case Analyst chat reply can contain markdown (headings, bold, bullets,
+// and — per the "insert a table of defects" walkthrough ask, 14 July 2026
+// §21 — tables). This normalises that reply for insertion into a report
+// section's `content`:
+//   - headings become a capitalised line,
+//   - bold/italic/code markers are stripped,
+//   - bullets are normalised to "• ",
+//   - a MARKDOWN TABLE IS PRESERVED as a clean, blank-line-isolated table
+//     block so it round-trips to a REAL Word table on export
+//     (report_builder_house_style_mods.md item 20 — "any Analyst-inserted
+//     table must export as a real Word table"). Both the docx export
+//     (renderTextSection -> tryParseMarkdownTable) and the in-app preview
+//     detect that block and render an actual table.
+//
+// Previously a table was flattened to one "Header: value — Header: value"
+// line per row, which read acceptably but could never export as a table.
 String flattenMarkdownForReport(String markdown) {
   final lines = markdown.split('\n');
   final out = <String>[];
-  List<String>? tableHeader;
+
+  // Buffer of raw pipe-table lines (excluding the separator) for the table
+  // block currently being accumulated.
+  final tableBuf = <List<String>>[];
 
   bool isTableRow(String line) =>
       line.trim().startsWith('|') && line.trim().endsWith('|');
@@ -40,24 +48,35 @@ String flattenMarkdownForReport(String markdown) {
     return s;
   }
 
+  // Emit the accumulated table (if any) as a clean, blank-line-isolated
+  // markdown block: header row, dash separator, then body rows.
+  void flushTable() {
+    if (tableBuf.isEmpty) return;
+    final width =
+        tableBuf.map((r) => r.length).fold<int>(0, (a, b) => a > b ? a : b);
+    List<String> pad(List<String> r) =>
+        [...r, ...List.filled(width - r.length, '')];
+    String rowLine(List<String> r) =>
+        '| ${pad(r).map(stripInline).join(' | ')} |';
+
+    if (out.isNotEmpty && out.last.trim().isNotEmpty) out.add('');
+    out.add(rowLine(tableBuf.first));
+    out.add('| ${List.filled(width, '---').join(' | ')} |');
+    for (final r in tableBuf.skip(1)) {
+      out.add(rowLine(r));
+    }
+    out.add('');
+    tableBuf.clear();
+  }
+
   for (final raw in lines) {
     final line = raw.trimRight();
 
     if (isTableRow(line)) {
-      final cells = splitRow(line);
-      if (tableHeader == null) {
-        tableHeader = cells;
-      } else if (!isTableSeparator(line)) {
-        final row = <String>[];
-        for (var i = 0; i < cells.length; i++) {
-          final header = i < tableHeader.length ? tableHeader[i] : '';
-          row.add(header.isEmpty ? cells[i] : '$header: ${cells[i]}');
-        }
-        out.add(row.join(' — '));
-      }
+      if (!isTableSeparator(line)) tableBuf.add(splitRow(line));
       continue;
     }
-    tableHeader = null;
+    flushTable();
 
     final heading = RegExp(r'^#{1,6}\s+(.*)$').firstMatch(line);
     if (heading != null) {
@@ -73,9 +92,9 @@ String flattenMarkdownForReport(String markdown) {
 
     out.add(stripInline(line));
   }
+  flushTable();
 
-  // Collapse runs of 3+ blank lines (table borders often leave two) down to
-  // a single paragraph break.
+  // Collapse runs of 3+ blank lines down to a single paragraph break.
   final text = out.join('\n');
   return text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
