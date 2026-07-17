@@ -30,6 +30,7 @@ class _RecordingSurveyorNotesNotifier extends SurveyorNotesNotifier {
     String? linkedToId,
     String? source,
     bool pendingReview = false,
+    OccurrencePhase? occurrencePhase,
   }) async {
     calls.add({
       'caseId': caseId,
