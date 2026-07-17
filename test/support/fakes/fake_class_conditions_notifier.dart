@@ -16,9 +16,11 @@ class FakeClassConditionsNotifier extends ClassConditionsNotifier {
     String? reference,
     String? description,
     DateTime? expiryDate,
+    DateTime? issuedDate,
     String? duration,
     bool occurrenceRelated = false,
     String? occurrenceId,
+    String status = 'open',
   }) async {
     final created = ClassConditionModel(
       conditionId: 'fake-cond-${++_counter}',
@@ -26,9 +28,11 @@ class FakeClassConditionsNotifier extends ClassConditionsNotifier {
       reference: reference,
       description: description,
       expiryDate: expiryDate,
+      issuedDate: issuedDate,
       duration: duration,
       occurrenceRelated: occurrenceRelated,
       occurrenceId: occurrenceId,
+      status: status,
     );
     state = AsyncData([...state.value ?? [], created]);
   }
@@ -39,9 +43,13 @@ class FakeClassConditionsNotifier extends ClassConditionsNotifier {
     String? reference,
     String? description,
     DateTime? expiryDate,
+    DateTime? issuedDate,
     String? duration,
     bool? occurrenceRelated,
     String? occurrenceId,
+    String? status,
+    bool clearExpiryDate = false,
+    bool clearIssuedDate = false,
   }) async {
     final current = state.value ?? [];
     state = AsyncData(current.map((c) {
@@ -50,9 +58,11 @@ class FakeClassConditionsNotifier extends ClassConditionsNotifier {
         reference: reference,
         description: description,
         expiryDate: expiryDate,
+        issuedDate: issuedDate,
         duration: duration,
         occurrenceRelated: occurrenceRelated,
         occurrenceId: occurrenceId,
+        status: status,
       );
     }).toList());
   }
