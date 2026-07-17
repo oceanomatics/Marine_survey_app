@@ -323,11 +323,13 @@ class _RepairPeriodsBody extends StatelessWidget {
           ContextCuesPanel(
               caseId: caseId,
               section: CaseSection.repairs,
+              title: 'Repairs — Context Cues',
               periodScope: const RepairPeriodScope.unassigned(),
               onPromote: onPromoteCue),
           ContextCuesPanel(
               caseId: caseId,
               section: CaseSection.repairTimes,
+              title: 'Repair Times — Context Cues',
               periodScope: const RepairPeriodScope.unassigned(),
               initiallyExpanded: false,
               onPromote: onPromoteCue),
@@ -361,12 +363,14 @@ class _RepairPeriodsBody extends StatelessWidget {
         ContextCuesPanel(
             caseId: caseId,
             section: CaseSection.repairs,
+            title: 'Repairs — Context Cues',
             periodScope: const RepairPeriodScope.unassigned(),
             initiallyExpanded: false,
             onPromote: onPromoteCue),
         ContextCuesPanel(
             caseId: caseId,
             section: CaseSection.repairTimes,
+            title: 'Repair Times — Context Cues',
             periodScope: const RepairPeriodScope.unassigned(),
             initiallyExpanded: false,
             onPromote: onPromoteCue),

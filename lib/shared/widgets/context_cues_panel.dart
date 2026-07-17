@@ -202,6 +202,7 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
     super.key,
     required this.caseId,
     required this.section,
+    this.title,
     this.periodScope,
     this.itemScope,
     this.routingLinkType,
@@ -212,6 +213,11 @@ class ContextCuesPanel extends ConsumerStatefulWidget {
 
   final String caseId;
   final CaseSection section;
+
+  /// Header label — defaults to "Context Cues". Pass a distinct title when two
+  /// panels sit on the same screen (e.g. Repairs vs Repair Times) so they
+  /// don't look like duplicates (17 July 2026 report).
+  final String? title;
   /// Only meaningful when `section.isRepairPeriodScoped` — see
   /// [RepairPeriodScope]. Ignored otherwise. Mutually exclusive with
   /// [itemScope].
@@ -386,11 +392,11 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                   Expanded(
                     child: Row(
                       children: [
-                        const Flexible(
+                        Flexible(
                           child: Text(
-                            'Context Cues',
+                            widget.title ?? 'Context Cues',
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
+                            style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.textPrimary),
