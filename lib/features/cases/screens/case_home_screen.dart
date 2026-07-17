@@ -462,7 +462,7 @@ class _CaptureToolbar extends StatelessWidget {
             icon: Icons.draw_outlined,
             label: 'Stylus',
             accent: AppColors.navy,
-            onTap: () {},
+            onTap: () => context.go('/cases/$caseId/stylus'),
           ),
           _CaptureToolButton(
             icon: Icons.bolt_outlined,

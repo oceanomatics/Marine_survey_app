@@ -18,6 +18,7 @@ import '../../features/surveyor_notes/models/surveyor_note_model.dart' show Case
 import '../../features/capture/screens/camera_screen.dart';
 import '../../features/capture/screens/voice_note_screen.dart';
 import '../../features/capture/screens/quick_capture_screen.dart';
+import '../../features/stylus/screens/stylus_screen.dart';
 import '../../features/documents/screens/document_vault_screen.dart';
 import '../../features/checklist/screens/checklist_screen.dart';
 import '../../features/reports/screens/report_builder_screen.dart';
@@ -140,6 +141,11 @@ final appRouter = GoRouter(
               path: 'capture',
               builder: (context, state) =>
                   QuickCaptureScreen(caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'stylus',
+              builder: (context, state) =>
+                  StylusScreen(caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(
               path: 'documents',
