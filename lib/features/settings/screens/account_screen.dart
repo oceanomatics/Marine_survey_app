@@ -232,6 +232,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen>
                     icon: Icons.folder_shared_outlined,
                     iconColor: AppColors.amber,
                     currentKey: account.driveBaseFolder,
+                    secret: false,
+                    fieldLabel: 'Folder name',
+                    saveLabel: 'Save Folder',
+                    notSetLabel: 'Not set',
                     onSave: (v) => ref
                         .read(accountProvider.notifier)
                         .saveDriveBaseFolder(v),
@@ -583,6 +587,8 @@ class _ProfileCard extends StatelessWidget {
 // Shared by every service key on this screen (Anthropic, OpenAI, Google, FX).
 // Keys are synced to the `profiles` table (see AccountNotifier) so they can
 // be changed here without a rebuild, rather than baked in via --dart-define.
+// Also reused for non-secret single values (e.g. the Drive base folder) via
+// `secret: false`, which turns off masking/obscuring and relabels the field.
 
 class _ApiKeyEditCard extends ConsumerStatefulWidget {
   const _ApiKeyEditCard({
@@ -592,6 +598,10 @@ class _ApiKeyEditCard extends ConsumerStatefulWidget {
     required this.iconColor,
     required this.currentKey,
     required this.onSave,
+    this.secret = true,
+    this.fieldLabel = 'API Key',
+    this.saveLabel = 'Save API Key',
+    this.notSetLabel = 'Not configured',
   });
 
   final String title;
@@ -600,6 +610,19 @@ class _ApiKeyEditCard extends ConsumerStatefulWidget {
   final Color iconColor;
   final String currentKey;
   final Future<void> Function(String key) onSave;
+
+  /// Whether the stored value is a secret (masked in the summary and obscured
+  /// while editing). Set false for non-sensitive values like a folder name.
+  final bool secret;
+
+  /// Label on the edit field (e.g. "API Key" vs "Folder name").
+  final String fieldLabel;
+
+  /// Label on the save button (e.g. "Save API Key" vs "Save Folder").
+  final String saveLabel;
+
+  /// Summary wording when nothing is stored yet ("Not configured" / "Not set").
+  final String notSetLabel;
 
   @override
   ConsumerState<_ApiKeyEditCard> createState() => _ApiKeyEditCardState();
@@ -630,11 +653,17 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
   @override
   Widget build(BuildContext context) {
     final key = widget.currentKey;
-    final masked = key.length > 6
-        ? '••••••••••${key.substring(key.length - 6)}'
-        : key.isEmpty
-            ? 'Not configured'
-            : '••••••';
+    final String masked;
+    if (key.isEmpty) {
+      masked = widget.notSetLabel;
+    } else if (!widget.secret) {
+      // Non-secret values (e.g. a folder name) are shown in the clear.
+      masked = key;
+    } else if (key.length > 6) {
+      masked = '••••••••••${key.substring(key.length - 6)}';
+    } else {
+      masked = '••••••';
+    }
 
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
@@ -727,26 +756,28 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
             const SizedBox(height: 8),
             TextField(
               controller: _ctrl,
-              obscureText: _obscure,
+              obscureText: widget.secret && _obscure,
               style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
               decoration: InputDecoration(
-                labelText: 'API Key',
+                labelText: widget.fieldLabel,
                 labelStyle: const TextStyle(fontSize: 12),
                 border: border,
                 enabledBorder: border,
                 focusedBorder: focusBorder,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscure
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                    size: 18,
-                    color: AppColors.textTertiary,
-                  ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                ),
+                suffixIcon: widget.secret
+                    ? IconButton(
+                        icon: Icon(
+                          _obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 18,
+                          color: AppColors.textTertiary,
+                        ),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      )
+                    : null,
               ),
             ),
             const SizedBox(height: 8),
@@ -764,7 +795,7 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
                         height: 14,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
-                    : const Text('Save API Key'),
+                    : Text(widget.saveLabel),
               ),
             ),
           ],

@@ -1,4 +1,9 @@
 // test/features/accounts/screens/accounts_screen_test.dart
+//
+// Widget tests for the reconciliation-era Accounts screen. The screen shows a
+// single view: an Estimate-vs-Actual + Reconciliation summary banner, a Cost
+// Estimate Status editor, and Submitted / Context Archive sub-tabs listing the
+// repair documents. The Import Invoice FAB is always available.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +20,6 @@ import 'package:marine_survey_app/features/survey/models/repair_period_model.dar
 import '../../../support/fakes/fake_repair_documents_notifier.dart';
 import '../../../support/fakes/fake_case_notifier.dart';
 import '../../../support/fakes/fake_damage_notifier.dart';
-import '../../../support/fakes/fake_cost_estimate_items_notifier.dart';
 import '../../../support/fakes/fake_repair_periods_notifier.dart';
 
 const _caseId = 'case-1';
@@ -25,13 +29,18 @@ const _caseId = 'case-1';
 // post-frame callback fires an updateCaseRefs() call on every pump (real
 // notifiers only, FakeCaseNotifier doesn't override it) straight at
 // SupabaseService.client, which isn't initialised in a widget test.
-CaseModel _case({String? baseCurrency = 'AUD', bool hasInvoices = false}) =>
+CaseModel _case({
+  String? baseCurrency = 'AUD',
+  bool hasInvoices = false,
+  double? estimatedRepairCost,
+}) =>
     CaseModel(
       caseId: _caseId,
       technicalFileNo: 'AU-M53-056789',
       caseType: CaseType.hm,
       status: CaseStatus.open,
       baseCurrency: baseCurrency,
+      estimatedRepairCost: estimatedRepairCost,
       costEstimateStatus:
           hasInvoices ? 'ongoing_partial_invoices' : 'no_invoices_yet',
     );
@@ -39,7 +48,6 @@ CaseModel _case({String? baseCurrency = 'AUD', bool hasInvoices = false}) =>
 Future<void> _pump(
   WidgetTester tester, {
   List<RepairDocumentModel> docs = const [],
-  List<CostEstimateItemModel> costItems = const [],
   List<RepairPeriodModel> periods = const [],
   CaseModel? caseModel,
 }) async {
@@ -51,8 +59,6 @@ Future<void> _pump(
       overrides: [
         repairDocumentsProvider
             .overrideWith(() => FakeRepairDocumentsNotifier(docs)),
-        costEstimateItemsProvider
-            .overrideWith(() => FakeCostEstimateItemsNotifier(costItems)),
         caseProvider.overrideWith(() => FakeCaseNotifier(caseModel ?? _case())),
         damageProvider.overrideWith(() => FakeDamageNotifier(
               const DamageState(occurrences: [], damageItems: [], repairs: []),
@@ -67,37 +73,37 @@ Future<void> _pump(
 }
 
 void main() {
-  testWidgets('shows two top-level tabs: Cost Estimate and Accounts',
+  testWidgets('renders the Estimate-vs-Actual and Reconciliation summary',
       (tester) async {
     await _pump(tester);
 
-    // Both labels appear twice: once as the tab, once as the visible
-    // section header inside the tab body (Cost Estimate) / app bar title
-    // (Accounts).
-    expect(find.text('Cost Estimate'), findsWidgets);
-    expect(find.text('Accounts'), findsWidgets);
+    expect(find.text('Accounts'), findsWidgets); // app bar title
+    expect(find.text('ESTIMATE vs ACTUAL'), findsOneWidget);
+    expect(find.text('RECONCILIATION'), findsOneWidget);
+    expect(find.text('Submitted (actual gross)'), findsOneWidget);
+    expect(find.text('Total (gross)'), findsOneWidget);
   });
 
-  testWidgets('Cost Estimate tab is shown by default, no FAB', (tester) async {
+  testWidgets('Import Invoice FAB is always available', (tester) async {
     await _pump(tester);
-
-    expect(find.text('Further invoices still expected?'), findsNothing);
-    expect(find.text('Purely Estimated — no invoices received yet'), findsOneWidget);
-    expect(find.byType(FloatingActionButton), findsNothing);
-  });
-
-  testWidgets('switching to the Accounts tab shows the Import Invoice FAB',
-      (tester) async {
-    await _pump(tester);
-
-    await tester.tap(find.text('Accounts').last);
-    await tester.pumpAndSettle();
 
     expect(find.byType(FloatingActionButton), findsOneWidget);
     expect(find.text('Import Invoice'), findsOneWidget);
   });
 
-  testWidgets('Accounts tab splits into Submitted / Context Archive sub-tabs',
+  testWidgets('Cost Estimate Status editor shows its options and inclusions',
+      (tester) async {
+    await _pump(tester);
+
+    expect(find.text('Cost Estimate Status'), findsOneWidget);
+    expect(find.text('No Invoices Yet'), findsOneWidget);
+    expect(find.text('Ongoing — Partial Invoices'), findsOneWidget);
+    expect(find.text('Completed — All Invoices In'), findsOneWidget);
+    expect(find.text('Cost Inclusions'), findsOneWidget);
+    expect(find.text('Survey Fee Reserve'), findsOneWidget);
+  });
+
+  testWidgets('Submitted / Context Archive sub-tabs count the documents',
       (tester) async {
     final docs = [
       const RepairDocumentModel(
@@ -106,58 +112,45 @@ void main() {
           id: 'd2', caseId: _caseId, submittedToInsurance: false),
     ];
     await _pump(tester, docs: docs, caseModel: _case(hasInvoices: true));
-    await tester.tap(find.text('Accounts').last);
-    await tester.pumpAndSettle();
 
     expect(find.text('Submitted (1)'), findsOneWidget);
     expect(find.text('Context Archive (1)'), findsOneWidget);
   });
 
-  testWidgets('empty Submitted tab shows its own empty state', (tester) async {
+  testWidgets('empty Submitted sub-tab shows its own empty state',
+      (tester) async {
     await _pump(tester);
-    await tester.tap(find.text('Accounts').last);
-    await tester.pumpAndSettle();
 
+    // Submitted is the default sub-tab.
     expect(find.text('No submitted invoices yet'), findsOneWidget);
   });
 
-  testWidgets('cost estimate total sums all line items', (tester) async {
-    final items = [
-      const CostEstimateItemModel(
-          id: 'ce1', caseId: _caseId, amount: 15000, description: 'Towing'),
-      const CostEstimateItemModel(
-          id: 'ce2', caseId: _caseId, amount: 2500.5, description: 'Survey fees'),
-    ];
-    await _pump(tester, costItems: items);
-
-    // _fmtMoney groups thousands: "AUD 17,500.50"
-    expect(find.text('AUD 17,500.50'), findsOneWidget);
-  });
-
-  testWidgets('summary banner shows the no-invoices empty state when nothing is submitted',
-      (tester) async {
-    await _pump(tester);
-    await tester.tap(find.text('Accounts').last);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text(
-          'No invoices submitted yet — the account summary will populate once invoices are imported and submitted.'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('no repair-period budget rollup shown when no period has budget items',
-      (tester) async {
-    await _pump(tester, periods: const [
-      RepairPeriodModel(periodId: 'p1', caseId: _caseId, periodNo: 1),
-    ]);
-
-    expect(find.text('REPAIR-PERIOD BUDGET ESTIMATES'), findsNothing);
-  });
-
   testWidgets(
-      'repair-period budget rollup shows on the Cost Estimate tab, separate from the manual total',
+      'estimate vs actual: surveyor estimate, submitted total and variance',
+      (tester) async {
+    final docs = [
+      const RepairDocumentModel(
+        id: 'd1',
+        caseId: _caseId,
+        currency: 'AUD',
+        totalIncTax: 30000,
+        submittedToInsurance: true,
+      ),
+    ];
+    await _pump(
+      tester,
+      docs: docs,
+      caseModel: _case(hasInvoices: true, estimatedRepairCost: 50000),
+    );
+
+    expect(find.text('Estimated repair cost'), findsOneWidget);
+    expect(find.text('AUD 50,000.00'), findsOneWidget);
+    // Actual submitted is under the estimate: 30,000 vs 50,000.
+    expect(find.text('Under estimate'), findsOneWidget);
+    expect(find.text('AUD 20,000.00'), findsOneWidget);
+  });
+
+  testWidgets('repair-period budget rollup appears in the summary banner',
       (tester) async {
     final periods = [
       const RepairPeriodModel(
@@ -183,8 +176,17 @@ void main() {
     ];
     await _pump(tester, periods: periods);
 
-    expect(find.text('REPAIR-PERIOD BUDGET ESTIMATES'), findsOneWidget);
-    expect(find.text('Singapore drydock'), findsOneWidget);
-    expect(find.text('USD 15,000.00 (2)'), findsOneWidget);
+    // Face-value rollup of the two budget items (12,000 + 3,000).
+    expect(find.text('Repair-period budget'), findsOneWidget);
+    expect(find.text('AUD 15,000.00'), findsWidgets);
+  });
+
+  testWidgets('no repair-period budget row when no period has budget items',
+      (tester) async {
+    await _pump(tester, periods: const [
+      RepairPeriodModel(periodId: 'p1', caseId: _caseId, periodNo: 1),
+    ]);
+
+    expect(find.text('Repair-period budget'), findsNothing);
   });
 }
