@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' show min;
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart' show DioException;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -169,12 +170,34 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Sync failed: $e'), backgroundColor: Colors.red),
+              content: Text('Sync failed: ${_readableApiError(e)}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 10)),
         );
       }
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
+  }
+
+  /// Google's own error body carries the real reason (e.g. "… API has not been
+  /// used in project N before or it is disabled", or "insufficient
+  /// authentication scopes") — Dio's default toString() hides it behind a
+  /// generic status-code explanation. Surface it so failures are actionable.
+  static String _readableApiError(Object e) {
+    if (e is DioException) {
+      final code = e.response?.statusCode;
+      final data = e.response?.data;
+      String? msg;
+      if (data is Map && data['error'] is Map) {
+        msg = data['error']['message']?.toString();
+      } else if (data != null) {
+        final s = data.toString();
+        msg = s.length > 300 ? s.substring(0, 300) : s;
+      }
+      return 'HTTP $code${msg != null && msg.isNotEmpty ? ' — $msg' : ''}';
+    }
+    return e.toString();
   }
 
   // ── Photo import pipeline ──────────────────────────────────────────────
