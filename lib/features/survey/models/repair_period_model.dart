@@ -88,6 +88,9 @@ class BudgetItem {
     required this.amount,
     required this.currency,
     this.status = BudgetItemStatus.estimated,
+    this.quantity,
+    this.unit,
+    this.unitRate,
   });
 
   final String itemId;
@@ -96,12 +99,32 @@ class BudgetItem {
   final String currency;
   final BudgetItemStatus status;
 
+  /// Optional quantity/unit/unit-rate breakdown — populated when a line is
+  /// built from a cost preset (e.g. 5 × "day" @ 12,000) or when the surveyor
+  /// enters a rate-based line. When both [quantity] and [unitRate] are set,
+  /// [amount] is expected to equal their product ([computedAmount]), but
+  /// [amount] always remains the authoritative stored value so a hand-typed
+  /// lump sum still works with these left null.
+  final double? quantity;
+  final String? unit;
+  final double? unitRate;
+
+  /// True when this line carries a qty × rate breakdown to display.
+  bool get hasBreakdown => quantity != null && unitRate != null;
+
+  /// quantity × unitRate when both are present, else null.
+  double? get computedAmount =>
+      hasBreakdown ? quantity! * unitRate! : null;
+
   factory BudgetItem.fromJson(Map<String, dynamic> j) => BudgetItem(
         itemId: j['id'] as String,
         description: j['description'] as String,
         amount: (j['amount'] as num).toDouble(),
         currency: j['currency'] as String? ?? 'USD',
         status: BudgetItemStatus.fromValue(j['status'] as String? ?? 'estimated'),
+        quantity: (j['quantity'] as num?)?.toDouble(),
+        unit: j['unit'] as String?,
+        unitRate: (j['unit_rate'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -110,6 +133,9 @@ class BudgetItem {
         'amount': amount,
         'currency': currency,
         'status': status.value,
+        if (quantity != null) 'quantity': quantity,
+        if (unit != null) 'unit': unit,
+        if (unitRate != null) 'unit_rate': unitRate,
       };
 
   BudgetItem copyWith({
@@ -117,6 +143,9 @@ class BudgetItem {
     double? amount,
     String? currency,
     BudgetItemStatus? status,
+    Object? quantity = _sentinel,
+    Object? unit = _sentinel,
+    Object? unitRate = _sentinel,
   }) =>
       BudgetItem(
         itemId: itemId,
@@ -124,8 +153,196 @@ class BudgetItem {
         amount: amount ?? this.amount,
         currency: currency ?? this.currency,
         status: status ?? this.status,
+        quantity:
+            quantity == _sentinel ? this.quantity : quantity as double?,
+        unit: unit == _sentinel ? this.unit : unit as String?,
+        unitRate:
+            unitRate == _sentinel ? this.unitRate : unitRate as double?,
       );
 }
+
+// ── Repair cost presets ─────────────────────────────────────────────────────
+//
+// Starter catalogue for the budget estimate (16 July 2026 sweep — surveyor
+// asked "could we suggest a list of cost for the cost estimate"). Each preset
+// is only a *starting point*: picking one pre-fills the description, unit and
+// a typical unit rate, but every field stays fully editable and the quantity
+// is the surveyor's to set. Rates are deliberately round, order-of-magnitude
+// figures in USD; they are not a price list and are expected to be overwritten
+// per yard/quote.
+
+enum CostPresetGroup {
+  docking('Docking & Access'),
+  structural('Structural / Steel'),
+  machinery('Machinery'),
+  coatings('Coatings'),
+  attendance('Class & Attendance'),
+  services('Yard Services');
+
+  const CostPresetGroup(this.label);
+  final String label;
+}
+
+@immutable
+class RepairCostPreset {
+  const RepairCostPreset({
+    required this.group,
+    required this.description,
+    required this.unit,
+    this.typicalRate,
+    this.defaultQuantity = 1,
+  });
+
+  final CostPresetGroup group;
+  final String description;
+
+  /// Unit the rate is quoted in — e.g. 'day', 'kg', 'm²', 'lump sum'.
+  final String unit;
+
+  /// Indicative USD unit rate, or null for lines that are inherently a quote
+  /// (surveyor fills the amount in).
+  final double? typicalRate;
+  final double defaultQuantity;
+
+  /// Build an editable budget line from this preset in the given currency.
+  BudgetItem toBudgetItem({required String currency, String itemId = ''}) {
+    final rate = typicalRate;
+    return BudgetItem(
+      itemId: itemId,
+      description: description,
+      amount: rate != null ? rate * defaultQuantity : 0,
+      currency: currency,
+      quantity: defaultQuantity,
+      unit: unit,
+      unitRate: rate,
+    );
+  }
+}
+
+const List<RepairCostPreset> kRepairCostPresets = [
+  // Docking & access
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Dry-dock hire',
+      unit: 'day',
+      typicalRate: 12000),
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Docking & undocking',
+      unit: 'lump sum',
+      typicalRate: 15000),
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Afloat / alongside berth hire',
+      unit: 'day',
+      typicalRate: 3500),
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Staging / scaffolding',
+      unit: 'm²',
+      typicalRate: 45),
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Crane hire',
+      unit: 'day',
+      typicalRate: 2500),
+  RepairCostPreset(
+      group: CostPresetGroup.docking,
+      description: 'Tank cleaning / gas freeing',
+      unit: 'lump sum'),
+  // Structural / steel
+  RepairCostPreset(
+      group: CostPresetGroup.structural,
+      description: 'Steel renewal (plate)',
+      unit: 'kg',
+      typicalRate: 6),
+  RepairCostPreset(
+      group: CostPresetGroup.structural,
+      description: 'Steel renewal (sections)',
+      unit: 'm²',
+      typicalRate: 850),
+  RepairCostPreset(
+      group: CostPresetGroup.structural,
+      description: 'Cropping & renewal — labour',
+      unit: 'hour',
+      typicalRate: 65),
+  RepairCostPreset(
+      group: CostPresetGroup.structural,
+      description: 'Welding / fabrication',
+      unit: 'hour',
+      typicalRate: 70),
+  RepairCostPreset(
+      group: CostPresetGroup.structural,
+      description: 'NDT / weld testing',
+      unit: 'lump sum'),
+  // Machinery
+  RepairCostPreset(
+      group: CostPresetGroup.machinery,
+      description: 'Main-engine overhaul',
+      unit: 'lump sum'),
+  RepairCostPreset(
+      group: CostPresetGroup.machinery,
+      description: 'Auxiliary-engine overhaul',
+      unit: 'lump sum'),
+  RepairCostPreset(
+      group: CostPresetGroup.machinery,
+      description: 'Pump / motor renewal',
+      unit: 'each'),
+  RepairCostPreset(
+      group: CostPresetGroup.machinery,
+      description: 'Propeller / shaft repair',
+      unit: 'lump sum'),
+  RepairCostPreset(
+      group: CostPresetGroup.machinery,
+      description: 'Machinery labour',
+      unit: 'hour',
+      typicalRate: 75),
+  // Coatings
+  RepairCostPreset(
+      group: CostPresetGroup.coatings,
+      description: 'Blasting & painting',
+      unit: 'm²',
+      typicalRate: 35),
+  RepairCostPreset(
+      group: CostPresetGroup.coatings,
+      description: 'High-pressure wash',
+      unit: 'm²',
+      typicalRate: 6),
+  RepairCostPreset(
+      group: CostPresetGroup.coatings,
+      description: 'Paint & consumables',
+      unit: 'lump sum'),
+  // Class & attendance
+  RepairCostPreset(
+      group: CostPresetGroup.attendance,
+      description: 'Classification-society attendance',
+      unit: 'day',
+      typicalRate: 1800),
+  RepairCostPreset(
+      group: CostPresetGroup.attendance,
+      description: 'Superintendence',
+      unit: 'day',
+      typicalRate: 1200),
+  RepairCostPreset(
+      group: CostPresetGroup.attendance,
+      description: 'Surveyor / consultant attendance',
+      unit: 'day',
+      typicalRate: 1500),
+  // Yard services
+  RepairCostPreset(
+      group: CostPresetGroup.services,
+      description: 'Electricity / shore power',
+      unit: 'day',
+      typicalRate: 800),
+  RepairCostPreset(
+      group: CostPresetGroup.services,
+      description: 'Waste / sludge disposal',
+      unit: 'lump sum'),
+  RepairCostPreset(
+      group: CostPresetGroup.services,
+      description: 'General yard services',
+      unit: 'lump sum'),
+];
 
 // ── Assignment model ───────────────────────────────────────────────────────
 
@@ -158,6 +375,128 @@ class RepairAssignmentModel {
       );
 }
 
+// ── Post-repair sea trial ───────────────────────────────────────────────────
+//
+// Added 16 July 2026 (surveyor sweep: "we have not managed a post repair
+// seatrial entry"). One optional sea-trial record per repair period, capturing
+// the confirmation that repairs performed as intended: date, duration,
+// location, the parameters observed during the trial (e.g. engine load, RPM,
+// speed achieved), an overall satisfactory yes/no, and free-text notes.
+// Stored as a JSONB `sea_trial` column on repair_periods (migration 062).
+
+@immutable
+class SeaTrialParameter {
+  const SeaTrialParameter({required this.label, required this.value});
+
+  /// What was observed — e.g. 'Engine load', 'RPM', 'Speed'.
+  final String label;
+
+  /// The observed value, incl. units as the surveyor typed them —
+  /// e.g. '85 %', '750 rpm', '14.2 kn'.
+  final String value;
+
+  factory SeaTrialParameter.fromJson(Map<String, dynamic> j) =>
+      SeaTrialParameter(
+        label: j['label'] as String? ?? '',
+        value: j['value'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {'label': label, 'value': value};
+}
+
+/// Common parameter labels offered as quick-add chips in the sea-trial editor.
+const List<String> kSeaTrialParameterPresets = [
+  'Engine load',
+  'RPM',
+  'Speed',
+  'Shaft power',
+  'Exhaust temp',
+  'Vibration',
+  'Steering response',
+  'Manoeuvring',
+];
+
+@immutable
+class SeaTrial {
+  const SeaTrial({
+    this.date,
+    this.durationHours,
+    this.location,
+    this.parameters = const [],
+    this.satisfactory,
+    this.notes,
+  });
+
+  final DateTime? date;
+  final double? durationHours;
+  final String? location;
+  final List<SeaTrialParameter> parameters;
+
+  /// Overall outcome — true = satisfactory, false = not satisfactory,
+  /// null = not yet assessed.
+  final bool? satisfactory;
+  final String? notes;
+
+  /// True when the record carries no meaningful content (so we can avoid
+  /// persisting an empty object).
+  bool get isEmpty =>
+      date == null &&
+      durationHours == null &&
+      (location == null || location!.isEmpty) &&
+      parameters.isEmpty &&
+      satisfactory == null &&
+      (notes == null || notes!.isEmpty);
+
+  factory SeaTrial.fromJson(Map<String, dynamic> j) => SeaTrial(
+        date: j['date'] != null
+            ? DateTime.tryParse(j['date'] as String)
+            : null,
+        durationHours: (j['duration_hours'] as num?)?.toDouble(),
+        location: j['location'] as String?,
+        parameters: (j['parameters'] as List?)
+                ?.map((e) =>
+                    SeaTrialParameter.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
+        satisfactory: j['satisfactory'] as bool?,
+        notes: j['notes'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        if (date != null)
+          'date':
+              '${date!.year}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}',
+        if (durationHours != null) 'duration_hours': durationHours,
+        if (location != null && location!.isNotEmpty) 'location': location,
+        if (parameters.isNotEmpty)
+          'parameters': parameters.map((e) => e.toJson()).toList(),
+        if (satisfactory != null) 'satisfactory': satisfactory,
+        if (notes != null && notes!.isNotEmpty) 'notes': notes,
+      };
+
+  SeaTrial copyWith({
+    Object? date = _sentinel,
+    Object? durationHours = _sentinel,
+    Object? location = _sentinel,
+    List<SeaTrialParameter>? parameters,
+    Object? satisfactory = _sentinel,
+    Object? notes = _sentinel,
+  }) =>
+      SeaTrial(
+        date: date == _sentinel ? this.date : date as DateTime?,
+        durationHours: durationHours == _sentinel
+            ? this.durationHours
+            : durationHours as double?,
+        location:
+            location == _sentinel ? this.location : location as String?,
+        parameters: parameters ?? this.parameters,
+        satisfactory: satisfactory == _sentinel
+            ? this.satisfactory
+            : satisfactory as bool?,
+        notes: notes == _sentinel ? this.notes : notes as String?,
+      );
+}
+
 // ── Period model ───────────────────────────────────────────────────────────
 
 @immutable
@@ -185,6 +524,7 @@ class RepairPeriodModel {
     this.servicesProvidedNotes,
     this.hotWorkStatus,
     this.hotWorkNotes,
+    this.seaTrial,
   });
 
   final String periodId;
@@ -218,6 +558,10 @@ class RepairPeriodModel {
   /// 'certs_not_sighted' / null (not conducted).
   final String? hotWorkStatus;
   final String? hotWorkNotes;
+
+  /// Optional post-repair sea trial record (see [SeaTrial]). Null until the
+  /// surveyor adds one.
+  final SeaTrial? seaTrial;
 
   String get displayTitle => title ?? 'Repair Period $periodNo';
 
@@ -260,6 +604,7 @@ class RepairPeriodModel {
     Object? servicesProvidedNotes = _sentinel,
     Object? hotWorkStatus = _sentinel,
     Object? hotWorkNotes = _sentinel,
+    Object? seaTrial = _sentinel,
   }) =>
       RepairPeriodModel(
         periodId: periodId,
@@ -298,6 +643,8 @@ class RepairPeriodModel {
         hotWorkNotes: hotWorkNotes == _sentinel
             ? this.hotWorkNotes
             : hotWorkNotes as String?,
+        seaTrial:
+            seaTrial == _sentinel ? this.seaTrial : seaTrial as SeaTrial?,
       );
 
   factory RepairPeriodModel.fromJson(
@@ -342,6 +689,9 @@ class RepairPeriodModel {
       servicesProvidedNotes: j['services_provided_notes'] as String?,
       hotWorkStatus: j['hot_work_status'] as String?,
       hotWorkNotes: j['hot_work_notes'] as String?,
+      seaTrial: j['sea_trial'] != null
+          ? SeaTrial.fromJson(j['sea_trial'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -387,6 +737,8 @@ class RepairPeriodModel {
           'services_provided_notes': servicesProvidedNotes,
         if (hotWorkStatus != null) 'hot_work_status': hotWorkStatus,
         if (hotWorkNotes != null) 'hot_work_notes': hotWorkNotes,
+        if (seaTrial != null && !seaTrial!.isEmpty)
+          'sea_trial': seaTrial!.toJson(),
       };
 
   /// Like [toInsertJson] but always includes the editable header fields
