@@ -46,6 +46,32 @@ class GoogleAuthService {
 
   static Future<void> signOut() => _signIn.signOut();
 
+  /// The Google Photos scopes, split out so a caller can ensure just these are
+  /// granted before a Photos operation.
+  static const photosScopes = [
+    'https://www.googleapis.com/auth/photoslibrary.appendonly',
+    'https://www.googleapis.com/auth/photoslibrary.sharing',
+  ];
+
+  /// Ensures [scopes] are actually authorised on the signed-in account,
+  /// prompting the user to grant any that are missing. google_sign_in hands
+  /// back a token scoped to what the user granted *at sign-in* — scopes not
+  /// granted then (e.g. Photos, when the first sign-in was for Gmail/Drive)
+  /// otherwise surface as a 403 "insufficient authentication scopes" on the
+  /// first API call that needs them (16 July 2026 — Photos sync). Returns true
+  /// if all scopes are authorised.
+  static Future<bool> ensureScopes(List<String> scopes) async {
+    final account = await ensureSignedIn();
+    if (account == null) throw const GoogleSignInCancelled();
+    if (kIsWeb) return true; // web grants scopes up-front at sign-in
+    try {
+      if (await _signIn.canAccessScopes(scopes)) return true;
+    } catch (_) {
+      // canAccessScopes is Android-only — fall through to requestScopes.
+    }
+    return _signIn.requestScopes(scopes);
+  }
+
   /// Non-interactive variant of [accessToken] for background callers (the
   /// §3.14 mail poller) that must never pop a visible sign-in prompt of its
   /// own accord. Only ever refreshes silently; returns null (never throws)

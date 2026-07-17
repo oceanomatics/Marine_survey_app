@@ -89,6 +89,17 @@ class _PhotoGalleryScreenState extends ConsumerState<PhotoGalleryScreen>
 
     var failed = 0;
     try {
+      // The Photos scopes may not have been granted at sign-in (google_sign_in
+      // returns a token scoped to what was granted then, and Gmail/Drive were
+      // the first grants) — request them explicitly, else every album call
+      // 403s with "insufficient authentication scopes" (16 July 2026).
+      final hasScopes =
+          await GoogleAuthService.ensureScopes(GoogleAuthService.photosScopes);
+      if (!hasScopes) {
+        throw Exception('Google Photos access was not granted — re-authorise '
+            'Google, or the Photos Library scopes may be missing from the '
+            'OAuth consent screen.');
+      }
       final caseModel = ref.read(caseProvider(widget.caseId)).value;
       final attendances =
           ref.read(attendancesProvider(widget.caseId)).value ?? [];
