@@ -24,6 +24,7 @@ import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../providers/correspondence_provider.dart';
 import '../providers/inbox_provider.dart';
+import '../providers/case_inbox_provider.dart';
 import '../providers/mail_poll_provider.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
@@ -38,7 +39,12 @@ String _caseLabel(CaseModel c) {
 }
 
 class InboxScreen extends ConsumerStatefulWidget {
-  const InboxScreen({super.key});
+  const InboxScreen({super.key, this.caseId});
+
+  /// When set, the Inbox opens filtered to just this case's relevant, not-yet-
+  /// imported mail (16 July 2026 reports). A "Show all" toggle drops back to
+  /// the unfiltered whole-inbox triage. Null = the global inbox (Cases list).
+  final String? caseId;
 
   @override
   ConsumerState<InboxScreen> createState() => _InboxScreenState();
@@ -51,6 +57,10 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   final Set<String> _handled = {};
   // Message id currently being imported (spinner on its card).
   String? _busyId;
+  // Case mode only: false = filtered to this case (default), true = all mail.
+  bool _showAll = false;
+
+  bool get _caseMode => widget.caseId != null && !_showAll;
 
   @override
   void initState() {
@@ -63,7 +73,13 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   }
 
   Future<void> _linkToCase(GmailMessageSummary msg) async {
-    final selected = await showModalBottomSheet<CaseModel>(
+    CaseModel? selected;
+    // In case mode the target is unambiguous — this case — so file directly
+    // instead of asking the surveyor to pick it out of a list every time.
+    if (widget.caseId != null) {
+      selected = ref.read(caseProvider(widget.caseId!)).value;
+    }
+    selected ??= await showModalBottomSheet<CaseModel>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => const _CasePickerSheet(),
@@ -107,9 +123,19 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     context.go('/cases/new');
   }
 
+  void _refresh() {
+    if (widget.caseId != null) {
+      ref.invalidate(caseInboxRawProvider(widget.caseId!));
+    }
+    ref.invalidate(inboxMessagesProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(inboxMessagesProvider);
+    final caseMode = _caseMode;
+    final AsyncValue<List<GmailMessageSummary>> async = caseMode
+        ? ref.watch(caseInboxProvider(widget.caseId!))
+        : ref.watch(inboxMessagesProvider);
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
@@ -118,26 +144,35 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           IconButton(
             icon: const Icon(Icons.refresh, size: 20),
             tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(inboxMessagesProvider),
+            onPressed: _refresh,
           ),
         ],
       ),
       body: Column(
         children: [
-          const _TriageBanner(),
+          _TriageBanner(
+            caseMode: caseMode,
+            showToggle: widget.caseId != null,
+            showAll: _showAll,
+            onToggle: (v) => setState(() => _showAll = v),
+          ),
           Expanded(
             child: async.when(
               loading: () =>
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) => _ErrorState(
                 error: e,
-                onRetry: () => ref.invalidate(inboxMessagesProvider),
+                onRetry: _refresh,
               ),
               data: (messages) {
                 if (messages.isEmpty) {
-                  return const Center(
-                    child: Text('No recent messages.',
-                        style: TextStyle(color: AppColors.textSecondary)),
+                  return Center(
+                    child: Text(
+                        caseMode
+                            ? 'No un-filed mail matches this case.'
+                            : 'No recent messages.',
+                        style: const TextStyle(
+                            color: AppColors.textSecondary)),
                   );
                 }
                 return ListView.separated(
@@ -163,27 +198,76 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
 }
 
 class _TriageBanner extends StatelessWidget {
-  const _TriageBanner();
+  const _TriageBanner({
+    this.caseMode = false,
+    this.showToggle = false,
+    this.showAll = false,
+    this.onToggle,
+  });
+
+  /// Currently showing the case-filtered subset (vs the whole inbox).
+  final bool caseMode;
+
+  /// Whether to render the "This case / All mail" toggle at all (only when
+  /// the Inbox was opened from a specific case).
+  final bool showToggle;
+  final bool showAll;
+  final ValueChanged<bool>? onToggle;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       color: _kColor.withValues(alpha: 0.06),
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      child: const Row(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      child: Row(
         children: [
-          Icon(Icons.rule_folder_outlined, size: 16, color: _kColor),
-          SizedBox(width: 8),
+          const Icon(Icons.rule_folder_outlined, size: 16, color: _kColor),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Triage: file each email to a case, or start a new one. '
-              'This is not a full mailbox.',
-              style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+              caseMode
+                  ? 'Showing mail relevant to this case, not already filed. '
+                      'File each one, or switch to all mail.'
+                  : 'Triage: file each email to a case, or start a new one. '
+                      'This is not a full mailbox.',
+              style: const TextStyle(
+                  fontSize: 11.5, color: AppColors.textSecondary),
             ),
           ),
+          if (showToggle) ...[
+            const SizedBox(width: 6),
+            _ScopeToggle(showAll: showAll, onToggle: onToggle),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Compact segmented "This case / All mail" switch shown in the banner when
+/// the Inbox is opened from a specific case.
+class _ScopeToggle extends StatelessWidget {
+  const _ScopeToggle({required this.showAll, required this.onToggle});
+  final bool showAll;
+  final ValueChanged<bool>? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<bool>(
+      showSelectedIcon: false,
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 11)),
+        padding: WidgetStateProperty.all(
+            const EdgeInsets.symmetric(horizontal: 8)),
+      ),
+      segments: const [
+        ButtonSegment(value: false, label: Text('This case')),
+        ButtonSegment(value: true, label: Text('All mail')),
+      ],
+      selected: {showAll},
+      onSelectionChanged: (s) => onToggle?.call(s.first),
     );
   }
 }

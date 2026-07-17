@@ -12,14 +12,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/correspondence/screens/correspondence_screen.dart';
 import 'package:marine_survey_app/features/correspondence/models/correspondence_model.dart';
 import 'package:marine_survey_app/features/correspondence/providers/correspondence_provider.dart';
-import 'package:marine_survey_app/features/correspondence/providers/mail_poll_provider.dart';
+import 'package:marine_survey_app/features/correspondence/providers/case_inbox_provider.dart';
 import 'package:marine_survey_app/features/documents/providers/document_provider.dart';
 import 'package:marine_survey_app/features/parties/models/party_model.dart';
 import 'package:marine_survey_app/features/parties/providers/parties_provider.dart';
 import 'package:marine_survey_app/features/surveyor_notes/providers/surveyor_notes_provider.dart';
 
 import '../../../support/fakes/fake_correspondence_notifier.dart';
-import '../../../support/fakes/fake_mail_poll_notifier.dart';
 import '../../../support/fakes/fake_document_notifier.dart';
 import '../../../support/fakes/fake_assured_contacts_notifier.dart';
 import '../../../support/fakes/fake_surveyor_notes_notifier.dart';
@@ -39,7 +38,9 @@ Future<FakeCorrespondenceNotifier> _pump(
     ProviderScope(
       overrides: [
         correspondenceProvider.overrideWith(() => fake),
-        mailPollProvider.overrideWith(FakeMailPollNotifier.new),
+        // The app-bar badge now reads the case-scoped new-mail count; pin it so
+        // the widget test doesn't reach for a real case row / Gmail session.
+        caseNewMailCountProvider.overrideWith((ref, caseId) async => 0),
         documentProvider.overrideWith(() => FakeDocumentNotifier(const [])),
         assuredContactsProvider
             .overrideWith(() => FakeAssuredContactsNotifier(existingContacts)),

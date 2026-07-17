@@ -30,7 +30,7 @@ import '../../../shared/widgets/loading_widget.dart';
 import 'gmail_message_picker_screen.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 import 'package:go_router/go_router.dart';
-import '../providers/mail_poll_provider.dart';
+import '../providers/case_inbox_provider.dart';
 
 const _kColor = Color(0xFF2A6099);
 
@@ -41,29 +41,29 @@ class CorrespondenceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final corrAsync = ref.watch(correspondenceProvider(caseId));
-    final mailPoll = ref.watch(mailPollProvider);
-    final unseenMail = mailPoll.unseenCount;
-    final unseenLabel = '$unseenMail${mailPoll.capped ? '+' : ''}';
+    // Case-scoped new-mail count (16 July 2026): mail matching THIS case's
+    // vessel/file-no that isn't already filed here. Replaces the old global
+    // un-triaged count now that the Inbox can be filtered to the case — a
+    // surveyor on this screen wants "new mail for THIS case", not the whole
+    // mailbox. Silent path, so it never pops an OAuth prompt.
+    final newMail = ref.watch(caseNewMailCountProvider(caseId)).value ?? 0;
+    final newMailLabel = newMail > 99 ? '99+' : '$newMail';
 
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
         title: const Text('Correspondence'),
         actions: [
-          // §3.14: same shared new-mail signal as the Cases list Inbox
-          // icon — a nudge that there's un-triaged mail, surfaced here too
-          // since a surveyor working a case's Correspondence trail is
-          // exactly who'd want to know about it, without conflating the
-          // count with anything case-specific (Inbox mail isn't filed to a
-          // case yet, so it can't be scoped to this one).
           IconButton(
             icon: Badge(
-              label: Text(unseenLabel),
-              isLabelVisible: unseenMail > 0,
+              label: Text(newMailLabel),
+              isLabelVisible: newMail > 0,
               child: const Icon(Icons.mail_outline, color: Colors.white),
             ),
-            onPressed: () => context.go('/inbox'),
-            tooltip: unseenMail > 0 ? 'Inbox — $unseenLabel new' : 'Inbox',
+            onPressed: () => context.go('/inbox?caseId=$caseId'),
+            tooltip: newMail > 0
+                ? 'Inbox — $newMailLabel new for this case'
+                : 'Inbox',
           ),
         ],
       ),
@@ -1727,18 +1727,43 @@ class _StatusChip extends StatelessWidget {
         CorrStatus.failed => AppColors.error,
       };
 
+  IconData? get _icon => switch (status) {
+        CorrStatus.pending => null,
+        CorrStatus.processing => Icons.hourglass_top,
+        // Sparkle makes it unmistakably an AI result, not a manual status
+        // (16 July 2026: "make it more clear AI extracted").
+        CorrStatus.completed => Icons.auto_awesome,
+        CorrStatus.failed => Icons.error_outline,
+      };
+
   @override
   Widget build(BuildContext context) {
+    // The completed (AI-extracted) chip is rendered solid so it reads at a
+    // glance across a long list — the whole point of the report note.
+    final bool solid = status == CorrStatus.completed;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.12),
+        color: solid ? _color : _color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: _color.withValues(alpha: 0.3)),
+        border: Border.all(
+            color: solid ? _color : _color.withValues(alpha: 0.3)),
       ),
-      child: Text(status.label,
-          style: TextStyle(
-              fontSize: 9, color: _color, fontWeight: FontWeight.w700)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_icon != null) ...[
+            Icon(_icon,
+                size: 10, color: solid ? Colors.white : _color),
+            const SizedBox(width: 3),
+          ],
+          Text(status.label,
+              style: TextStyle(
+                  fontSize: 9,
+                  color: solid ? Colors.white : _color,
+                  fontWeight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 }

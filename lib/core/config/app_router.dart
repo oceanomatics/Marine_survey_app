@@ -280,7 +280,8 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/inbox',
-      builder: (context, state) => const InboxScreen(),
+      builder: (context, state) =>
+          InboxScreen(caseId: state.uri.queryParameters['caseId']),
     ),
     GoRoute(
       path: '/timesheet',

@@ -26,6 +26,7 @@ import '../../survey/providers/nature_of_repairs_provider.dart';
 import '../../survey/models/nature_of_repairs_model.dart';
 import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../correspondence/providers/case_inbox_provider.dart';
 import '../../../shared/widgets/context_cues_panel.dart' show repairPeriodLinkType;
 import '../../accounts/providers/accounts_provider.dart';
 import '../../accounts/models/accounts_models.dart';
@@ -331,6 +332,9 @@ class _SurveyNavRail extends ConsumerWidget {
         .where((n) =>
             n.caseSection == null && n.priority != CuePriority.ignored)
         .length;
+    // New (filtered, not-yet-imported) mail matching this case — same count
+    // shown on the Correspondence app-bar (16 July 2026 reports).
+    final newMailCount = ref.watch(caseNewMailCountProvider(caseId)).value ?? 0;
 
     return Container(
       width: 68,
@@ -380,6 +384,7 @@ class _SurveyNavRail extends ConsumerWidget {
                     icon: Icons.mail_outline,
                     label: 'Mail',
                     accent: const Color(0xFF2A6099),
+                    badgeCount: newMailCount,
                     onTap: () => context.go('/cases/$caseId/correspondence'),
                   ),
                   _NavItem(

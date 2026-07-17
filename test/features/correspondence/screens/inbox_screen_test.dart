@@ -5,10 +5,12 @@ import 'package:marine_survey_app/core/services/gmail_service.dart';
 import 'package:marine_survey_app/features/cases/models/case_model.dart';
 import 'package:marine_survey_app/features/cases/providers/cases_provider.dart';
 import 'package:marine_survey_app/features/correspondence/providers/inbox_provider.dart';
+import 'package:marine_survey_app/features/correspondence/providers/case_inbox_provider.dart';
 import 'package:marine_survey_app/features/correspondence/providers/mail_poll_provider.dart';
 import 'package:marine_survey_app/features/correspondence/screens/inbox_screen.dart';
 
 import '../../../support/fakes/fake_cases_notifier.dart';
+import '../../../support/fakes/fake_case_notifier.dart';
 import '../../../support/fakes/fake_mail_poll_notifier.dart';
 
 GmailMessageSummary _msg({
@@ -118,6 +120,68 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tracker.markSeenCalls, 1);
+    });
+  });
+
+  group('InboxScreen (case-scoped)', () {
+    Future<void> pumpCase(
+      WidgetTester tester, {
+      required List<GmailMessageSummary> caseMessages,
+      List<GmailMessageSummary> allMessages = const [],
+    }) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            caseInboxProvider.overrideWith(
+                (ref, caseId) => AsyncData(caseMessages)),
+            inboxMessagesProvider.overrideWith((ref) async => allMessages),
+            caseProvider.overrideWith(() => FakeCaseNotifier(_case())),
+            casesProvider.overrideWith(() => FakeCasesNotifier(const [])),
+            mailPollProvider.overrideWith(FakeMailPollNotifier.new),
+          ],
+          child: const MaterialApp(home: InboxScreen(caseId: 'case-1')),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('defaults to the filtered case view with the scope toggle',
+        (tester) async {
+      await pumpCase(
+        tester,
+        caseMessages: [_msg(subject: 'MV Surveyor damage')],
+        allMessages: [_msg(id: 'other', subject: 'Unrelated newsletter')],
+      );
+
+      // Case banner + the case-relevant message, not the unrelated one.
+      expect(find.textContaining('relevant to this case'), findsOneWidget);
+      expect(find.text('MV Surveyor damage'), findsOneWidget);
+      expect(find.text('Unrelated newsletter'), findsNothing);
+      // The scope toggle is present.
+      expect(find.text('This case'), findsOneWidget);
+      expect(find.text('All mail'), findsOneWidget);
+    });
+
+    testWidgets('empty case view shows the case-specific placeholder',
+        (tester) async {
+      await pumpCase(tester, caseMessages: const []);
+      expect(find.text('No un-filed mail matches this case.'), findsOneWidget);
+    });
+
+    testWidgets('"All mail" toggle drops back to the unfiltered inbox',
+        (tester) async {
+      await pumpCase(
+        tester,
+        caseMessages: [_msg(subject: 'MV Surveyor damage')],
+        allMessages: [_msg(id: 'other', subject: 'Unrelated newsletter')],
+      );
+
+      await tester.tap(find.text('All mail'));
+      await tester.pumpAndSettle();
+
+      // Now the whole-inbox message shows and the case filter is off.
+      expect(find.text('Unrelated newsletter'), findsOneWidget);
+      expect(find.textContaining('Triage:'), findsOneWidget);
     });
   });
 }
