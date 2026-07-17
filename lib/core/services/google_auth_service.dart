@@ -5,7 +5,7 @@
 // each feature triggering its own sign-in.
 //
 // SETUP REQUIRED — Google Cloud Console (same project as before, extended):
-//   1. Enable "Google Drive API", "Gmail API", "Photos Library API"
+//   1. Enable "Google Drive API", "Gmail API", "Google Photos Picker API"
 //   2. OAuth consent screen: add the scopes below. While the app is in
 //      "Testing" publishing status, any account added as a test user can
 //      grant these scopes immediately — no Google verification review needed
@@ -29,8 +29,11 @@ class GoogleAuthService {
       'https://www.googleapis.com/auth/drive.file',
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/gmail.send',
-      'https://www.googleapis.com/auth/photoslibrary.appendonly',
-      'https://www.googleapis.com/auth/photoslibrary.sharing',
+      // Google Photos Picker API (import only). The old
+      // photoslibrary.appendonly + photoslibrary.sharing scopes were dropped
+      // (17 Jul 2026) along with the shared-album export — the Picker API is
+      // the sanctioned post-March-2025 path for reading user-selected photos.
+      'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
     ],
   );
 
@@ -46,11 +49,10 @@ class GoogleAuthService {
 
   static Future<void> signOut() => _signIn.signOut();
 
-  /// The Google Photos scopes, split out so a caller can ensure just these are
-  /// granted before a Photos operation.
-  static const photosScopes = [
-    'https://www.googleapis.com/auth/photoslibrary.appendonly',
-    'https://www.googleapis.com/auth/photoslibrary.sharing',
+  /// The Google Photos Picker scope, split out so a caller can ensure just
+  /// this is granted before an import (the picker session + mediaItems calls).
+  static const photosPickerScopes = [
+    'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
   ];
 
   /// Ensures [scopes] are actually authorised on the signed-in account,

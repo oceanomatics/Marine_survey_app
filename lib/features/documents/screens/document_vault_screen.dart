@@ -19,6 +19,7 @@ import '../../../core/api/claude_api.dart';
 import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/services/google_auth_service.dart';
+import '../../../core/utils/document_scan.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
 import '../../../features/photos/models/photo_model.dart';
@@ -357,10 +358,20 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
             },
           ),
           ListTile(
+            leading: _srcIcon(Icons.document_scanner_outlined),
+            title: const Text('Scan document',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: const Text('Camera + auto crop / dewarp'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _scanDocument(context, ref);
+            },
+          ),
+          ListTile(
             leading: _srcIcon(Icons.camera_alt_outlined),
             title: const Text('Take photo',
                 style: TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: const Text('Camera'),
+            subtitle: const Text('Camera (no crop)'),
             onTap: () async {
               Navigator.pop(ctx);
               await _pickCamera(context, ref);
@@ -415,6 +426,58 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
     if (!context.mounted) return;
     await _showImportSheet(context, ref,
         bytes: bytes, filename: picked.name, mimeType: 'image/jpeg');
+  }
+
+  /// One-click document scan: capture from the camera, detect the document's
+  /// corners and perspective-correct it to a flat upright page (shared
+  /// [DocumentScanner] pipeline, same as invoice import), then open the import
+  /// sheet with the flattened scan. Saving there runs it through the normal
+  /// document pipeline, which auto-fires AI extraction (the extract queue).
+  Future<void> _scanDocument(BuildContext context, WidgetRef ref) async {
+    final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera, imageQuality: 100, maxWidth: 3000);
+    if (picked == null || !context.mounted) return;
+    final raw = await picked.readAsBytes();
+    if (!context.mounted) return;
+
+    // Blocking progress while corner detection + dewarp run (corner detection
+    // also shows in the global AI task explorer).
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 16),
+          Expanded(child: Text('Scanning document…')),
+        ]),
+      ),
+    );
+
+    final flattened = await DocumentScanner.flatten(
+      ref: ref,
+      caseId: caseId,
+      bytes: raw,
+      mimeType: 'image/jpeg',
+    );
+
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    if (!context.mounted) return;
+
+    // Fall back to the raw capture if no document was detected.
+    final bytes = flattened ?? raw;
+    final isPng = flattened != null;
+    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    await _showImportSheet(
+      context,
+      ref,
+      bytes: bytes,
+      filename: 'Scan $stamp.${isPng ? 'png' : 'jpg'}',
+      mimeType: isPng ? 'image/png' : 'image/jpeg',
+    );
   }
 
   Future<void> _pickGallery(BuildContext context, WidgetRef ref) async {
