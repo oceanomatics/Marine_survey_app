@@ -65,4 +65,46 @@ void main() {
           isFalse);
     });
   });
+
+  // Feature 1 (professional title capture): extraction hands the deduced
+  // job title/function to StakeholderGroup.fromRole to file the person.
+  group('StakeholderGroup.fromRole — professional titles', () {
+    test('vessel-crew engineer ranks are owner-side (insured), not contractors',
+        () {
+      expect(StakeholderGroup.fromRole('Chief Engineer'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('Second Engineer'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('2nd Engineer'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('ETO'), StakeholderGroup.insured);
+    });
+
+    test('deck ranks and superintendents are insured', () {
+      expect(StakeholderGroup.fromRole('Master'), StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('Chief Officer'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('First Mate'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole('Superintendent'),
+          StakeholderGroup.insured);
+      expect(StakeholderGroup.fromRole("Owner's Representative"),
+          StakeholderGroup.insured);
+    });
+
+    test('outside technical roles still classify as technical contractors', () {
+      expect(StakeholderGroup.fromRole('Service Engineer'),
+          StakeholderGroup.technicalContractor);
+      expect(StakeholderGroup.fromRole('Average Adjuster'),
+          StakeholderGroup.technicalContractor);
+    });
+
+    test('surveyors, brokers and underwriters classify correctly', () {
+      expect(StakeholderGroup.fromRole('Class Surveyor'),
+          StakeholderGroup.surveyor);
+      expect(StakeholderGroup.fromRole('Broker'), StakeholderGroup.broker);
+      expect(StakeholderGroup.fromRole('Underwriter'),
+          StakeholderGroup.underwriter);
+    });
+  });
 }

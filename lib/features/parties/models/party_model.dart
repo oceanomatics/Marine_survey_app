@@ -26,6 +26,20 @@ enum StakeholderGroup {
   static StakeholderGroup fromRole(String? role) {
     if (role == null) return other;
     final r = role.toLowerCase();
+    // Vessel crew / owner-side professional titles first — otherwise ranks
+    // like "Chief Engineer" fall through to the generic "engineer" →
+    // technical-contractor rule below and get misfiled (they're owner-side).
+    if (r.contains('engineer') &&
+        (r.contains('chief') || r.contains('second') || r.contains('third') ||
+         r.contains('fourth') || r.contains('1st') || r.contains('2nd') ||
+         r.contains('3rd') || r.contains('4th'))) {
+      return insured;
+    }
+    if (r.contains('mate')  || r.contains('officer') || r.contains('bosun') ||
+        r.contains('rating') || r.contains('superintend') ||
+        r.contains('port captain') || r == 'eto' || r.contains('electro')) {
+      return insured;
+    }
     if (r.contains('owner')   || r.contains('operator') || r.contains('master') ||
         r.contains('insured') || r.contains('assured')  || r.contains('charterer') ||
         r.contains('manager') || r.contains('crew')) {
