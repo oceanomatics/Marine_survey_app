@@ -28,6 +28,13 @@ import '../../shared/theme/app_theme.dart';
 /// the exact frame it's tapped on (before any transient error snackbar fades).
 final GlobalKey debugFeedbackBoundaryKey = GlobalKey();
 
+/// The frozen still shown *over* the app while the feedback UI is open, so the
+/// surveyor annotates a frozen frame — not the live screen, on which a
+/// transient error has already vanished (16 July 2026). main.dart paints this
+/// as a full-screen overlay in the MaterialApp builder when non-null.
+final ValueNotifier<Uint8List?> debugFeedbackFrozenFrame =
+    ValueNotifier<Uint8List?>(null);
+
 class DebugFeedbackButton extends StatefulWidget {
   const DebugFeedbackButton({super.key});
 
@@ -173,12 +180,27 @@ class _DebugFeedbackButtonState extends State<DebugFeedbackButton> {
           onTap: _submitting
               ? null
               : () async {
-                  // Freeze the frame NOW, before the feedback UI opens, so a
-                  // transient error still on screen is captured.
+                  // Freeze the frame NOW, before the feedback UI opens, so the
+                  // annotation canvas shows a still (with any transient error)
+                  // rather than the live screen. main.dart overlays it.
                   _instantShot = await _captureInstant();
-                  if (!context.mounted) return;
-                  fb.BetterFeedback.of(context)
-                      .show((f) => _submit(context, f));
+                  debugFeedbackFrozenFrame.value = _instantShot;
+                  if (!context.mounted) {
+                    debugFeedbackFrozenFrame.value = null;
+                    return;
+                  }
+                  // Clear the overlay whenever the feedback session ends —
+                  // submit AND cancel (the show() callback only fires on
+                  // submit, so listen to the controller's visibility).
+                  final controller = fb.BetterFeedback.of(context);
+                  void onVisibility() {
+                    if (!controller.isVisible) {
+                      debugFeedbackFrozenFrame.value = null;
+                      controller.removeListener(onVisibility);
+                    }
+                  }
+                  controller.addListener(onVisibility);
+                  controller.show((f) => _submit(context, f));
                 },
           child: _button(dragging: false),
         ),

@@ -87,6 +87,18 @@ class MarineSurveyApp extends StatelessWidget {
           child!,
           const ImportReviewBanner(),
           const InterviewRecordingOverlay(),
+          // Frozen still shown over the live app while the bug reporter is open
+          // so annotation happens on a still frame (debug only).
+          if (kDebugMode)
+            ValueListenableBuilder<Uint8List?>(
+              valueListenable: debugFeedbackFrozenFrame,
+              builder: (context, frozen, _) => frozen == null
+                  ? const SizedBox.shrink()
+                  : Positioned.fill(
+                      child: Image.memory(frozen,
+                          fit: BoxFit.fill, gaplessPlayback: true),
+                    ),
+            ),
           if (kDebugMode) const DebugFeedbackButton(),
         ],
       ),
