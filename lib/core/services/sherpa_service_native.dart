@@ -32,6 +32,16 @@ class SherpaService {
   static const int _sampleRate = 16000;
 
   sherpa.OnlineRecognizer? _recognizer;
+
+  // KILL-SWITCH (17 July 2026): the streaming-zipformer models this app
+  // downloads are incompatible with sherpa_onnx ^1.13.3 — the native
+  // OnlineRecognizer constructor aborts ("'attention_dims' does not exist in
+  // the metadata"), a C++ abort() that bypasses Dart try/catch and crashes the
+  // whole app the moment the Case Analyst / Interview screens initialise STT.
+  // Until a compatible model+library pairing is shipped, refuse to initialise
+  // with a *catchable* Dart error so callers degrade to text-only instead of
+  // the process dying. Flip this to true once STT is fixed.
+  static const bool _sttEnabled = false;
   sherpa.OnlineStream?     _stream;
   AudioRecorder?           _recorder;
   StreamController<SherpaResult>? _resultCtrl;
@@ -54,6 +64,11 @@ class SherpaService {
   /// Pass [settings] to apply the user's chosen decoding method and endpoint
   /// sensitivity; omit to use sensible defaults.
   Future<void> initialize(ModelPaths paths, [SpeechSettings? settings]) async {
+    if (!_sttEnabled) {
+      // Catchable — never reaches the aborting native constructor below.
+      throw StateError('On-device speech-to-text is temporarily unavailable '
+          '(model/library update pending).');
+    }
     _stopInternal();
     _recognizer?.free();
     _recognizer = null;
