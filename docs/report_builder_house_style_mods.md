@@ -6,6 +6,19 @@ change list for aligning the builder's structure, drafting prompts and export
 to the house style. Report numbers (R#) reference the 17 Jul debug_feedback
 notes.
 
+## Format strategy (17 July, surveyor)
+
+The app already carries a **multi-format** system (`case.outputFormat` — abl /
+nordic / …; prompts take a `reportFormat`). The surveyor is consolidating an
+**"Oceanoservices"** ideal format (house_style.md is that template, being
+refined). Plan:
+1. Build the house-style rules against **Oceanoservices as the canonical
+   format** first (section set, purpose lines, templates, prompts).
+2. **Then remap** to the other formats (ABL/Nordic/Marsh/etc.) — same section
+   machinery, format-specific wording/section-order/branding.
+Note: the test cases (e.g. MINRES ODIN) were drafted in an unknown/mixed format
+— don't assume; treat Oceanoservices as the source of truth and migrate.
+
 ## A. Global drafting rules (apply to every section)
 
 1. **Italic purpose line under every section heading.** One italic present-tense
