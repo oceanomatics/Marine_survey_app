@@ -925,10 +925,25 @@ class _BudgetSectionState extends ConsumerState<_BudgetSection> {
     final items  = period.budgetItems;
     final fmt    = NumberFormat('#,##0.00');
 
-    final totalBase = items.fold(0.0, (s, i) => s + i.amount);
-    final converted = (period.budgetExchangeRate != null && !_sameCurrency(period))
-        ? totalBase * period.budgetExchangeRate!
-        : null;
+    // Sum per item currency — never blindly add mixed currencies into one
+    // base-labelled total (that silently mislabels e.g. AUD items as USD).
+    final byCcy = <String, double>{};
+    for (final i in items) {
+      byCcy[i.currency] = (byCcy[i.currency] ?? 0) + i.amount;
+    }
+    final baseCcy = period.budgetBaseCurrency;
+    final totalBase = byCcy[baseCcy] ?? 0;
+    final foreignTotals = byCcy.entries
+        .where((e) => e.key != baseCcy)
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final hasForeign = foreignTotals.isNotEmpty;
+    // Only convert the base-currency portion to the display currency, and only
+    // when there are no un-convertible foreign items muddying the total.
+    final converted =
+        (period.budgetExchangeRate != null && !_sameCurrency(period) && !hasForeign)
+            ? totalBase * period.budgetExchangeRate!
+            : null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
@@ -1054,14 +1069,14 @@ class _BudgetSectionState extends ConsumerState<_BudgetSection> {
                 children: [
                   Row(
                     children: [
-                      const Text('TOTAL',
-                          style: TextStyle(
+                      Text(hasForeign ? 'TOTAL ($baseCcy)' : 'TOTAL',
+                          style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
                               color: _kBudgetColor)),
                       const Spacer(),
                       Text(
-                        '${period.budgetBaseCurrency} ${fmt.format(totalBase)}',
+                        '$baseCcy ${fmt.format(totalBase)}',
                         style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -1069,6 +1084,37 @@ class _BudgetSectionState extends ConsumerState<_BudgetSection> {
                       ),
                     ],
                   ),
+                  // Foreign-currency items shown as their own subtotals — never
+                  // folded into the base total without an FX rate.
+                  for (final e in foreignTotals) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text('TOTAL (${e.key})',
+                            style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.orange)),
+                        const Spacer(),
+                        Text('${e.key} ${fmt.format(e.value)}',
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.orange)),
+                      ],
+                    ),
+                  ],
+                  if (hasForeign) ...[
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Mixed currencies — foreign items not converted. '
+                      'Set an FX rate per currency to combine.',
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.orange),
+                    ),
+                  ],
                   if (!_sameCurrency(period)) ...[
                     const SizedBox(height: 4),
                     Row(

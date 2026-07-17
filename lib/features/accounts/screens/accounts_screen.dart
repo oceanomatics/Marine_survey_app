@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/accounts_models.dart';
 import '../providers/accounts_provider.dart';
+import '../utils/accounts_reconciliation.dart';
 import '../widgets/import_invoice_sheet.dart';
 import '../../../features/survey/providers/damage_provider.dart';
+import '../../../features/survey/providers/repair_period_provider.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 
@@ -30,6 +32,21 @@ class AccountsScreen extends ConsumerWidget {
     final docsAsync   = ref.watch(repairDocumentsProvider(caseId));
     final occurrences = ref.watch(damageProvider(caseId)).value?.occurrences
         ?? const [];
+    final caseModel   = ref.watch(caseProvider(caseId)).value;
+    final periods     = ref.watch(repairPeriodsProvider(caseId)).value
+        ?? const [];
+
+    final baseCurrency = caseModel?.baseCurrency ?? 'AUD';
+    final estimate     = caseModel?.estimatedRepairCost;
+    // Roll up repair-period budget-item estimates. Sums face-value amounts as a
+    // headline figure; foreign-currency budget items are included at face value.
+    double? budgetEstimate;
+    for (final p in periods) {
+      for (final it in p.budgetItems) {
+        budgetEstimate = (budgetEstimate ?? 0) + it.amount;
+      }
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -56,8 +73,14 @@ class AccountsScreen extends ConsumerWidget {
       body: docsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (docs) =>
-            _Body(caseId: caseId, docs: docs, occurrences: occurrences),
+        data: (docs) => _Body(
+          caseId: caseId,
+          docs: docs,
+          occurrences: occurrences,
+          baseCurrency: baseCurrency,
+          estimate: estimate,
+          budgetEstimate: budgetEstimate,
+        ),
       ),
     );
   }
@@ -84,10 +107,16 @@ class _Body extends StatefulWidget {
     required this.caseId,
     required this.docs,
     required this.occurrences,
+    required this.baseCurrency,
+    this.estimate,
+    this.budgetEstimate,
   });
   final String caseId;
   final List<RepairDocumentModel> docs;
   final List<OccurrenceModel> occurrences;
+  final String baseCurrency;
+  final double? estimate;
+  final double? budgetEstimate;
 
   @override
   State<_Body> createState() => _BodyState();
@@ -112,15 +141,25 @@ class _BodyState extends State<_Body> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     final submitted = widget.docs.where((d) => d.submittedToInsurance).toList();
     final context_  = widget.docs.where((d) => !d.submittedToInsurance).toList();
-    final summary   = AccountsSummary.fromDocuments(submitted);
+
+    final recon = AccountsReconciliation.build(
+      docs: submitted,
+      baseCurrency: widget.baseCurrency,
+      estimate: widget.estimate,
+      budgetEstimate: widget.budgetEstimate,
+      occurrences: [
+        for (int i = 0; i < widget.occurrences.length; i++)
+          ReconOccurrence(
+            id: widget.occurrences[i].occurrenceId,
+            label: 'Occ. ${i + 1} — '
+                '${widget.occurrences[i].title ?? 'Occurrence ${i + 1}'}',
+          ),
+      ],
+    );
 
     return Column(
       children: [
-        _SummaryBanner(
-          summary: summary,
-          occurrences: widget.occurrences,
-          allLines: submitted.expand((d) => d.accountLines).toList(),
-        ),
+        _SummaryBanner(recon: recon),
         _CostEstimateSelector(caseId: widget.caseId),
         TabBar(
           controller: _tabs,
@@ -193,134 +232,22 @@ class _DocList extends StatelessWidget {
 
 // ── Summary banner ─────────────────────────────────────────────────────────
 
-class _SummaryBanner extends StatelessWidget {
-  const _SummaryBanner({
-    required this.summary,
-    required this.occurrences,
-    required this.allLines,
-  });
-  final AccountsSummary summary;
-  final List<OccurrenceModel> occurrences;
-  final List<AccountLineModel> allLines;
+class _SummaryBanner extends StatefulWidget {
+  const _SummaryBanner({required this.recon});
+  final AccountsReconciliation recon;
+
+  @override
+  State<_SummaryBanner> createState() => _SummaryBannerState();
+}
+
+class _SummaryBannerState extends State<_SummaryBanner> {
+  bool _showUnreviewed = false;
+  bool _showRejected = false;
 
   @override
   Widget build(BuildContext context) {
-    final cur = summary.primaryCurrency;
-
-    // Build financial rows
-    final finRows = <Widget>[];
-
-    for (int i = 0; i < occurrences.length; i++) {
-      final occ = occurrences[i];
-      final uw = allLines
-          .where((l) =>
-              l.occurrenceId == occ.occurrenceId &&
-              l.status != LineItemStatus.betterment)
-          .fold(0.0, (s, l) => s + l.underwritersPortion);
-      if (uw > 0.005) {
-        finRows.add(_FinRow(
-          label: 'Occ. ${i + 1} — ${occ.title ?? 'Occurrence ${i + 1}'}',
-          amount: uw,
-          currency: cur,
-          color: _kAccent,
-        ));
-      }
-    }
-
-    final unallocated = allLines
-        .where((l) =>
-            l.occurrenceId == null &&
-            l.status != LineItemStatus.betterment)
-        .fold(0.0, (s, l) => s + l.underwritersPortion);
-    if (unallocated > 0.005) {
-      finRows.add(_FinRow(
-        label: 'Unallocated',
-        amount: unallocated,
-        currency: cur,
-        color: _kAccent,
-      ));
-    }
-
-    final betterment = allLines
-        .where((l) => l.status == LineItemStatus.betterment)
-        .fold(0.0, (s, l) => s + l.grossAmount);
-    if (betterment > 0.005) {
-      finRows.add(_FinRow(
-        label: 'Betterment',
-        amount: betterment,
-        currency: cur,
-        color: Colors.brown,
-      ));
-    }
-
-    if (summary.totalApprovedOwners > 0.005) {
-      finRows.add(_FinRow(
-        label: "Owner's account",
-        amount: summary.totalApprovedOwners,
-        currency: cur,
-        color: Colors.orange,
-      ));
-    }
-
-    final deferred = allLines
-        .where((l) => l.apportionmentType == 'defer')
-        .fold(0.0, (s, l) => s + l.grossAmount);
-    if (deferred > 0.005) {
-      finRows.add(_FinRow(
-        label: 'Deferred to adjuster',
-        amount: deferred,
-        currency: cur,
-        color: Colors.blueGrey,
-      ));
-    }
-
-    if (summary.totalSubmitted > 0.005) {
-      finRows.add(Divider(
-          height: 12, color: AppColors.border.withValues(alpha: 0.5)));
-      finRows.add(_FinRow(
-        label: 'Total (gross)',
-        amount: summary.totalSubmitted,
-        currency: cur,
-        color: AppColors.textPrimary,
-        bold: true,
-      ));
-    }
-
-    // ── Red flags / unfinished business ──────────────────────────────────
-    final flags = <({String text, Color color, IconData icon})>[];
-
-    final pendingLines = allLines
-        .where((l) => l.status == LineItemStatus.pendingReview)
-        .length;
-    if (pendingLines > 0) {
-      flags.add((
-        text: '$pendingLines line${pendingLines == 1 ? '' : 's'} pending review',
-        color: Colors.orange,
-        icon: Icons.hourglass_empty_outlined,
-      ));
-    }
-
-    final queriedLines = allLines
-        .where((l) => l.status == LineItemStatus.queried)
-        .length;
-    if (queriedLines > 0) {
-      flags.add((
-        text: '$queriedLines line${queriedLines == 1 ? '' : 's'} queried',
-        color: Colors.red,
-        icon: Icons.help_outline,
-      ));
-    }
-
-    final unallocatedLines = occurrences.isNotEmpty
-        ? allLines.where((l) => l.occurrenceId == null).length
-        : 0;
-    if (unallocatedLines > 0) {
-      flags.add((
-        text: '$unallocatedLines line${unallocatedLines == 1 ? '' : 's'} not allocated to an occurrence',
-        color: AppColors.textSecondary,
-        icon: Icons.link_off_outlined,
-      ));
-    }
+    final r = widget.recon;
+    final cur = r.currency;
 
     return Container(
       color: AppColors.surface,
@@ -328,35 +255,246 @@ class _SummaryBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Summary',
-              style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5)),
-          if (finRows.isNotEmpty) ...[
+          // ── Estimate vs Actual ────────────────────────────────────────────
+          _sectionLabel('ESTIMATE vs ACTUAL'),
+          const SizedBox(height: 8),
+          if (r.estimate != null)
+            _FinRow(
+              label: 'Estimated repair cost',
+              amount: r.estimate!,
+              currency: r.estimateCurrency ?? cur,
+              color: AppColors.textSecondary,
+            ),
+          if (r.budgetEstimate != null && r.budgetEstimate! > 0.005)
+            _FinRow(
+              label: 'Repair-period budget',
+              amount: r.budgetEstimate!,
+              currency: r.estimateCurrency ?? cur,
+              color: AppColors.textSecondary,
+            ),
+          _FinRow(
+            label: 'Submitted (actual gross)',
+            amount: r.submittedTotal,
+            currency: cur,
+            color: AppColors.textPrimary,
+            bold: true,
+          ),
+          if (r.effectiveEstimate != null && r.effectiveEstimate! > 0.005) ...[
+            Builder(builder: (_) {
+              final v = r.estimateVariance!;
+              final over = v > 0.005;
+              final under = v < -0.005;
+              return _FinRow(
+                label: over
+                    ? 'Over estimate'
+                    : under
+                        ? 'Under estimate'
+                        : 'On estimate',
+                amount: v.abs(),
+                currency: cur,
+                color: over ? Colors.red : AppColors.green,
+              );
+            }),
+          ],
+
+          const SizedBox(height: 14),
+
+          // ── Reconciliation ────────────────────────────────────────────────
+          _sectionLabel('RECONCILIATION'),
+          const SizedBox(height: 8),
+          for (final b in r.occurrenceBuckets)
+            _FinRow(
+              label: b.label,
+              amount: b.gross,
+              currency: cur,
+              color: AppColors.green,
+            ),
+          if (r.unallocated.abs() > 0.005)
+            _FinRow(
+              label: 'Unallocated (reviewed, no occurrence)',
+              amount: r.unallocated,
+              currency: cur,
+              color: Colors.blueGrey,
+            ),
+          if (r.unreviewed.abs() > 0.005)
+            _FinRow(
+              label: 'Pending review',
+              amount: r.unreviewed,
+              currency: cur,
+              color: Colors.orange,
+            ),
+          if (r.rejected.abs() > 0.005)
+            _FinRow(
+              label: 'Rejected',
+              amount: r.rejected,
+              currency: cur,
+              color: Colors.red,
+            ),
+          if (r.unitemisedBalance.abs() > 0.005)
+            _FinRow(
+              label: 'Not itemised (headline totals)',
+              amount: r.unitemisedBalance,
+              currency: cur,
+              color: AppColors.textSecondary,
+            ),
+          Divider(
+              height: 14, color: AppColors.border.withValues(alpha: 0.5)),
+          _FinRow(
+            label: 'Total (gross)',
+            amount: r.submittedTotal,
+            currency: cur,
+            color: AppColors.textPrimary,
+            bold: true,
+          ),
+
+          // ── FX warning ────────────────────────────────────────────────────
+          if (r.hasUnconvertedForeign) ...[
             const SizedBox(height: 8),
-            ...finRows,
-          ],
-          if (flags.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Divider(height: 1, color: AppColors.border.withValues(alpha: 0.4)),
-            const SizedBox(height: 6),
-            ...flags.map((f) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    children: [
-                      Icon(f.icon, size: 12, color: f.color),
-                      const SizedBox(width: 6),
-                      Text(f.text,
-                          style: TextStyle(
-                              color: f.color, fontSize: 11)),
-                    ],
+            const Row(
+              children: [
+                Icon(Icons.currency_exchange,
+                    size: 12, color: Colors.orange),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Some foreign-currency items are shown at face value — '
+                    'no FX rate applied. Fetch rates on the invoice to convert.',
+                    style: TextStyle(color: Colors.orange, fontSize: 11),
                   ),
-                )),
+                ),
+              ],
+            ),
           ],
+
+          // ── Unfinished-business detail lists ──────────────────────────────
+          if (r.unreviewedCount > 0)
+            _ExpandableList(
+              icon: Icons.hourglass_empty_outlined,
+              color: Colors.orange,
+              title: '${r.unreviewedCount} '
+                  'line${r.unreviewedCount == 1 ? '' : 's'} pending review',
+              expanded: _showUnreviewed,
+              onToggle: () =>
+                  setState(() => _showUnreviewed = !_showUnreviewed),
+              lines: r.unreviewedLines,
+              currency: cur,
+            ),
+          if (r.rejectedCount > 0)
+            _ExpandableList(
+              icon: Icons.block_outlined,
+              color: Colors.red,
+              title: '${r.rejectedCount} '
+                  'line${r.rejectedCount == 1 ? '' : 's'} rejected',
+              expanded: _showRejected,
+              onToggle: () => setState(() => _showRejected = !_showRejected),
+              lines: r.rejectedLines,
+              currency: cur,
+            ),
         ],
       ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5),
+      );
+}
+
+// ── Expandable review-list (pending / rejected) ─────────────────────────────
+
+class _ExpandableList extends StatelessWidget {
+  const _ExpandableList({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.expanded,
+    required this.onToggle,
+    required this.lines,
+    required this.currency,
+  });
+  final IconData icon;
+  final Color color;
+  final String title;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final List<ReconLine> lines;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Icon(icon, size: 12, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(title,
+                      style: TextStyle(color: color, fontSize: 11)),
+                ),
+                Icon(expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16, color: color),
+              ],
+            ),
+          ),
+        ),
+        if (expanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 18, top: 2, bottom: 2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final rl in lines)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                rl.line.description?.isNotEmpty == true
+                                    ? rl.line.description!
+                                    : rl.line.costNature.label,
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textPrimary),
+                              ),
+                              Text(rl.documentName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.textSecondary)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(_fmtMoney(rl.baseAmount, currency),
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
