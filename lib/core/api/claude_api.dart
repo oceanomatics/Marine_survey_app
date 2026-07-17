@@ -276,6 +276,7 @@ For qualifiers: breadth_qualifier from "Moulded Breadth|Extreme Breadth|Beam (OA
   "date_of_manufacture": "",
   "rated_power_kw": null,
   "rated_rpm": null,
+  "fuel_type": "",
   "voltage_v": null,
   "frequency_hz": null,
   "current_a": null,
@@ -287,6 +288,7 @@ Rules:
 - Return null for numeric fields not found, "" for text fields not found.
 - date_of_manufacture: year only is fine (e.g. "2009"), or ISO date if full date visible.
 - rated_power_kw: convert from kW, bhp, or hp — store in kW (1 hp = 0.7457 kW, 1 bhp = 0.7457 kW).
+- fuel_type: only if stated/derivable from the plate — choose closest from "MGO", "MDO", "HFO", "Dual fuel", "Gas"; otherwise "".
 - additional_info: any other text on the nameplate not captured above (certifications, standards, class marks, etc.) as a single readable string.
 - If a value is partially legible, include what you can read.''',
               },
@@ -388,6 +390,95 @@ Dates in ISO format. Return null for missing fields.''',
 
     final text = _extractText(response.data);
     return _parseJson(text);
+  }
+
+  // ── Equasis text paste → vessel particulars ──────────────────────────────
+
+  /// Parse pasted / imported **Equasis ship-folder text** into a vessel_data
+  /// map whose keys match [VesselModel.applyExtraction] exactly, so the caller
+  /// can apply it straight onto the vessel record.
+  ///
+  /// This is the credential-free fallback to the live Equasis fetch
+  /// ([EquasisService.fetchVesselReport], which logs in and pulls the PDF by
+  /// IMO): a surveyor who has the Equasis page open — but no stored Equasis
+  /// login, or a blocked/failed fetch — can copy-paste the text here and still
+  /// autopopulate flag / class society / build year / GT / owner & manager.
+  ///
+  /// TODO(equasis-live-api): if Equasis or IHS Markit ever exposes a structured
+  /// data API (JSON) keyed on IMO, look the vessel up directly here instead of
+  /// parsing free text — drop the [text] argument for an [imo] one and map the
+  /// API fields onto the same keys returned below. The UI wiring and
+  /// applyExtraction path stay unchanged.
+  static Future<Map<String, dynamic>> extractEquasisText({
+    required String text,
+    String? imoHint,
+    String? caseId,
+  }) async {
+    final hint = (imoHint != null && imoHint.trim().isNotEmpty)
+        ? 'The vessel of interest has IMO number ${imoHint.trim()}. '
+          'If the text lists several ships, use only the one matching that IMO.\n'
+        : '';
+
+    final response = await _dio.post('/messages',
+        options: Options(extra: {
+          'feature': 'equasis_text_extraction',
+          if (caseId != null) 'case_id': caseId,
+          if (caseId != null) 'call_type': 'extraction',
+        }),
+        data: {
+          'model': AppConfig.claudeModel,
+          'max_tokens': 1500,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''${hint}The text below was copied from an Equasis ship record (equasis.org). Extract the vessel particulars and return ONLY a JSON object, no preamble or markdown:
+
+<equasis_text>
+$text
+</equasis_text>
+
+{
+  "vessel_name": "",
+  "imo_number": "",
+  "call_sign": "",
+  "mmsi": "",
+  "vessel_type": "",
+  "flag": "",
+  "port_of_registry": "",
+  "gross_tonnage": null,
+  "net_tonnage": null,
+  "deadweight": null,
+  "year_built": null,
+  "build_yard": "",
+  "build_country": "",
+  "owners": "",
+  "operators": "",
+  "registered_owner": "",
+  "class_society": "",
+  "pi_club": "",
+  "ism_status": "compliant|non_compliant"
+}
+
+Equasis field guidance:
+- flag: the flag state (country of registry), e.g. "Panama", "Marshall Islands".
+- owners / registered_owner: Equasis lists a "Registered owner" — put that in registered_owner; if a distinct beneficial/group owner is named, put it in owners.
+- operators: Equasis's "ISM Manager" / "Ship manager" / "Commercial manager" — the company operating the vessel, distinct from the registered owner.
+- class_society: the classification society (Equasis "Classification society" row), e.g. "DNV", "Lloyd's Register", "Bureau Veritas". Give the society name only, not the notation.
+- pi_club: the P&I insurer named in the "P&I Insurer" row, if present, e.g. "Gard", "Skuld", "West of England".
+- ism_status: "compliant" if a valid DOC/SMC is shown; "non_compliant" only if the record explicitly shows a withdrawn/expired ISM certificate; omit if unclear.
+- gross_tonnage / net_tonnage / deadweight: numeric tonnage values only (no units).
+- year_built: 4-digit year of build.
+Omit any field the text does not contain (do not invent values). Numbers must be numbers, not strings.''',
+            },
+          ],
+        });
+
+    final result = _parseJson(_extractText(response.data));
+    // Strip blank/placeholder values so applyExtraction only ever overwrites
+    // with something real (mirrors the document-extraction vessel_data path).
+    result.removeWhere((k, v) => v == null || v == '' || v == 0);
+    return result;
   }
 
   // ── Narrative Drafting ────────────────────────────────────────────────────
@@ -1389,6 +1480,15 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
       "expiry_date": "YYYY-MM-DD or null"
     }
   ],
+  "detected_contacts": [
+    {
+      "name": "the person's full name",
+      "role": "their professional title / function in context, e.g. Chief Engineer, Master, Owner's Representative, Class Surveyor, Loss Adjuster, Superintendent, Service Engineer, Underwriter, Broker",
+      "company": "the organisation they belong to, or empty",
+      "email": "",
+      "phone": ""
+    }
+  ],
   "vessel_data": {
     "vessel_name": "",
     "previous_name": "",
@@ -1448,6 +1548,7 @@ Rules:
 - detected_incidents: only populate if the document describes a specific physical incident, casualty, accident, or occurrence event; PSC inspections, detentions, and port state deficiencies are NOT incidents — add them as context_findings with note_category "operations"; leave detected_incidents as [] if none
 - detected_machinery: list each distinct machinery item that is a subject of the document (surveyed, serviced, inspected, or described with any technical detail); include make/model/serial when present but do not require them; leave as [] only for items mentioned purely in passing with no context
 - detected_class_conditions: for class survey reports, condition-of-class documents, and class survey certificates, extract EVERY Condition of Class and Recommendation listed — include reference number, description, and expiry/due date; leave as [] for all other document types
+- detected_contacts: list each named PERSON in the document (attendees, signatories, correspondents, crew, surveyors, adjusters, superintendents, owner/manager representatives) with their professional title/function deduced from context — the "role" is a job title/function such as "Chief Engineer" or "Class Surveyor", NOT the company name; include email/phone only when explicitly present; skip generic mentions with no name; leave as [] if the document names no people
 - vessel_data: populate for ANY document that contains vessel identification data — this includes intelligence/registration documents (Equasis, Lloyd's Register, flag state registry, class certificates, vessel particulars sheets) AND class survey reports, condition-of-class documents, PSC inspection reports, and service reports that carry vessel name, IMO, flag, or class notation; omit fields not present in the document; numeric values must be numbers; leave as {} only if the document contains no vessel identification at all
 - vessel_data field guidance:
   · breadth_qualifier: if stated, choose closest from: "Moulded Breadth", "Extreme Breadth", "Beam (OA)", "Breadth", "Beam"
@@ -1774,7 +1875,7 @@ Rules:
   "recipient": "primary recipient name and organisation",
   "corr_date": "date of most recent or primary communication in YYYY-MM-DD format, or null",
   "parties": [
-    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter", "email": "", "phone": ""}
+    {"name": "", "company": "", "role": "the person's professional title / function, e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
   ],
   "key_dates": [
     "YYYY-MM-DD — description of the event"
@@ -1838,7 +1939,7 @@ $emailContent
   "recipient": "primary recipient name and organisation",
   "corr_date": "date of the email in YYYY-MM-DD format, or null",
   "parties": [
-    {"name": "", "company": "", "role": "e.g. Adjuster, Owner, Broker, Surveyor, Underwriter", "email": "", "phone": ""}
+    {"name": "", "company": "", "role": "the person's professional title / function, e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
   ],
   "key_dates": [
     "YYYY-MM-DD — description of the event"

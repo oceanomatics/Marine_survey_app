@@ -153,6 +153,35 @@ class AssuredContactsNotifier
     return affected;
   }
 
+  /// Add stakeholders extracted from a document (Document Vault extraction —
+  /// `detected_contacts`). Each map carries `name` plus optional `role`
+  /// (professional title/function), `company`, `email`, `phone`. Delegates to
+  /// [addFromExtracted] so the same dedupe + non-destructive merge applies.
+  /// Returns the number of contacts added or updated.
+  Future<int> addFromExtractedContacts(
+    String caseId,
+    List<Map<String, dynamic>> contacts,
+  ) async {
+    final parties = <ExtractedParty>[];
+    for (final c in contacts) {
+      final name = c['name']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      String? s(Object? v) {
+        final t = v?.toString().trim();
+        return (t == null || t.isEmpty) ? null : t;
+      }
+      parties.add(ExtractedParty(
+        name: name,
+        company: s(c['company']),
+        role: s(c['role']),
+        email: s(c['email']),
+        phone: s(c['phone']),
+      ));
+    }
+    if (parties.isEmpty) return 0;
+    return addFromExtracted(caseId, parties);
+  }
+
   /// Prefer an existing non-blank value; otherwise take the incoming one.
   String? _fill(String? existing, String? incoming) =>
       (existing != null && existing.trim().isNotEmpty) ? existing : incoming;

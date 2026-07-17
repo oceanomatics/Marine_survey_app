@@ -276,11 +276,17 @@ class _AddMachinerySheetState extends ConsumerState<AddMachinerySheet> {
         final serial = result['serial_number'] as String? ?? '';
         final power  = (result['rated_power_kw'] as num?)?.toDouble();
         final rpm    = (result['rated_rpm'] as num?)?.toDouble();
+        final fuel   = (result['fuel_type'] as String? ?? '').trim();
         if (make.isNotEmpty)   _makeCtrl.text   = make;
         if (model.isNotEmpty)  _modelCtrl.text  = model;
         if (serial.isNotEmpty) _serialCtrl.text = serial;
         if (power != null)     _kWCtrl.text     = power.toStringAsFixed(0);
         if (rpm != null)       _rpmCtrl.text    = rpm.toStringAsFixed(0);
+        // Only prefill fuel for engine roles, and only when the plate value
+        // matches one of the offered options (avoids a stray free-text value).
+        if (fuel.isNotEmpty && _isEngine && _fuelTypes.contains(fuel)) {
+          _engineFuel = fuel;
+        }
         // Remember this photo so Save can link it as the nameplate
         // thumbnail once the machinery item has a real id.
         _scannedPhoto = resolved;

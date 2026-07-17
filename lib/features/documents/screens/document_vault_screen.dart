@@ -1235,6 +1235,22 @@ class _ExtractionResultSheetState
         }
       }
 
+      // 1b. Named people found in the document → the case's Stakeholders /
+      // Parties list, each carrying the professional title/function deduced
+      // from context (Chief Engineer, Class Surveyor, …). Non-destructive:
+      // addFromExtractedContacts dedupes by name and only fills blank fields
+      // on an existing contact, so re-applying never clobbers surveyor edits.
+      if (widget.result.detectedContacts.isNotEmpty) {
+        try {
+          await ref
+              .read(assuredContactsProvider(widget.caseId).notifier)
+              .addFromExtractedContacts(
+                  widget.caseId, widget.result.detectedContacts);
+        } catch (_) {
+          // A contacts-merge failure must not abort the rest of the apply.
+        }
+      }
+
       // Build full findings list with category for the summary view.
       // Preserve cumulative applied state: an item stays 'applied: true' if it
       // was applied in a previous round even if unchecked this time.
@@ -2662,6 +2678,12 @@ DocExtractionResult _parsePhotoExtraction(
       .map((e) => Map<String, dynamic>.from(e))
       .toList();
 
+  final contacts = (raw['detected_contacts'] as List? ?? [])
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .where((e) => (e['name']?.toString().trim() ?? '').isNotEmpty)
+      .toList();
+
   final vesselFields = <String, dynamic>{};
   final rawVessel = raw['vessel_data'];
   if (rawVessel is Map) {
@@ -2682,6 +2704,7 @@ DocExtractionResult _parsePhotoExtraction(
     findingPages: findingPages,
     detectedIncidents: incidents,
     detectedMachinery: machinery,
+    detectedContacts: contacts,
     vesselFields: vesselFields,
     suggestedCategory: raw['suggested_category'] as String?,
     documentType: raw['document_type'] as String?,

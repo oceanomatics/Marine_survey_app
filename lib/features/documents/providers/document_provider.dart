@@ -258,6 +258,7 @@ class DocExtractionResult {
     required this.detectedIncidents,
     required this.detectedMachinery,
     this.detectedClassConditions = const [],
+    this.detectedContacts = const [],
     this.vesselFields = const {},
     this.suggestedCategory,
     this.documentType,
@@ -283,6 +284,12 @@ class DocExtractionResult {
   final List<Map<String, dynamic>> detectedMachinery;
   final List<Map<String, dynamic>> detectedClassConditions;
 
+  /// Named people extracted from the document with their professional
+  /// title/function in `role` (e.g. Chief Engineer, Class Surveyor). Applied
+  /// to the case's Stakeholders / Parties list. Each map: name, role,
+  /// company, email, phone.
+  final List<Map<String, dynamic>> detectedContacts;
+
   /// Vessel particulars extracted from intelligence documents (Equasis etc).
   final Map<String, dynamic> vesselFields;
   final String? suggestedCategory;
@@ -293,6 +300,7 @@ class DocExtractionResult {
   bool get hasIncidents => detectedIncidents.isNotEmpty;
   bool get hasMachinery => detectedMachinery.isNotEmpty;
   bool get hasClassConditions => detectedClassConditions.isNotEmpty;
+  bool get hasContacts => detectedContacts.isNotEmpty;
   bool get hasVesselData => vesselFields.isNotEmpty;
   bool get hasAny =>
       hasHardData ||
@@ -561,6 +569,12 @@ class DocumentNotifier
             e['description'] != null && e['description'].toString().isNotEmpty)
         .toList();
 
+    final contacts = (raw['detected_contacts'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => (e['name']?.toString().trim() ?? '').isNotEmpty)
+        .toList();
+
     // Vessel particulars from intelligence documents (Equasis, Lloyd's, etc.)
     final vesselFields = <String, dynamic>{};
     final rawVessel = raw['vessel_data'];
@@ -589,6 +603,7 @@ class DocumentNotifier
       detectedIncidents: incidents,
       detectedMachinery: machinery,
       detectedClassConditions: classConditions,
+      detectedContacts: contacts,
       vesselFields: vesselFields,
       suggestedCategory: raw['suggested_category'] as String?,
       documentType: raw['document_type'] as String?,

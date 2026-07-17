@@ -81,6 +81,7 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
       final serial = result['serial_number'] as String? ?? '';
       final powerKw = (result['rated_power_kw'] as num?)?.toDouble();
       final rpm = (result['rated_rpm'] as num?)?.toDouble();
+      final fuel = (result['fuel_type'] as String? ?? '').trim();
       final addl = result['additional_info'] as String? ?? '';
 
       final updated = widget.machinery.copyWith(
@@ -89,6 +90,7 @@ class _MachineryCardState extends ConsumerState<MachineryCard> {
         serialNumber: serial.isNotEmpty ? serial : null,
         mcrKw: powerKw,
         mcrRpm: rpm,
+        fuelType: fuel.isNotEmpty ? fuel : null,
       );
 
       // Show confirmation before writing

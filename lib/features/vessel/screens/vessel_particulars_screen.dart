@@ -11,6 +11,8 @@ import '../../cases/providers/cases_provider.dart';
 import '../../documents/providers/document_provider.dart';
 import '../../settings/providers/account_provider.dart';
 import '../../../core/api/equasis_service.dart';
+import '../../../core/api/claude_api.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
 import '../../../shared/widgets/chip_row.dart';
@@ -704,6 +706,104 @@ class _VesselParticularsScreenState
     }
   }
 
+  /// Credential-free Equasis fallback: paste the copied Equasis ship-record
+  /// text, parse it with Claude, and fill the particulars form directly. Use
+  /// when there's no stored Equasis login or the live fetch is blocked.
+  Future<void> _pasteEquasisText() async {
+    final pasteCtrl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Paste Equasis text'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Copy the ship record from equasis.org and paste it here. '
+              'Flag, class society, build year, tonnage and owner/manager '
+              'will be extracted and filled in.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pasteCtrl,
+              maxLines: 8,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Paste Equasis ship-record text…',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, pasteCtrl.text.trim()),
+              child: const Text('Extract')),
+        ],
+      ),
+    );
+    pasteCtrl.dispose();
+    if (text == null || text.isEmpty || !mounted) return;
+
+    try {
+      final extracted = await ref.read(aiTasksProvider.notifier).run(
+            label: 'Parsing Equasis text',
+            caseId: widget.caseId,
+            estimate: const Duration(seconds: 8),
+            action: () => ClaudeApi.extractEquasisText(
+              text: text,
+              imoHint: _imoCtrl.text.trim().isEmpty ? null : _imoCtrl.text.trim(),
+              caseId: widget.caseId,
+            ),
+          );
+      if (!mounted) return;
+      if (extracted.isEmpty) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(
+              content: Text('No vessel particulars found in that text')));
+        return;
+      }
+
+      // Ensure a vessel record exists to apply onto.
+      final notifier = ref.read(vesselForCaseProvider(widget.caseId).notifier);
+      var vesselId = ref.read(vesselForCaseProvider(widget.caseId)).value?.vesselId ?? _vesselId;
+      if (vesselId == null) {
+        final name = extracted['vessel_name'] as String? ?? 'TBC';
+        final created =
+            await notifier.createVessel(caseId: widget.caseId, name: name);
+        vesselId = created.vesselId;
+      }
+
+      final updated = await notifier.applyExtraction(
+        caseId: widget.caseId,
+        vesselId: vesselId,
+        extracted: extracted,
+      );
+      if (!mounted) return;
+      // Re-seed the form from the merged record (vesselId is unchanged, so the
+      // build-time _populateFields guard won't fire on its own).
+      _populateFields(updated);
+      setState(() {});
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+            content: Text(
+                'Filled ${extracted.length} field(s) from Equasis text')));
+    } catch (e, st) {
+      if (mounted) {
+        showError(context, 'Equasis parse failed: $e',
+            error: e, stack: st, tag: 'Vessel');
+      }
+    }
+  }
+
   void _markChanged() => setState(() => _hasChanges = true);
 
   @override
@@ -826,6 +926,7 @@ class _VesselParticularsScreenState
               });
             },
             onEquasisFetch: _fetchFromEquasis,
+            onEquasisPaste: _pasteEquasisText,
             fetchingEquasis: _fetchingEquasis,
           ),
           _RegistrationTab(
@@ -970,6 +1071,7 @@ class _IdentityOwnershipTab extends ConsumerStatefulWidget {
     required this.onVesselTypeChanged,
     required this.onRegulatoryStandardChanged,
     this.onEquasisFetch,
+    this.onEquasisPaste,
     this.fetchingEquasis = false,
   });
 
@@ -983,6 +1085,7 @@ class _IdentityOwnershipTab extends ConsumerStatefulWidget {
   final ValueChanged<String?> onVesselTypeChanged;
   final ValueChanged<RegulatoryStandard?> onRegulatoryStandardChanged;
   final VoidCallback? onEquasisFetch;
+  final VoidCallback? onEquasisPaste;
   final bool fetchingEquasis;
 
   @override
@@ -1208,6 +1311,30 @@ class _IdentityOwnershipTabState
                 ),
               ),
             ),
+            if (widget.onEquasisPaste != null) ...[
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Tooltip(
+                  message: 'Paste Equasis text (no login needed)',
+                  child: InkWell(
+                    onTap: widget.onEquasisPaste,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightTeal,
+                        border: Border.all(color: AppColors.teal),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.content_paste,
+                          size: 15, color: AppColors.teal),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
 
