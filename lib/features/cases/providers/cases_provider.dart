@@ -373,6 +373,18 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     if (current == null) return;
 
     if (current.vesselId != null) {
+      // Guard (17 July 2026): never rename a vessel that is already identified
+      // by IMO. A vessel name extracted from a cross-linked email must not
+      // overwrite the real, IMO-verified vessel (the Balder-vs-Odin bug) — and
+      // the vessel record may be shared by other cases. Skip the rename.
+      final existing = await SupabaseService.client
+          .from('vessels')
+          .select('imo_number')
+          .eq('vessel_id', current.vesselId!)
+          .maybeSingle();
+      final hasImo =
+          ((existing?['imo_number'] as String?) ?? '').trim().isNotEmpty;
+      if (hasImo) return;
       await SupabaseService.client
           .from('vessels')
           .update({'name': vesselName})

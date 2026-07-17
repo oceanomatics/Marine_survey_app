@@ -1137,7 +1137,18 @@ class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
         (c == null || (c.hasPlaceholderFileNo as bool));
     _applyClaim = widget.refs.claimReference != null &&
         (c == null || (c.claimReference == null));
-    _applyVessel = widget.refs.vesselName != null;
+    // Guard (17 July 2026): don't pre-check overwriting an already-identified
+    // vessel. A cross-linked email can name a *different* vessel (e.g. a
+    // "MINRES BALDER" email applied to the "MINRES ODIN" case), and silently
+    // applying it renames the real, IMO-verified vessel. Only default-on when
+    // the case has no vessel yet; once a vessel is linked the surveyor must
+    // tick it deliberately (the row shows current-vs-extracted so a mismatch
+    // is visible), and upsertVesselName refuses to rename an IMO-set vessel.
+    _applyVessel = widget.refs.vesselName != null &&
+        (c == null ||
+            (c.vesselId == null &&
+                (c.vesselName == null ||
+                    (c.vesselName as String).trim().isEmpty)));
     _applyDate = widget.refs.instructionDate != null &&
         (c == null || c.instructionDate == null);
   }
