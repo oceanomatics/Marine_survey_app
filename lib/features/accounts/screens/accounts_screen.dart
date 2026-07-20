@@ -657,6 +657,7 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
                 controller: _estimateCtrl,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                textInputAction: TextInputAction.done,
                 style: const TextStyle(fontSize: 13),
                 decoration: InputDecoration(
                   isDense: true,
@@ -722,6 +723,7 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
                   controller: _feeHoursCtrl,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,
@@ -743,6 +745,7 @@ class _CostEstimateSelectorState extends ConsumerState<_CostEstimateSelector> {
                   controller: _feeExpensesCtrl,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,

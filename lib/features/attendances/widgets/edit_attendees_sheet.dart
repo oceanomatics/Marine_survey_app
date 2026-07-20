@@ -328,6 +328,9 @@ class _EditAttendeesSheetState extends ConsumerState<EditAttendeesSheet> {
                         child: TextField(
                           controller: _nameCtrl,
                           textCapitalization: TextCapitalization.words,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) =>
+                              FocusScope.of(context).unfocus(),
                           style: const TextStyle(
                               fontSize: 14, color: AppColors.textPrimary),
                           decoration: _inputDeco('Full name'),
@@ -382,6 +385,9 @@ class _EditAttendeesSheetState extends ConsumerState<EditAttendeesSheet> {
                       Expanded(
                         child: TextField(
                           controller: _companyCtrl,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) =>
+                              FocusScope.of(context).unfocus(),
                           style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.textPrimary),
@@ -557,7 +563,9 @@ class _PartyPickerSheetState extends State<_PartyPickerSheet> {
             const SizedBox(height: 10),
             TextField(
               autofocus: true,
+              textInputAction: TextInputAction.done,
               onChanged: (v) => setState(() => _query = v),
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               decoration: InputDecoration(
                 isDense: true,
                 prefixIcon: const Icon(Icons.search, size: 20),
@@ -690,6 +698,7 @@ class _AttendeeRowState extends State<_AttendeeRow> {
               controller: _editNameCtrl,
               autofocus: true,
               textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
               style: const TextStyle(fontSize: 13),
               decoration: const InputDecoration(isDense: true),
               onSubmitted: (_) => _saveEdit(),

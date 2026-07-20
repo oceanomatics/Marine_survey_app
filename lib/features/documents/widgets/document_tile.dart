@@ -296,6 +296,8 @@ class DocumentTile extends ConsumerWidget {
             const SizedBox(height: 6),
             TextField(
               controller: titleCtrl,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               style: const TextStyle(fontSize: 13),
               decoration: InputDecoration(
                 hintText: 'Document title',
@@ -506,6 +508,7 @@ class DocumentTile extends ConsumerWidget {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
           decoration: const InputDecoration(hintText: 'Document title'),
           onSubmitted: (_) async {
             final title = ctrl.text.trim();

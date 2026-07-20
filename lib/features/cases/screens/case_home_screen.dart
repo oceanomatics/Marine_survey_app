@@ -2914,6 +2914,8 @@ class _DocumentRequestComposeSheetState
               TextField(
                 controller: _toCtrl,
                 keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 decoration: const InputDecoration(
                     labelText: 'To', border: OutlineInputBorder()),
               ),

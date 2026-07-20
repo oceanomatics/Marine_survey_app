@@ -287,8 +287,12 @@ class _DetailsTab extends StatelessWidget {
           controller: ctrl,
           maxLines: maxLines,
           keyboardType: keyboardType,
+          textInputAction: maxLines == 1 ? TextInputAction.done : null,
           decoration: InputDecoration(labelText: label),
           onChanged: (_) => onChanged(),
+          onSubmitted: maxLines == 1
+              ? (_) => FocusManager.instance.primaryFocus?.unfocus()
+              : null,
         ),
       );
 }
@@ -355,6 +359,8 @@ class _ColourFieldState extends State<_ColourField> {
         Expanded(
           child: TextField(
             controller: widget.ctrl,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => FocusScope.of(context).unfocus(),
             decoration: InputDecoration(
               labelText: widget.label,
               hintText: '#1A3A5C',
@@ -782,15 +788,15 @@ class _SurveyorsTab extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl,  decoration: const InputDecoration(labelText: 'Full name *'), autofocus: true),
+              TextField(controller: nameCtrl,  textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Full name *'), autofocus: true),
               const SizedBox(height: 8),
-              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'Title / rank', hintText: 'Master Mariner')),
+              TextField(controller: titleCtrl, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Title / rank', hintText: 'Master Mariner')),
               const SizedBox(height: 8),
-              TextField(controller: qualCtrl,  decoration: const InputDecoration(labelText: 'Qualifications', hintText: 'FNI, MRINA')),
+              TextField(controller: qualCtrl,  textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Qualifications', hintText: 'FNI, MRINA')),
               const SizedBox(height: 8),
-              TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress),
+              TextField(controller: emailCtrl, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 8),
-              TextField(controller: phoneCtrl, decoration: const InputDecoration(labelText: 'Phone'), keyboardType: TextInputType.phone),
+              TextField(controller: phoneCtrl, textInputAction: TextInputAction.done, onSubmitted: (_) => FocusScope.of(ctx).unfocus(), decoration: const InputDecoration(labelText: 'Phone'), keyboardType: TextInputType.phone),
             ],
           ),
         ),

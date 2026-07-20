@@ -162,12 +162,14 @@ class _CausationSheetState extends ConsumerState<CausationSheet> {
             children: [
               TextField(
                 controller: sourceCtrl,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                     labelText: 'Source (e.g. Class Surveyor, OEM Engineer)'),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: docCtrl,
+                textInputAction: TextInputAction.next,
                 decoration:
                     const InputDecoration(labelText: 'Document reference'),
               ),

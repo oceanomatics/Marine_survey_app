@@ -27,11 +27,14 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(controller: _jobCtrl,
+              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                   labelText: 'Technical File No.',
                   hintText: 'e.g. AU-M53-056789 — can be filled from instruction email')),
           const SizedBox(height: 16),
           TextField(controller: _claimCtrl,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               decoration: const InputDecoration(
                   labelText: 'Claim Reference',
                   hintText: 'e.g. GARD-2025O123456')),

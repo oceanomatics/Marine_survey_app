@@ -347,6 +347,10 @@ class _EditAccountLineSheetState extends State<EditAccountLineSheet> {
             controller: ctrl,
             maxLines: maxLines,
             keyboardType: keyboardType,
+            textInputAction: maxLines == 1 ? TextInputAction.done : null,
+            onSubmitted: maxLines == 1
+                ? (_) => FocusScope.of(context).unfocus()
+                : null,
             style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               filled: true,
@@ -709,6 +713,8 @@ class _ApportionSubOptions extends StatelessWidget {
               controller: valueCtrl,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
               decoration: InputDecoration(
                 hintText: selected == 'percentage'

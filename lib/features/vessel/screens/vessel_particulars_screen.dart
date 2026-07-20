@@ -2548,6 +2548,8 @@ class _SearchPickerSheetState extends State<_SearchPickerSheet> {
                 child: TextField(
                   controller: _searchCtrl,
                   autofocus: false,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => FocusScope.of(context).unfocus(),
                   decoration: InputDecoration(
                     hintText: 'Search or type a custom value…',
                     prefixIcon: const Icon(Icons.search, size: 18),

@@ -27,6 +27,7 @@ Future<void> createOrganisation(BuildContext context, WidgetRef ref) async {
           hintText: 'e.g. Oceanoservices Pty Ltd',
         ),
         textCapitalization: TextCapitalization.words,
+        textInputAction: TextInputAction.done,
         onSubmitted: (_) => Navigator.of(ctx).pop(ctrl.text.trim()),
       ),
       actions: [

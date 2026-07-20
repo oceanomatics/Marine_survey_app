@@ -1152,6 +1152,8 @@ class _DaysField extends StatelessWidget {
           controller: controller,
           keyboardType:
               const TextInputType.numberWithOptions(decimal: true),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => FocusScope.of(context).unfocus(),
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
           ],

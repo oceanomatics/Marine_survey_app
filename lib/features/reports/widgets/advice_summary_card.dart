@@ -376,9 +376,13 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
           enabled: !locked,
           maxLines: maxLines,
           keyboardType: keyboardType,
+          textInputAction: maxLines == 1 ? TextInputAction.done : null,
           style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
           onChanged: (val) => _stage(key,
               keyboardType == TextInputType.number ? num.tryParse(val) : val),
+          onSubmitted: maxLines == 1
+              ? (_) => FocusScope.of(context).unfocus()
+              : null,
           decoration: InputDecoration(
             isDense: true,
             hintText: hint,

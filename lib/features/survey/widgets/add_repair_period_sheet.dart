@@ -264,6 +264,8 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                   _label('Title (optional)'),
                   TextField(
                     controller: _titleCtrl,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => FocusScope.of(context).unfocus(),
                     decoration: _dec(
                         hint: 'e.g. "Temporary Repairs" or leave blank'),
                   ),
@@ -296,6 +298,8 @@ class _AddRepairPeriodSheetState extends State<AddRepairPeriodSheet> {
                   _label('Location / Yard'),
                   TextField(
                     controller: _locationCtrl,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => FocusScope.of(context).unfocus(),
                     decoration: _dec(hint: 'e.g. Brisbane Dry Dock, Port of Brisbane'),
                   ),
                   const SizedBox(height: 16),

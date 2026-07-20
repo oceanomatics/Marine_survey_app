@@ -1061,11 +1061,13 @@ class _GmailReplyDialogState extends State<_GmailReplyDialog> {
           children: [
             TextField(
               controller: _toCtrl,
+              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(labelText: 'To'),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _subjectCtrl,
+              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(labelText: 'Subject'),
             ),
             const SizedBox(height: 8),

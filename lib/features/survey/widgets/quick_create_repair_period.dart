@@ -31,6 +31,8 @@ Future<String?> showQuickCreateRepairPeriodDialog(
       content: TextField(
         controller: ctrl,
         autofocus: true,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
         decoration: const InputDecoration(
           labelText: 'Title',
           border: OutlineInputBorder(),

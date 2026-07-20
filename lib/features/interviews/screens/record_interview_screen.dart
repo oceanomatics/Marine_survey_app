@@ -247,6 +247,8 @@ class _RecordInterviewScreenState
             // ── Title (optional) ───────────────────────────────────────
             TextField(
               controller: _titleCtrl,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               decoration: InputDecoration(
                 labelText: 'Interview title (optional)',
                 hintText: 'e.g. Chief Officer – damage walkthrough',

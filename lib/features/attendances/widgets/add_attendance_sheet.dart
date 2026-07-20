@@ -646,6 +646,10 @@ class _AddAttendanceSheetState extends State<AddAttendanceSheet> {
       controller: ctrl,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      textInputAction: maxLines == 1 ? TextInputAction.done : null,
+      onSubmitted: maxLines == 1
+          ? (_) => FocusScope.of(context).unfocus()
+          : null,
       style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,
@@ -922,6 +926,8 @@ class _NewAttendeeRow extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: entry.nameCtrl,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 style: const TextStyle(
                     fontSize: 13, color: AppColors.textPrimary),
                 decoration: InputDecoration(
@@ -999,6 +1005,8 @@ class _NewAttendeeRow extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: entry.companyCtrl,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 style: const TextStyle(
                     fontSize: 13, color: AppColors.textPrimary),
                 decoration: InputDecoration(

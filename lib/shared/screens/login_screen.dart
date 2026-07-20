@@ -48,12 +48,15 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _emailCtrl,
                 keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(labelText: 'Email'),
               ),
               const SizedBox(height: 14),
               TextField(
                 controller: _passCtrl,
                 obscureText: true,
+                textInputAction:
+                    _isRegister ? TextInputAction.next : TextInputAction.done,
                 decoration: const InputDecoration(labelText: 'Password'),
                 onSubmitted: _isRegister ? null : (_) => _signIn(),
               ),
@@ -62,6 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _confirmCtrl,
                   obscureText: true,
+                  textInputAction: TextInputAction.done,
                   decoration:
                       const InputDecoration(labelText: 'Confirm Password'),
                   onSubmitted: (_) => _register(),

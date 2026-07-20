@@ -277,6 +277,7 @@ class _AddRepairSheetState extends State<AddRepairSheet> {
                       controller: _estCostCtrl,
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true),
+                      textInputAction: TextInputAction.next,
                       style: const TextStyle(fontSize: 13),
                       decoration: _fieldDeco(hint: '0', prefix: 'AUD '),
                     ),
@@ -294,6 +295,8 @@ class _AddRepairSheetState extends State<AddRepairSheet> {
                       controller: _actCostCtrl,
                       keyboardType: const TextInputType.numberWithOptions(
                           decimal: true),
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => FocusScope.of(context).unfocus(),
                       style: const TextStyle(fontSize: 13),
                       decoration: _fieldDeco(hint: '0', prefix: 'AUD '),
                     ),

@@ -376,6 +376,8 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
         controller: ctrl,
         style:
             const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => FocusScope.of(context).unfocus(),
         decoration: _inputDeco(label, hint: hint),
       );
 }

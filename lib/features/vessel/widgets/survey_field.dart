@@ -67,6 +67,11 @@ class SurveyField extends StatelessWidget {
               maxLines: maxLines,
               enabled: enabled,
               onChanged: onChanged,
+              textInputAction:
+                  maxLines == 1 ? TextInputAction.done : null,
+              onSubmitted: maxLines == 1
+                  ? (_) => FocusScope.of(context).unfocus()
+                  : null,
               style: const TextStyle(
                 fontSize: 14,
                 color: AppColors.textPrimary,

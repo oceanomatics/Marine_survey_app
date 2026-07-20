@@ -326,6 +326,10 @@ class _AddTimelineEventSheetState extends State<AddTimelineEventSheet> {
     return TextField(
       controller: ctrl,
       maxLines: maxLines,
+      textInputAction: maxLines == 1 ? TextInputAction.done : null,
+      onSubmitted: maxLines == 1
+          ? (_) => FocusScope.of(context).unfocus()
+          : null,
       style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,

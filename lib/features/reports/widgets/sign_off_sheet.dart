@@ -403,6 +403,8 @@ class _SigningPanelState extends ConsumerState<_SigningPanel> {
                 isDense: true,
               ),
               textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
             ),
             const SizedBox(height: 12),
 

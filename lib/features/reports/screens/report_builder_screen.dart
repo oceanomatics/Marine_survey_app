@@ -769,6 +769,7 @@ class _ChangesSummaryFieldState extends ConsumerState<_ChangesSummaryField> {
             child: TextField(
               controller: _ctrl,
               maxLines: 1,
+              textInputAction: TextInputAction.done,
               style:
                   const TextStyle(fontSize: 12, color: AppColors.textPrimary),
               decoration: InputDecoration(

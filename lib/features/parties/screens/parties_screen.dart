@@ -624,6 +624,8 @@ class _RoleCard extends StatelessWidget {
       TextField(
         controller: ctrl,
         keyboardType: keyboardType,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
         style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
         decoration: InputDecoration(
           labelText: label,
@@ -723,7 +725,9 @@ class _StakeholderPickerSheetState extends State<_StakeholderPickerSheet> {
               child: TextField(
                 controller: _searchCtrl,
                 autofocus: false,
+                textInputAction: TextInputAction.done,
                 onChanged: (v) => setState(() => _query = v),
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 style: const TextStyle(fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'Search name, company, role…',

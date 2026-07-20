@@ -195,6 +195,8 @@ class _NewOutputSheetState extends State<NewOutputSheet> {
           const SizedBox(height: 5),
           TextField(
             controller: _numberCtrl,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => FocusScope.of(context).unfocus(),
             style: const TextStyle(
                 fontSize: 13, color: AppColors.textPrimary),
             decoration: InputDecoration(

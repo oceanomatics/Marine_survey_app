@@ -549,6 +549,7 @@ class _ProfileCard extends StatelessWidget {
         TextField(
           controller: nameCtrl,
           onChanged: (_) => onChanged(),
+          textInputAction: TextInputAction.next,
           style: const TextStyle(fontSize: 13),
           decoration: dec('Full Name', icon: Icons.person_outline),
         ),
@@ -557,6 +558,7 @@ class _ProfileCard extends StatelessWidget {
           controller: emailCtrl,
           onChanged: (_) => onChanged(),
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
           style: const TextStyle(fontSize: 13),
           decoration: dec('Email Address', icon: Icons.email_outlined),
         ),
@@ -565,6 +567,7 @@ class _ProfileCard extends StatelessWidget {
           controller: phoneCtrl,
           onChanged: (_) => onChanged(),
           keyboardType: TextInputType.phone,
+          textInputAction: TextInputAction.next,
           style: const TextStyle(fontSize: 13),
           decoration: dec('Phone Number', icon: Icons.phone_outlined),
         ),
@@ -757,6 +760,8 @@ class _ApiKeyEditCardState extends ConsumerState<_ApiKeyEditCard> {
             TextField(
               controller: _ctrl,
               obscureText: widget.secret && _obscure,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusScope.of(context).unfocus(),
               style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
               decoration: InputDecoration(
                 labelText: widget.fieldLabel,
@@ -1047,6 +1052,7 @@ class _AccountSheetState extends State<_AccountSheet> {
             controller: _usernameCtrl,
             style: const TextStyle(fontSize: 13),
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
             decoration: dec('Username / Email'),
           ),
           const SizedBox(height: 10),
@@ -1054,6 +1060,8 @@ class _AccountSheetState extends State<_AccountSheet> {
             controller: _passwordCtrl,
             style: const TextStyle(fontSize: 13),
             obscureText: _obscurePassword,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => FocusScope.of(context).unfocus(),
             decoration: dec('Password').copyWith(
               suffixIcon: IconButton(
                 icon: Icon(

@@ -742,6 +742,8 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
                 TextField(
                   controller: ctrl,
                   autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => FocusScope.of(context).unfocus(),
                   decoration: const InputDecoration(
                       hintText: 'e.g. Bridge logbook extract — 17/08/2025'),
                 ),
@@ -960,6 +962,8 @@ class _DocImportSheetState extends ConsumerState<_DocImportSheet> {
               // Title
               TextField(
                 controller: _titleCtrl,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 style:
                     const TextStyle(fontSize: 14, color: AppColors.textPrimary),
                 decoration: InputDecoration(

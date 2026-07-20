@@ -2347,6 +2347,7 @@ class _RegisterDetailsSheetState extends State<_RegisterDetailsSheet> {
               const SizedBox(height: 5),
               TextField(
                 controller: _locationCtrl,
+                textInputAction: TextInputAction.next,
                 style: const TextStyle(fontSize: 13),
                 decoration: _decoration('e.g. Port main engine, turbocharger'),
               ),
@@ -2359,6 +2360,7 @@ class _RegisterDetailsSheetState extends State<_RegisterDetailsSheet> {
               const SizedBox(height: 5),
               TextField(
                 controller: _directionCtrl,
+                textInputAction: TextInputAction.next,
                 style: const TextStyle(fontSize: 13),
                 decoration:
                     _decoration('e.g. Looking aft, general overview'),

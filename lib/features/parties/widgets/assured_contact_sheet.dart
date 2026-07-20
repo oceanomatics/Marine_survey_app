@@ -245,6 +245,10 @@ class _AssuredContactSheetState extends State<AssuredContactSheet> {
         controller: ctrl,
         keyboardType: keyboardType,
         maxLines: maxLines,
+        textInputAction: maxLines == 1 ? TextInputAction.done : null,
+        onSubmitted: maxLines == 1
+            ? (_) => FocusScope.of(context).unfocus()
+            : null,
         style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
         decoration: _inputDeco(label, hint: hint),
       );

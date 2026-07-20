@@ -87,6 +87,8 @@ class _PhotoDetailSheetState extends ConsumerState<PhotoDetailSheet> {
               TextField(
                 controller: labelCtrl,
                 autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => FocusScope.of(context).unfocus(),
                 decoration: const InputDecoration(
                     hintText: 'e.g. Diver\'s Inspection, Crew Photo'),
               ),
