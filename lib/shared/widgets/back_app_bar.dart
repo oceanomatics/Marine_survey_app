@@ -125,6 +125,16 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: () {
                 if (canPop) {
                   hasGoRouter ? context.pop() : Navigator.pop(context);
+                } else if (Navigator.canPop(context)) {
+                  // Reached via a raw Navigator.push (e.g. a PDF/image viewer
+                  // or a picker opened with MaterialPageRoute), not go_router:
+                  // go_router's canPop() above is false because the pushed
+                  // route isn't in its history, but the raw Navigator can
+                  // still pop it. Pop it directly rather than falling through
+                  // to context.go(fallback) below, which would navigate
+                  // go_router underneath while leaving the pushed route on top
+                  // — the "back button loops me around" bug (§9 walkthrough).
+                  Navigator.pop(context);
                 } else if (fallback != null) {
                   context.go(fallback);
                 }
