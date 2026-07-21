@@ -222,3 +222,11 @@ Useful to know explicitly before building presentation claims:
   free "present this report" view, a demo/sample case with polished data, a
   one-tap PDF/preview share, and cleaner on-screen affordances for walking a
   client through the report front page (Advice Summary) and export.
+- **Scan a screen / monitor (future).** Extend the document-scanner principle
+  (capture → detect outline → dewarp → save to vault → queue AI extraction) to
+  capture a *screen or monitor* — e.g. an ECDIS/engine-control/CCTV display or a
+  laptop showing data. Same pipeline, tuned to detect a rectangular display
+  (bezel/screen edges) rather than paper, and to handle glare/moiré. The native
+  ML Kit document scanner is paper-tuned, so a screen mode likely wants the AI
+  corner-detect path (DocumentScanner.flatten, prompted for a display) or a
+  dedicated model. Requested 21 July 2026.

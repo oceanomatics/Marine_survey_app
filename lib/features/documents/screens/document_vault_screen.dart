@@ -20,6 +20,7 @@ import '../../ai_tasks/providers/ai_tasks_provider.dart';
 import '../../../core/api/supabase_client.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/document_scan.dart';
+import '../../../core/utils/native_document_scan.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
 import '../../../features/photos/models/photo_model.dart';
@@ -452,6 +453,24 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
   /// sheet with the flattened scan. Saving there runs it through the normal
   /// document pipeline, which auto-fires AI extraction (the extract queue).
   Future<void> _scanDocument(BuildContext context, WidgetRef ref) async {
+    // Mobile: use the native real-time scanner (live edge overlay +
+    // auto-capture + on-device dewarp). It returns an already-flattened page,
+    // so we skip the AI corner-detect/dewarp and go straight to import.
+    if (NativeDocumentScan.isSupported) {
+      final scanned = await NativeDocumentScan.scanSinglePage();
+      if (scanned == null || !context.mounted) return; // cancelled
+      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+      await _showImportSheet(
+        context,
+        ref,
+        bytes: scanned,
+        filename: 'Scan $stamp.jpg',
+        mimeType: 'image/jpeg',
+      );
+      return;
+    }
+
+    // Web/desktop fallback: capture + AI corner-detect + dewarp.
     final picked = await ImagePicker().pickImage(
         source: ImageSource.camera, imageQuality: 100, maxWidth: 3000);
     if (picked == null || !context.mounted) return;
