@@ -343,14 +343,14 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                     _aiSummaryCell(
                         column: 'advice_description_of_damage',
                         kind: 'damage',
-                        maxLines: 2,
+                        minLines: 2,
                         deepLink: autoPopulatedEditRoute[SectionType.damageDescription],
                         caseId: caseId)),
                 _row('Nature of Repairs',
                     _aiSummaryCell(
                         column: 'advice_nature_of_repairs',
                         kind: 'repairs',
-                        maxLines: 3,
+                        minLines: 3,
                         deepLink: autoPopulatedEditRoute[SectionType.natureOfRepairs],
                         caseId: caseId)),
                 _row('Status of Repairs',
@@ -365,7 +365,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                     _followUpCell(followUpRequired, locked)),
                 _row('Remarks',
                     _edit('advice_remarks', (val) => _stage('advice_remarks', val), locked,
-                        maxLines: 3, hint: 'Free-text remarks…'),
+                        minLines: 3, hint: 'Free-text remarks…'),
                     last: true),
               ]),
             ),
@@ -450,17 +450,24 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
 
   /// Inline-editable value cell (borderless, so it reads as a table cell).
   Widget _edit(String key, void Function(String) onChanged, bool locked,
-      {String hint = '[TBD]', int maxLines = 1}) {
+      {String hint = '[TBD]', int minLines = 1}) {
+    final multiline = minLines > 1;
     return TextField(
       key: ValueKey('advice-edit-$key'),
       controller: _ctrls[key]!,
       enabled: !locked,
-      maxLines: maxLines,
-      textInputAction: maxLines == 1 ? TextInputAction.done : null,
+      // Grow to fit the whole value — never crop. minLines gives a sensible
+      // starting height (e.g. 2 for Description of Damage, 3 for Nature of
+      // Repairs / Remarks); maxLines:null lets the field expand to show the
+      // entire text however long the summary runs.
+      minLines: minLines,
+      maxLines: null,
+      keyboardType: multiline ? TextInputType.multiline : null,
+      textInputAction: multiline ? null : TextInputAction.done,
       style: const TextStyle(fontSize: 11.5, color: AppColors.textPrimary),
       onChanged: onChanged,
       onSubmitted:
-          maxLines == 1 ? (_) => FocusScope.of(context).unfocus() : null,
+          multiline ? null : (_) => FocusScope.of(context).unfocus(),
       // A subtle filled box + border so the cell visibly reads as an editable
       // field (surveyor: an empty/[TBD] field must obviously invite entry, not
       // look like static text) — distinguishes editable rows from the plain
@@ -496,7 +503,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   Widget _aiSummaryCell({
     required String column,
     required String kind,
-    required int maxLines,
+    required int minLines,
     (String, String)? deepLink,
     required String caseId,
   }) {
@@ -511,7 +518,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
             Expanded(
               child: _edit(column, (v) => _stage(column, v), widget.isLocked,
                   hint: '[TBD] — type or tap ✨ to summarise',
-                  maxLines: maxLines),
+                  minLines: minLines),
             ),
             if (!widget.isLocked)
               busy
@@ -623,7 +630,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
             child: _edit('follow_up_detail',
                 (v) => _stageCase('follow_up_detail', v), locked,
                 hint: 'Detail — e.g. re-attend on completion of repairs',
-                maxLines: 2),
+                minLines: 2),
           ),
       ],
     );
