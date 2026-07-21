@@ -38,6 +38,16 @@ Follows the house convention: `NNN_snake_case.sql`, idempotent, "run in Supabase
 | `cs_recommendation` | per-case | **org-scoped** via `case_id` |
 | `cs_certificate` | per-case | **org-scoped** via `case_id` |
 
+**Section rating derivation (resolved — PLC, 2026-07-21).** A section's overall rating is **auto-derived from its item grades, with manual override**. The section-level scale is its OWN three states — *not* the item grades — reflecting the surveyor's real rollup:
+
+| Item grades in the section (N/A ignored) | Section rating |
+|---|---|
+| none unsatisfactory (all satisfactory/good) | **GOOD** |
+| a minority unsatisfactory (a few findings) | **SATISFACTORY_WITH_ISSUES** |
+| half-or-more unsatisfactory | **UNSATISFACTORY** |
+
+So `cs_sections.rating` stores this derived-but-overridable value (enum `GOOD / SATISFACTORY_WITH_ISSUES / UNSATISFACTORY`), plus a `rating_overridden boolean` so a manual value isn't clobbered when items change. The minority/half boundary is the assumed default — see §8 Q2 for the open tweak (e.g. a critical-item rule).
+
 SQL sketch (abbreviated — real file adds indexes + comments):
 
 ```sql
@@ -70,6 +80,11 @@ CREATE TABLE IF NOT EXISTS cs_template_item (
 -- ── per-case: extend the existing cs_sections scaffold ───────────────────
 ALTER TABLE cs_sections ADD COLUMN IF NOT EXISTS template_section_ref text;
 ALTER TABLE cs_sections ADD COLUMN IF NOT EXISTS vessel_type          text;
+-- section rating: auto-derived from child item grades, override allowed.
+-- Own 3-state scale (GOOD | SATISFACTORY_WITH_ISSUES | UNSATISFACTORY),
+-- distinct from the item grades. rating_overridden guards a manual value.
+ALTER TABLE cs_sections ADD COLUMN IF NOT EXISTS rating_overridden boolean NOT NULL DEFAULT false;
+-- (existing `rating` column reused; app writes the derived value unless overridden)
 -- cs_sections already has the 045 org policy — nothing else to do.
 
 -- ── per-case: the inspection register (F1 instance) ──────────────────────
@@ -214,12 +229,12 @@ const Map<CaseType, List<HubModule>> moduleSetFor = {
 
 ---
 
-## 8. Open questions for this slice
+## 8. Decisions for this slice (resolved 2026-07-21)
 
-1. **T2 seeding route** — standalone seed SQL (Option A) vs. via `checklist_templates` (Option B)? Recommend A unless we want C&S items surfaced in the existing Checklist module too.
-2. **`cs_sections` role** — is it the section *header + rolled-up rating* (my assumption), or should the rolled-up rating be derived from child `cs_inspection_item` grades instead of stored? (Derive = fewer sync headaches; store = matches the existing scaffold column.)
-3. **F1 altitude** — comfortable with "light" F1 (template + shared widgets + F4), or do you want a stricter shared base class? (I recommend light — see T3.)
-4. **AHTS content ownership** — who supplies the authoritative §1–11 Ref/Item list for the seed (extract from the docx, or a fresh list from you)?
+1. ✅ **T2 seeding route** — standalone seed SQL; C&S inspection form kept separate from the existing Checklist module. *(Developer's call.)*
+2. ✅ **`cs_sections` rating** — **auto-derived from item grades, override allowed**, on its own three-state scale `GOOD / SATISFACTORY_WITH_ISSUES / UNSATISFACTORY` (see §1 derivation table). **Open tweak:** the minority↔half boundary — default is *minority unsatisfactory = with-issues, half-or-more = unsatisfactory*; PLC to confirm whether a **critical-item override** applies (any critical item failing → whole section unsatisfactory regardless of count).
+3. ✅ **F1 altitude** — light (template + shared widgets + F4). *(Developer's call.)*
+4. ✅ **AHTS content** — extract the §1–11 Ref/Item list from `CS_AHTS_Integration.docx` (+ reference report). Start with the §1–9 common core, add §10/§11 supplements after.
 
 ---
 
