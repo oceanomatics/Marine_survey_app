@@ -453,20 +453,58 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
   /// sheet with the flattened scan. Saving there runs it through the normal
   /// document pipeline, which auto-fires AI extraction (the extract queue).
   Future<void> _scanDocument(BuildContext context, WidgetRef ref) async {
-    // Mobile: use the native real-time scanner (live edge overlay +
-    // auto-capture + on-device dewarp). It returns an already-flattened page,
-    // so we skip the AI corner-detect/dewarp and go straight to import.
+    // Mobile: native real-time scanner (live edge overlay + auto-capture +
+    // on-device dewarp). Scans a whole BATCH in one session and auto-imports
+    // each page straight to the vault + extraction queue — NO per-document
+    // confirmation sheet (surveyor: confirming each is too slow for a stack).
     if (NativeDocumentScan.isSupported) {
-      final scanned = await NativeDocumentScan.scanSinglePage();
-      if (scanned == null || !context.mounted) return; // cancelled
-      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-      await _showImportSheet(
-        context,
-        ref,
-        bytes: scanned,
-        filename: 'Scan $stamp.jpg',
-        mimeType: 'image/jpeg',
+      final pages = await NativeDocumentScan.scanPages();
+      if (pages.isEmpty || !context.mounted) return; // cancelled
+
+      // Blocking progress while the batch uploads + is queued.
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          content: Row(children: [
+            const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 16),
+            Expanded(
+                child: Text(pages.length == 1
+                    ? 'Saving scan…'
+                    : 'Saving ${pages.length} scans…')),
+          ]),
+        ),
       );
+
+      final stamp =
+          DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 16);
+      var ok = 0;
+      for (var i = 0; i < pages.length; i++) {
+        try {
+          await ref.read(documentProvider(caseId).notifier).uploadAndCreate(
+                caseId: caseId,
+                bytes: pages[i],
+                filename: 'Scan $stamp ${i + 1}.jpg',
+                mimeType: 'image/jpeg',
+                title: 'Scan $stamp${pages.length > 1 ? ' (${i + 1})' : ''}',
+                willExtract: true, // queue AI extraction immediately
+              );
+          ok++;
+        } catch (_) {
+          // Skip a failed page; report the successful count below.
+        }
+      }
+
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                '$ok document${ok == 1 ? '' : 's'} scanned & queued for extraction')));
+      }
       return;
     }
 

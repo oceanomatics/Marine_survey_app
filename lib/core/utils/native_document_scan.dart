@@ -24,14 +24,21 @@ class NativeDocumentScan {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  /// Launches the native scanner (live outline + auto-capture + dewarp) and
-  /// returns the first scanned page's bytes as a flat, upright image — or null
-  /// if the platform is unsupported or the user cancelled. The caller then
-  /// runs the result through the normal Doc Vault import + extraction flow.
-  static Future<Uint8List?> scanSinglePage() async {
-    if (!isSupported) return null;
-    final paths = await CunningDocumentScanner.getPictures(noOfPages: 1);
-    if (paths == null || paths.isEmpty) return null;
-    return XFile(paths.first).readAsBytes();
+  /// Launches the native scanner (live outline + auto-capture + dewarp) for a
+  /// whole batch: the surveyor captures many documents in ONE session (the
+  /// scanner's "add page" between each), and this returns every scanned page's
+  /// flat, upright bytes in order. Empty when unsupported or cancelled. Each
+  /// page is then imported to the Doc Vault + queued for extraction without a
+  /// per-document confirmation (surveyor: confirming each is too slow when
+  /// scanning a stack).
+  static Future<List<Uint8List>> scanPages({int maxPages = 24}) async {
+    if (!isSupported) return const [];
+    final paths = await CunningDocumentScanner.getPictures(noOfPages: maxPages);
+    if (paths == null || paths.isEmpty) return const [];
+    final out = <Uint8List>[];
+    for (final path in paths) {
+      out.add(await XFile(path).readAsBytes());
+    }
+    return out;
   }
 }
