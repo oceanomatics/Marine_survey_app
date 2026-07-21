@@ -93,6 +93,14 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
       // Estimated cost total (case-level) — shown as just the total here.
       'estimated_repair_cost': TextEditingController(
           text: (cd['estimated_repair_cost'] as num?)?.toString() ?? ''),
+      // Survey fee reserve + follow-up — also editable inline so the surveyor
+      // needn't jump to Accounts / Attendances to fill them.
+      'survey_fee_reserve_hours': TextEditingController(
+          text: (cd['survey_fee_reserve_hours'] as num?)?.toString() ?? ''),
+      'survey_fee_reserve_expenses': TextEditingController(
+          text: (cd['survey_fee_reserve_expenses'] as num?)?.toString() ?? ''),
+      'follow_up_detail':
+          TextEditingController(text: cd['follow_up_detail'] as String? ?? ''),
     };
   }
 
@@ -145,20 +153,36 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final f = Map<String, String>.from(_pendingCase);
     _pendingCase.clear();
     final caseId = widget.output.caseId;
-    // Estimated cost is numeric — parse it, ignoring commas / currency chars.
-    final costRaw = f['estimated_repair_cost'];
-    final estimatedCost = costRaw == null
-        ? null
-        : double.tryParse(costRaw.replaceAll(RegExp(r'[^0-9.]'), ''));
+    // Numeric fields — parse tolerantly, ignoring commas / currency chars.
+    double? num_(String key) {
+      final raw = f[key];
+      return raw == null
+          ? null
+          : double.tryParse(raw.replaceAll(RegExp(r'[^0-9.]'), ''));
+    }
+
     await ref.read(caseProvider(caseId).notifier).updateCaseRefs(
           technicalFileNo: f['technical_file_no'],
           claimReference: f['claim_reference'],
           assured: f['assured'],
           instructingParty: f['instructing_party'],
-          estimatedRepairCost: estimatedCost,
+          estimatedRepairCost: num_('estimated_repair_cost'),
+          surveyFeeReserveHours: num_('survey_fee_reserve_hours'),
+          surveyFeeReserveExpenses: num_('survey_fee_reserve_expenses'),
+          followUpDetail: f['follow_up_detail'],
         );
     // Refresh the assembled snapshot the card + Preview read from, so the
     // edit is reflected everywhere without leaving the editor.
+    ref.invalidate(assembledDataProvider(caseId));
+  }
+
+  /// Immediate (non-debounced) case-field write for discrete controls — the
+  /// Follow-up Required Yes/No toggle.
+  Future<void> _setFollowUpRequired(bool required) async {
+    final caseId = widget.output.caseId;
+    await ref
+        .read(caseProvider(caseId).notifier)
+        .updateCaseRefs(followUpRequired: required);
     ref.invalidate(assembledDataProvider(caseId));
   }
 
@@ -230,10 +254,7 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final costApproved = derivedStatus == DerivedRepairStatus.complete ||
         derivedStatus == DerivedRepairStatus.ongoing;
     final currency = caseData['base_currency'] as String? ?? '';
-    final feeHours = caseData['survey_fee_reserve_hours'] as num?;
-    final feeExpenses = caseData['survey_fee_reserve_expenses'] as num?;
     final followUpRequired = caseData['follow_up_required'] as bool?;
-    final followUpDetail = caseData['follow_up_detail'] as String?;
 
     final imoFlag = [v['imo_number'], v['flag']]
         .where((e) => e != null && '$e'.isNotEmpty)
@@ -241,13 +262,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final reportTypeNo =
         [o.outputType.label, o.reportNumber ?? o.versionCode].join(' / ');
     final dateNature = occ?['title'] as String?;
-    final feeLine = 'Hours: ${feeHours ?? '[not set]'}\n'
-        'Expenses: ${feeExpenses != null ? '$currency ${feeExpenses.toStringAsFixed(0)}' : '[not set]'}';
-    final followUpLine = followUpRequired == true
-        ? 'Required${(followUpDetail ?? '').isNotEmpty ? ' — $followUpDetail' : ''}'
-        : followUpRequired == false
-            ? 'Not required'
-            : '[not yet recorded]';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -343,13 +357,12 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                     _ro(derivedStatus.label, edit: ('repairs', 'Repair Periods'), caseId: caseId)),
                 _row(costApproved ? 'Sum Approved (WP)' : 'Estimated Cost of Repairs',
                     _costCell(currency, locked, caseId)),
-                _row('Survey Fee Reserve',
-                    _ro(feeLine, edit: ('accounts', 'Accounts'), caseId: caseId)),
+                _row('Survey Fee Reserve', _feeCell(currency, locked)),
                 _row('Allegation Status',
                     _ro(_allegationLabel(occ?['allegation_type'] as String?),
                         edit: ('occurrence', 'Occurrence'), caseId: caseId)),
                 _row('Follow-up Attendance',
-                    _ro(followUpLine, edit: ('attendances', 'Attendances'), caseId: caseId)),
+                    _followUpCell(followUpRequired, locked)),
                 _row('Remarks',
                     _edit('advice_remarks', (val) => _stage('advice_remarks', val), locked,
                         maxLines: 3, hint: 'Free-text remarks…'),
@@ -537,6 +550,66 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
           ],
         ),
         _editLink(caseId, ('accounts', 'Accounts')),
+      ],
+    );
+  }
+
+  /// Survey Fee Reserve — hours + expenses, editable inline (persist to case).
+  Widget _feeCell(String currency, bool locked) {
+    Widget mini(String label, String key, {String? prefix}) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('$label ',
+                style: const TextStyle(
+                    fontSize: 10.5, color: AppColors.textTertiary)),
+            if (prefix != null && prefix.isNotEmpty)
+              Text('$prefix ',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textTertiary)),
+            SizedBox(
+              width: 74,
+              child: _edit(key, (v) => _stageCase(key, v), locked, hint: '—'),
+            ),
+          ],
+        );
+    return Wrap(
+      spacing: 14,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        mini('Hours', 'survey_fee_reserve_hours'),
+        mini('Expenses', 'survey_fee_reserve_expenses', prefix: currency),
+      ],
+    );
+  }
+
+  /// Follow-up Attendance — Required Yes/No + a detail field when required.
+  Widget _followUpCell(bool? required, bool locked) {
+    Widget chip(String label, bool selected, VoidCallback onTap) => ChoiceChip(
+          label: Text(label, style: const TextStyle(fontSize: 11)),
+          selected: selected,
+          onSelected: locked ? null : (_) => onTap(),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(children: [
+          chip('Required', required == true, () => _setFollowUpRequired(true)),
+          const SizedBox(width: 6),
+          chip('Not required', required == false,
+              () => _setFollowUpRequired(false)),
+        ]),
+        if (required == true)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: _edit('follow_up_detail',
+                (v) => _stageCase('follow_up_detail', v), locked,
+                hint: 'Detail — e.g. re-attend on completion of repairs',
+                maxLines: 2),
+          ),
       ],
     );
   }

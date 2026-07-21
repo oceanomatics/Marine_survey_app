@@ -152,6 +152,11 @@ class _ReportBuilderScreenState extends ConsumerState<ReportBuilderScreen>
             : null,
       ),
       body: outputsAsync.when(
+        // Keep the current page visible while these providers refresh (e.g.
+        // after saving an advice field or hitting the ✨ AI button) instead of
+        // blanking to a full-page spinner and reloading — the reported "the
+        // whole page flashed then reloaded" bug.
+        skipLoadingOnReload: true,
         loading: () => const AppLoadingWidget(),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (outputs) {
@@ -163,6 +168,10 @@ class _ReportBuilderScreenState extends ConsumerState<ReportBuilderScreen>
             );
           }
           return assembledAsync.when(
+            // Same as above: a case-field edit on the Advice card invalidates
+            // assembledDataProvider so the Preview refreshes — don't blank the
+            // page to a spinner while it does.
+            skipLoadingOnReload: true,
             loading: () =>
                 const AppLoadingWidget(message: 'Loading case data...'),
             error: (e, _) => Center(child: Text('Error: $e')),
