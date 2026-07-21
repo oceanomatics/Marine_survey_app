@@ -120,12 +120,16 @@ class GmailService {
               orElse: () => const {})['value'] as String? ??
           '';
 
+      final subject = header('Subject');
       summaries.add(GmailMessageSummary(
         id: id,
-        subject: header('Subject').isEmpty ? '(no subject)' : header('Subject'),
-        from: header('From'),
+        // Decode RFC 2047 MIME words + HTML entities so the new-mail badge and
+        // preview show clean text (e.g. accented names, apostrophes), matching
+        // listRecent — otherwise the background poller surfaced raw headers.
+        subject: subject.isEmpty ? '(no subject)' : decodeMailHeader(subject),
+        from: decodeMailHeader(header('From')),
         date: header('Date').isEmpty ? null : header('Date'),
-        snippet: data['snippet'] as String? ?? '',
+        snippet: decodeMailText(data['snippet'] as String? ?? ''),
       ));
     }
     return summaries;

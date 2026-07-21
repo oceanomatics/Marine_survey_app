@@ -100,4 +100,32 @@ void main() {
       }
     });
   });
+
+  group('sectionBodyOrNoData (mods §A2 wiring)', () {
+    test('returns trimmed content when the section has content', () {
+      expect(
+        sectionBodyOrNoData(SectionType.extraExpenses, '  Some text.  '),
+        'Some text.',
+      );
+    });
+
+    test('falls back to the negative statement for an empty optional section',
+        () {
+      expect(
+        sectionBodyOrNoData(SectionType.extraExpenses, '   '),
+        sectionNoDataSentence[SectionType.extraExpenses],
+      );
+      expect(
+        sectionBodyOrNoData(SectionType.otherMatters, ''),
+        sectionNoDataSentence[SectionType.otherMatters],
+      );
+    });
+
+    test('returns null for an empty section with no negative statement', () {
+      // Background carries no no-data sentence — the caller omits it / shows
+      // the "not yet completed" placeholder rather than inventing prose.
+      expect(sectionBodyOrNoData(SectionType.background, ''), isNull);
+      expect(sectionBodyOrNoData(SectionType.causation, '  '), isNull);
+    });
+  });
 }

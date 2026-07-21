@@ -311,13 +311,18 @@ class DocxExportService {
       // with this report's new delta (spec gap #10 — "no visible breaks"
       // in the rendered output); equals plain .content when there's
       // nothing carried forward.
-      if (section == null || section.fullContent.trim().isEmpty) return;
+      // A section with no content is omitted — EXCEPT the optional sections
+      // that carry an explicit house-style "nothing to report" negative
+      // statement (mods doc §A2), which are emitted so the reader sees the
+      // matter was considered rather than a silent gap.
+      final body = sectionBodyOrNoData(type, section?.fullContent ?? '');
+      if (body == null) return;
       doc.addHeading(heading, 2);
       // House-style italic purpose line beneath the heading (docs/
       // house_style.md convention), before any content.
       final purpose = purposeLineFor(type);
       if (purpose != null) doc.addParagraph(purpose, italic: true);
-      for (final para in splitSectionParagraphs(section.fullContent)) {
+      for (final para in splitSectionParagraphs(body)) {
         // Analyst-inserted (or any Markdown) table blocks export as real
         // Word tables, not flattened text (house-style item 20).
         final table = tryParseMarkdownTable(para);

@@ -7,6 +7,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'mail_text.dart' show decodeHtmlEntities;
+
 class EmlMessage {
   const EmlMessage({
     required this.subject,
@@ -108,7 +110,7 @@ class EmlParser {
 
   // RFC 2047 encoded-word decoder: =?charset?B/Q?data?=
   static String _decodeHeader(String value) {
-    return value.replaceAllMapped(
+    final decoded = value.replaceAllMapped(
       RegExp(r'=\?([^?]+)\?([BbQq])\?([^?]*)\?='),
       (m) {
         final enc = m.group(2)!.toUpperCase();
@@ -126,6 +128,10 @@ class EmlParser {
         }
       },
     );
+    // Filed correspondence (imported .eml) also carries HTML entities in
+    // headers (e.g. &#39; apostrophes, &amp;) — decode them too, matching the
+    // Gmail path (decodeMailHeader) so subjects/senders read cleanly.
+    return decodeHtmlEntities(decoded);
   }
 
   // ── Multipart ──────────────────────────────────────────────────────────────

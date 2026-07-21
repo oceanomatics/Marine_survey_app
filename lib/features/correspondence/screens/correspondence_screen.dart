@@ -54,16 +54,24 @@ class CorrespondenceScreen extends ConsumerWidget {
       appBar: BackAppBar(
         title: const Text('Correspondence'),
         actions: [
-          IconButton(
-            icon: Badge(
-              label: Text(newMailLabel),
-              isLabelVisible: newMail > 0,
-              child: const Icon(Icons.mail_outline, color: Colors.white),
+          // Extra right padding + an inward badge offset so the count label
+          // (esp. "99+") isn't clipped by the IconButton's tight 48px bounds
+          // or the screen edge — the badge default pushes the label out past
+          // the icon top-right, which the AppBar action area crops.
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: Badge(
+                offset: const Offset(-6, -2),
+                label: Text(newMailLabel),
+                isLabelVisible: newMail > 0,
+                child: const Icon(Icons.mail_outline, color: Colors.white),
+              ),
+              onPressed: () => context.go('/inbox?caseId=$caseId'),
+              tooltip: newMail > 0
+                  ? 'Inbox — $newMailLabel new for this case'
+                  : 'Inbox',
             ),
-            onPressed: () => context.go('/inbox?caseId=$caseId'),
-            tooltip: newMail > 0
-                ? 'Inbox — $newMailLabel new for this case'
-                : 'Inbox',
           ),
         ],
       ),

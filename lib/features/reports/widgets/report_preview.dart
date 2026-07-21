@@ -36,11 +36,16 @@ double _estimateSectionPx(ReportSection s, double contentW) {
   const avgCharW = 5.5;
   const minLines = 1;
 
-  if (s.content.isEmpty) return headingH + 16.0;
+  // Optional sections with a house-style negative statement (mods §A2) render
+  // that one-line sentence even when otherwise empty — estimate against it.
+  final body = s.content.isEmpty
+      ? (sectionNoDataSentence[s.type] ?? '')
+      : s.content;
+  if (body.isEmpty) return headingH + 16.0;
 
   final cpl = (contentW / avgCharW).round().clamp(20, 80);
   var lines = 0;
-  for (final raw in s.content.split('\n')) {
+  for (final raw in body.split('\n')) {
     final l = raw.isEmpty ? 0 : raw.length;
     lines += (l == 0 ? 1 : (l / cpl).ceil()).clamp(minLines, 200);
   }
@@ -171,6 +176,10 @@ class ReportPreview extends ConsumerWidget {
             t != SectionType.executiveSummary &&
             sections.containsKey(t) &&
             (alwaysShow.contains(t) ||
+                // Optional sections with a house-style negative statement
+                // (mods §A2) render even when empty — they read "nothing to
+                // report" rather than being silently dropped.
+                sectionNoDataSentence.containsKey(t) ||
                 sections[t]!.fullContent.trim().isNotEmpty))
         .toList();
     final bodySections = bodyTypes.map((t) => sections[t]!).toList();
@@ -2241,7 +2250,11 @@ class _SectionBody extends StatelessWidget {
     // with this report's new delta (spec gap #10 — "no visible breaks" in
     // the rendered output); equals plain .content when there's nothing
     // carried forward.
-    if (section.fullContent.isEmpty) {
+    // Empty section: fall back to the house-style negative statement (mods
+    // §A2) for the optional sections that carry one; otherwise show the
+    // editable "not yet completed" placeholder.
+    final body = sectionBodyOrNoData(section.type, section.fullContent);
+    if (body == null) {
       return Text(
         '[${section.title} — not yet completed]',
         style: const TextStyle(
@@ -2253,15 +2266,14 @@ class _SectionBody extends StatelessWidget {
       );
     }
 
-    final paragraphs = splitSectionParagraphs(section.fullContent);
+    final paragraphs = splitSectionParagraphs(body);
 
     // An Analyst-inserted (or any Markdown) table block renders as a real
     // table here, matching the docx export (house-style item 20).
     final hasTable = paragraphs.any((p) => tryParseMarkdownTable(p) != null);
 
     if (paragraphs.length <= 1 && !hasTable) {
-      final lines =
-          section.fullContent.split('\n').map((l) => l.trimRight()).toList();
+      final lines = body.split('\n').map((l) => l.trimRight()).toList();
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: lines.map((line) {

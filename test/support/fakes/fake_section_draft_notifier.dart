@@ -9,8 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/reports/providers/report_provider.dart';
 
 class FakeSectionDraftNotifier extends SectionDraftNotifier {
-  FakeSectionDraftNotifier(Ref ref, String caseId, String outputId, this._seed)
-      : super(ref, caseId, outputId);
+  FakeSectionDraftNotifier(super.ref, super.caseId, super.outputId, this._seed);
   final Map<SectionType, ReportSection> _seed;
 
   @override

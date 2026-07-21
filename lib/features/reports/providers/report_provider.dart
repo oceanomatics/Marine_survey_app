@@ -213,6 +213,20 @@ const Map<SectionType, String> sectionNoDataSentence = {
       'No other matters of relevance were reported.',
 };
 
+/// Rendered body text for [type] given its assembled [fullContent].
+///
+/// Returns the trimmed content when present; otherwise the house-style
+/// negative statement (mods doc §A2 — "No indication was given that…") for the
+/// optional sections that should read "nothing to report" rather than be
+/// silently omitted (R15/R18/R19). Returns null when the section is empty and
+/// carries no negative sentence — the caller then omits it (or shows an
+/// "unfinished" placeholder in the editable Preview).
+String? sectionBodyOrNoData(SectionType type, String fullContent) {
+  final trimmed = fullContent.trim();
+  if (trimmed.isNotEmpty) return trimmed;
+  return sectionNoDataSentence[type];
+}
+
 // ── §2.18 Section Editor redesign — auto-populated sections ────────────────
 //
 // The section types where `content` is deterministically computed from case

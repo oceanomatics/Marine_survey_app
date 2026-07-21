@@ -1,3 +1,9 @@
+> **Superseded 21 July 2026 — see `docs/FINDINGS_CLOSEOUT_2026-07-21.md`.**
+> The batched backlog below is now overwhelmingly built and committed; the last
+> three residual gaps (house-style empty-section statements, mail-poller header
+> decode, correspondence badge crop) were closed in that pass. What remains is
+> the Google Sign-In config action + the three surveyor-deferred items.
+
 # Manual sweep — resume point (paused 16 July 2026)
 
 Screen-by-screen manual sweep of the app on the RugKing tablet, driven by
