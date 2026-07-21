@@ -776,7 +776,12 @@ class ReportOutputsNotifier
         .from('report_outputs')
         .update(fields)
         .eq('output_id', outputId);
-    await refresh();
+    // Silent re-fetch: assign the new data directly WITHOUT first flipping to
+    // a valueless AsyncLoading (which is what refresh() does). That valueless
+    // loading made the whole Report Builder page blank out and re-load every
+    // time an advice field was saved / the ✨ AI button was hit. Keeping the
+    // current data in place until the new data arrives removes that flash.
+    state = await AsyncValue.guard(() => _fetch(arg));
   }
 
   Future<void> refresh() async {
