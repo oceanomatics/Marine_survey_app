@@ -116,11 +116,13 @@ class FakeReportOutputsNotifier extends ReportOutputsNotifier {
     ]);
   }
 
+  /// Records the fields passed to [updateAdviceSummary] so tests can assert on
+  /// advice-summary persistence (e.g. the AI-summary lines / Remarks).
+  final Map<String, dynamic> recordedAdvice = {};
+
   @override
   Future<void> updateAdviceSummary(
       String outputId, Map<String, dynamic> fields) async {
-    // Not exercised by the current pilot rows — no-op is enough so callers
-    // don't crash; extend with a full rebuild (as above) if a future test
-    // needs to assert on advice-summary field persistence.
+    recordedAdvice.addAll(fields);
   }
 }

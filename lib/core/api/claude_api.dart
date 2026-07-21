@@ -1274,6 +1274,69 @@ Draft the section now:''',
     return _extractText(response.data);
   }
 
+  /// Ultra-concise Advice-Summary line for Page 2. A claims manager reads only
+  /// the front page to gauge how bad the claim is; the detail lives in the
+  /// report body. [kind] = 'damage' (one line, what/how-bad) or 'repairs'
+  /// (up to two lines: repair approach + commercial exposure such as shoreside
+  /// works, long-lead-time parts, expected downtime). Summarises ONLY the hard
+  /// data provided (damage register + the full Damage Description / Nature of
+  /// Repairs section content).
+  static Future<String> draftAdviceSummaryLine({
+    required String kind,
+    required String vesselName,
+    required List<String> damageItemSummaries,
+    required String damageSectionContent,
+    required String natureOfRepairsContent,
+  }) async {
+    final repairs = kind == 'repairs';
+    final itemsText = damageItemSummaries.isEmpty
+        ? '(none recorded)'
+        : damageItemSummaries.map((d) => '• $d').join('\n');
+    final focus = repairs
+        ? 'the REPAIR approach and its commercial exposure — e.g. shoreside/workshop vs in-situ works, long-lead-time parts, and the expected downtime/duration'
+        : 'WHAT is damaged and the apparent severity/mode of the damage';
+    final example = repairs
+        ? 'e.g. "Failed turbocharger to be sent ashore for overhaul and inspection; potential long-lead-time parts, up to ~3 months."'
+        : 'e.g. "Multiple components in the turbocharger showing signs of impact."';
+    final length = repairs
+        ? 'AT MOST two lines (~25–40 words total)'
+        : 'A SINGLE line (~12–20 words)';
+
+    final response = await _dio.post(
+      '/messages',
+      options: Options(extra: {'feature': 'advice_summary_line'}),
+      data: {
+        'model': AppConfig.claudeModel,
+        'max_tokens': 200,
+        'messages': [
+          {
+            'role': 'user',
+            'content':
+                '''You are writing ONE field of the front-page Advice Summary of a marine H&M survey report for the "$vesselName". A claims manager reads only this front page to gauge how bad the claim is; the full detail is in the report body.
+
+Summarise $focus. $example
+
+Rules:
+- $length. No heading, no bullet points, no preamble, no "The vessel…" boilerplate — just the summary itself.
+- Plain factual register. Summarise ONLY the data below; do not invent facts. If the data is thin, summarise only what is given.
+
+DAMAGE REGISTER ITEMS:
+$itemsText
+
+DAMAGE DESCRIPTION (full section):
+${damageSectionContent.trim().isEmpty ? '(none yet)' : damageSectionContent.trim()}
+
+NATURE OF REPAIRS (full section):
+${natureOfRepairsContent.trim().isEmpty ? '(none yet)' : natureOfRepairsContent.trim()}
+
+Write the summary now:''',
+          },
+        ],
+      },
+    );
+    return _extractText(response.data).trim();
+  }
+
   /// Drafts the "Nature of the Repairs" narrative from the surveyor's own
   /// flagged considerations (drydocking required, assured's plan formulated,
   /// further inspections planned, long-lead-time parts, foreseeable

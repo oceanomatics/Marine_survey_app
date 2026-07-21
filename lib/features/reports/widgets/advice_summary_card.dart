@@ -34,6 +34,8 @@ import 'package:go_router/go_router.dart';
 import '../providers/report_provider.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../survey/models/repair_period_model.dart';
+import '../../ai_tasks/providers/ai_tasks_provider.dart';
+import '../../../core/api/claude_api.dart';
 import '../../../shared/theme/app_theme.dart';
 
 class AdviceSummaryCard extends ConsumerStatefulWidget {
@@ -59,8 +61,6 @@ String _allegationLabel(String? type) => switch (type) {
       _ => '[allegation status not yet recorded]',
     };
 
-const _towingLabels = {'yes': 'Yes', 'no': 'No', 'n_a': 'N/A'};
-
 class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
   bool _expanded = true;
   late final Map<String, TextEditingController> _ctrls;
@@ -83,8 +83,21 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
       'assured': TextEditingController(text: cd['assured'] as String? ?? ''),
       'instructing_party':
           TextEditingController(text: cd['instructing_party'] as String? ?? ''),
+      // Short AI-generated / editable Advice-Summary lines (Page 2). Stored in
+      // the report_outputs advice_* columns, distinct from the full body
+      // Damage Description / Nature of Repairs sections.
+      'advice_description_of_damage':
+          TextEditingController(text: o.adviceDescriptionOfDamage ?? ''),
+      'advice_nature_of_repairs':
+          TextEditingController(text: o.adviceNatureOfRepairs ?? ''),
+      // Estimated cost total (case-level) — shown as just the total here.
+      'estimated_repair_cost': TextEditingController(
+          text: (cd['estimated_repair_cost'] as num?)?.toString() ?? ''),
     };
   }
+
+  /// Which advice-summary field is currently being AI-generated.
+  final Set<String> _generating = {};
 
   @override
   void dispose() {
@@ -132,15 +145,71 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final f = Map<String, String>.from(_pendingCase);
     _pendingCase.clear();
     final caseId = widget.output.caseId;
+    // Estimated cost is numeric — parse it, ignoring commas / currency chars.
+    final costRaw = f['estimated_repair_cost'];
+    final estimatedCost = costRaw == null
+        ? null
+        : double.tryParse(costRaw.replaceAll(RegExp(r'[^0-9.]'), ''));
     await ref.read(caseProvider(caseId).notifier).updateCaseRefs(
           technicalFileNo: f['technical_file_no'],
           claimReference: f['claim_reference'],
           assured: f['assured'],
           instructingParty: f['instructing_party'],
+          estimatedRepairCost: estimatedCost,
         );
     // Refresh the assembled snapshot the card + Preview read from, so the
     // edit is reflected everywhere without leaving the editor.
     ref.invalidate(assembledDataProvider(caseId));
+  }
+
+  // ── AI-summarised advice lines (Damage one-liner / Repairs two-liner) ──
+  String _damageItemLine(Map<String, dynamic> d) {
+    final name = (d['component_name'] as String?)?.trim() ?? '';
+    final desc = (d['damage_description'] as String?)?.trim() ??
+        (d['condition_found'] as String?)?.trim() ??
+        '';
+    return [name, desc].where((s) => s.isNotEmpty).join(': ');
+  }
+
+  Future<void> _generateSummary(String kind, String column) async {
+    if (widget.isLocked || _generating.contains(column)) return;
+    final o = widget.output;
+    final caseId = o.caseId;
+    final assembled = widget.assembled;
+    final sections = ref
+        .read(sectionDraftProvider((caseId: caseId, outputId: o.outputId)));
+    setState(() => _generating.add(column));
+    try {
+      await ref.read(aiTasksProvider.notifier).run(
+            label: kind == 'repairs'
+                ? 'Summarising nature of repairs'
+                : 'Summarising damage',
+            caseId: caseId,
+            caseLabel: assembled.vessel?['name'] as String?,
+            estimate: const Duration(seconds: 12),
+            action: () async {
+              final text = await ClaudeApi.draftAdviceSummaryLine(
+                kind: kind,
+                vesselName:
+                    assembled.vessel?['name'] as String? ?? 'the vessel',
+                damageItemSummaries:
+                    assembled.damageItems.map(_damageItemLine).toList(),
+                damageSectionContent:
+                    sections[SectionType.damageDescription]?.fullContent ?? '',
+                natureOfRepairsContent:
+                    sections[SectionType.natureOfRepairs]?.fullContent ?? '',
+              );
+              final clean = text.trim();
+              if (clean.isEmpty) return;
+              await ref
+                  .read(reportOutputsProvider(caseId).notifier)
+                  .updateAdviceSummary(o.outputId, {column: clean});
+              if (mounted) _ctrls[column]?.text = clean;
+            },
+          );
+    } finally {
+      if (mounted) setState(() => _generating.remove(column));
+    }
   }
 
   @override
@@ -154,15 +223,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
         ? widget.assembled.occurrences.first
         : null;
 
-    // Same computed section content the report body renders — kept in sync
-    // by construction rather than re-derived here.
-    final sections = ref.watch(
-        sectionDraftProvider((caseId: caseId, outputId: o.outputId)));
-    final damageContent =
-        sections[SectionType.damageDescription]?.fullContent ?? '';
-    final natureContent =
-        sections[SectionType.natureOfRepairs]?.fullContent ?? '';
-
     final caseData = widget.assembled.caseData;
     final derivedStatus = deriveRepairStatus(widget.assembled.repairPeriods
         .map(RepairPeriodModel.fromJson)
@@ -170,10 +230,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final costApproved = derivedStatus == DerivedRepairStatus.complete ||
         derivedStatus == DerivedRepairStatus.ongoing;
     final currency = caseData['base_currency'] as String? ?? '';
-    final estimatedCost = caseData['estimated_repair_cost'] as num?;
-    final costIncludesGeneralExpenses =
-        caseData['cost_includes_general_expenses'] as bool?;
-    final costIncludesTowing = caseData['cost_includes_towing'] as String?;
     final feeHours = caseData['survey_fee_reserve_hours'] as num?;
     final feeExpenses = caseData['survey_fee_reserve_expenses'] as num?;
     final followUpRequired = caseData['follow_up_required'] as bool?;
@@ -185,13 +241,6 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
     final reportTypeNo =
         [o.outputType.label, o.reportNumber ?? o.versionCode].join(' / ');
     final dateNature = occ?['title'] as String?;
-    final costLine = [
-      estimatedCost != null
-          ? '$currency ${estimatedCost.toStringAsFixed(0)}'
-          : '[not yet estimated]',
-      'General expenses: ${costIncludesGeneralExpenses == null ? '[TBD]' : (costIncludesGeneralExpenses ? 'Yes' : 'No')}',
-      'Towing: ${_towingLabels[costIncludesTowing] ?? '[TBD]'}',
-    ].join('\n');
     final feeLine = 'Hours: ${feeHours ?? '[not set]'}\n'
         'Expenses: ${feeExpenses != null ? '$currency ${feeExpenses.toStringAsFixed(0)}' : '[not set]'}';
     final followUpLine = followUpRequired == true
@@ -277,19 +326,23 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
                 _row('Date & Nature of Casualty',
                     _ro(dateNature, edit: ('occurrence', 'Occurrence'), caseId: caseId)),
                 _row('Description of Damage',
-                    _ro(damageContent,
-                        placeholder: '[description of damage — pending]',
-                        edit: autoPopulatedEditRoute[SectionType.damageDescription],
+                    _aiSummaryCell(
+                        column: 'advice_description_of_damage',
+                        kind: 'damage',
+                        maxLines: 2,
+                        deepLink: autoPopulatedEditRoute[SectionType.damageDescription],
                         caseId: caseId)),
                 _row('Nature of Repairs',
-                    _ro(natureContent,
-                        placeholder: '[nature of repairs — pending]',
-                        edit: autoPopulatedEditRoute[SectionType.natureOfRepairs],
+                    _aiSummaryCell(
+                        column: 'advice_nature_of_repairs',
+                        kind: 'repairs',
+                        maxLines: 3,
+                        deepLink: autoPopulatedEditRoute[SectionType.natureOfRepairs],
                         caseId: caseId)),
                 _row('Status of Repairs',
                     _ro(derivedStatus.label, edit: ('repairs', 'Repair Periods'), caseId: caseId)),
                 _row(costApproved ? 'Sum Approved (WP)' : 'Estimated Cost of Repairs',
-                    _ro(costLine, edit: ('accounts', 'Accounts'), caseId: caseId)),
+                    _costCell(currency, locked, caseId)),
                 _row('Survey Fee Reserve',
                     _ro(feeLine, edit: ('accounts', 'Accounts'), caseId: caseId)),
                 _row('Allegation Status',
@@ -405,6 +458,86 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
         hintStyle:
             const TextStyle(fontSize: 11, color: AppColors.textTertiary),
       ),
+    );
+  }
+
+  /// Short AI-summarised advice line (Damage one-liner / Repairs two-liner) —
+  /// editable text + an "AI" generate button + a deep-link to the full
+  /// section where the hard data is entered. The value persists to the
+  /// report_outputs advice_* column so it isn't lost / re-derived.
+  Widget _aiSummaryCell({
+    required String column,
+    required String kind,
+    required int maxLines,
+    (String, String)? deepLink,
+    required String caseId,
+  }) {
+    final busy = _generating.contains(column);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _edit(column, (v) => _stage(column, v), widget.isLocked,
+                  hint: '[TBD] — type or tap ✨ to summarise',
+                  maxLines: maxLines),
+            ),
+            if (!widget.isLocked)
+              busy
+                  ? const Padding(
+                      padding: EdgeInsets.all(7),
+                      child: SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  : IconButton(
+                      onPressed: () => _generateSummary(kind, column),
+                      icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+                      color: AppColors.midBlue,
+                      tooltip: 'AI-summarise from the report data',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                    ),
+          ],
+        ),
+        if (deepLink != null) _editLink(caseId, deepLink),
+      ],
+    );
+  }
+
+  /// Estimated cost — just the total (surveyor: "just the total is good
+  /// enough"), editable inline and persisted to the case's estimated cost.
+  Widget _costCell(String currency, bool locked, String caseId) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            if (currency.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Text(currency,
+                    style: const TextStyle(
+                        fontSize: 11.5, color: AppColors.textTertiary)),
+              ),
+            Expanded(
+              child: _edit(
+                'estimated_repair_cost',
+                (v) => _stageCase('estimated_repair_cost', v),
+                locked,
+                hint: '[TBD] — total',
+              ),
+            ),
+          ],
+        ),
+        _editLink(caseId, ('accounts', 'Accounts')),
+      ],
     );
   }
 

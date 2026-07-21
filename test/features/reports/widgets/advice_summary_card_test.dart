@@ -84,8 +84,14 @@ AssembledReportData _assembledMissingParties() => AssembledReportData(
       allReportOutputs: const [],
     );
 
-Future<_RecordingCaseNotifier> _pump(WidgetTester tester) async {
+typedef _Fakes = ({
+  _RecordingCaseNotifier caseFake,
+  FakeReportOutputsNotifier outputsFake,
+});
+
+Future<_Fakes> _pump(WidgetTester tester) async {
   final caseFake = _RecordingCaseNotifier(fixtureCase());
+  final outputsFake = FakeReportOutputsNotifier([fixtureOutput(outputId: 'o1')]);
   await tester.binding.setSurfaceSize(const Size(1000, 6000));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final router = GoRouter(initialLocation: '/test', routes: [
@@ -94,8 +100,7 @@ Future<_RecordingCaseNotifier> _pump(WidgetTester tester) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        reportOutputsProvider
-            .overrideWith(() => FakeReportOutputsNotifier([fixtureOutput(outputId: 'o1')])),
+        reportOutputsProvider.overrideWith(() => outputsFake),
         assembledDataProvider
             .overrideWith((ref, caseId) async => _assembledMissingParties()),
         caseProvider.overrideWith(() => caseFake),
@@ -109,7 +114,7 @@ Future<_RecordingCaseNotifier> _pump(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text('Preliminary Report'));
   await tester.pumpAndSettle();
-  return caseFake;
+  return (caseFake: caseFake, outputsFake: outputsFake);
 }
 
 void main() {
@@ -125,7 +130,7 @@ void main() {
   });
 
   testWidgets('editing Assured inline persists via updateCaseRefs', (tester) async {
-    final caseFake = await _pump(tester);
+    final fakes = await _pump(tester);
 
     await tester.enterText(
         find.byKey(const ValueKey('advice-edit-assured')), 'Astro Marine Ltd');
@@ -133,6 +138,31 @@ void main() {
     await tester.pump(const Duration(milliseconds: 900));
     await tester.pumpAndSettle();
 
-    expect(caseFake.recorded['assured'], 'Astro Marine Ltd');
+    expect(fakes.caseFake.recorded['assured'], 'Astro Marine Ltd');
+  });
+
+  testWidgets('Advice card has editable AI-summary lines for Damage & Repairs',
+      (tester) async {
+    await _pump(tester);
+    expect(find.text('Description of Damage'), findsOneWidget);
+    expect(find.text('Nature of Repairs'), findsOneWidget);
+    expect(find.byKey(const ValueKey('advice-edit-advice_description_of_damage')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('advice-edit-advice_nature_of_repairs')),
+        findsOneWidget);
+  });
+
+  testWidgets('typing an advice summary line persists via updateAdviceSummary',
+      (tester) async {
+    final fakes = await _pump(tester);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('advice-edit-advice_description_of_damage')),
+        'Multiple turbocharger components impact-damaged.');
+    await tester.pump(const Duration(milliseconds: 800)); // debounce
+    await tester.pumpAndSettle();
+
+    expect(fakes.outputsFake.recordedAdvice['advice_description_of_damage'],
+        'Multiple turbocharger components impact-damaged.');
   });
 }
