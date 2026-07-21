@@ -43,6 +43,8 @@ import '../../features/settings/screens/organisation_list_screen.dart';
 import '../../features/settings/screens/organisation_detail_screen.dart';
 import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
+import '../../features/cs/screens/cs_inspection_screen.dart';
+import '../../features/cs/screens/cs_recommendations_screen.dart';
 import '../../features/interviews/screens/interview_detail_screen.dart';
 import '../../features/interviews/screens/record_interview_screen.dart';
 import '../../features/accounts/screens/accounts_screen.dart';
@@ -273,6 +275,16 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'action-items',
               builder: (context, state) => ActionItemsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/inspection',
+              builder: (context, state) => CsInspectionScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/recommendations',
+              builder: (context, state) => CsRecommendationsScreen(
                   caseId: state.pathParameters['caseId']!),
             ),
           ],

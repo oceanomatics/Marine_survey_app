@@ -90,7 +90,7 @@ void main() {
 
   group('model fromJson', () {
     test('CsInspectionItemModel parses grade + is_na', () {
-      final m = CsInspectionItemModel.fromJson({
+      final m = CsInspectionItemModel.fromJson(const {
         'id': 'i1',
         'case_id': 'c1',
         'grade': 'GOOD',
