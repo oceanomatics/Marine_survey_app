@@ -205,3 +205,20 @@ Useful to know explicitly before building presentation claims:
 - **Survey companies:** operational efficiency (offline-first, voice dictation, AI-assisted drafting), consistent branded output, house-style-aware clause library, upcoming multi-surveyor management layer.
 - **Loss adjusters:** full financial apportionment workflow (Owners vs. Underwriters, betterment, multi-currency), formal cost-table output with mandatory WP language, document/correspondence audit trail, upcoming invoice-consistency AI cross-check.
 - **Underwriters:** the compliance story is the strongest asset — GPN-AI-compliant AI audit trail, mandatory dual sign-off, Without Prejudice language enforced in every required location, defensible clause-by-clause legal wording, export gates that make it structurally difficult to issue a non-compliant report.
+
+---
+
+## Backlog — to review (added 21 July 2026)
+
+- **Stylus tool — review.** The stylus / handwriting-annotation capture path
+  needs a proper review (relates to §17 in the walkthrough audit — the
+  stylus/second-tablet hardware-integration question, currently deferred).
+  Assess: what the stylus is meant to drive (annotating photos/plans, sketching
+  damage, signing off), how well the current capture works on the tablet, and
+  whether it needs a dedicated annotation surface.
+- **Neater presentation tools.** Provide a cleaner set of presentation-mode
+  tools for showing the app/reports to prospects (survey companies, loss
+  adjusters, underwriters — see §13 above). Candidates to scope: a distraction-
+  free "present this report" view, a demo/sample case with polished data, a
+  one-tap PDF/preview share, and cleaner on-screen affordances for walking a
+  client through the report front page (Advice Summary) and export.
