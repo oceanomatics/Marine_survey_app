@@ -448,15 +448,30 @@ class _AdviceSummaryCardState extends ConsumerState<AdviceSummaryCard> {
       onChanged: onChanged,
       onSubmitted:
           maxLines == 1 ? (_) => FocusScope.of(context).unfocus() : null,
+      // A subtle filled box + border so the cell visibly reads as an editable
+      // field (surveyor: an empty/[TBD] field must obviously invite entry, not
+      // look like static text) — distinguishes editable rows from the plain
+      // read-only / deep-link rows.
       decoration: InputDecoration(
         isDense: true,
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        contentPadding: EdgeInsets.zero,
+        filled: true,
+        fillColor: locked ? Colors.transparent : AppColors.surface,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         hintText: hint,
-        hintStyle:
-            const TextStyle(fontSize: 11, color: AppColors.textTertiary),
+        hintStyle: const TextStyle(
+            fontSize: 11,
+            color: AppColors.textTertiary,
+            fontStyle: FontStyle.italic),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(5),
+            borderSide: const BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(5),
+            borderSide: const BorderSide(color: AppColors.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(5),
+            borderSide: const BorderSide(color: AppColors.midBlue, width: 1.5)),
       ),
     );
   }
