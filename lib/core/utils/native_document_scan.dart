@@ -24,21 +24,29 @@ class NativeDocumentScan {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  /// Launches the native scanner (live outline + auto-capture + dewarp) for a
-  /// whole batch: the surveyor captures many documents in ONE session (the
-  /// scanner's "add page" between each), and this returns every scanned page's
-  /// flat, upright bytes in order. Empty when unsupported or cancelled. Each
-  /// page is then imported to the Doc Vault + queued for extraction without a
-  /// per-document confirmation (surveyor: confirming each is too slow when
-  /// scanning a stack).
-  static Future<List<Uint8List>> scanPages({int maxPages = 24}) async {
-    if (!isSupported) return const [];
-    final paths = await CunningDocumentScanner.getPictures(noOfPages: maxPages);
-    if (paths == null || paths.isEmpty) return const [];
-    final out = <Uint8List>[];
-    for (final path in paths) {
-      out.add(await XFile(path).readAsBytes());
-    }
-    return out;
+  /// Launches the native scanner for ONE document and returns it as a single
+  /// (possibly multi-page) PDF's bytes — the scanner's "add page" builds up the
+  /// pages of this one document, exactly what the surveyor expects (not one
+  /// vault doc per page). Returns null when unsupported or cancelled (cancel is
+  /// how the caller's scan loop knows to stop and return to the vault).
+  ///
+  /// Uses [AndroidScannerMode.base] — the lean mode: no image
+  /// filter/enhance/clean tools at capture time (the surveyor flagged those as
+  /// unnecessary here; the crop/rotate review is inherent to ML Kit).
+  static Future<Uint8List?> scanOneDocument({int maxPages = 24}) async {
+    if (!isSupported) return null;
+    final paths = await CunningDocumentScanner.getPictures(
+      noOfPages: maxPages,
+      asPdf: true,
+      androidScannerMode: AndroidScannerMode.base,
+    );
+    if (paths == null || paths.isEmpty) return null;
+    // asPdf returns the PDF path (defensively pick the .pdf entry if the
+    // platform also returns page images alongside it).
+    final pdf = paths.firstWhere(
+      (p) => p.toLowerCase().endsWith('.pdf'),
+      orElse: () => paths.first,
+    );
+    return XFile(pdf).readAsBytes();
   }
 }

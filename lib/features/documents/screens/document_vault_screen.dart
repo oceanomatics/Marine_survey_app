@@ -454,56 +454,63 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
   /// document pipeline, which auto-fires AI extraction (the extract queue).
   Future<void> _scanDocument(BuildContext context, WidgetRef ref) async {
     // Mobile: native real-time scanner (live edge overlay + auto-capture +
-    // on-device dewarp). Scans a whole BATCH in one session and auto-imports
-    // each page straight to the vault + extraction queue — NO per-document
-    // confirmation sheet (surveyor: confirming each is too slow for a stack).
+    // on-device dewarp). Multi-document loop: each scanner session is ONE
+    // document (its "add page" builds the pages of a single multi-page PDF);
+    // when it's saved the scanner RE-OPENS for the next document, so the
+    // surveyor can work through a stack without bouncing back to the vault.
+    // Cancelling the scanner ends the loop and returns to the vault. Uploads
+    // fire in the background (not awaited per-doc) so re-opening is instant.
     if (NativeDocumentScan.isSupported) {
-      final pages = await NativeDocumentScan.scanPages();
-      if (pages.isEmpty || !context.mounted) return; // cancelled
-
-      // Blocking progress while the batch uploads + is queued.
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          content: Row(children: [
-            const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2)),
-            const SizedBox(width: 16),
-            Expanded(
-                child: Text(pages.length == 1
-                    ? 'Saving scan…'
-                    : 'Saving ${pages.length} scans…')),
-          ]),
-        ),
-      );
-
       final stamp =
           DateTime.now().toIso8601String().replaceAll(':', '-').substring(0, 16);
-      var ok = 0;
-      for (var i = 0; i < pages.length; i++) {
-        try {
-          await ref.read(documentProvider(caseId).notifier).uploadAndCreate(
-                caseId: caseId,
-                bytes: pages[i],
-                filename: 'Scan $stamp ${i + 1}.jpg',
-                mimeType: 'image/jpeg',
-                title: 'Scan $stamp${pages.length > 1 ? ' (${i + 1})' : ''}',
-                willExtract: true, // queue AI extraction immediately
-              );
-          ok++;
-        } catch (_) {
-          // Skip a failed page; report the successful count below.
-        }
+      final pending = <Future<void>>[];
+      var count = 0;
+      while (context.mounted) {
+        final pdf = await NativeDocumentScan.scanOneDocument();
+        if (pdf == null) break; // surveyor cancelled — stop scanning
+        count++;
+        final n = count;
+        final notifier = ref.read(documentProvider(caseId).notifier);
+        pending.add(() async {
+          try {
+            await notifier.uploadAndCreate(
+              caseId: caseId,
+              bytes: pdf,
+              filename: 'Scan $stamp ($n).pdf',
+              mimeType: 'application/pdf',
+              title: 'Scan $stamp ($n)',
+              willExtract: true, // queue AI extraction immediately
+            );
+          } catch (_) {
+            // Swallow a single doc's upload failure — reported in the summary.
+          }
+        }());
       }
+      if (count == 0) return; // scanned nothing
 
+      // Let any still-uploading docs finish, with a brief progress dialog.
+      if (context.mounted) {
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const AlertDialog(
+            content: Row(children: [
+              SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 16),
+              Expanded(child: Text('Saving scanned documents…')),
+            ]),
+          ),
+        );
+      }
+      await Future.wait(pending);
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
-                '$ok document${ok == 1 ? '' : 's'} scanned & queued for extraction')));
+                '$count document${count == 1 ? '' : 's'} scanned & queued for extraction')));
       }
       return;
     }
