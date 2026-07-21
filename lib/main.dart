@@ -93,36 +93,58 @@ class _SafeErrorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFFFBEAEA),
-      padding: const EdgeInsets.all(12),
-      alignment: Alignment.center,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: Color(0xFFB00020), size: 32),
-            const SizedBox(height: 8),
-            const Text('Something went wrong rendering this section.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: Color(0xFFB00020),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-            if (kDebugMode) ...[
-              const SizedBox(height: 8),
-              // Bounded, wrapping details (debug only) — never one giant line.
-              Text(
-                details.exceptionAsString(),
-                textAlign: TextAlign.center,
-                maxLines: 8,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF7A1520), fontSize: 10),
-              ),
-            ],
-          ],
-        ),
-      ),
+    // A build-throw's replacement inherits the broken widget's constraints,
+    // which may be UNBOUNDED (e.g. the widget sat directly in a Row) — so
+    // rendering the exception text at its natural width overflows ("RIGHT
+    // OVERFLOWED BY N PIXELS", bug reports 21 Jul). Cap to a tiny fixed box
+    // when the width is unbounded (a small icon can't overflow any slot); show
+    // a readable message only when we actually have bounded width. Everything
+    // is clipped so nothing can paint outside its box either way.
+    return LayoutBuilder(
+      builder: (context, c) {
+        final bounded = c.maxWidth.isFinite;
+        final w = bounded ? c.maxWidth : 40.0;
+        final h = c.maxHeight.isFinite ? c.maxHeight : (bounded ? 140.0 : 40.0);
+        return SizedBox(
+          width: w,
+          height: h,
+          child: ClipRect(
+            child: Container(
+              color: const Color(0xFFFBEAEA),
+              alignment: Alignment.center,
+              padding: EdgeInsets.all(bounded ? 12 : 4),
+              child: bounded
+                  ? SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              color: Color(0xFFB00020), size: 28),
+                          const SizedBox(height: 8),
+                          const Text('This section couldn\'t load.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: Color(0xFFB00020),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600)),
+                          if (kDebugMode) ...[
+                            const SizedBox(height: 6),
+                            Text(details.exceptionAsString(),
+                                textAlign: TextAlign.center,
+                                maxLines: 6,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: Color(0xFF7A1520), fontSize: 10)),
+                          ],
+                        ],
+                      ),
+                    )
+                  : const Icon(Icons.error_outline,
+                      color: Color(0xFFB00020), size: 20),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -90,20 +90,27 @@ class GmailService {
     if (token == null) return null;
     final headers = Options(headers: {'Authorization': 'Bearer $token'});
 
-    final listResp = await _dio.get<Map<String, dynamic>>(
-      'messages',
-      queryParameters: {
-        'maxResults': maxResults,
-        if (query != null && query.isNotEmpty) 'q': query,
-      },
-      options: headers,
-    );
-    final ids = (listResp.data!['messages'] as List? ?? [])
-        .map((m) => m['id'] as String)
-        .toList();
+    // Silent/background call — must NEVER throw: a network drop mid-request
+    // (DioException / HttpException "Software caused connection abort") would
+    // otherwise reject this future and surface as an error in whatever reads
+    // caseNewMailCountProvider (bug report, 21 Jul). Degrade to null (== "no
+    // result this cycle") so callers just skip, exactly like the no-session
+    // case above.
+    try {
+      final listResp = await _dio.get<Map<String, dynamic>>(
+        'messages',
+        queryParameters: {
+          'maxResults': maxResults,
+          if (query != null && query.isNotEmpty) 'q': query,
+        },
+        options: headers,
+      );
+      final ids = (listResp.data!['messages'] as List? ?? [])
+          .map((m) => m['id'] as String)
+          .toList();
 
-    final summaries = <GmailMessageSummary>[];
-    for (final id in ids) {
+      final summaries = <GmailMessageSummary>[];
+      for (final id in ids) {
       final resp = await _dio.get<Map<String, dynamic>>(
         'messages/$id',
         queryParameters: {
@@ -131,8 +138,14 @@ class GmailService {
         date: header('Date').isEmpty ? null : header('Date'),
         snippet: decodeMailText(data['snippet'] as String? ?? ''),
       ));
+      }
+      return summaries;
+    } catch (_) {
+      // Network / API failure on a silent poll — degrade to null so callers
+      // (mail poller, caseNewMailCountProvider) just skip this cycle instead
+      // of surfacing an exception.
+      return null;
     }
-    return summaries;
   }
 
   /// Converts standard base64 to the URL-safe alphabet Gmail's API expects
