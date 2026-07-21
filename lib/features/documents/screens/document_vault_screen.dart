@@ -107,7 +107,10 @@ final _isOnlineProvider = StreamProvider<bool>((ref) => Connectivity()
 
 class DocumentVaultScreen extends ConsumerStatefulWidget {
   const DocumentVaultScreen(
-      {super.key, required this.caseId, this.openReviewForDocumentId});
+      {super.key,
+      required this.caseId,
+      this.openReviewForDocumentId,
+      this.autoScan = false});
   final String caseId;
 
   /// Deep-link from Production Manager: when set, auto-opens the review
@@ -115,6 +118,11 @@ class DocumentVaultScreen extends ConsumerStatefulWidget {
   /// generic vault list (Production Manager previously always pushed the
   /// bare '/documents' route with no way to reach a specific item's review).
   final String? openReviewForDocumentId;
+
+  /// When the Case Home "Scan Doc" capture-toolbar button routes here with
+  /// ?scan=1, immediately launch the camera scan pipeline (capture → detect
+  /// corners → dewarp → import sheet → Doc Vault + AI extraction queue).
+  final bool autoScan;
 
   @override
   ConsumerState<DocumentVaultScreen> createState() =>
@@ -124,6 +132,16 @@ class DocumentVaultScreen extends ConsumerStatefulWidget {
 class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
   String get caseId => widget.caseId;
   bool _handledDeepLink = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoScan) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scanDocument(context, ref);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

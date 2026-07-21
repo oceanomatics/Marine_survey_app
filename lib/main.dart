@@ -17,6 +17,15 @@ import 'shared/widgets/biometric_lock_gate.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Global error-widget: when a widget's build() throws (e.g. a transient
+  // network DioException surfacing mid-rebuild), Flutter's default red
+  // ErrorWidget renders the full exception on one unwrapped line — placed in a
+  // Row/Flex that becomes a "RIGHT OVERFLOWED BY 99468 PIXELS" red screen
+  // (bug report, 21 July 2026: "after taking a picture"). Replace it with a
+  // contained, wrapping, size-bounded message so a single failed build can
+  // never blow out the layout — the details stay visible but constrained.
+  ErrorWidget.builder = (details) => _SafeErrorWidget(details: details);
+
   // Initialise Supabase
   await SupabaseService.initialize();
 
@@ -74,6 +83,48 @@ void main() async {
               ),
             )
           : app));
+}
+
+/// Contained replacement for Flutter's default (unbounded, overflow-prone)
+/// ErrorWidget — see the ErrorWidget.builder override in main().
+class _SafeErrorWidget extends StatelessWidget {
+  const _SafeErrorWidget({required this.details});
+  final FlutterErrorDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFFBEAEA),
+      padding: const EdgeInsets.all(12),
+      alignment: Alignment.center,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Color(0xFFB00020), size: 32),
+            const SizedBox(height: 8),
+            const Text('Something went wrong rendering this section.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Color(0xFFB00020),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+            if (kDebugMode) ...[
+              const SizedBox(height: 8),
+              // Bounded, wrapping details (debug only) — never one giant line.
+              Text(
+                details.exceptionAsString(),
+                textAlign: TextAlign.center,
+                maxLines: 8,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF7A1520), fontSize: 10),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class MarineSurveyApp extends StatelessWidget {

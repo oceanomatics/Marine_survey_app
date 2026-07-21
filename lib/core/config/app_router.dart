@@ -156,6 +156,7 @@ final appRouter = GoRouter(
                 caseId: state.pathParameters['caseId']!,
                 openReviewForDocumentId:
                     state.uri.queryParameters['reviewDocId'],
+                autoScan: state.uri.queryParameters['scan'] == '1',
               ),
             ),
             GoRoute(

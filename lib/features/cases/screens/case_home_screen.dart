@@ -486,12 +486,22 @@ class _CaptureToolbar extends ConsumerWidget {
         PhotoPickSource.camera,
         context: context);
     if (bytesList.isEmpty || !context.mounted) return;
-    await ref
-        .read(photosProvider(caseId).notifier)
-        .addPhoto(caseId: caseId, bytes: bytesList.first);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Photo added')));
+    try {
+      await ref
+          .read(photosProvider(caseId).notifier)
+          .addPhoto(caseId: caseId, bytes: bytesList.first);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Photo added')));
+      }
+    } catch (e) {
+      // A failed upload (e.g. connection abort mid-upload) must not crash the
+      // capture flow — the photo is cached/queued locally and syncs later.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Photo saved locally — will sync when back online. ($e)')));
+      }
     }
   }
 
@@ -510,6 +520,15 @@ class _CaptureToolbar extends ConsumerWidget {
             label: 'Camera',
             accent: AppColors.navy,
             onTap: () => _captureAndUpload(context, ref),
+          ),
+          // Scan Doc — capture a document, detect its outline, dewarp it flat,
+          // then save to the Doc Vault and queue it for AI extraction (reuses
+          // the vault's scan pipeline via ?scan=1).
+          _CaptureToolButton(
+            icon: Icons.document_scanner_outlined,
+            label: 'Scan Doc',
+            accent: AppColors.navy,
+            onTap: () => context.go('/cases/$caseId/documents?scan=1'),
           ),
           _CaptureToolButton(
             icon: Icons.record_voice_over_outlined,
@@ -574,12 +593,19 @@ class _CaptureToolButton extends StatelessWidget {
                 child: Icon(icon, color: accent, size: 22),
               ),
               const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: accent.withValues(alpha: 0.85),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: accent.withValues(alpha: 0.85),
+                    fontSize: 10,
+                    height: 1.1,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],
