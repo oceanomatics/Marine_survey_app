@@ -38,6 +38,9 @@ import '../../reports/providers/report_provider.dart';
 import '../../reports/utils/case_completeness.dart';
 import '../../action_items/providers/action_items_provider.dart';
 import '../../documents/providers/document_provider.dart';
+import '../../cs/models/cs_models.dart';
+import '../../cs/providers/cs_inspection_provider.dart';
+import '../../cs/providers/cs_recommendation_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -410,6 +413,14 @@ class _SurveyNavRail extends ConsumerWidget {
                     accent: const Color(0xFF1E3A5F),
                     onTap: () => context.go('/cases/$caseId/analyst'),
                   ),
+                  if (caseModel?.caseType == CaseType.cs)
+                    _NavItem(
+                      icon: Icons.fact_check_outlined,
+                      label: 'Inspect',
+                      accent: const Color(0xFF1E6B5A),
+                      onTap: () =>
+                          context.go('/cases/$caseId/cs/inspection'),
+                    ),
                 ],
               ),
             ),
@@ -854,11 +865,16 @@ class _PseudoReport extends ConsumerWidget {
         ? review!.affectedSections
         : const <String>{};
 
-    final List<Widget> sections = _sections(
-        context, damage, attendees, visits, timeline, repairPeriods,
-        natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
-        surveyorNotes, survey,
-        highlighted: highlighted);
+    // Case type gates which module cards show. C&S cases swap the H&M
+    // narrative/cost cards for the inspection + recommendations set; every
+    // other type keeps the existing H&M list unchanged (byte-identical path).
+    final List<Widget> sections = survey.caseType == CaseType.cs
+        ? _csSections(context, ref)
+        : _sections(
+            context, damage, attendees, visits, timeline, repairPeriods,
+            natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
+            surveyorNotes, survey,
+            highlighted: highlighted);
 
     // §4.7: open + pending-review action item count for the entry-point
     // card — inserted at the very top of the section list (2026-07-13
@@ -903,6 +919,49 @@ class _PseudoReport extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  // ── C&S — AHTS module cards (shown when caseType == cs) ──────────────────
+  List<Widget> _csSections(BuildContext ctx, WidgetRef ref) {
+    final inspection =
+        ref.watch(csInspectionProvider(caseId)).value ?? const [];
+    final recs =
+        ref.watch(csRecommendationProvider(caseId)).value ?? const [];
+    final graded =
+        inspection.where((i) => i.grade != null && !i.isNa).length;
+    final unsat =
+        inspection.where((i) => i.grade == CsGrade.unsatisfactory).length;
+    final openRecs = recs
+        .where((r) => r.status == CsRecommendationStatus.open)
+        .length;
+    return [
+      _SectionCard(
+        accentColor: const Color(0xFF1E6B5A),
+        icon: Icons.fact_check_outlined,
+        title: 'Inspection',
+        countLabel: graded == 0 ? null : '$graded',
+        initiallyExpanded: graded > 0,
+        onOpen: () => ctx.go('/cases/$caseId/cs/inspection'),
+        child: graded == 0
+            ? const _SectionEmpty('No items graded yet')
+            : Text('$graded graded · $unsat unsatisfactory',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+      _SectionCard(
+        accentColor: AppColors.coral,
+        icon: Icons.rule,
+        title: 'Recommendations',
+        countLabel: openRecs == 0 ? null : '$openRecs',
+        initiallyExpanded: openRecs > 0,
+        onOpen: () => ctx.go('/cases/$caseId/cs/recommendations'),
+        child: openRecs == 0
+            ? const _SectionEmpty('No open recommendations')
+            : Text('$openRecs open',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+    ];
   }
 
   // ── Unified sections (format differences handled at report builder stage) ──

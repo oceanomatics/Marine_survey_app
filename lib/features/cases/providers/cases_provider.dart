@@ -96,6 +96,12 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     // Clone checklist template for this case type
     await _cloneChecklistTemplate(newCase.caseId, caseType);
 
+    // C&S — AHTS: seed the per-case section skeleton (best-effort; no-op if
+    // the shared AHTS template hasn't been seeded in this database yet).
+    if (caseType == CaseType.cs) {
+      await _seedCsSections(newCase.caseId);
+    }
+
     // Provision the Drive folder structure — best-effort, must not block or
     // fail case creation if Drive is offline/unconfigured.
     unawaited(DriveStorageService.ensureCaseFoldersExist(newCase).catchError(
@@ -146,6 +152,40 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     }).toList();
 
     await SupabaseService.client.from('checklists').insert(items);
+  }
+
+  /// Seeds the per-case C&S section rows (cs_sections) from the active shared
+  /// AHTS template's section headers. Mirrors _cloneChecklistTemplate. No-op
+  /// if the template isn't seeded yet (migration 063b).
+  Future<void> _seedCsSections(String caseId) async {
+    final template = await SupabaseService.client
+        .from('cs_template')
+        .select('id')
+        .eq('vessel_type', 'ahts')
+        .eq('is_active', true)
+        .order('version', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    if (template == null) return;
+
+    final headers = await SupabaseService.client
+        .from('cs_template_item')
+        .select('section, ref_no')
+        .eq('template_id', template['id'] as String)
+        .eq('grade_applicable', false)
+        .order('sort_order');
+
+    final rows = (headers as List)
+        .map((h) => {
+              'case_id': caseId,
+              'section_type': h['section'],
+              'template_section_ref': h['ref_no'] ?? h['section'],
+              'vessel_type': 'ahts',
+            })
+        .toList();
+    if (rows.isNotEmpty) {
+      await SupabaseService.client.from('cs_sections').insert(rows);
+    }
   }
 }
 
