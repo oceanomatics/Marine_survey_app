@@ -344,6 +344,106 @@ class DocExtractionResult {
       hasActionItems ||
       hasBackground ||
       hasCaseRefs;
+
+  /// Build the shared extraction result from a correspondence extraction JSON
+  /// (ClaudeApi.extractCorrespondence*), so correspondence uses the same review
+  /// sheet + apply as documents. [sourceId] is the correspondence id.
+  factory DocExtractionResult.fromCorrespondence(
+      String sourceId, Map<String, dynamic> raw) {
+    List<Map<String, dynamic>> maps(dynamic v) => v is List
+        ? v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : const [];
+    List<String> strs(dynamic v) => v is List
+        ? v
+            .map((e) => e?.toString() ?? '')
+            .where((s) => s.trim().isNotEmpty)
+            .toList()
+        : const [];
+    String? s(dynamic v) {
+      final t = v?.toString().trim() ?? '';
+      return (t.isEmpty || t.toLowerCase() == 'null') ? null : t;
+    }
+
+    final findings = maps(raw['context_findings'])
+        .where((f) => (s(f['text']) ?? '').isNotEmpty)
+        .toList();
+    return DocExtractionResult(
+      docId: sourceId,
+      documentType: 'Correspondence',
+      hardFields: const {},
+      contextFindings: [for (final f in findings) s(f['text'])!],
+      findingCategories: [
+        for (final f in findings) s(f['note_category']) ?? 'observation'
+      ],
+      findingCaseSections: [for (final f in findings) s(f['case_section'])],
+      detectedIncidents: maps(raw['detected_incidents']),
+      detectedMachinery: maps(raw['detected_machinery']),
+      detectedClassConditions: maps(raw['detected_class_conditions']),
+      detectedContacts: maps(raw['parties']),
+      keyDates: maps(raw['key_dates']),
+      costEstimates: maps(raw['cost_estimates']),
+      actionItems: strs(raw['action_items']),
+      backgroundText: s(raw['background_text']),
+      caseRefs: {
+        'technical_file_no': s(raw['technical_file_no']),
+        'claim_reference': s(raw['claim_reference']),
+        'vessel_name': s(raw['vessel_name']),
+        'instruction_date': s(raw['instruction_date']),
+      },
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'docId': docId,
+        'documentType': documentType,
+        'hardFields': hardFields,
+        'contextFindings': contextFindings,
+        'findingCategories': findingCategories,
+        'findingCaseSections': findingCaseSections,
+        'detectedIncidents': detectedIncidents,
+        'detectedMachinery': detectedMachinery,
+        'detectedClassConditions': detectedClassConditions,
+        'detectedContacts': detectedContacts,
+        'vesselFields': vesselFields,
+        'keyDates': keyDates,
+        'costEstimates': costEstimates,
+        'actionItems': actionItems,
+        'backgroundText': backgroundText,
+        'caseRefs': caseRefs,
+      };
+
+  factory DocExtractionResult.fromJson(Map<String, dynamic> j) {
+    List<Map<String, dynamic>> maps(dynamic v) => v is List
+        ? v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : const [];
+    return DocExtractionResult(
+      docId: j['docId']?.toString() ?? '',
+      documentType: j['documentType'] as String?,
+      hardFields: (j['hardFields'] as Map?)?.cast<String, dynamic>() ?? const {},
+      contextFindings:
+          (j['contextFindings'] as List?)?.map((e) => e.toString()).toList() ??
+              const [],
+      findingCategories:
+          (j['findingCategories'] as List?)?.map((e) => e.toString()).toList() ??
+              const [],
+      findingCaseSections:
+          (j['findingCaseSections'] as List?)?.map((e) => e as String?).toList() ??
+              const [],
+      detectedIncidents: maps(j['detectedIncidents']),
+      detectedMachinery: maps(j['detectedMachinery']),
+      detectedClassConditions: maps(j['detectedClassConditions']),
+      detectedContacts: maps(j['detectedContacts']),
+      vesselFields:
+          (j['vesselFields'] as Map?)?.cast<String, dynamic>() ?? const {},
+      keyDates: maps(j['keyDates']),
+      costEstimates: maps(j['costEstimates']),
+      actionItems:
+          (j['actionItems'] as List?)?.map((e) => e.toString()).toList() ??
+              const [],
+      backgroundText: j['backgroundText'] as String?,
+      caseRefs: (j['caseRefs'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+  }
 }
 
 // ── Document provider ──────────────────────────────────────────────────────

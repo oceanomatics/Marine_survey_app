@@ -10,10 +10,10 @@ import 'package:intl/intl.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/correspondence_model.dart';
-import '../models/corr_extraction_result.dart';
 import '../providers/correspondence_provider.dart';
-import '../widgets/correspondence_review_sheet.dart';
 import '../utils/correspondence_threads.dart';
+import '../../documents/screens/document_vault_screen.dart'
+    show ExtractionReviewSheet;
 import '../../../core/api/claude_api.dart';
 import '../../../core/services/gmail_service.dart';
 import '../../../core/services/google_auth_service.dart';
@@ -457,7 +457,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
   // ── AI extraction (per-item review sheet) ─────────────────────────────────
 
   Future<void> _extract() async {
-    CorrExtractionResult? result;
+    DocExtractionResult? result;
     try {
       result = await ref
           .read(correspondenceProvider(widget.caseId).notifier)
@@ -476,11 +476,27 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       );
       return;
     }
-    await showCorrespondenceReviewSheet(
-      context,
-      caseId: widget.caseId,
-      corrId: item.id,
-      result: result,
+    await _openReviewSheet(result);
+  }
+
+  /// Opens the SHARED extraction review sheet (same as documents), telling it
+  /// not to write back to a documents row and to clear the correspondence
+  /// pending_extraction once imported.
+  Future<void> _openReviewSheet(DocExtractionResult result) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ExtractionReviewSheet(
+        caseId: widget.caseId,
+        docTitle: item.title,
+        result: result,
+        writeBackToDocument: false,
+        sourceRecordId: item.id,
+        onImported: () => ref
+            .read(correspondenceProvider(widget.caseId).notifier)
+            .clearPendingExtraction(item.id),
+      ),
     );
   }
 
@@ -927,13 +943,8 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
         .read(correspondenceProvider(widget.caseId).notifier)
         .pendingExtractionFor(item.id);
     if (!mounted) return;
-    if (result != null && !result.isEmpty) {
-      await showCorrespondenceReviewSheet(
-        context,
-        caseId: widget.caseId,
-        corrId: item.id,
-        result: result,
-      );
+    if (result != null && result.hasAny) {
+      await _openReviewSheet(result);
       return;
     }
     if (!mounted) return;

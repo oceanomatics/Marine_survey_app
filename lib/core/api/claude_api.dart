@@ -2038,6 +2038,12 @@ Rules:
   "cost_estimates": [
     {"category": "repairs | drydock | towage | agency | survey | general_expenses | other", "description": "what the cost is for", "amount": 0, "currency": "e.g. USD, EUR, or null"}
   ],
+  "detected_machinery": [
+    {"machinery_type": "e.g. Main Engine, Auxiliary Engine, Turbocharger, Pump, Generator", "role": "propulsion | auxiliary | other", "make": "", "model": "", "serial_number": "", "mcr_kw": 0, "mcr_rpm": 0, "fuel_type": ""}
+  ],
+  "detected_class_conditions": [
+    {"reference": "condition/recommendation reference", "description": "what it requires", "expiry_date": "YYYY-MM-DD or null"}
+  ],
   "action_items": [
     "action item or outstanding request"
   ],
