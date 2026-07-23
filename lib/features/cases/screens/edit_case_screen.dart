@@ -31,6 +31,7 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
   late final TextEditingController _claimCtrl;
   late final TextEditingController _instructingPartyCtrl;
   late final TextEditingController _assuredCtrl;
+  late final TextEditingController _yearCtrl;
   DateTime? _instructionDate;
   CaseStatus? _status;
   CaseType? _caseType;
@@ -48,6 +49,7 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
     _claimCtrl            = TextEditingController(text: c?.claimReference ?? '');
     _instructingPartyCtrl = TextEditingController(text: c?.instructingParty ?? '');
     _assuredCtrl          = TextEditingController(text: c?.assured ?? '');
+    _yearCtrl             = TextEditingController(text: c?.caseYear?.toString() ?? '');
     _instructionDate      = c?.instructionDate;
     _status               = c?.status;
     _caseType             = c?.caseType;
@@ -62,6 +64,7 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
     _claimCtrl.dispose();
     _instructingPartyCtrl.dispose();
     _assuredCtrl.dispose();
+    _yearCtrl.dispose();
     super.dispose();
   }
 
@@ -80,6 +83,7 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
         status:          _status,
         caseType:        _caseType,
         instructionDate: _instructionDate,
+        caseYear:        int.tryParse(_v(_yearCtrl) ?? ''),
         outputFormat:    _outputFormat,
         organisationId:  _organisationId,
         baseCurrency:    _baseCurrency,
@@ -162,6 +166,9 @@ class _EditCaseScreenState extends ConsumerState<EditCaseScreen> {
               onPicked: (d) => setState(() => _instructionDate = d),
               onCleared: () => setState(() => _instructionDate = null),
             ),
+            const SizedBox(height: 10),
+            _field('Case Year', _yearCtrl,
+                hint: 'Drive folder year — e.g. 2025 if the matter is from 2025'),
             const SizedBox(height: 16),
 
             // ── Survey Classification ────────────────────────────────────

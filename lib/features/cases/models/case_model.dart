@@ -92,6 +92,7 @@ class CaseModel {
     this.clientId,
     this.vesselId,
     this.instructionDate,
+    this.caseYear,
     this.title,
     this.claimReference,
     this.principalId,
@@ -156,6 +157,9 @@ class CaseModel {
   final String? clientId;
   final String? vesselId;
   final DateTime? instructionDate;
+  /// Explicit year for the Drive folder name; overrides the derived year in
+  /// [driveFolderName]. Suggested at creation, editable on the case screen.
+  final int? caseYear;
   final String? title;
   final String? claimReference;
   final String? principalId;
@@ -238,6 +242,7 @@ class CaseModel {
       instructionDate: json['instruction_date'] != null
           ? DateTime.tryParse(json['instruction_date'] as String)
           : null,
+      caseYear:       (json['case_year'] as num?)?.toInt(),
       title:          json['title'] as String?,
       claimReference: json['claim_reference'] as String?,
       principalId: json['principal_id'] as String?,
@@ -310,6 +315,7 @@ class CaseModel {
     if (vesselId != null)     'vessel_id':     vesselId,
     if (instructionDate != null)
       'instruction_date': instructionDate!.toIso8601String().split('T').first,
+    if (caseYear != null)          'case_year':           caseYear,
     if (title != null)             'title':               title,
     if (claimReference != null)    'claim_reference':     claimReference,
     if (principalId != null)       'principal_id':        principalId,
@@ -359,7 +365,7 @@ class CaseModel {
   /// until one is set. Distinct from [title]: no survey type or occurrence
   /// detail, kept short for Drive.
   String get driveFolderName {
-    final year =
+    final year = caseYear ??
         (dateOfFirstAttendance ?? instructionDate ?? createdAt ?? DateTime.now())
             .year;
     final parts = [
@@ -378,6 +384,7 @@ class CaseModel {
     String? clientId,
     String? vesselId,
     DateTime? instructionDate,
+    int? caseYear,
     String? title,
     String? claimReference,
     String? notes,
@@ -412,6 +419,7 @@ class CaseModel {
       clientId:              clientId              ?? this.clientId,
       vesselId:              vesselId              ?? this.vesselId,
       instructionDate:       instructionDate       ?? this.instructionDate,
+      caseYear:              caseYear              ?? this.caseYear,
       title:                 title                 ?? this.title,
       claimReference:        claimReference        ?? this.claimReference,
       principalId:           principalId,

@@ -15,6 +15,7 @@ class NewCaseScreen extends ConsumerStatefulWidget {
 class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
   final _jobCtrl   = TextEditingController();
   final _claimCtrl = TextEditingController();
+  final _yearCtrl  = TextEditingController(text: '${DateTime.now().year}');
   CaseType  _type   = CaseType.hm;
   OutputFormat _fmt = OutputFormat.abl;
   bool _loading = false;
@@ -54,6 +55,16 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
                 DropdownMenuItem(value: f, child: Text(f.label))).toList(),
             onChanged: (v) => setState(() => _fmt = v!),
           ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _yearCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Case Year',
+              helperText: 'Used for the Drive folder — defaults to this year; '
+                  'set the year of the matter if different',
+            ),
+          ),
           const SizedBox(height: 28),
           SizedBox(
             width: double.infinity,
@@ -82,6 +93,7 @@ class _NewCaseScreenState extends ConsumerState<NewCaseScreen> {
         technicalFileNo: technicalFileNo,
         caseType: _type,
         outputFormat: _fmt,
+        caseYear: int.tryParse(_yearCtrl.text.trim()),
         claimReference: _claimCtrl.text.trim().isEmpty
             ? null : _claimCtrl.text.trim(),
       );

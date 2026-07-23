@@ -69,6 +69,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
     String? clientId,
     String? vesselId,
     DateTime? instructionDate,
+    int? caseYear,
   }) async {
     final orgId = await _currentOrgId();
     final data = await SupabaseService.client
@@ -82,6 +83,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
           if (claimReference != null) 'claim_reference': claimReference,
           if (clientId != null) 'client_id': clientId,
           if (vesselId != null) 'vessel_id': vesselId,
+          if (caseYear != null) 'case_year': caseYear,
           if (instructionDate != null)
             'instruction_date':
                 instructionDate.toIso8601String().split('T').first,
@@ -238,6 +240,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     CaseStatus? status,
     CaseType? caseType,
     DateTime? instructionDate,
+    int? caseYear,
     OutputFormat? outputFormat,
     String? organisationId,
     String? baseCurrency,
@@ -262,6 +265,7 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     if (instructionDate != null) {
       updates['instruction_date'] = instructionDate.toIso8601String().split('T').first;
     }
+    if (caseYear != null)         updates['case_year']         = caseYear;
     if (organisationId != null)   updates['organisation_id']   = organisationId;
     if (baseCurrency != null)     updates['base_currency']     = baseCurrency;
     if (instructingParty != null) updates['instructing_party'] = instructingParty;
@@ -290,8 +294,13 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
         .update(updates)
         .eq('case_id', arg);
     state = await AsyncValue.guard(() => _fetch(arg));
-    // Rebuild composite title whenever file no, vessel, or case type may have changed.
-    if (technicalFileNo != null || caseType != null) await _rebuildTitle();
+    // Rebuild composite title whenever file no or case type may have changed;
+    // also when case_year changes, since that renames the Drive case folder
+    // (driveFolderName leads with the year — syncCaseFolderName runs inside
+    // _rebuildTitle).
+    if (technicalFileNo != null || caseType != null || caseYear != null) {
+      await _rebuildTitle();
+    }
     ref.invalidate(casesProvider);
   }
 
