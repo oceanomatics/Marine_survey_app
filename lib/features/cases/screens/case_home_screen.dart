@@ -43,6 +43,7 @@ import '../../cs/providers/cs_inspection_provider.dart';
 import '../../cs/providers/cs_recommendation_provider.dart';
 import '../../pi/providers/pi_opinion_provider.dart';
 import '../../pi/providers/pi_injured_party_provider.dart';
+import '../../pi/providers/pi_relied_upon_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -944,6 +945,23 @@ class _PseudoReport extends ConsumerWidget {
           child: injured.isEmpty
               ? const _SectionEmpty('None recorded')
               : Text('${injured.length} recorded',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+      final relied =
+          ref.watch(piReliedUponProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF2E6E8E),
+          icon: Icons.menu_book_outlined,
+          title: 'Facts & Documents Relied Upon',
+          countLabel: relied.isEmpty ? null : '${relied.length}',
+          onOpen: () => context.go('/cases/$caseId/pi/relied-upon'),
+          child: relied.isEmpty
+              ? const _SectionEmpty('None recorded')
+              : Text('${relied.length} item'
+                  '${relied.length == 1 ? '' : 's'}',
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
         ),

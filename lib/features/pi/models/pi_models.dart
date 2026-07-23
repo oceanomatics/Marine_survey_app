@@ -144,3 +144,43 @@ class PiInjuredPartyModel {
         sortOrder: sortOrder,
       );
 }
+
+// ── Facts & Documents Relied Upon (spec §4.3) ───────────────────────────────
+@immutable
+class PiReliedUponModel {
+  const PiReliedUponModel({
+    required this.id,
+    required this.caseId,
+    required this.description,
+    this.reference,
+    this.documentId,
+    this.sortOrder = 0,
+  });
+
+  final String id;
+  final String caseId;
+  final String description;
+  final String? reference;
+  final String? documentId;
+  final int sortOrder;
+
+  factory PiReliedUponModel.fromJson(Map<String, dynamic> j) =>
+      PiReliedUponModel(
+        id: j['id'] as String,
+        caseId: j['case_id'] as String,
+        description: j['description'] as String,
+        reference: j['reference'] as String?,
+        documentId: j['document_id'] as String?,
+        sortOrder: j['sort_order'] as int? ?? 0,
+      );
+
+  PiReliedUponModel copyWith({String? description, String? reference}) =>
+      PiReliedUponModel(
+        id: id,
+        caseId: caseId,
+        description: description ?? this.description,
+        reference: reference ?? this.reference,
+        documentId: documentId,
+        sortOrder: sortOrder,
+      );
+}
