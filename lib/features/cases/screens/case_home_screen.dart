@@ -38,6 +38,16 @@ import '../../reports/providers/report_provider.dart';
 import '../../reports/utils/case_completeness.dart';
 import '../../action_items/providers/action_items_provider.dart';
 import '../../documents/providers/document_provider.dart';
+import '../../cs/models/cs_models.dart';
+import '../../cs/providers/cs_inspection_provider.dart';
+import '../../cs/providers/cs_recommendation_provider.dart';
+import '../../cs/providers/cs_certificate_provider.dart';
+import '../../pi/providers/pi_opinion_provider.dart';
+import '../../pi/providers/pi_injured_party_provider.dart';
+import '../../pi/providers/pi_relied_upon_provider.dart';
+import '../../dp/providers/dp_test_provider.dart';
+import '../../dp/providers/dp_programme_provider.dart';
+import '../../dp/models/dp_models.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -410,6 +420,28 @@ class _SurveyNavRail extends ConsumerWidget {
                     accent: const Color(0xFF1E3A5F),
                     onTap: () => context.go('/cases/$caseId/analyst'),
                   ),
+                  if (caseModel?.caseType == CaseType.cs)
+                    _NavItem(
+                      icon: Icons.fact_check_outlined,
+                      label: 'Inspect',
+                      accent: const Color(0xFF1E6B5A),
+                      onTap: () =>
+                          context.go('/cases/$caseId/cs/inspection'),
+                    ),
+                  if (caseModel?.caseType == CaseType.pi)
+                    _NavItem(
+                      icon: Icons.gavel_outlined,
+                      label: 'Opinion',
+                      accent: const Color(0xFF3B4A8C),
+                      onTap: () => context.go('/cases/$caseId/pi/opinion'),
+                    ),
+                  if (caseModel?.caseType == CaseType.dpTrials)
+                    _NavItem(
+                      icon: Icons.science_outlined,
+                      label: 'Tests',
+                      accent: const Color(0xFF0E7C86),
+                      onTap: () => context.go('/cases/$caseId/dp/tests'),
+                    ),
                 ],
               ),
             ),
@@ -880,11 +912,112 @@ class _PseudoReport extends ConsumerWidget {
         ? review!.affectedSections
         : const <String>{};
 
-    final List<Widget> sections = _sections(
-        context, damage, attendees, visits, timeline, repairPeriods,
-        natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
-        surveyorNotes, survey,
-        highlighted: highlighted);
+    // Case type gates which module cards show. C&S cases swap the H&M
+    // narrative/cost cards for the inspection + recommendations set; every
+    // other type keeps the existing H&M list unchanged (byte-identical path).
+    final List<Widget> sections = survey.caseType == CaseType.cs
+        ? _csSections(context, ref)
+        : _sections(
+            context, damage, attendees, visits, timeline, repairPeriods,
+            natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
+            surveyorNotes, survey,
+            highlighted: highlighted);
+
+    // P&I / expert cases reuse the H&M spine + add the Opinion & Conclusions
+    // register (the genuinely-new expert-report object). Additive — H&M and
+    // other types are untouched.
+    if (survey.caseType == CaseType.pi) {
+      final opinions = ref.watch(piOpinionProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF3B4A8C),
+          icon: Icons.gavel_outlined,
+          title: 'Opinion & Conclusions',
+          countLabel: opinions.isEmpty ? null : '${opinions.length}',
+          initiallyExpanded: opinions.isNotEmpty,
+          onOpen: () => context.go('/cases/$caseId/pi/opinion'),
+          child: opinions.isEmpty
+              ? const _SectionEmpty('No opinions recorded')
+              : Text('${opinions.length} opinion'
+                  '${opinions.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+      final injured =
+          ref.watch(piInjuredPartyProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF7A5C8C),
+          icon: Icons.healing_outlined,
+          title: 'Injured Parties',
+          countLabel: injured.isEmpty ? null : '${injured.length}',
+          onOpen: () => context.go('/cases/$caseId/pi/injured'),
+          child: injured.isEmpty
+              ? const _SectionEmpty('None recorded')
+              : Text('${injured.length} recorded',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+      final relied =
+          ref.watch(piReliedUponProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF2E6E8E),
+          icon: Icons.menu_book_outlined,
+          title: 'Facts & Documents Relied Upon',
+          countLabel: relied.isEmpty ? null : '${relied.length}',
+          onOpen: () => context.go('/cases/$caseId/pi/relied-upon'),
+          child: relied.isEmpty
+              ? const _SectionEmpty('None recorded')
+              : Text('${relied.length} item'
+                  '${relied.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+    }
+
+    // DP FMEA annual-trials cases add the test register (backed by
+    // trials_tests). Additive — H&M untouched.
+    if (survey.caseType == CaseType.dpTrials) {
+      final programme = ref.watch(dpProgrammeProvider(caseId)).value;
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF14607A),
+          icon: Icons.assignment_outlined,
+          title: 'DP Trials — Programme',
+          onOpen: () => context.go('/cases/$caseId/dp/programme'),
+          child: Text(
+            programme?.overallResult?.label ?? 'Result not set',
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ),
+      );
+      final tests = ref.watch(dpTestProvider(caseId)).value ?? const [];
+      final critical = tests
+          .where((t) => t.findingCategory == DpFindingCategory.critical)
+          .length;
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF0E7C86),
+          icon: Icons.science_outlined,
+          title: 'DP Trials — Tests',
+          countLabel: tests.isEmpty ? null : '${tests.length}',
+          initiallyExpanded: tests.isNotEmpty,
+          onOpen: () => context.go('/cases/$caseId/dp/tests'),
+          child: tests.isEmpty
+              ? const _SectionEmpty('No tests recorded')
+              : Text(
+                  '${tests.length} test${tests.length == 1 ? '' : 's'}'
+                  '${critical > 0 ? ' · $critical critical' : ''}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+    }
 
     // §4.7: open + pending-review action item count for the entry-point
     // card — inserted at the very top of the section list (2026-07-13
@@ -929,6 +1062,63 @@ class _PseudoReport extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  // ── C&S — AHTS module cards (shown when caseType == cs) ──────────────────
+  List<Widget> _csSections(BuildContext ctx, WidgetRef ref) {
+    final inspection =
+        ref.watch(csInspectionProvider(caseId)).value ?? const [];
+    final recs =
+        ref.watch(csRecommendationProvider(caseId)).value ?? const [];
+    final graded =
+        inspection.where((i) => i.grade != null && !i.isNa).length;
+    final unsat =
+        inspection.where((i) => i.grade == CsGrade.unsatisfactory).length;
+    final openRecs = recs
+        .where((r) => r.status == CsRecommendationStatus.open)
+        .length;
+    final certs = ref.watch(csCertificateProvider(caseId)).value ?? const [];
+    return [
+      _SectionCard(
+        accentColor: const Color(0xFF1E6B5A),
+        icon: Icons.fact_check_outlined,
+        title: 'Inspection',
+        countLabel: graded == 0 ? null : '$graded',
+        initiallyExpanded: graded > 0,
+        onOpen: () => ctx.go('/cases/$caseId/cs/inspection'),
+        child: graded == 0
+            ? const _SectionEmpty('No items graded yet')
+            : Text('$graded graded · $unsat unsatisfactory',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+      _SectionCard(
+        accentColor: AppColors.coral,
+        icon: Icons.rule,
+        title: 'Recommendations',
+        countLabel: openRecs == 0 ? null : '$openRecs',
+        initiallyExpanded: openRecs > 0,
+        onOpen: () => ctx.go('/cases/$caseId/cs/recommendations'),
+        child: openRecs == 0
+            ? const _SectionEmpty('No open recommendations')
+            : Text('$openRecs open',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+      _SectionCard(
+        accentColor: AppColors.purple,
+        icon: Icons.verified_outlined,
+        title: 'Certificate Register',
+        countLabel: certs.isEmpty ? null : '${certs.length}',
+        onOpen: () => ctx.go('/cases/$caseId/cs/certificates'),
+        child: certs.isEmpty
+            ? const _SectionEmpty('No certificates recorded')
+            : Text('${certs.length} certificate'
+                '${certs.length == 1 ? '' : 's'}',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+    ];
   }
 
   // ── Unified sections (format differences handled at report builder stage) ──

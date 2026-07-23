@@ -43,6 +43,14 @@ import '../../features/settings/screens/organisation_list_screen.dart';
 import '../../features/settings/screens/organisation_detail_screen.dart';
 import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
+import '../../features/cs/screens/cs_inspection_screen.dart';
+import '../../features/cs/screens/cs_recommendations_screen.dart';
+import '../../features/cs/screens/cs_certificate_screen.dart';
+import '../../features/pi/screens/pi_opinion_screen.dart';
+import '../../features/pi/screens/pi_injured_party_screen.dart';
+import '../../features/pi/screens/pi_relied_upon_screen.dart';
+import '../../features/dp/screens/dp_test_screen.dart';
+import '../../features/dp/screens/dp_programme_screen.dart';
 import '../../features/interviews/screens/interview_detail_screen.dart';
 import '../../features/interviews/screens/record_interview_screen.dart';
 import '../../features/accounts/screens/accounts_screen.dart';
@@ -273,6 +281,46 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'action-items',
               builder: (context, state) => ActionItemsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/inspection',
+              builder: (context, state) => CsInspectionScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/recommendations',
+              builder: (context, state) => CsRecommendationsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/certificates',
+              builder: (context, state) => CsCertificateScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'pi/opinion',
+              builder: (context, state) => PiOpinionScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'pi/injured',
+              builder: (context, state) => PiInjuredPartyScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'pi/relied-upon',
+              builder: (context, state) => PiReliedUponScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'dp/tests',
+              builder: (context, state) => DpTestScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'dp/programme',
+              builder: (context, state) => DpProgrammeScreen(
                   caseId: state.pathParameters['caseId']!),
             ),
           ],

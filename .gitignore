@@ -25,8 +25,14 @@ migrate_working_dir/
 
 # .vscode/ contains secrets in launch.json dart-define args — do not commit
 .vscode/
-# .env contains secrets — do not commit
+# .env contains secrets — do not commit (but keep the committable template)
 .env
+.env.*
+!.env.example
+*.key
+*.pem
+service-account*.json
+supabase/.temp/
 supabase data
 
 # Flutter/Dart/Pub related
@@ -49,3 +55,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Claude Code personal/local settings (do not commit)
+.claude/settings.local.json
+.claude/settings.local.json.tmp.*
