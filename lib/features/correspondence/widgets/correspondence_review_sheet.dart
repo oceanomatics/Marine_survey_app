@@ -1,16 +1,21 @@
 // lib/features/correspondence/widgets/correspondence_review_sheet.dart
 //
-// Per-item selector review sheet for correspondence AI-extraction — parity with
-// the document review sheet. Shows every extractable item grouped by type with
-// an import switch, so the surveyor imports only the relevant data. Collects the
-// selection and hands it to CorrespondenceNotifier.importExtraction, which fans
-// out the write-back to the right records/tables.
+// Per-item selector review sheet for correspondence AI-extraction. Presentation
+// deliberately mirrors the document-vault extraction sheet
+// (_ExtractionResultSheet in document_vault_screen.dart) for a consistent
+// "review & import" experience across the app: rounded modal, drag handle,
+// auto_awesome header, _SectionHeader groups, leading-checkbox rows, and a
+// counted Apply button. Collects the selection and hands it to
+// CorrespondenceNotifier.importExtraction, which fans out the write-back.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/theme/app_theme.dart';
 import '../models/corr_extraction_result.dart';
 import '../providers/correspondence_provider.dart';
+
+const _kColor = AppColors.amber;
 
 /// Opens the review sheet. Returns true if the surveyor imported something.
 Future<bool> showCorrespondenceReviewSheet(
@@ -22,7 +27,7 @@ Future<bool> showCorrespondenceReviewSheet(
   final imported = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    useSafeArea: true,
+    backgroundColor: Colors.transparent,
     builder: (_) => _CorrespondenceReviewSheet(
       caseId: caseId,
       corrId: corrId,
@@ -61,16 +66,16 @@ class _CorrespondenceReviewSheetState
   late final Set<int> _costs;
   late final Set<int> _actionItems;
 
-  bool _importing = false;
+  bool _saving = false;
 
   CorrExtractionResult get r => widget.result;
 
   @override
   void initState() {
     super.initState();
-    // Default ON for informational items; the consequential record-creating
-    // ones (occurrences, damage, repairs) default OFF so they're a deliberate
-    // opt-in. Damage/repairs also require a parent occurrence to be selected.
+    // Informational items default ON; the record-creating occurrences/damage/
+    // repairs default OFF (deliberate opt-in). Damage/repairs also require a
+    // parent occurrence to be selected.
     _headerRefs = r.hasHeaderRefs;
     _background = r.backgroundText != null;
     _parties = _all(r.parties.length);
@@ -85,8 +90,8 @@ class _CorrespondenceReviewSheetState
 
   Set<int> _all(int n) => {for (var i = 0; i < n; i++) i};
 
-  void _toggle(Set<int> set, int i) =>
-      setState(() => set.contains(i) ? set.remove(i) : set.add(i));
+  void _toggle(Set<int> set, int i, bool v) =>
+      setState(() => v ? set.add(i) : set.remove(i));
 
   CorrImportSelection _selection() => CorrImportSelection(
         headerRefs: _headerRefs,
@@ -95,8 +100,7 @@ class _CorrespondenceReviewSheetState
         keyDates: _keyDates,
         findings: _findings,
         incidents: _incidents,
-        // Damage/repairs only import when at least one occurrence is imported
-        // (they need a parent occurrence_id).
+        // Damage/repairs only import alongside a parent occurrence.
         damage: _incidents.isEmpty ? <int>{} : _damage,
         repairs: _incidents.isEmpty ? <int>{} : _repairs,
         costs: _costs,
@@ -104,7 +108,7 @@ class _CorrespondenceReviewSheetState
       );
 
   Future<void> _import() async {
-    setState(() => _importing = true);
+    setState(() => _saving = true);
     try {
       final n = await ref
           .read(correspondenceProvider(widget.caseId).notifier)
@@ -116,7 +120,7 @@ class _CorrespondenceReviewSheetState
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _importing = false);
+      setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Import failed: $e')),
       );
@@ -125,197 +129,292 @@ class _CorrespondenceReviewSheetState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final sel = _selection();
-    if (r.isEmpty) {
-      return _wrap(
-        theme,
-        child: const Padding(
-          padding: EdgeInsets.all(32),
-          child: Center(child: Text('Nothing was extracted from this correspondence.')),
-        ),
-      );
-    }
 
-    return _wrap(
-      theme,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              children: [
-                if (r.summary != null) ...[
-                  Text('Summary', style: theme.textTheme.labelLarge),
-                  const SizedBox(height: 4),
-                  Text(r.summary!, style: theme.textTheme.bodyMedium),
-                  const Divider(height: 24),
-                ],
-                if (r.hasHeaderRefs)
-                  _section('Case details', [
-                    SwitchListTile(
-                      dense: true,
-                      value: _headerRefs,
-                      onChanged: (v) => setState(() => _headerRefs = v),
-                      title: const Text('Apply case header fields'),
-                      subtitle: Text([
-                        if (r.technicalFileNo != null) 'File ${r.technicalFileNo}',
-                        if (r.claimReference != null) 'Claim ${r.claimReference}',
-                        if (r.vesselName != null) 'Vessel ${r.vesselName}',
-                        if (r.instructionDate != null) 'Instructed ${r.instructionDate}',
-                      ].join(' · ')),
-                    ),
-                  ]),
-                if (r.backgroundText != null)
-                  _section('Background', [
-                    SwitchListTile(
-                      dense: true,
-                      value: _background,
-                      onChanged: (v) => setState(() => _background = v),
-                      title: const Text('Append to case background'),
-                      subtitle: Text(r.backgroundText!,
-                          maxLines: 3, overflow: TextOverflow.ellipsis),
-                    ),
-                  ]),
-                _listSection<CorrParty>('Parties / contacts', r.parties, _parties,
-                    (p) => p.name, (p) => [p.role, p.company].whereType<String>().join(' · ')),
-                _listSection<CorrKeyDate>('Key dates', r.keyDates, _keyDates,
-                    (k) => [k.date, k.description].whereType<String>().join(' — '),
-                    (k) => k.isAttendance ? 'ATTENDANCE${k.location != null ? ' · ${k.location}' : ''}' : 'timeline (full log)'),
-                _listSection<CorrFinding>('Context notes', r.findings, _findings,
-                    (f) => f.text, (f) => f.caseSection ?? ''),
-                _listSection<CorrIncident>('Occurrences', r.incidents, _incidents,
-                    (i) => i.title, (i) => [i.date, i.location].whereType<String>().join(' · '),
-                    caption: 'Off by default — creates an occurrence record'),
-                if (r.damage.isNotEmpty)
-                  _listSection<CorrDamage>('Damage', r.damage, _damage,
-                      (d) => d.description, (d) => d.component ?? '',
-                      caption: _incidents.isEmpty
-                          ? 'Select an occurrence above to enable damage import'
-                          : null,
-                      enabled: _incidents.isNotEmpty),
-                if (r.repairs.isNotEmpty)
-                  _listSection<CorrRepair>('Repairs', r.repairs, _repairs,
-                      (rp) => rp.description, (rp) => rp.status ?? '',
-                      caption: _incidents.isEmpty
-                          ? 'Select an occurrence above to enable repair import'
-                          : null,
-                      enabled: _incidents.isNotEmpty),
-                _listSection<CorrCost>('Cost estimates', r.costs, _costs,
-                    (c) => c.description,
-                    (c) => [if (c.amount != null) '${c.amount}${c.currency != null ? ' ${c.currency}' : ''}', c.category].whereType<String>().join(' · ')),
-                _listSection<String>('Action items', r.actionItems, _actionItems,
-                    (a) => a, (_) => ''),
-              ],
-            ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Row(
-                children: [
-                  TextButton(
-                    onPressed: _importing ? null : () => Navigator.pop(context, false),
-                    child: const Text('Cancel'),
+    return Container(
+      constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9),
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: (_importing || sel.count == 0) ? null : _import,
-                    icon: _importing
-                        ? const SizedBox(
-                            width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.download_done),
-                    label: Text(_importing ? 'Importing…' : 'Import ${sel.count} selected'),
-                  ),
-                ],
+                ),
               ),
-            ),
+              // Header (mirrors the document extraction sheet)
+              Row(children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: _kColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.auto_awesome_outlined,
+                      color: _kColor, size: 17),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Extraction Results',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.w600)),
+                        Text('Correspondence',
+                            style: TextStyle(
+                                fontSize: 11, color: AppColors.textSecondary)),
+                      ]),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close,
+                      size: 20, color: AppColors.textSecondary),
+                  onPressed: () => Navigator.pop(context, false),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ]),
+              const SizedBox(height: 14),
+
+              if (r.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                      child: Text('Nothing was extracted from this correspondence.',
+                          style: TextStyle(color: AppColors.textSecondary))),
+                )
+              else ...[
+                if (r.summary != null) ...[
+                  Text(r.summary!,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                  const SizedBox(height: 12),
+                ],
+
+                if (r.hasHeaderRefs) ...[
+                  const _SectionHeader('CASE DETAILS', Icons.badge_outlined),
+                  _check(
+                    value: _headerRefs,
+                    onChanged: (v) => setState(() => _headerRefs = v ?? false),
+                    title: 'Apply case header fields',
+                    subtitle: [
+                      if (r.technicalFileNo != null) 'File ${r.technicalFileNo}',
+                      if (r.claimReference != null) 'Claim ${r.claimReference}',
+                      if (r.vesselName != null) 'Vessel ${r.vesselName}',
+                      if (r.instructionDate != null) 'Instructed ${r.instructionDate}',
+                    ].join(' · '),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                _group<CorrParty>(
+                  'PARTIES / CONTACTS', Icons.people_outline, r.parties, _parties,
+                  subtitle: 'added to stakeholders',
+                  titleOf: (p) => p.name,
+                  subOf: (p) => [p.role, p.company].whereType<String>().join(' · '),
+                ),
+                _group<CorrKeyDate>(
+                  'KEY DATES', Icons.event_outlined, r.keyDates, _keyDates,
+                  subtitle: 'timeline events / surveyor attendances',
+                  titleOf: (k) => [k.date, k.description].whereType<String>().join(' — '),
+                  subOf: (k) => k.isAttendance
+                      ? 'SURVEYOR ATTENDANCE${k.location != null ? ' · ${k.location}' : ''}'
+                      : 'timeline event (full log)',
+                ),
+                _group<CorrFinding>(
+                  'CONTEXT NOTES', Icons.label_outline, r.findings, _findings,
+                  subtitle: 'added as context cues',
+                  titleOf: (f) => f.text,
+                  subOf: (f) => f.caseSection ?? '',
+                ),
+                _group<CorrIncident>(
+                  'OCCURRENCES', Icons.warning_amber_outlined, r.incidents, _incidents,
+                  subtitle: 'off by default — creates an occurrence',
+                  titleOf: (i) => i.title,
+                  subOf: (i) => [i.date, i.location].whereType<String>().join(' · '),
+                ),
+                _group<CorrDamage>(
+                  'DAMAGE', Icons.build_outlined, r.damage, _damage,
+                  enabled: _incidents.isNotEmpty,
+                  subtitle: _incidents.isEmpty
+                      ? 'select an occurrence to enable'
+                      : null,
+                  titleOf: (d) => d.description,
+                  subOf: (d) => d.component ?? '',
+                ),
+                _group<CorrRepair>(
+                  'REPAIRS', Icons.handyman_outlined, r.repairs, _repairs,
+                  enabled: _incidents.isNotEmpty,
+                  subtitle: _incidents.isEmpty
+                      ? 'select an occurrence to enable'
+                      : null,
+                  titleOf: (rp) => rp.description,
+                  subOf: (rp) => rp.status ?? '',
+                ),
+                _group<CorrCost>(
+                  'COST ESTIMATES', Icons.attach_money, r.costs, _costs,
+                  titleOf: (c) => c.description,
+                  subOf: (c) => [
+                    if (c.amount != null)
+                      '${c.amount}${c.currency != null ? ' ${c.currency}' : ''}',
+                    c.category,
+                  ].whereType<String>().join(' · '),
+                ),
+                _group<String>(
+                  'ACTION ITEMS', Icons.checklist_outlined, r.actionItems, _actionItems,
+                  titleOf: (a) => a,
+                  subOf: (_) => '',
+                ),
+
+                if (r.backgroundText != null) ...[
+                  const _SectionHeader('BACKGROUND', Icons.notes_outlined),
+                  _check(
+                    value: _background,
+                    onChanged: (v) => setState(() => _background = v ?? false),
+                    title: 'Append to case background',
+                    subtitle: r.backgroundText!,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: (_saving || sel.count == 0) ? null : _import,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _kColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text('Import ${sel.count} selected',
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _wrap(ThemeData theme, {required Widget child}) => DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, __) => Column(
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.dividerColor,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.auto_awesome, size: 20),
-                  const SizedBox(width: 8),
-                  Text('Import extracted data', style: theme.textTheme.titleMedium),
-                ],
-              ),
-            ),
-            Expanded(child: child),
-          ],
-        ),
-      );
-
-  Widget _section(String title, List<Widget> children) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 2),
-            child: Text(title, style: Theme.of(context).textTheme.labelLarge),
-          ),
-          ...children,
-          const Divider(height: 16),
-        ],
-      );
-
-  Widget _listSection<T>(
-    String title,
+  Widget _group<T>(
+    String label,
+    IconData icon,
     List<T> items,
-    Set<int> selected,
-    String Function(T) titleOf,
-    String Function(T) subtitleOf, {
-    String? caption,
+    Set<int> selected, {
+    required String Function(T) titleOf,
+    required String Function(T) subOf,
+    String? subtitle,
     bool enabled = true,
   }) {
     if (items.isEmpty) return const SizedBox.shrink();
-    return _section(
-      '$title (${selected.length}/${items.length})',
-      [
-        if (caption != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(caption,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(fontStyle: FontStyle.italic)),
-          ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader('$label (${selected.length}/${items.length})', icon,
+            subtitle: subtitle),
         for (var i = 0; i < items.length; i++)
-          SwitchListTile(
-            dense: true,
+          _check(
             value: selected.contains(i),
-            onChanged: enabled ? (_) => _toggle(selected, i) : null,
-            title: Text(titleOf(items[i]),
-                maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: subtitleOf(items[i]).isEmpty
-                ? null
-                : Text(subtitleOf(items[i]),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+            onChanged: enabled ? (v) => _toggle(selected, i, v ?? false) : null,
+            title: titleOf(items[i]),
+            subtitle: subOf(items[i]),
           ),
+        const SizedBox(height: 10),
       ],
+    );
+  }
+
+  Widget _check({
+    required bool value,
+    required ValueChanged<bool?>? onChanged,
+    required String title,
+    String? subtitle,
+  }) {
+    return CheckboxListTile(
+      value: value,
+      onChanged: onChanged,
+      activeColor: AppColors.teal,
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: EdgeInsets.zero,
+      tileColor: Colors.transparent,
+      dense: true,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis),
+          if (subtitle != null && subtitle.isNotEmpty)
+            Text(subtitle,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+/// Section header — same style as the document extraction sheet.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.label, this.icon, {this.subtitle});
+  final String label;
+  final IconData icon;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(children: [
+        Icon(icon, size: 13, color: AppColors.textTertiary),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(label,
+              style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textTertiary,
+                  letterSpacing: 0.6)),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text('— $subtitle',
+                style: const TextStyle(
+                    fontSize: 10, color: AppColors.textTertiary),
+                overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ]),
     );
   }
 }
