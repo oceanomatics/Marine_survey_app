@@ -46,6 +46,7 @@ import '../../pi/providers/pi_opinion_provider.dart';
 import '../../pi/providers/pi_injured_party_provider.dart';
 import '../../pi/providers/pi_relied_upon_provider.dart';
 import '../../dp/providers/dp_test_provider.dart';
+import '../../dp/providers/dp_programme_provider.dart';
 import '../../dp/models/dp_models.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
@@ -981,6 +982,20 @@ class _PseudoReport extends ConsumerWidget {
     // DP FMEA annual-trials cases add the test register (backed by
     // trials_tests). Additive — H&M untouched.
     if (survey.caseType == CaseType.dpTrials) {
+      final programme = ref.watch(dpProgrammeProvider(caseId)).value;
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF14607A),
+          icon: Icons.assignment_outlined,
+          title: 'DP Trials — Programme',
+          onOpen: () => context.go('/cases/$caseId/dp/programme'),
+          child: Text(
+            programme?.overallResult?.label ?? 'Result not set',
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ),
+      );
       final tests = ref.watch(dpTestProvider(caseId)).value ?? const [];
       final critical = tests
           .where((t) => t.findingCategory == DpFindingCategory.critical)

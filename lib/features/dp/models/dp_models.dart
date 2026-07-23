@@ -7,6 +7,53 @@
 
 import 'package:flutter/foundation.dart';
 
+// ── Trial programme (one per case) ──────────────────────────────────────────
+enum DpOverallResult {
+  compliant('compliant', 'Compliant'),
+  compliantWithFindings('compliant_with_findings', 'Compliant with findings'),
+  nonCompliant('non_compliant', 'Non-compliant');
+
+  const DpOverallResult(this.value, this.label);
+  final String value;
+  final String label;
+
+  static DpOverallResult? fromValue(String? v) {
+    if (v == null) return null;
+    for (final r in values) {
+      if (r.value == v) return r;
+    }
+    return null;
+  }
+}
+
+@immutable
+class DpProgrammeModel {
+  const DpProgrammeModel({
+    required this.id,
+    required this.caseId,
+    this.applicableRules,
+    this.operatingModes,
+    this.overallResult,
+    this.revision = 0,
+  });
+
+  final String id;
+  final String caseId;
+  final String? applicableRules;
+  final String? operatingModes;
+  final DpOverallResult? overallResult;
+  final int revision;
+
+  factory DpProgrammeModel.fromJson(Map<String, dynamic> j) => DpProgrammeModel(
+        id: j['id'] as String,
+        caseId: j['case_id'] as String,
+        applicableRules: j['applicable_rules'] as String?,
+        operatingModes: j['operating_modes'] as String?,
+        overallResult: DpOverallResult.fromValue(j['overall_result'] as String?),
+        revision: j['revision'] as int? ?? 0,
+      );
+}
+
 // test_result_enum: pass | fail | partial | not_tested | tbc
 enum DpTestResult {
   pass('pass', 'Pass'),
