@@ -36,7 +36,6 @@ import '../../../features/attendances/models/attendance_model.dart';
 import '../../../features/accounts/providers/accounts_provider.dart';
 import '../../../features/accounts/models/accounts_models.dart';
 import '../../../features/action_items/providers/action_items_provider.dart';
-import '../../../features/background/providers/background_provider.dart';
 import '../../../shared/widgets/context_cues_panel.dart'
     show natureOfContentColor;
 import '../../../features/parties/models/party_model.dart';
@@ -1771,20 +1770,24 @@ class ExtractionReviewSheetState
         }
       }
 
-      // 10. Background narrative (read-modify-write append).
+      // 10. Background narrative → a *pending-review context cue* tagged to
+      // the Background section, NOT a blind append to the case background
+      // field (23 July 2026 report). The surveyor reviews/allocates it in the
+      // Background cue register, which stops occurrence-level detail from
+      // bleeding straight into the finished background text.
       if (_backgroundSelected && res.hasBackground) {
         try {
-          final current =
-              await ref.read(backgroundProvider(widget.caseId).future);
-          final existing = current.content;
-          final appended = existing.trim().isEmpty
-              ? res.backgroundText!
-              : '$existing\n\n${res.backgroundText!}';
-          await ref
-              .read(backgroundProvider(widget.caseId).notifier)
-              .save(appended);
+          await ref.read(surveyorNotesProvider(widget.caseId).notifier).add(
+                caseId: widget.caseId,
+                content: res.backgroundText!,
+                natureOfContent: NatureOfContent.backgroundReference,
+                priority: CuePriority.normal,
+                source: widget.docTitle,
+                caseSection: CaseSection.background,
+                pendingReview: true,
+              );
         } catch (e, st) {
-          debugPrint('[APPLY] background failed: $e\n$st');
+          debugPrint('[APPLY] background cue failed: $e\n$st');
           errors.add('Background');
         }
       }
@@ -2368,7 +2371,7 @@ class ExtractionReviewSheetState
                   value: _backgroundSelected,
                   onChanged: (v) =>
                       setState(() => _backgroundSelected = v ?? false),
-                  title: 'Append to case background',
+                  title: 'Add as Background cue (pending review)',
                   subtitle: result.backgroundText ?? '',
                 ),
                 const SizedBox(height: 8),
