@@ -44,6 +44,8 @@ import '../../cs/providers/cs_recommendation_provider.dart';
 import '../../pi/providers/pi_opinion_provider.dart';
 import '../../pi/providers/pi_injured_party_provider.dart';
 import '../../pi/providers/pi_relied_upon_provider.dart';
+import '../../dp/providers/dp_test_provider.dart';
+import '../../dp/models/dp_models.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -430,6 +432,13 @@ class _SurveyNavRail extends ConsumerWidget {
                       label: 'Opinion',
                       accent: const Color(0xFF3B4A8C),
                       onTap: () => context.go('/cases/$caseId/pi/opinion'),
+                    ),
+                  if (caseModel?.caseType == CaseType.dpTrials)
+                    _NavItem(
+                      icon: Icons.science_outlined,
+                      label: 'Tests',
+                      accent: const Color(0xFF0E7C86),
+                      onTap: () => context.go('/cases/$caseId/dp/tests'),
                     ),
                 ],
               ),
@@ -962,6 +971,32 @@ class _PseudoReport extends ConsumerWidget {
               ? const _SectionEmpty('None recorded')
               : Text('${relied.length} item'
                   '${relied.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+    }
+
+    // DP FMEA annual-trials cases add the test register (backed by
+    // trials_tests). Additive — H&M untouched.
+    if (survey.caseType == CaseType.dpTrials) {
+      final tests = ref.watch(dpTestProvider(caseId)).value ?? const [];
+      final critical = tests
+          .where((t) => t.findingCategory == DpFindingCategory.critical)
+          .length;
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF0E7C86),
+          icon: Icons.science_outlined,
+          title: 'DP Trials — Tests',
+          countLabel: tests.isEmpty ? null : '${tests.length}',
+          initiallyExpanded: tests.isNotEmpty,
+          onOpen: () => context.go('/cases/$caseId/dp/tests'),
+          child: tests.isEmpty
+              ? const _SectionEmpty('No tests recorded')
+              : Text(
+                  '${tests.length} test${tests.length == 1 ? '' : 's'}'
+                  '${critical > 0 ? ' · $critical critical' : ''}',
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
         ),
