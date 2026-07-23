@@ -29,7 +29,25 @@ import '../../../core/utils/eml_parser.dart';
 import '../../cases/models/case_model.dart';
 import '../../cases/providers/cases_provider.dart';
 import '../../ai_tasks/providers/ai_tasks_provider.dart';
+// Write-back targets for importExtraction() — the correspondence review-sheet
+// fan-out. Each is the same source-agnostic provider the document extraction
+// pipeline uses.
+import '../../parties/providers/parties_provider.dart';
+import '../../survey/providers/damage_provider.dart';
+import '../../attendances/providers/attendances_provider.dart';
+import '../../attendances/models/attendance_model.dart';
+import '../../timeline/providers/timeline_provider.dart';
+import '../../timeline/models/timeline_event_model.dart';
+import '../../timeline/providers/timeline_ratings_provider.dart';
+import '../../timeline/models/timeline_event_rating.dart';
+import '../../surveyor_notes/providers/surveyor_notes_provider.dart';
+import '../../surveyor_notes/models/surveyor_note_model.dart';
+import '../../action_items/providers/action_items_provider.dart';
+import '../../accounts/providers/accounts_provider.dart';
+import '../../accounts/models/accounts_models.dart';
+import '../../background/providers/background_provider.dart';
 import '../models/correspondence_model.dart';
+import '../models/corr_extraction_result.dart';
 
 const _uuid = Uuid();
 const _table = 'correspondence';
@@ -396,9 +414,10 @@ class CorrespondenceNotifier
   }
 
   /// Run Claude extraction on an uploaded PDF or imported EML.
-  /// Returns case-level references found in the document (job no, claim ref,
-  /// vessel name, instruction date) so the caller can offer to apply them.
-  Future<ExtractedCaseRefs?> extract(String corrId) async {
+  /// Returns the enriched [CorrExtractionResult] (or null if nothing useful was
+  /// found) so the caller can open the per-item review sheet; also persists it
+  /// to correspondence.pending_extraction for the review-later path.
+  Future<CorrExtractionResult?> extract(String corrId) async {
     _setStatus(corrId, CorrStatus.processing);
     try {
       var current = state.value ?? [];
@@ -437,62 +456,42 @@ class CorrespondenceNotifier
             );
       }
 
-      // Parse parties
-      final partiesList = (result['parties'] as List? ?? []);
-      final parties = partiesList
-          .map((e) => ExtractedParty.fromMap(e as Map<String, dynamic>))
-          .toList();
+      final extraction = CorrExtractionResult.fromJson(result);
 
-      final actions = (result['action_items'] as List? ?? [])
-          .map((e) => e.toString())
+      // Cache display fields on the correspondence row (summary sheet).
+      final parties =
+          extraction.parties.map((p) => ExtractedParty.fromMap(p.toJson())).toList();
+      final keyDatesDisplay = extraction.keyDates
+          .map((k) => [k.date, k.description].whereType<String>().join(' — '))
           .toList();
-
-      final keyDates = (result['key_dates'] as List? ?? [])
-          .map((e) => e.toString())
-          .toList();
-
-      final corrDateRaw = result['corr_date'];
-      final corrDate =
-          corrDateRaw is String ? DateTime.tryParse(corrDateRaw) : null;
+      final corrDate = extraction.corrDate != null
+          ? DateTime.tryParse(extraction.corrDate!)
+          : null;
 
       current = state.value ?? [];
       corr = current.firstWhere((c) => c.id == corrId);
       final updated = corr.copyWith(
-        summary: result['summary'] as String?,
-        sender: result['sender'] as String?,
-        recipient: result['recipient'] as String?,
+        summary: extraction.summary,
+        sender: extraction.sender,
+        recipient: extraction.recipient,
         corrDate: corrDate,
         parties: parties,
-        actions: actions,
-        keyDates: keyDates,
+        actions: extraction.actionItems,
+        keyDates: keyDatesDisplay,
         status: CorrStatus.completed,
       );
-
       await _persist(updated);
 
-      // Collect case-level refs to return
-      final instrDateRaw = result['instruction_date'];
-      final instrDate =
-          instrDateRaw is String ? DateTime.tryParse(instrDateRaw) : null;
+      // Persist the full enriched result for the per-item review sheet
+      // (inline now, or review-later via pendingExtractionFor).
+      await _persistPendingExtraction(corrId, extraction);
 
-      final refs = ExtractedCaseRefs(
-        technicalFileNo: _nonEmpty(result['technical_file_no']),
-        claimReference: _nonEmpty(result['claim_reference']),
-        vesselName: _nonEmpty(result['vessel_name']),
-        instructionDate: instrDate,
-      );
-      return refs.hasAny ? refs : null;
+      return extraction.isEmpty ? null : extraction;
     } catch (e) {
       _setStatus(corrId, CorrStatus.failed);
       debugPrint('[CorrespondenceProvider] extraction failed for $corrId: $e');
       rethrow;
     }
-  }
-
-  String? _nonEmpty(dynamic v) {
-    if (v is! String) return null;
-    final s = v.trim();
-    return s.isEmpty ? null : s;
   }
 
   Future<void> delete(String corrId) async {
@@ -545,6 +544,261 @@ class CorrespondenceNotifier
       await db.update(_table, {'status': status.value},
           where: 'id = ?', whereArgs: [corrId]);
     }
+  }
+
+  /// Fan-out import: writes the surveyor-selected extracted items into the
+  /// right case records, returning the count imported. Uses the same
+  /// source-agnostic provider methods the document extraction pipeline uses.
+  Future<int> importExtraction(
+    String corrId,
+    CorrExtractionResult r,
+    CorrImportSelection sel,
+  ) async {
+    final caseId = _caseId;
+    var n = 0;
+
+    // 1. Case header fields + vessel name.
+    if (sel.headerRefs && r.hasHeaderRefs) {
+      await ref.read(caseProvider(caseId).notifier).updateCaseRefs(
+            technicalFileNo: r.technicalFileNo,
+            claimReference: r.claimReference,
+            instructionDate: r.instructionDate != null
+                ? DateTime.tryParse(r.instructionDate!)
+                : null,
+          );
+      if (r.vesselName != null) {
+        await ref
+            .read(caseProvider(caseId).notifier)
+            .upsertVesselName(r.vesselName!);
+      }
+      n++;
+    }
+
+    // 2. Parties / contacts (dedupe + non-destructive merge).
+    if (sel.parties.isNotEmpty) {
+      final contacts = sel.parties.map((i) {
+        final p = r.parties[i];
+        return {
+          'name': p.name,
+          'company': p.company,
+          'role': p.role,
+          'email': p.email,
+          'phone': p.phone,
+        };
+      }).toList();
+      await ref
+          .read(assuredContactsProvider(caseId).notifier)
+          .addFromExtractedContacts(caseId, contacts);
+      n += contacts.length;
+    }
+
+    // 7/8/9. Occurrences (+ damage + repairs, which need a parent occurrence).
+    final occIdByTitle = <String, String>{};
+    if (sel.incidents.isNotEmpty ||
+        sel.damage.isNotEmpty ||
+        sel.repairs.isNotEmpty) {
+      await ref.read(damageProvider(caseId).future); // load before create
+      final dmg = ref.read(damageProvider(caseId).notifier);
+      for (final i in sel.incidents) {
+        final inc = r.incidents[i];
+        final occ = await dmg.createOccurrence(
+          caseId: caseId,
+          title: inc.title,
+          dateTime: inc.date != null ? DateTime.tryParse(inc.date!) : null,
+          location: inc.location,
+          briefDescription: inc.description,
+        );
+        occIdByTitle[inc.title] = occ.occurrenceId;
+        n++;
+      }
+      if (occIdByTitle.isNotEmpty) {
+        String occFor(String? ref) => occIdByTitle[ref] ?? occIdByTitle.values.first;
+        for (final i in sel.damage) {
+          final d = r.damage[i];
+          await dmg.addDamageItem(DamageItemModel(
+            damageId: '',
+            occurrenceId: occFor(d.incidentRef),
+            caseId: caseId,
+            componentName: d.component ?? 'General',
+            damageDescription: d.description,
+          ));
+          n++;
+        }
+        for (final i in sel.repairs) {
+          final rp = r.repairs[i];
+          await dmg.addRepair(RepairModel(
+            repairId: '',
+            occurrenceId: occFor(rp.incidentRef),
+            caseId: caseId,
+            repairType: RepairType.permanent,
+            repairStatus: RepairStatus.notStarted,
+            description: rp.description,
+            estimatedCost: rp.estimatedCost,
+          ));
+          n++;
+        }
+      }
+    }
+
+    // 3/5. Key dates → attendance or timeline event.
+    for (final i in sel.keyDates) {
+      final k = r.keyDates[i];
+      final date = k.date != null ? DateTime.tryParse(k.date!) : null;
+      if (k.isAttendance) {
+        await ref.read(attendancesProvider(caseId).notifier).add(
+              caseId: caseId,
+              type: AttendanceType.event,
+              date: date,
+              location: k.location,
+              summary: k.description,
+            );
+      } else {
+        await ref.read(timelineProvider(caseId).notifier).add(TimelineEventModel(
+              eventId: '',
+              caseId: caseId,
+              eventType: TimelineEventType.custom,
+              eventDate: date,
+              title: k.description,
+              sourceKey: 'correspondence:$corrId',
+            ));
+      }
+      n++;
+    }
+
+    // Keep correspondence-derived timeline entries in the Full Event Log but
+    // OUT of the report Chronology (EventRelevance.normal) — the surveyor asked
+    // that correspondence not pollute the "important" timeline. Best-effort.
+    final ratings = ref.read(timelineRatingsProvider(caseId).notifier);
+    try {
+      await ratings.setRelevance('correspondence:$corrId', EventRelevance.normal);
+    } catch (_) {}
+    for (final e in (ref.read(timelineProvider(caseId)).value ?? [])
+        .where((e) => e.sourceKey == 'correspondence:$corrId' && e.eventId.isNotEmpty)) {
+      try {
+        await ratings.setRelevance('manual:${e.eventId}', EventRelevance.normal);
+      } catch (_) {}
+    }
+
+    // 12. Context findings → cues (surveyor notes).
+    for (final i in sel.findings) {
+      final f = r.findings[i];
+      await ref.read(surveyorNotesProvider(caseId).notifier).add(
+            caseId: caseId,
+            content: f.text,
+            natureOfContent: NatureOfContent.observationFinding,
+            caseSection:
+                f.caseSection != null ? CaseSection.fromValue(f.caseSection!) : null,
+            origin: CueOrigin.thirdParty,
+            source: 'Correspondence',
+            linkedToType: 'correspondence',
+            linkedToId: corrId,
+            pendingReview: true,
+          );
+      n++;
+    }
+
+    // 11. Action items (dedupe by source).
+    if (sel.actionItems.isNotEmpty) {
+      final ai = ref.read(actionItemsProvider(caseId).notifier);
+      for (final i in sel.actionItems) {
+        final text = r.actionItems[i];
+        if (!ai.alreadySuggested(corrId, text)) {
+          await ai.addSuggested(caseId, text, sourceId: corrId);
+          n++;
+        }
+      }
+    }
+
+    // 10. Cost estimate lines.
+    for (final i in sel.costs) {
+      final c = r.costs[i];
+      await ref.read(costEstimateItemsProvider(caseId).notifier).addItem(
+            category: _mapCostCategory(c.category),
+            description: c.description,
+            amount: c.amount ?? 0,
+          );
+      n++;
+    }
+
+    // 13. Background narrative (read-modify-write append).
+    if (sel.background && r.backgroundText != null) {
+      final current = await ref.read(backgroundProvider(caseId).future);
+      final existing = current.content;
+      final appended = existing.trim().isEmpty
+          ? r.backgroundText!
+          : '$existing\n\n${r.backgroundText!}';
+      await ref.read(backgroundProvider(caseId).notifier).save(appended);
+      n++;
+    }
+
+    await _clearPendingExtraction(corrId);
+    return n;
+  }
+
+  CostEstimateCategory _mapCostCategory(String? c) {
+    switch ((c ?? '').toLowerCase()) {
+      case 'towage':
+      case 'towing':
+        return CostEstimateCategory.towing;
+      case 'drydock':
+      case 'drydocking':
+      case 'dry_docking':
+        return CostEstimateCategory.dryDocking;
+      case 'survey':
+      case 'survey_fees':
+        return CostEstimateCategory.surveyFees;
+      case 'general_expenses':
+      case 'general':
+        return CostEstimateCategory.generalExpenses;
+      case 'pilotage':
+        return CostEstimateCategory.pilotage;
+      case 'wharfage':
+      case 'agency':
+        return CostEstimateCategory.wharfage;
+      case 'parts':
+        return CostEstimateCategory.parts;
+      case 'labour':
+        return CostEstimateCategory.labour;
+      default:
+        return CostEstimateCategory.other;
+    }
+  }
+
+  Future<void> _persistPendingExtraction(
+      String corrId, CorrExtractionResult r) async {
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update({'pending_extraction': r.toJson()}).eq('id', corrId);
+    } catch (e) {
+      debugPrint('[CorrespondenceProvider] persist pending_extraction failed: $e');
+    }
+  }
+
+  Future<void> _clearPendingExtraction(String corrId) async {
+    try {
+      await SupabaseService.client
+          .from(_table)
+          .update({'pending_extraction': null}).eq('id', corrId);
+    } catch (_) {}
+  }
+
+  /// Load a previously-persisted extraction (review-later path).
+  Future<CorrExtractionResult?> pendingExtractionFor(String corrId) async {
+    try {
+      final row = await SupabaseService.client
+          .from(_table)
+          .select('pending_extraction')
+          .eq('id', corrId)
+          .maybeSingle();
+      final raw = row?['pending_extraction'];
+      if (raw is Map) {
+        return CorrExtractionResult.fromJson(raw.cast<String, dynamic>());
+      }
+    } catch (e) {
+      debugPrint('[CorrespondenceProvider] load pending_extraction failed: $e');
+    }
+    return null;
   }
 
   Future<void> _persist(CorrespondenceModel corr) async {

@@ -10,7 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/correspondence_model.dart';
+import '../models/corr_extraction_result.dart';
 import '../providers/correspondence_provider.dart';
+import '../widgets/correspondence_review_sheet.dart';
 import '../utils/correspondence_threads.dart';
 import '../../../core/api/claude_api.dart';
 import '../../../core/services/gmail_service.dart';
@@ -473,9 +475,9 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
   // ── AI extraction (with case refs confirmation) ───────────────────────────
 
   Future<void> _extract() async {
-    ExtractedCaseRefs? refs;
+    CorrExtractionResult? result;
     try {
-      refs = await ref
+      result = await ref
           .read(correspondenceProvider(widget.caseId).notifier)
           .extract(item.id);
     } catch (e) {
@@ -484,19 +486,19 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
       }
       return;
     }
-    if (refs == null || !mounted) return;
-    final extractedRefs = refs;
-
-    final currentCase = ref.read(caseProvider(widget.caseId)).value;
     if (!mounted) return;
-
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _CaseRefsDialog(
-        caseId: widget.caseId,
-        refs: extractedRefs,
-        currentCase: currentCase,
-      ),
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Nothing was extracted from this correspondence.')),
+      );
+      return;
+    }
+    await showCorrespondenceReviewSheet(
+      context,
+      caseId: widget.caseId,
+      corrId: item.id,
+      result: result,
     );
   }
 
@@ -1116,202 +1118,6 @@ class _GmailReplyDialogState extends State<_GmailReplyDialog> {
   }
 }
 
-// ── Case refs confirmation dialog ─────────────────────────────────────────
-
-class _CaseRefsDialog extends ConsumerStatefulWidget {
-  const _CaseRefsDialog({
-    required this.caseId,
-    required this.refs,
-    required this.currentCase,
-  });
-  final String caseId;
-  final ExtractedCaseRefs refs;
-  final dynamic currentCase; // CaseModel?
-
-  @override
-  ConsumerState<_CaseRefsDialog> createState() => _CaseRefsDialogState();
-}
-
-class _CaseRefsDialogState extends ConsumerState<_CaseRefsDialog> {
-  late bool _applyJob;
-  late bool _applyClaim;
-  late bool _applyVessel;
-  late bool _applyDate;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final c = widget.currentCase;
-    _applyJob = widget.refs.technicalFileNo != null &&
-        (c == null || (c.hasPlaceholderFileNo as bool));
-    _applyClaim = widget.refs.claimReference != null &&
-        (c == null || (c.claimReference == null));
-    // Guard (17 July 2026): don't pre-check overwriting an already-identified
-    // vessel. A cross-linked email can name a *different* vessel (e.g. a
-    // "MINRES BALDER" email applied to the "MINRES ODIN" case), and silently
-    // applying it renames the real, IMO-verified vessel. Only default-on when
-    // the case has no vessel yet; once a vessel is linked the surveyor must
-    // tick it deliberately (the row shows current-vs-extracted so a mismatch
-    // is visible), and upsertVesselName refuses to rename an IMO-set vessel.
-    _applyVessel = widget.refs.vesselName != null &&
-        (c == null ||
-            (c.vesselId == null &&
-                (c.vesselName == null ||
-                    (c.vesselName as String).trim().isEmpty)));
-    _applyDate = widget.refs.instructionDate != null &&
-        (c == null || c.instructionDate == null);
-  }
-
-  Future<void> _apply() async {
-    setState(() => _saving = true);
-    try {
-      final notifier = ref.read(caseProvider(widget.caseId).notifier);
-      await notifier.updateCaseRefs(
-        technicalFileNo: _applyJob ? widget.refs.technicalFileNo : null,
-        claimReference: _applyClaim ? widget.refs.claimReference : null,
-        instructionDate: _applyDate ? widget.refs.instructionDate : null,
-      );
-      if (_applyVessel && widget.refs.vesselName != null) {
-        await notifier.upsertVesselName(widget.refs.vesselName!);
-      }
-      if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final refs = widget.refs;
-    final c = widget.currentCase;
-
-    return AlertDialog(
-      title: const Row(children: [
-        Icon(Icons.auto_awesome_outlined, size: 18, color: _kColor),
-        SizedBox(width: 8),
-        Text('Apply extracted references',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-      ]),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select which values to apply to this case:',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 12),
-            if (refs.technicalFileNo != null)
-              _RefRow(
-                label: 'Technical File No.',
-                extracted: refs.technicalFileNo!,
-                current: (c?.hasPlaceholderFileNo == true ||
-                        c?.technicalFileNo == null)
-                    ? null
-                    : c?.technicalFileNo as String?,
-                checked: _applyJob,
-                onChanged: (v) => setState(() => _applyJob = v ?? false),
-              ),
-            if (refs.claimReference != null)
-              _RefRow(
-                label: 'Claim Reference',
-                extracted: refs.claimReference!,
-                current: c?.claimReference as String?,
-                checked: _applyClaim,
-                onChanged: (v) => setState(() => _applyClaim = v ?? false),
-              ),
-            if (refs.vesselName != null)
-              _RefRow(
-                label: 'Vessel Name',
-                extracted: refs.vesselName!,
-                current: c?.vesselName as String?,
-                checked: _applyVessel,
-                onChanged: (v) => setState(() => _applyVessel = v ?? false),
-              ),
-            if (refs.instructionDate != null)
-              _RefRow(
-                label: 'Instruction Date',
-                extracted:
-                    '${refs.instructionDate!.day.toString().padLeft(2, '0')}/'
-                    '${refs.instructionDate!.month.toString().padLeft(2, '0')}/'
-                    '${refs.instructionDate!.year}',
-                current: c?.instructionDate != null
-                    ? '${(c!.instructionDate as DateTime).day.toString().padLeft(2, '0')}/'
-                        '${(c.instructionDate as DateTime).month.toString().padLeft(2, '0')}/'
-                        '${(c.instructionDate as DateTime).year}'
-                    : null,
-                checked: _applyDate,
-                onChanged: (v) => setState(() => _applyDate = v ?? false),
-              ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Ignore'),
-        ),
-        ElevatedButton(
-          onPressed: _saving ? null : _apply,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _kColor,
-            foregroundColor: Colors.white,
-          ),
-          child: _saving
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 1.5, color: Colors.white))
-              : const Text('Apply'),
-        ),
-      ],
-    );
-  }
-}
-
-class _RefRow extends StatelessWidget {
-  const _RefRow({
-    required this.label,
-    required this.extracted,
-    required this.current,
-    required this.checked,
-    required this.onChanged,
-  });
-  final String label;
-  final String extracted;
-  final String? current;
-  final bool checked;
-  final ValueChanged<bool?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return CheckboxListTile(
-      value: checked,
-      onChanged: onChanged,
-      activeColor: _kColor,
-      controlAffinity: ListTileControlAffinity.leading,
-      contentPadding: EdgeInsets.zero,
-      tileColor: Colors.transparent,
-      dense: true,
-      title: Text(label,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('→ $extracted',
-              style: const TextStyle(fontSize: 11, color: _kColor)),
-          if (current != null)
-            Text('current: $current',
-                style: const TextStyle(
-                    fontSize: 10, color: AppColors.textTertiary)),
-        ],
-      ),
-    );
-  }
-}
 
 // ── Add to Parties dialog ──────────────────────────────────────────────────
 

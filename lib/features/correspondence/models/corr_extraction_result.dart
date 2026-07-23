@@ -287,3 +287,44 @@ class CorrExtractionResult {
       !hasHeaderRefs &&
       backgroundText == null;
 }
+
+/// What the surveyor chose to import from a [CorrExtractionResult], by index
+/// into the result's per-type lists. Built by the review sheet, consumed by
+/// CorrespondenceNotifier.importExtraction.
+class CorrImportSelection {
+  final bool headerRefs;
+  final bool background;
+  final Set<int> parties;
+  final Set<int> keyDates;
+  final Set<int> findings;
+  final Set<int> incidents;
+  final Set<int> damage;
+  final Set<int> repairs;
+  final Set<int> costs;
+  final Set<int> actionItems;
+
+  const CorrImportSelection({
+    required this.headerRefs,
+    required this.background,
+    required this.parties,
+    required this.keyDates,
+    required this.findings,
+    required this.incidents,
+    required this.damage,
+    required this.repairs,
+    required this.costs,
+    required this.actionItems,
+  });
+
+  int get count =>
+      (headerRefs ? 1 : 0) +
+      (background ? 1 : 0) +
+      parties.length +
+      keyDates.length +
+      findings.length +
+      incidents.length +
+      damage.length +
+      repairs.length +
+      costs.length +
+      actionItems.length;
+}
