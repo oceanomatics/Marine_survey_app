@@ -50,7 +50,7 @@ class CsInspectionScreen extends ConsumerWidget {
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'No AHTS template seeded yet.\nRun migration 063b in Supabase.',
+                  'No AHTS template seeded yet.\nRun migration 065 in Supabase.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.textSecondary),
                 ),

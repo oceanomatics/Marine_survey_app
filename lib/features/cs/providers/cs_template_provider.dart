@@ -2,7 +2,7 @@
 //
 // Reads the SHARED C&S template skeleton (cs_template / cs_template_item).
 // Not case-scoped — this is reference data, so it's a simple keyed fetch by
-// vessel type. Seeded by migration 063b.
+// vessel type. Seeded by migration 065.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/supabase_client.dart';

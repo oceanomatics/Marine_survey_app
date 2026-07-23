@@ -1,4 +1,4 @@
--- 063_cs_ahts.sql — C&S — AHTS data model (Module A)
+-- 064_cs_ahts.sql — C&S — AHTS data model (Module A)
 --
 -- See docs/addtional modules/IMPLEMENTATION_PLAN.md §4 and PHASE1_DETAILED_PLAN.md §1.
 -- Run in the Supabase SQL editor. Idempotent (safe to re-run).

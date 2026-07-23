@@ -11,7 +11,7 @@ Module specs: `CS_AHTS_Integration.docx`, `DP_Trials_Integration_Design (1).docx
 
 > **Read §1 and §2 first.** The specs were written against an idealised description of the platform. The code has, in several places, already moved past what they assume — and in a couple of places it does *less* than they assume. §2 reconciles the two; every phase below depends on those corrections.
 
-> **Re-grounding note (2026-07-21).** First drafted against `3c3b0eb`, then re-verified against the `0152aac` publish (~335 files / +41k lines ahead). What changed vs. the first draft: **(a)** migrations now run to `062` — next is `063`, not `027`; **(b)** **multi-tenancy / org-scoped RLS is now live** (migrations 044–048) — new tables must be org-reachable from day one (§2.7); **(c)** a generic `CaseContextBuilder` already exists — the C&S/DP "context builder" is an *extension*, not new build (§2.8); **(d)** a cleaner register pattern (`action_items`/`interviews`) supersedes the damage register as the F1 template (§2.9). The architecture verdicts (hub hardcoded, exporter switch-based, `cs_sections` unused, AI chokepoint intact) all held.
+> **Re-grounding note (2026-07-21).** First drafted against `3c3b0eb`, then re-verified against the `0152aac` publish (~335 files / +41k lines ahead). What changed vs. the first draft: **(a)** migrations now run to `062` — next is `064`, not `027` (main later took `063`); **(b)** **multi-tenancy / org-scoped RLS is now live** (migrations 044–048) — new tables must be org-reachable from day one (§2.7); **(c)** a generic `CaseContextBuilder` already exists — the C&S/DP "context builder" is an *extension*, not new build (§2.8); **(d)** a cleaner register pattern (`action_items`/`interviews`) supersedes the damage register as the F1 template (§2.9). The architecture verdicts (hub hardcoded, exporter switch-based, `cs_sections` unused, AI chokepoint intact) all held.
 
 ---
 
@@ -58,7 +58,7 @@ Every case renders the same modules regardless of `caseType`. Module surfaces ar
 - `checklists` + `checklist_templates` (per-case-type, auto-cloned at case creation) — overlaps the graded-checklist skeleton. Reuse as the seeding mechanism.
 
 ### 2.6 Migrations
-Numbered `NNN_snake_case.sql` in [docs/migrations/](../migrations/), idempotent (`ADD COLUMN IF NOT EXISTS`), "Run in Supabase SQL editor." **Latest = `062`** (with historical duplicate numbers at 053/054/055 and gaps at 060/061). **New work starts at `063_…`.** Keep the sqflite `_onUpgrade` in sync *only* if a new table is offline-cached (it won't be — D4).
+Numbered `NNN_snake_case.sql` in [docs/migrations/](../migrations/), idempotent (`ADD COLUMN IF NOT EXISTS`), "Run in Supabase SQL editor." **Latest = `062`** (with historical duplicate numbers at 053/054/055 and gaps at 060/061). **New work starts at `064_…`.** Keep the sqflite `_onUpgrade` in sync *only* if a new table is offline-cached (it won't be — D4).
 
 ### 2.7 ⚠️ New since first draft: multi-tenancy / RLS is now **live**
 Migrations 044–048 built org scoping. The column is **`organisation_id`** (not `org_id`): `cases.organisation_id` is `NOT NULL` with a `current_org_id()` helper (`044_org_scoping_foundation.sql`), carried on the model ([case_model.dart:176](../../lib/features/cases/models/case_model.dart#L176)), and enforced by live org-scoped RLS policies across many tables (`045_org_scoped_rls.sql`, "Org members full access"). **Implication for every new module table:** it must be org-reachable from day one — either carry `organisation_id` directly, or reach it via `case_id → cases.organisation_id` (the majority pattern) — and ship with a matching RLS policy in its migration. The C&S spec's "nothing here requires the multi-tenancy work" is now moot: it's built, and new tables inherit the requirement.
@@ -97,7 +97,7 @@ Graded item-by-item inspection → suitability verdict + gating recommendations.
 
 **Domain note (D2):** the case type is **`cs`** (Condition & Suitability). **AHTS is a `vessel_type` dimension**, not a case type — so a later PSV/barge/DP C&S reuses §1–9 and swaps only the §10/§11 supplement. Do **not** confuse with **`mws`** (Marine Warranty Survey), which is a separate future deliverable: approval of a specific *operation* (tow / load-out / installation) ending in a Certificate of Approval — its unit is an operation, not a vessel's condition. The **Preliminary Deficiency List is an output type** of a `cs` case (reuses the `deficiency` concept), not its own case type.
 
-**Data model — build on the existing `cs_sections` scaffold (D6), don't supersede it.** `cs_sections` (currently unused in Dart) stays as the **section-level** record; new **child** tables hang off it. Every table below reaches org scope via `case_id → cases.organisation_id` and ships with a "Org members full access" RLS policy in its migration (§2.7). Migration `063_cs_ahts.sql`:
+**Data model — build on the existing `cs_sections` scaffold (D6), don't supersede it.** `cs_sections` (currently unused in Dart) stays as the **section-level** record; new **child** tables hang off it. Every table below reaches org scope via `case_id → cases.organisation_id` and ships with a "Org members full access" RLS policy in its migration (§2.7). Migration `064_cs_ahts.sql`:
 - **`cs_sections`** *(existing — extend)*: one row per §-section on a case — keep `section_type`, `narrative`, and the summary `rating`; add `template_section_ref` and `vessel_type`. This is the section header + rolled-up verdict.
 - **`cs_template`** *(new)*: versioned AHTS skeleton (`vessel_type='ahts'`, `version`).
 - **`cs_template_item`** *(new)*: every Ref/Item row (`section 1.0–11.0`, `parent_item`, `label`, `guidance_text`, `grade_applicable`, `gt_threshold`).
@@ -153,7 +153,7 @@ The module that *forced* the two-axis model: **almost no new register** — it's
 - **AI:** all new drafting routes through [claude_api.dart](../../lib/core/api/claude_api.dart) with `case_id`+`call_type` in Dio `extra` → free Annexure I logging. New prompts only; no new infra. Analyst context = **extend `CaseContextBuilder`** (§2.8), not a new builder. Fix the Case-Analyst chat path to also log `ai_generation_log` (D7).
 - **Compliance:** each module adds *rules* to the existing gates, never a new gate (F5). GPN-AI review gate stays always-on.
 - **Multi-tenancy (§2.7):** every new table is org-reachable via `case_id → cases.organisation_id` and ships a "Org members full access" RLS policy in its migration. Non-negotiable now that RLS is live.
-- **Migrations:** number sequentially from **`063`** (C&S), then DP, then P&I. Idempotent, Supabase SQL editor. Update `docs/SCHEMA.md` after each.
+- **Migrations:** number sequentially from **`064`** (C&S), then DP, then P&I. Idempotent, Supabase SQL editor. Update `docs/SCHEMA.md` after each.
 - **Docs hygiene:** update the three module `.docx` (or supersede with `.md`) to the real enum values (D1) and to the §2.7–§2.9 corrections.
 
 ---

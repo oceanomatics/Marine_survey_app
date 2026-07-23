@@ -1,6 +1,6 @@
--- 063b_cs_ahts_seed.sql — seed the AHTS C&S section skeleton (§1.0–11.0)
+-- 065_cs_ahts_seed.sql — seed the AHTS C&S section skeleton (§1.0–11.0)
 --
--- Companion to 063_cs_ahts.sql. Run in the Supabase SQL editor AFTER 063.
+-- Companion to 064_cs_ahts.sql. Run in the Supabase SQL editor AFTER 064.
 -- Idempotent: seeds exactly once (guarded on the template name); re-running is
 -- a no-op so it will not duplicate rows.
 --

@@ -2,7 +2,7 @@
 //
 // Data models for the C&S — AHTS module (Module A). Mirrors the modern
 // register pattern used by action_items / interviews. See migration
-// 063_cs_ahts.sql and docs/addtional modules/PHASE1_DETAILED_PLAN.md §4.
+// 064_cs_ahts.sql and docs/addtional modules/PHASE1_DETAILED_PLAN.md §4.
 
 import 'package:flutter/foundation.dart';
 

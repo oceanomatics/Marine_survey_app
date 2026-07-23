@@ -12,7 +12,7 @@
 ## 0. Order of work
 
 ```
-T1  Migration 063 — C&S schema (template + per-case tables, org-scoped correctly)
+T1  Migration 064 — C&S schema (template + per-case tables, org-scoped correctly)
 T2  Seed data — AHTS §1–11 skeleton into cs_template / cs_template_item
 T3  F1  — shared register primitive (light: template + shared widgets + F4 findings)
 T4  C&S register — models + providers instantiating F1 (cs_inspection_item, cs_recommendation)
@@ -23,7 +23,7 @@ T1→T2 are backend; T3→T4 the register; T5→T6 the hub. T3 (F1) and T5 (F2) 
 
 ---
 
-## 1. T1 — Migration `063_cs_ahts.sql`
+## 1. T1 — Migration `064_cs_ahts.sql`
 
 Follows the house convention: `NNN_snake_case.sql`, idempotent, "run in Supabase SQL editor" ([039_action_items.sql](../migrations/039_action_items.sql) is the table template; [045_org_scoped_rls.sql](../migrations/045_org_scoped_rls.sql) the RLS template). **Note the PK convention: `cases(case_id)`, not `id`.**
 
@@ -51,7 +51,7 @@ So `cs_sections.rating` stores this derived-but-overridable value (enum `GOOD / 
 SQL sketch (abbreviated — real file adds indexes + comments):
 
 ```sql
--- 063_cs_ahts.sql — C&S — AHTS data model (Module A). See IMPLEMENTATION_PLAN §4.
+-- 064_cs_ahts.sql — C&S — AHTS data model (Module A). See IMPLEMENTATION_PLAN §4.
 -- Template tables: shared reference, un-scoped (like checklist_templates).
 -- Per-case tables: org-scoped via case_id -> cases.organisation_id (045 pattern).
 
@@ -144,7 +144,7 @@ CREATE POLICY "Org members full access" ON cs_inspection_item
 
 The §1.0–11.0 Ref/Item rows from the reference template (Normand Scorpion AHTS) become `cs_template` (1 row) + `cs_template_item` (many rows). Two seeding options:
 
-- **Option A (recommended): a seed SQL** (`063b_cs_ahts_seed.sql` or appended to 063) `INSERT`ing the AHTS rows. Deterministic, versioned, matches how `018/020` seed clause_library.
+- **Option A (recommended): a seed SQL** (`065_cs_ahts_seed.sql` or appended to 064) `INSERT`ing the AHTS rows. Deterministic, versioned, matches how `018/020` seed clause_library.
 - Option B: seed via the existing `checklist_templates` mechanism ([cases_provider.dart:126](../../lib/features/cases/providers/cases_provider.dart#L126) `_cloneChecklistTemplate`) — reuse if we want C&S items to also appear in the Checklist module. Decide in T6.
 
 **Content source:** extract the §1–11 Ref/Item list from `CS_AHTS_Integration.docx` §3.2 + the reference report. This is data-entry, not code — can be done incrementally (start with §1–9 common core, add §10/§11 supplements after).

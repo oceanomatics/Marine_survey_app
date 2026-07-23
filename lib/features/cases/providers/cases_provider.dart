@@ -156,7 +156,7 @@ class CasesNotifier extends AsyncNotifier<List<CaseModel>> {
 
   /// Seeds the per-case C&S section rows (cs_sections) from the active shared
   /// AHTS template's section headers. Mirrors _cloneChecklistTemplate. No-op
-  /// if the template isn't seeded yet (migration 063b).
+  /// if the template isn't seeded yet (migration 065).
   Future<void> _seedCsSections(String caseId) async {
     final template = await SupabaseService.client
         .from('cs_template')

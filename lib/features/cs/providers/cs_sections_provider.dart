@@ -1,7 +1,7 @@
 // lib/features/cs/providers/cs_sections_provider.dart
 //
 // Per-case C&S section rows (the existing cs_sections table, extended by
-// migration 063). Holds the section header + its rolled-up rating. The rating
+// migration 064). Holds the section header + its rolled-up rating. The rating
 // is auto-derived from child inspection-item grades (deriveSectionRating in
 // cs_models.dart) unless a surveyor overrides it.
 
