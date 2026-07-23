@@ -205,6 +205,33 @@ investigated/verified against code — triage later.
   attendances — check others too). The write-back step of the extraction pipeline
   is the common gap. **→ Being addressed** (correspondence→structured import, see
   `docs/correspondence_extraction_spec.md`).
+- **DIRECTIVE — extraction should split by target section from the start.** For
+  BOTH correspondence and document extraction, tell the AI to identify background
+  elements vs occurrence elements vs damage/other-section elements and split the
+  content into those buckets up front, rather than summarizing and then trying to
+  fit it into a section (which causes overspill, e.g. occurrence detail bleeding
+  into Background). Partly started: `background_text` now fenced to pre-incident
+  context only (commit on 23 Jul). Generalise this to all sections in both
+  extraction schemas (extend the `context_findings[]` section-tagging model).
+- **DIRECTIVE — unify correspondence extraction UI with document extraction.**
+  The surveyor wants the correspondence extraction to use the **same review
+  screen + mechanics** as the document-vault extraction (`_ExtractionResultSheet`
+  in document_vault_screen.dart) — "it works, and I want the same behaviour across
+  the app". Replace/align the custom `CorrespondenceReviewSheet` with the shared
+  document-extraction pattern (extract the doc review sheet into a reusable widget
+  parameterised by source). Bigger refactor — do deliberately.
+- **Timeline / chronology model (confirmed 23 Jul).** **Timeline tab = the report
+  chronology** — ONLY items the surveyor has marked important/picked. **Full Log =
+  everything**, the pool to pick from. Bugs: (a) the Timeline tab is showing
+  un-picked items (a correspondence entry with no ★), and (b) aggregated items
+  (correspondence, import-created events) default to "important" instead of
+  full-log-only. Fix: Timeline tab shows important-only; new/aggregated items
+  default to full-log; surveyor promotes into the chronology.
+- **"Attendance" ≠ surveyor attendance.** A specialist/contractor visit (or vessel
+  event) is a timeline EVENT, not a survey attendance. Correspondence extraction
+  must not mis-create/badge these as attendances; a `survey_attendance` is the
+  surveyor's own attendance, recorded deliberately. (Attendances screen was empty
+  while the timeline showed "Attendance"-badged items — see investigation.)
 - **Inbox case-filter too restrictive / not editable.** After importing one
   email, the case-filtered inbox hides other potentially-relevant emails for the
   case; the filter isn't adjustable. Make the case-relevance filter editable /

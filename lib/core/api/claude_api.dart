@@ -2016,7 +2016,7 @@ Rules:
   "vessel_name": "name of the vessel, or null",
   "technical_file_no": "surveyor's job or file number if mentioned, or null",
   "instruction_date": "YYYY-MM-DD date surveyors are formally instructed to attend, or null",
-  "background_text": "a short narrative paragraph of case background stated in this correspondence, or null",
+  "background_text": "ONLY genuine pre-incident background/context that sets the scene: the vessel, its employment/voyage, and circumstances UP TO (but stopping just before) the casualty. Do NOT include the incident/casualty itself, the damage, or the cause — those belong to the occurrence/damage sections, not background. null if there is no such pre-incident context",
   "parties": [
     {"name": "", "company": "", "role": "professional title/function e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
   ],
@@ -2050,8 +2050,12 @@ Rules:
       'Return null or an empty array for anything not found — do NOT invent data. '
       'Dates in ISO YYYY-MM-DD. Numbers as plain numbers (no currency symbols). '
       'For parties include email/phone only when explicitly present. Use '
-      'key_dates.kind="attendance" ONLY for in-person survey/inspection '
-      'attendances the surveyor physically attends; everything else is "event". '
+      'key_dates.kind="attendance" ONLY when the INSTRUCTED SURVEYOR (the '
+      'surveyor/firm doing THIS survey — the attending surveyor, e.g. ABL) '
+      'physically attends the vessel or a survey-related location. A visit by '
+      'any THIRD PARTY (class surveyor, OEM/manufacturer service engineer, '
+      'specialist, repairer, workshop, crew) is NOT a surveyor attendance — tag '
+      'those "event". Everything else is also "event". '
       'Only include context_findings for genuinely useful facts, not filler. '
       'Keep every text field concise and in English.';
 

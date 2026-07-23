@@ -132,7 +132,7 @@ void main() {
         damage: _damage(occ: [_occ('o1', 'Grounding', DateTime(2026, 1, 10))]),
       );
 
-      await tester.tap(find.textContaining('Full Log').first);
+      await tester.tap(find.byType(Tab).at(1)); // Full Log
       await tester.pumpAndSettle();
 
       // Expand the card to reach the relevance menu.

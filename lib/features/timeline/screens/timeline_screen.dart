@@ -82,7 +82,10 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen>
                 .firstWhere((m) => m.eventId == e.manualEventId)
                 .sourceKey != null)).toList();
 
-    final active   = visible.where((e) => !e.isIgnored).toList();
+    // Tab 1 "Timeline" == the report chronology: only items the surveyor has
+    // picked (marked important) plus the always-in surveyor attendances. The
+    // Full Log tab (visible) is the pool to pick from.
+    final active   = visible.where((e) => e.includedInChronology).toList();
     final ignored  = visible.where((e) => e.isIgnored).toList();
     final pending  = visible.where((e) => e.pendingReview).length;
 

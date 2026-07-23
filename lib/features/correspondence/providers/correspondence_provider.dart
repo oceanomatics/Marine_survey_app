@@ -645,9 +645,15 @@ class CorrespondenceNotifier
       final k = r.keyDates[i];
       final date = k.date != null ? DateTime.tryParse(k.date!) : null;
       if (k.isAttendance) {
+        // The surveyor's OWN attendance — a real survey attendance (shows on
+        // the Attendances screen + report). AttendanceType.event is the
+        // third-party "chronology-only" type filtered out of that screen, so it
+        // must NOT be used here. Default to initial; the surveyor refines the
+        // type. Third-party visits are tagged kind=event by the extractor and
+        // land in the timeline branch below.
         await ref.read(attendancesProvider(caseId).notifier).add(
               caseId: caseId,
-              type: AttendanceType.event,
+              type: AttendanceType.initial,
               date: date,
               location: k.location,
               summary: k.description,
