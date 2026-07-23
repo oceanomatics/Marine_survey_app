@@ -22,7 +22,7 @@ import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/document_scan.dart';
 import '../../../core/utils/native_document_scan.dart';
 import '../../../features/cases/providers/cases_provider.dart';
-import '../../../features/photos/services/google_drive_service.dart';
+import '../../../core/services/drive_storage_service.dart';
 import '../../../features/photos/models/photo_model.dart';
 import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
@@ -270,12 +270,10 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
           Future<void> run() async {
             try {
               final caseModel = ref.read(caseProvider(caseId)).value;
-              final rootId = await GoogleDriveService.findOrCreateFolder(
-                  'Marine Survey Reports');
-              final caseFolderId = await GoogleDriveService.findOrCreateFolder(
-                caseModel?.title ?? caseId,
-                parentId: rootId,
-              );
+              if (caseModel == null) {
+                if (dCtx.mounted) Navigator.pop(dCtx);
+                return;
+              }
 
               for (final doc in toExport) {
                 try {
@@ -291,11 +289,12 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
                       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     _ => 'application/octet-stream',
                   };
-                  await GoogleDriveService.uploadFile(
+                  await DriveStorageService.uploadCaseFile(
+                    caseModel: caseModel,
+                    category: CaseFileCategory.collectedDocuments,
                     bytes: bytes,
                     filename: '${doc.title}.$ext',
                     mimeType: mime,
-                    parentId: caseFolderId,
                   );
                   done++;
                 } catch (_) {

@@ -16,7 +16,7 @@ import 'export_validation_sheet.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/photos/models/photo_model.dart';
 import '../../../features/photos/providers/photo_provider.dart';
-import '../../../features/photos/services/google_drive_service.dart';
+import '../../../core/services/drive_storage_service.dart';
 import '../../../core/services/google_auth_service.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/utils/error_handler.dart';
@@ -237,18 +237,23 @@ class _ExportButtonState extends ConsumerState<ExportButton> {
       final bytes = await File('${dir.path}/$filename').readAsBytes();
 
       final caseModel = ref.read(caseProvider(widget.output.caseId)).value;
-      final rootId =
-          await GoogleDriveService.findOrCreateFolder('Marine Survey Reports');
-      final caseFolderId = await GoogleDriveService.findOrCreateFolder(
-        caseModel?.title ?? widget.output.caseId,
-        parentId: rootId,
-      );
-      await GoogleDriveService.uploadFile(
+      if (caseModel == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Case not loaded — cannot upload')),
+        );
+        return;
+      }
+      // Unified storage: Cases/<Year - TechNo - Vessel>/Reports/. Routing
+      // through DriveStorageService (persisted, idempotent folder id) instead
+      // of the old ad-hoc "Marine Survey Reports/<title>" tree, which created a
+      // second per-case folder.
+      await DriveStorageService.uploadCaseFile(
+        caseModel: caseModel,
+        category: CaseFileCategory.reports,
         bytes: bytes,
         filename: filename,
         mimeType:
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        parentId: caseFolderId,
       );
 
       messenger.showSnackBar(
