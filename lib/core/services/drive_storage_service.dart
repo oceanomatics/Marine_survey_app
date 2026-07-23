@@ -143,8 +143,16 @@ class DriveStorageService {
   /// Proactively re-resolves (and, if the id already exists, renames) the
   /// case's Drive folder — call this after case details that feed
   /// [CaseModel.driveFolderName] change (technical file no., vessel name).
-  static Future<void> syncCaseFolderName(CaseModel caseModel) =>
-      _caseFolderId(caseModel);
+  ///
+  /// The case-folder id is memoised in [_folderIdCache], so the very first
+  /// resolution wins and every later call short-circuits to the cached id —
+  /// which skips the rename branch inside [_caseFolderId]. Drop that one
+  /// entry first so the rename actually runs. (Child category folders keep
+  /// their ids when the parent is renamed, so their cache stays valid.)
+  static Future<void> syncCaseFolderName(CaseModel caseModel) {
+    _folderIdCache.remove('case:${caseModel.caseId}');
+    return _caseFolderId(caseModel);
+  }
 
   /// Uploads [bytes] as [filename] into the given case's [category] folder,
   /// optionally nested under [subFolders] (e.g. a Collected Documents bucket
