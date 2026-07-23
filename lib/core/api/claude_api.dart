@@ -1574,7 +1574,7 @@ Summary:''',
       ),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 4000,
+        'max_tokens': 50000,
         'messages': [
           {
             'role': 'user',
@@ -2086,7 +2086,7 @@ Rules:
       ),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 4000,
+        'max_tokens': 50000,
         'messages': [
           {
             'role': 'user',
@@ -2134,7 +2134,7 @@ Rules:
       options: Options(extra: {'feature': 'correspondence_extraction'}),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 4000,
+        'max_tokens': 50000,
         'messages': [
           {
             'role': 'user',

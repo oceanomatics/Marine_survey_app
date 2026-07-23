@@ -441,6 +441,13 @@ class CorrespondenceNotifier
             );
       }
 
+      // If the model reply didn't parse (e.g. was truncated), _parseJson
+      // returns {error, raw}. Surface it instead of silently persisting an
+      // empty result (the "nothing after AI extraction" bug).
+      if (result['error'] != null) {
+        throw Exception('AI response could not be parsed — ${result['error']}');
+      }
+
       final extraction = DocExtractionResult.fromCorrespondence(corrId, result);
 
       // Cache a few display fields on the correspondence row (card + summary).
