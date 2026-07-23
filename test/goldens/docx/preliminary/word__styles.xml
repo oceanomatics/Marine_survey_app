@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>
+        <w:sz w:val="22"/>
+        <w:szCs w:val="22"/>
+        <w:color w:val="374151"/>
+      </w:rPr>
+    </w:rPrDefault>
+    <w:pPrDefault>
+      <w:pPr>
+        <w:spacing w:after="120"/>
+      </w:pPr>
+    </w:pPrDefault>
+  </w:docDefaults>
+
+  <w:style w:type="paragraph" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+      <w:sz w:val="22"/>
+      <w:color w:val="374151"/>
+    </w:rPr>
+  </w:style>
+
+  <!-- H1: used for annexure titles — primary_colour, large, with bottom rule -->
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr>
+      <w:spacing w:before="240" w:after="120"/>
+      <w:keepNext/>
+      <w:pBdr>
+        <w:bottom w:val="single" w:sz="8" w:space="4" w:color="1F3A5F"/>
+      </w:pBdr>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+      <w:b/>
+      <w:sz w:val="36"/>
+      <w:szCs w:val="36"/>
+      <w:color w:val="1F3A5F"/>
+    </w:rPr>
+  </w:style>
+
+  <!-- H2: main section headings — primary_colour with bottom rule separator -->
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr>
+      <w:spacing w:before="200" w:after="80"/>
+      <w:keepNext/>
+      <w:pBdr>
+        <w:bottom w:val="single" w:sz="6" w:space="4" w:color="1F3A5F"/>
+      </w:pBdr>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+      <w:b/>
+      <w:sz w:val="28"/>
+      <w:szCs w:val="28"/>
+      <w:color w:val="1F3A5F"/>
+    </w:rPr>
+  </w:style>
+
+  <!-- H3: sub-headings — secondary_colour, italic -->
+  <w:style w:type="paragraph" w:styleId="Heading3">
+    <w:name w:val="heading 3"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr>
+      <w:spacing w:before="160" w:after="60"/>
+      <w:keepNext/>
+    </w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+      <w:b/>
+      <w:i/>
+      <w:sz w:val="24"/>
+      <w:szCs w:val="24"/>
+      <w:color w:val="2C5282"/>
+    </w:rPr>
+  </w:style>
+
+  <!-- H4: sub-sub-headings — secondary_colour, italic, smaller -->
+  <w:style w:type="paragraph" w:styleId="Heading4">
+    <w:name w:val="heading 4"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr><w:spacing w:before="120" w:after="40"/></w:pPr>
+    <w:rPr>
+      <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+      <w:b/>
+      <w:i/>
+      <w:sz w:val="22"/>
+      <w:color w:val="2C5282"/>
+    </w:rPr>
+  </w:style>
+
+  <!-- TableGrid: light grey 1pt borders (#CCCCCC), compact cell padding -->
+  <w:style w:type="table" w:styleId="TableGrid">
+    <w:name w:val="Table Grid"/>
+    <w:tblPr>
+      <w:tblBorders>
+        <w:top    w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        <w:left   w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        <w:right  w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+      </w:tblBorders>
+      <w:tblCellMar>
+        <w:top    w:w="72"  w:type="dxa"/>
+        <w:left   w:w="108" w:type="dxa"/>
+        <w:bottom w:w="72"  w:type="dxa"/>
+        <w:right  w:w="108" w:type="dxa"/>
+      </w:tblCellMar>
+    </w:tblPr>
+  </w:style>
+</w:styles>

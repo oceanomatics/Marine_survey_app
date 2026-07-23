@@ -9,7 +9,7 @@
 
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import '../providers/report_provider.dart';
 import '../utils/section_text.dart';
 import '../utils/advice_summary_rows.dart';
@@ -111,7 +111,7 @@ class DocxExportService {
       }
     }
 
-    final bytes = _buildDocx(output, assembled, sections,
+    final bytes = buildDocx(output, assembled, sections,
         coverPhotoBytes: coverPhotoBytes, coverPhotoExt: coverPhotoExt,
         coverPhotoWidthEmu: coverPhotoWidthEmu,
         coverPhotoHeightEmu: coverPhotoHeightEmu,
@@ -150,7 +150,12 @@ class DocxExportService {
 
   // ── Document builder ──────────────────────────────────────────────────────
 
-  static Uint8List _buildDocx(
+  /// Pure inputs → .docx bytes. `@visibleForTesting` so the F0 golden test can
+  /// snapshot output without the Supabase/delivery side effects of [export].
+  /// [asOf] fixes the "date issued" for deterministic golden comparison;
+  /// production passes nothing, so it defaults to DateTime.now() unchanged.
+  @visibleForTesting
+  static Uint8List buildDocx(
     ReportOutput output,
     AssembledReportData assembled,
     Map<SectionType, ReportSection> sections, {
@@ -165,6 +170,7 @@ class DocxExportService {
     Map<String, List<ResolvedPhoto>>? damagePhotosByItemId,
     Map<String, List<ResolvedPhoto>>? machineryPhotosByItemId,
     Map<String, ResolvedPhoto>? annexurePhotosById,
+    DateTime? asOf,
   }) {
     final doc = DocxBuilder();
     final v     = assembled.vessel ?? {};
@@ -294,7 +300,7 @@ class DocxExportService {
       if (claimRef.isNotEmpty) ['Claim Reference',     claimRef],
       if (jobNo.isNotEmpty)    ['File No.',             jobNo],
                                ['Report Version',      output.versionCode],
-                               ['Date Issued',         _today()],
+                               ['Date Issued',         _today(asOf)],
     ];
     doc.addTable(infoRows, colWidths: [3000, 6355]);
 
@@ -1105,7 +1111,7 @@ class DocxExportService {
     {
       final signOff = buildReportSignOff(assembled.organisation);
       final city = org?['firm_city'] as String? ?? '[City]';
-      doc.addParagraph('$city, ${_today()}');
+      doc.addParagraph('$city, ${_today(asOf)}');
       doc.addSpacer();
       doc.addParagraph('Yours faithfully');
       doc.addSpacer();
@@ -1278,8 +1284,8 @@ class DocxExportService {
     return '${jobNo}_${vessel}_${type}_$ds.docx';
   }
 
-  static String _today() {
-    final d = DateTime.now();
+  static String _today([DateTime? asOf]) {
+    final d = asOf ?? DateTime.now();
     const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${d.day.toString().padLeft(2, '0')}-${m[d.month]}-${d.year}';
