@@ -154,20 +154,20 @@ CREATE POLICY "Org members full access" ON cs_certificate
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- updated_at triggers (mirror the existing trg_*_updated_at convention, e.g.
--- trg_cs_sections_updated_at). Assumes the shared set_updated_at() function
+-- trg_cs_sections_updated_at). Assumes the shared update_updated_at() function
 -- already exists in this database (it powers the other *_updated_at triggers).
 -- ─────────────────────────────────────────────────────────────────────────
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_updated_at') THEN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at') THEN
     DROP TRIGGER IF EXISTS trg_cs_inspection_item_updated_at ON cs_inspection_item;
     CREATE TRIGGER trg_cs_inspection_item_updated_at BEFORE UPDATE ON cs_inspection_item
-      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
     DROP TRIGGER IF EXISTS trg_cs_recommendation_updated_at ON cs_recommendation;
     CREATE TRIGGER trg_cs_recommendation_updated_at BEFORE UPDATE ON cs_recommendation
-      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
     DROP TRIGGER IF EXISTS trg_cs_certificate_updated_at ON cs_certificate;
     CREATE TRIGGER trg_cs_certificate_updated_at BEFORE UPDATE ON cs_certificate
-      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
   END IF;
 END $$;

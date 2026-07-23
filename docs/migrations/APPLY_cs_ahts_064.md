@@ -45,7 +45,8 @@ In the app: create a case with **Survey Type = C&S**. Its home should show the *
 
 ## Notes
 
-- **Assumes two base-schema objects already exist** (they power existing triggers/PKs): the `set_updated_at()` trigger function and the `uuid_generate_v4()` extension. Both are already used by prior migrations, so no action needed — but if 064 errors on `uuid_generate_v4`, run `create extension if not exists "uuid-ossp";` first.
+- **Assumes two base-schema objects already exist** (they power existing triggers/PKs): the `update_updated_at()` trigger function (the name this DB uses — verified on dev, same fn as `cs_sections`/`damage_items`) and the `uuid_generate_v4()` extension. Both are already present, so no action needed — but if 064 errors on `uuid_generate_v4`, run `create extension if not exists "uuid-ossp";` first. (If `update_updated_at` is ever absent, the trigger block self-skips via its `IF EXISTS` guard — harmless.)
+- **Applied + verified on dev** (`jcuwfjyyqsjnmqxpqlbt`) 2026-07-23: 5 tables, RLS + policies on the 3 per-case tables, and the 46-item AHTS seed (11 headers + 35 gradable).
 - **The seed is a starter skeleton** — the 11 sections plus sub-group headers from `CS_AHTS_Integration.docx` §3.2, not the full authoritative per-row Ref/Item list. The full list drops in later as additional `INSERT`s against the same template (no schema change). This is intentional and flagged in `065`'s header.
 - **No local SQLite migration** is needed — the new registers are online-only (Supabase direct), consistent with the damage register. Offline is a later, client-only change (see `IMPLEMENTATION_PLAN.md` §10).
 - **Rollback** (if ever needed): `drop table if exists cs_certificate, cs_recommendation, cs_inspection_item, cs_template_item, cs_template cascade;` then drop the 3 added `cs_sections` columns. Leaves the pre-existing `cs_sections` scaffold intact.
