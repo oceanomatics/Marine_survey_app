@@ -1,7 +1,5 @@
 // lib/main.dart
 
-import 'dart:io' show Platform;
-
 import 'package:feedback/feedback.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -24,7 +22,10 @@ void main() async {
   // SQLite cache/write-queue (AppDatabase) would throw "databaseFactory not
   // initialized". Wire up the FFI backend so it works there. No-op on mobile
   // (Android/iOS keep the native sqflite plugin); web is excluded.
-  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }

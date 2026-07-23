@@ -13,8 +13,11 @@
 //   3. Same Android/iOS OAuth client already used by Drive import continues
 //      to work; no new client ID needed for additional scopes.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:google_sign_in/google_sign_in.dart';
+
+import 'desktop_google_auth.dart';
 
 class GoogleSignInCancelled implements Exception {
   const GoogleSignInCancelled();
@@ -22,6 +25,17 @@ class GoogleSignInCancelled implements Exception {
 
 class GoogleAuthService {
   GoogleAuthService._();
+
+  // google_sign_in has no desktop (Linux/Windows/macOS) implementation — any
+  // platform-channel call there throws MissingPluginException. On desktop we
+  // route token acquisition through DesktopGoogleAuth (browser-loopback OAuth)
+  // instead. Uses defaultTargetPlatform (not dart:io) so this file still
+  // compiles for web, where the mobile/web google_sign_in path is used.
+  static bool get _isDesktop =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   static final _signIn = GoogleSignIn(
     scopes: [
@@ -47,7 +61,8 @@ class GoogleAuthService {
         await _signIn.signIn();
   }
 
-  static Future<void> signOut() => _signIn.signOut();
+  static Future<void> signOut() =>
+      _isDesktop ? DesktopGoogleAuth.signOut() : _signIn.signOut();
 
   /// The Google Photos Picker scope, split out so a caller can ensure just
   /// this is granted before an import (the picker session + mediaItems calls).
@@ -63,6 +78,13 @@ class GoogleAuthService {
   /// first API call that needs them (16 July 2026 — Photos sync). Returns true
   /// if all scopes are authorised.
   static Future<bool> ensureScopes(List<String> scopes) async {
+    // Desktop grants every configured scope up-front in the one loopback
+    // consent — obtaining a token is equivalent to "scopes ensured".
+    if (_isDesktop) {
+      final token = await DesktopGoogleAuth.accessToken(interactive: true);
+      if (token == null) throw const GoogleSignInCancelled();
+      return true;
+    }
     final account = await ensureSignedIn();
     if (account == null) throw const GoogleSignInCancelled();
     if (kIsWeb) return true; // web grants scopes up-front at sign-in
@@ -80,6 +102,8 @@ class GoogleAuthService {
   /// if no token is available without UI — callers should treat that as
   /// "skip this cycle", not surface an error to the surveyor.
   static Future<String?> silentAccessToken() async {
+    // Desktop: refresh via the stored refresh token, never opening a browser.
+    if (_isDesktop) return DesktopGoogleAuth.accessToken(interactive: false);
     if (kIsWeb) return null; // web's silent path is unreliable, see accessToken().
     final account = _signIn.currentUser ?? await _signIn.signInSilently();
     if (account == null) return null;
@@ -113,6 +137,12 @@ class GoogleAuthService {
   /// out first clears the cached identity, forcing `signIn()` down its
   /// `prompt: 'select_account'` path, which shows the real consent screen.
   static Future<String> accessToken() async {
+    // Desktop: browser-loopback OAuth (google_sign_in has no desktop plugin).
+    if (_isDesktop) {
+      final token = await DesktopGoogleAuth.accessToken(interactive: true);
+      if (token == null) throw const GoogleSignInCancelled();
+      return token;
+    }
     var account = await ensureSignedIn();
     if (account == null) throw const GoogleSignInCancelled();
     var token = (await account.authentication).accessToken;

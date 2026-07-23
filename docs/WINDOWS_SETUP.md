@@ -106,9 +106,19 @@ Getting camera / scanner / Gmail / Photos / Drive working on Windows is
 **cross-platform Dart engineering done on the Linux box** and delivered via git:
 
 - **Desktop Google OAuth** (browser-loopback, replaces `google_sign_in`) — unlocks
-  Gmail + Photos + Drive together. **Needs a "Desktop app" OAuth client ID
-  registered in Google Cloud Console** (distinct from the Android client above) —
-  see `docs/google_signin_setup.md` for the existing Android setup as a template.
+  Gmail + Photos + Drive together. **The code is now in** (`DesktopGoogleAuth`,
+  `GoogleAuthService` branches on desktop). To activate it you must:
+  1. In Google Cloud Console (same project), create an **OAuth 2.0 Client ID of
+     type "Desktop app"** (distinct from the Android client) — gives a client ID
+     + secret. See `docs/google_signin_setup.md` for the project context.
+  2. Add both to this box's `.dart_defines`:
+     ```json
+     "GOOGLE_DESKTOP_CLIENT_ID": "xxxx.apps.googleusercontent.com",
+     "GOOGLE_DESKTOP_CLIENT_SECRET": "xxxx"
+     ```
+  3. Run/build with `--dart-define-from-file=.dart_defines` (the VS Code launch
+     configs already do this). Until set, Gmail/Photos/Drive show a clear
+     "not configured" message on desktop instead of working.
 - **Biometric** → `local_auth_windows` (Windows Hello).
 - **Camera / scanner** → desktop file-import fallbacks.
 

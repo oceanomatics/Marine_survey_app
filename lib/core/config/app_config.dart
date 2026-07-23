@@ -45,6 +45,19 @@ class AppConfig {
   static String googleApiKey = const String.fromEnvironment('GOOGLE_API_KEY');
   static bool get isGoogleKeySet => googleApiKey.isNotEmpty;
 
+  // ── Google desktop OAuth (Linux/Windows/macOS) ─────────────
+  // google_sign_in has no desktop implementation, so on desktop we use the
+  // installed-app loopback flow (DesktopGoogleAuth). It needs an OAuth 2.0
+  // client of type "Desktop app" (id + secret) from the Google Cloud Console —
+  // distinct from the mobile client. Set both in .dart_defines. Empty on
+  // mobile/web (where google_sign_in is used instead). Installed-app secrets
+  // are not truly confidential per Google's own guidance, so shipping them via
+  // --dart-define is acceptable.
+  static const googleDesktopClientId =
+      String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');
+  static const googleDesktopClientSecret =
+      String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_SECRET');
+
   // ── Google Drive unified storage ───────────
   // Root folder name under which Cases/ and Admin/ live in the user's Drive
   // — null means directly under "My Drive". Set from the Account screen
