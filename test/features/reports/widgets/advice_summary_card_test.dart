@@ -36,6 +36,7 @@ class _RecordingCaseNotifier extends CaseNotifier {
     CaseStatus? status,
     CaseType? caseType,
     DateTime? instructionDate,
+    int? caseYear,
     OutputFormat? outputFormat,
     String? organisationId,
     String? baseCurrency,
