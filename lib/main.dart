@@ -1,10 +1,13 @@
 // lib/main.dart
 
+import 'dart:io' show Platform;
+
 import 'package:feedback/feedback.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/api/supabase_client.dart';
 import 'core/config/app_router.dart';
 import 'core/widgets/debug_feedback_button.dart';
@@ -16,6 +19,15 @@ import 'shared/widgets/biometric_lock_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Desktop (Linux/Windows/macOS) has no native sqflite plugin — the local
+  // SQLite cache/write-queue (AppDatabase) would throw "databaseFactory not
+  // initialized". Wire up the FFI backend so it works there. No-op on mobile
+  // (Android/iOS keep the native sqflite plugin); web is excluded.
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   // Global error-widget: when a widget's build() throws (e.g. a transient
   // network DioException surfacing mid-rebuild), Flutter's default red
