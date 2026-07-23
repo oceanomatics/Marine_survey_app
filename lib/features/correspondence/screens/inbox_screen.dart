@@ -136,10 +136,23 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     final AsyncValue<List<GmailMessageSummary>> async = caseMode
         ? ref.watch(caseInboxProvider(widget.caseId!))
         : ref.watch(inboxMessagesProvider);
-    return Scaffold(
+    return PopScope(
+      canPop: widget.caseId == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && widget.caseId != null) {
+          context.go('/cases/${widget.caseId}/correspondence');
+        }
+      },
+      child: Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
         title: const Text('Inbox', style: TextStyle(fontSize: 15)),
+        // /inbox is a top-level route, so the default fallback would strip to
+        // /cases (the case LIST). When opened for a case (from its
+        // Correspondence screen), go back there instead of the list.
+        backRoute: widget.caseId != null
+            ? '/cases/${widget.caseId}/correspondence'
+            : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, size: 20),
@@ -192,6 +205,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
