@@ -262,6 +262,11 @@ class DocExtractionResult {
     this.vesselFields = const {},
     this.suggestedCategory,
     this.documentType,
+    this.keyDates = const [],
+    this.costEstimates = const [],
+    this.actionItems = const [],
+    this.backgroundText,
+    this.caseRefs = const {},
   });
 
   final String docId;
@@ -295,6 +300,25 @@ class DocExtractionResult {
   final String? suggestedCategory;
   final String? documentType;
 
+  // ── Correspondence extras (empty for documents) ─────────────────────────
+  /// Dated events extracted from a source; each map: date, description,
+  /// kind ("event" | "attendance"), location. Attendance = the surveyor's OWN
+  /// attendance → a survey attendance; event → a timeline event.
+  final List<Map<String, dynamic>> keyDates;
+
+  /// Cost estimate lines; each map: category, description, amount, currency.
+  final List<Map<String, dynamic>> costEstimates;
+
+  /// Action items / outstanding requests.
+  final List<String> actionItems;
+
+  /// Pre-incident case background narrative to append.
+  final String? backgroundText;
+
+  /// Case header refs to apply: claim_reference, technical_file_no,
+  /// vessel_name, instruction_date.
+  final Map<String, dynamic> caseRefs;
+
   bool get hasHardData => hardFields.isNotEmpty;
   bool get hasFindings => contextFindings.isNotEmpty;
   bool get hasIncidents => detectedIncidents.isNotEmpty;
@@ -302,13 +326,24 @@ class DocExtractionResult {
   bool get hasClassConditions => detectedClassConditions.isNotEmpty;
   bool get hasContacts => detectedContacts.isNotEmpty;
   bool get hasVesselData => vesselFields.isNotEmpty;
+  bool get hasKeyDates => keyDates.isNotEmpty;
+  bool get hasCosts => costEstimates.isNotEmpty;
+  bool get hasActionItems => actionItems.isNotEmpty;
+  bool get hasBackground => (backgroundText ?? '').trim().isNotEmpty;
+  bool get hasCaseRefs => caseRefs.values.any((v) => (v?.toString() ?? '').isNotEmpty);
   bool get hasAny =>
       hasHardData ||
       hasFindings ||
       hasIncidents ||
       hasMachinery ||
       hasVesselData ||
-      hasClassConditions;
+      hasClassConditions ||
+      hasContacts ||
+      hasKeyDates ||
+      hasCosts ||
+      hasActionItems ||
+      hasBackground ||
+      hasCaseRefs;
 }
 
 // ── Document provider ──────────────────────────────────────────────────────
