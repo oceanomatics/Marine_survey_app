@@ -42,6 +42,7 @@ import '../../cs/models/cs_models.dart';
 import '../../cs/providers/cs_inspection_provider.dart';
 import '../../cs/providers/cs_recommendation_provider.dart';
 import '../../pi/providers/pi_opinion_provider.dart';
+import '../../pi/providers/pi_injured_party_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -927,6 +928,22 @@ class _PseudoReport extends ConsumerWidget {
               ? const _SectionEmpty('No opinions recorded')
               : Text('${opinions.length} opinion'
                   '${opinions.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+      final injured =
+          ref.watch(piInjuredPartyProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF7A5C8C),
+          icon: Icons.healing_outlined,
+          title: 'Injured Parties',
+          countLabel: injured.isEmpty ? null : '${injured.length}',
+          onOpen: () => context.go('/cases/$caseId/pi/injured'),
+          child: injured.isEmpty
+              ? const _SectionEmpty('None recorded')
+              : Text('${injured.length} recorded',
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
         ),

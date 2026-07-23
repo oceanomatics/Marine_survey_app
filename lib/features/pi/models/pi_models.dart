@@ -95,3 +95,52 @@ class PiOpinionModel {
         updatedAt: updatedAt,
       );
 }
+
+// ── Medical / Injured Parties (spec §4.6) ───────────────────────────────────
+@immutable
+class PiInjuredPartyModel {
+  const PiInjuredPartyModel({
+    required this.id,
+    required this.caseId,
+    this.personRole,
+    this.personName,
+    this.condition,
+    this.infoSource,
+    this.sortOrder = 0,
+  });
+
+  final String id;
+  final String caseId;
+  final String? personRole;
+  final String? personName;
+  final String? condition;
+  final String? infoSource;
+  final int sortOrder;
+
+  factory PiInjuredPartyModel.fromJson(Map<String, dynamic> j) =>
+      PiInjuredPartyModel(
+        id: j['id'] as String,
+        caseId: j['case_id'] as String,
+        personRole: j['person_role'] as String?,
+        personName: j['person_name'] as String?,
+        condition: j['condition'] as String?,
+        infoSource: j['info_source'] as String?,
+        sortOrder: j['sort_order'] as int? ?? 0,
+      );
+
+  PiInjuredPartyModel copyWith({
+    String? personRole,
+    String? personName,
+    String? condition,
+    String? infoSource,
+  }) =>
+      PiInjuredPartyModel(
+        id: id,
+        caseId: caseId,
+        personRole: personRole ?? this.personRole,
+        personName: personName ?? this.personName,
+        condition: condition ?? this.condition,
+        infoSource: infoSource ?? this.infoSource,
+        sortOrder: sortOrder,
+      );
+}
