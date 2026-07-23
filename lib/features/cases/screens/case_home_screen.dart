@@ -41,6 +41,7 @@ import '../../documents/providers/document_provider.dart';
 import '../../cs/models/cs_models.dart';
 import '../../cs/providers/cs_inspection_provider.dart';
 import '../../cs/providers/cs_recommendation_provider.dart';
+import '../../pi/providers/pi_opinion_provider.dart';
 import '../../documents/utils/document_request_email.dart';
 import '../../parties/providers/parties_provider.dart';
 import '../../../core/services/gmail_service.dart';
@@ -420,6 +421,13 @@ class _SurveyNavRail extends ConsumerWidget {
                       accent: const Color(0xFF1E6B5A),
                       onTap: () =>
                           context.go('/cases/$caseId/cs/inspection'),
+                    ),
+                  if (caseModel?.caseType == CaseType.pi)
+                    _NavItem(
+                      icon: Icons.gavel_outlined,
+                      label: 'Opinion',
+                      accent: const Color(0xFF3B4A8C),
+                      onTap: () => context.go('/cases/$caseId/pi/opinion'),
                     ),
                 ],
               ),
@@ -901,6 +909,29 @@ class _PseudoReport extends ConsumerWidget {
             natureOfRepairs, repairDocs, certs, outputs, vessel, documents,
             surveyorNotes, survey,
             highlighted: highlighted);
+
+    // P&I / expert cases reuse the H&M spine + add the Opinion & Conclusions
+    // register (the genuinely-new expert-report object). Additive — H&M and
+    // other types are untouched.
+    if (survey.caseType == CaseType.pi) {
+      final opinions = ref.watch(piOpinionProvider(caseId)).value ?? const [];
+      sections.add(
+        _SectionCard(
+          accentColor: const Color(0xFF3B4A8C),
+          icon: Icons.gavel_outlined,
+          title: 'Opinion & Conclusions',
+          countLabel: opinions.isEmpty ? null : '${opinions.length}',
+          initiallyExpanded: opinions.isNotEmpty,
+          onOpen: () => context.go('/cases/$caseId/pi/opinion'),
+          child: opinions.isEmpty
+              ? const _SectionEmpty('No opinions recorded')
+              : Text('${opinions.length} opinion'
+                  '${opinions.length == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+        ),
+      );
+    }
 
     // §4.7: open + pending-review action item count for the entry-point
     // card — inserted at the very top of the section list (2026-07-13

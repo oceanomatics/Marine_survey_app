@@ -45,6 +45,7 @@ import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
 import '../../features/cs/screens/cs_inspection_screen.dart';
 import '../../features/cs/screens/cs_recommendations_screen.dart';
+import '../../features/pi/screens/pi_opinion_screen.dart';
 import '../../features/interviews/screens/interview_detail_screen.dart';
 import '../../features/interviews/screens/record_interview_screen.dart';
 import '../../features/accounts/screens/accounts_screen.dart';
@@ -285,6 +286,11 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'cs/recommendations',
               builder: (context, state) => CsRecommendationsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'pi/opinion',
+              builder: (context, state) => PiOpinionScreen(
                   caseId: state.pathParameters['caseId']!),
             ),
           ],
