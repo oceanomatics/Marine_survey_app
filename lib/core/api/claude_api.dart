@@ -2003,6 +2003,58 @@ Rules:
   // ── Correspondence Extraction ─────────────────────────────────────────────
 
   /// Extract parties, summary, action items and key dates from a PDF email trail.
+  // Shared enriched extraction schema for correspondence (PDF + plain-text
+  // paths). Each extracted item carries enough structure to route it to the
+  // right record when the surveyor imports it in the review sheet — see
+  // CorrExtractionResult + the correspondence review sheet fan-out.
+  static const _corrSchemaJson = '''{
+  "summary": "2-3 sentence summary of the overall correspondence",
+  "sender": "primary sender name and organisation",
+  "recipient": "primary recipient name and organisation",
+  "corr_date": "date of the primary communication in YYYY-MM-DD, or null",
+  "claim_reference": "underwriter or P&I claim / file reference, or null",
+  "vessel_name": "name of the vessel, or null",
+  "technical_file_no": "surveyor's job or file number if mentioned, or null",
+  "instruction_date": "YYYY-MM-DD date surveyors are formally instructed to attend, or null",
+  "background_text": "a short narrative paragraph of case background stated in this correspondence, or null",
+  "parties": [
+    {"name": "", "company": "", "role": "professional title/function e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
+  ],
+  "key_dates": [
+    {"date": "YYYY-MM-DD", "description": "what happened on this date", "kind": "event or attendance", "location": "attendance location when kind=attendance, else null"}
+  ],
+  "context_findings": [
+    {"text": "a noteworthy fact/statement worth recording as a case note", "case_section": "one of: background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire|other", "note_category": "short label e.g. instruction, allegation, observation, quote"}
+  ],
+  "detected_incidents": [
+    {"title": "short incident/occurrence title", "date": "YYYY-MM-DD or null", "location": "", "description": "what happened"}
+  ],
+  "detected_damage": [
+    {"description": "the damage described", "component": "affected component/part or null", "incident_ref": "title of the related incident above, or null"}
+  ],
+  "detected_repairs": [
+    {"description": "the repair described", "status": "proposed | in_progress | completed | null", "estimated_cost": 0, "incident_ref": "title of the related incident above, or null"}
+  ],
+  "cost_estimates": [
+    {"category": "repairs | drydock | towage | agency | survey | general_expenses | other", "description": "what the cost is for", "amount": 0, "currency": "e.g. USD, EUR, or null"}
+  ],
+  "action_items": [
+    "action item or outstanding request"
+  ],
+  "decisions": [
+    "key decision or agreement reached"
+  ]
+}''';
+
+  static const _corrSchemaRules =
+      'Return null or an empty array for anything not found — do NOT invent data. '
+      'Dates in ISO YYYY-MM-DD. Numbers as plain numbers (no currency symbols). '
+      'For parties include email/phone only when explicitly present. Use '
+      'key_dates.kind="attendance" ONLY for in-person survey/inspection '
+      'attendances the surveyor physically attends; everything else is "event". '
+      'Only include context_findings for genuinely useful facts, not filler. '
+      'Keep every text field concise and in English.';
+
   static Future<Map<String, dynamic>> extractCorrespondence({
     required String base64Pdf,
     String? filename,
@@ -2024,7 +2076,7 @@ Rules:
       ),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 1500,
+        'max_tokens': 4000,
         'messages': [
           {
             'role': 'user',
@@ -2040,32 +2092,7 @@ Rules:
               {
                 'type': 'text',
                 'text':
-                    '''${hint}This is a marine insurance / survey correspondence document (email trail, letter, or report). Extract the following and return ONLY a JSON object with no preamble or markdown:
-
-{
-  "summary": "2-3 sentence summary of the overall correspondence",
-  "sender": "primary sender name and organisation",
-  "recipient": "primary recipient name and organisation",
-  "corr_date": "date of most recent or primary communication in YYYY-MM-DD format, or null",
-  "parties": [
-    {"name": "", "company": "", "role": "the person's professional title / function, e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
-  ],
-  "key_dates": [
-    "YYYY-MM-DD — description of the event"
-  ],
-  "action_items": [
-    "action item or outstanding request"
-  ],
-  "decisions": [
-    "key decision or agreement reached"
-  ],
-  "claim_reference": "underwriter or P&I claim / file reference, or null",
-  "vessel_name": "name of the vessel, or null",
-  "technical_file_no": "surveyor's job or file number if mentioned, or null",
-  "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
-}
-
-Return null or empty array for fields not found. Dates in ISO format. For parties, include email and phone only when explicitly present in the document.''',
+                    '${hint}This is a marine insurance / survey correspondence document (email trail, letter, or report). Extract the following and return ONLY a JSON object with no preamble or markdown:\n\n$_corrSchemaJson\n\n$_corrSchemaRules',
               },
             ],
           },
@@ -2097,39 +2124,12 @@ Return null or empty array for fields not found. Dates in ISO format. For partie
       options: Options(extra: {'feature': 'correspondence_extraction'}),
       data: {
         'model': AppConfig.claudeModel,
-        'max_tokens': 1500,
+        'max_tokens': 4000,
         'messages': [
           {
             'role': 'user',
             'content':
-                '''This is a marine insurance / survey email. Extract the following and return ONLY a JSON object with no preamble or markdown:
-
-$emailContent
-
-{
-  "summary": "2-3 sentence summary of the overall correspondence",
-  "sender": "primary sender name and organisation",
-  "recipient": "primary recipient name and organisation",
-  "corr_date": "date of the email in YYYY-MM-DD format, or null",
-  "parties": [
-    {"name": "", "company": "", "role": "the person's professional title / function, e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
-  ],
-  "key_dates": [
-    "YYYY-MM-DD — description of the event"
-  ],
-  "action_items": [
-    "action item or outstanding request"
-  ],
-  "decisions": [
-    "key decision or agreement reached"
-  ],
-  "claim_reference": "underwriter or P&I claim / file reference, or null",
-  "vessel_name": "name of the vessel, or null",
-  "technical_file_no": "surveyor's job or file number if mentioned, or null",
-  "instruction_date": "YYYY-MM-DD date when surveyors are formally instructed to attend, or null if not explicitly stated"
-}
-
-Return null or empty array for fields not found. Dates in ISO format. For parties, include email and phone only when explicitly present in the document.''',
+                'This is a marine insurance / survey email. Extract the following and return ONLY a JSON object with no preamble or markdown:\n\n$emailContent\n\n$_corrSchemaJson\n\n$_corrSchemaRules',
           },
         ],
       },
