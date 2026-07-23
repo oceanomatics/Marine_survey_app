@@ -170,5 +170,21 @@ new snapshot layer rather than inventing fresh.
 
 ---
 
+## 10. Live-testing notes (23 July — tablet workflow, running list)
+
+Captured from the surveyor's hands-on pass on the clean prod. Not yet
+investigated/verified against code — triage later.
+
+- **Start a case *from* an email.** Can't search for / pick an email to begin a
+  case; had to enter the vessel name first to get through. Wanted flow: search
+  the inbox, pick the originating email, pre-fill the new case from it. This is
+  the office/desktop scenario and ties directly into the desktop-Gmail work (§2)
+  — a case often starts from an instructing email at the desk.
+- **Auto-generate email summaries.** Correspondence/email summaries should be
+  produced automatically (AI), not on manual request. (Check whether the
+  existing thread-summary / AI-task pipeline can run on inbound mail on import.)
+
+---
+
 *Master history and per-section detail remain in `docs/TODO.md`. Completed
 working docs are in `docs/archive/`.*
