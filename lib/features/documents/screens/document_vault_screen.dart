@@ -631,7 +631,7 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ExtractionResultSheet(
+      builder: (_) => ExtractionReviewSheet(
         caseId: caseId,
         docTitle: doc.title,
         result: extractionResult,
@@ -666,7 +666,7 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ExtractionResultSheet(
+      builder: (_) => ExtractionReviewSheet(
         caseId: caseId,
         docTitle: doc.title,
         result: result,
@@ -748,7 +748,7 @@ class _DocumentVaultScreenState extends ConsumerState<DocumentVaultScreen> {
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
-        builder: (_) => _ExtractionResultSheet(
+        builder: (_) => ExtractionReviewSheet(
           caseId: caseId,
           docTitle: photo.caption ?? photo.allocation?.label ?? 'Photo',
           result: result,
@@ -1140,8 +1140,9 @@ class _FilePreview extends StatelessWidget {
 
 // ── Extraction result sheet ────────────────────────────────────────────────
 
-class _ExtractionResultSheet extends ConsumerStatefulWidget {
-  const _ExtractionResultSheet({
+class ExtractionReviewSheet extends ConsumerStatefulWidget {
+  const ExtractionReviewSheet({
+    super.key,
     required this.caseId,
     required this.docTitle,
     required this.result,
@@ -1150,10 +1151,20 @@ class _ExtractionResultSheet extends ConsumerStatefulWidget {
     this.initialMachinerySelected,
     this.initialConditionSelected,
     this.initialVesselSelected,
+    this.writeBackToDocument = true,
+    this.sourceRecordId,
+    this.onImported,
   });
   final String caseId;
   final String docTitle;
   final DocExtractionResult result;
+  // Source-agnostic hooks (default = document behaviour). Correspondence passes
+  // writeBackToDocument:false (no `documents` row to update), its own
+  // sourceRecordId for provenance (e.g. certificate.source_doc_id), and an
+  // onImported callback to clear its pending_extraction.
+  final bool writeBackToDocument;
+  final String? sourceRecordId;
+  final Future<void> Function()? onImported;
   // When re-applying stored extraction, caller can pre-set which items to apply.
   // null = default all to true (fresh extraction). false = item already applied.
   final List<bool>? initialFindingSelected;
@@ -1163,12 +1174,12 @@ class _ExtractionResultSheet extends ConsumerStatefulWidget {
   final Map<String, bool>? initialVesselSelected;
 
   @override
-  ConsumerState<_ExtractionResultSheet> createState() =>
-      _ExtractionResultSheetState();
+  ConsumerState<ExtractionReviewSheet> createState() =>
+      ExtractionReviewSheetState();
 }
 
-class _ExtractionResultSheetState
-    extends ConsumerState<_ExtractionResultSheet> {
+class ExtractionReviewSheetState
+    extends ConsumerState<ExtractionReviewSheet> {
   late final Map<String, bool> _hardSelected;
   late final List<bool> _findingSelected;
   late final List<bool> _incidentSelected;
@@ -1391,20 +1402,24 @@ class _ExtractionResultSheetState
           },
       ];
 
-      await ref.read(documentProvider(widget.caseId).notifier).saveExtracted(
-            widget.result.docId,
-            selectedFields,
-            vesselData: selectedVesselForSave,
-            unmappedFields: unmappedVesselFields,
-            contextFindings: allFindings,
-            detectedIncidents: allIncidents,
-            detectedMachinery: allMachinery,
-            detectedClassConditions: allConditions,
-            findingsApplied: appliedFindingsCount,
-            incidentsApplied: appliedIncidentsCount,
-            machineryApplied: appliedMachineryCount,
-            conditionsApplied: appliedConditionsCount,
-          );
+      // Document-only: write the extraction summary back onto the documents
+      // row (+ doc_date backfill). Correspondence has no such row — skipped.
+      if (widget.writeBackToDocument) {
+        await ref.read(documentProvider(widget.caseId).notifier).saveExtracted(
+              widget.result.docId,
+              selectedFields,
+              vesselData: selectedVesselForSave,
+              unmappedFields: unmappedVesselFields,
+              contextFindings: allFindings,
+              detectedIncidents: allIncidents,
+              detectedMachinery: allMachinery,
+              detectedClassConditions: allConditions,
+              findingsApplied: appliedFindingsCount,
+              incidentsApplied: appliedIncidentsCount,
+              machineryApplied: appliedMachineryCount,
+              conditionsApplied: appliedConditionsCount,
+            );
+      }
 
       // 2. Create context notes — preserve original indices for category lookup
       final selectedIndices = <int>[];
@@ -1627,7 +1642,7 @@ class _ExtractionResultSheetState
             status: expiryDate != null && expiryDate.isBefore(DateTime.now())
                 ? CertStatus.expired
                 : CertStatus.tbc,
-            sourceDocId: widget.result.docId,
+            sourceDocId: widget.sourceRecordId ?? widget.result.docId,
             extractedAuto: true,
           );
           await ref
@@ -1635,6 +1650,10 @@ class _ExtractionResultSheetState
               .addCertificate(cert);
         }
       }
+
+      // Source-specific post-import hook (e.g. correspondence clears its
+      // pending_extraction). No-op for documents.
+      if (widget.onImported != null) await widget.onImported!();
 
       if (mounted) Navigator.pop(context);
     } finally {
@@ -2952,7 +2971,7 @@ void reapplyExtraction(BuildContext context, String caseId, DocumentModel doc) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ExtractionResultSheet(
+    builder: (_) => ExtractionReviewSheet(
       caseId: caseId,
       docTitle: doc.title,
       result: result,
