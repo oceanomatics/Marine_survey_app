@@ -13,7 +13,8 @@ still open.
 three parallel code reads. Result: the Certificates + Class merge (§1) and the
 Advice Summary (§2.6) were both listed as open but are in fact **already built** —
 corrected below. Only the Equasis PSC deficiency extraction (§1) and the
-cover-page logo (§1.6) survive as genuine report-builder gaps.
+cover-page logo (§1.6) survive as genuine report-builder gaps. **Offline mode**
+(§9) was also verified: effectively unbuilt beyond a foundation — full detail there.
 
 ---
 
@@ -128,8 +129,44 @@ requested section. Present today:
 - **§4.2** Survey company management app (one manager, multiple surveyors).
 - **§4.5** Admin: surveyor logs, freelance agreements, external invoicing.
 - **§4.8** Subscription / tenant management console (developer/vendor).
-- **Offline sync** — case pinning (design in `docs/offline_sync_plan.md`, not built).
 - **Accounts reconciliation** — design in `docs/accounts_reconciliation_spec.md`, not built.
+- **Offline mode** — a real feature, not just roadmap. See §9 below.
+
+---
+
+## 9. Offline mode — needs full implementation
+
+*(Verified 23 July against current code. The "partial" state seen on another
+workstation is the pre-existing foundation, not the offline-case feature.)*
+
+Design: `docs/offline_sync_plan.md` (8 steps). **Effectively unbuilt** — none of
+the 8 case-snapshot steps exist. What's already there is only the reusable
+foundation, which pre-dates the plan:
+
+- ✅ **Write-queue vocabulary** (`pending_upsert` / `pending_delete`) — but only on
+  the 3 legacy cache tables: surveyor_notes, photos, correspondence.
+- ✅ **`connectivity_plus`** fully wired — `connectivity_service.dart` →
+  `connectivityProvider`, with reconnect-and-flush in those same 3 providers.
+
+**Remaining work (all 8 steps):**
+
+1. DB migration (**v17**, not the plan's "v11") — `offline_cases` control table +
+   ~19 `snap_*` snapshot tables. DB is currently at v16.
+2. `OfflineCaseService` — `pinCase` / `unpinCase` / `syncCase` / `flushWriteQueue`.
+3. `offlineModeProvider` (SharedPreferences `offline_mode`) + `offlineCasesProvider`.
+4. **Provider routing retrofit** — every feature provider (cases, vessels,
+   occurrences, damage, repairs, interviews, checklists, …) currently hardcodes
+   `SupabaseService.client`; each needs an online/offline data-source switch.
+   *Largest and most invasive step.*
+5. Extend the `pending_*` write queue onto the new snapshot tables.
+6. File download on pin — `documents` + `audio` Storage buckets → local `cases/{id}/`.
+7. UI — pin button (case list/home), app-bar offline badge, Settings "Sync now" +
+   manual toggle.
+8. Conflict resolution (last-write-wins to start).
+
+**Leverage:** the connectivity reconnect-and-flush pattern and the `pending_*`
+status vocabulary are already proven in 3 providers — template them across the
+new snapshot layer rather than inventing fresh.
 
 ---
 
