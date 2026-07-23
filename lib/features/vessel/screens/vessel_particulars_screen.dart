@@ -480,6 +480,13 @@ class _VesselParticularsScreenState
             .update({'title': parts.join(' – ')}).eq('case_id', widget.caseId);
       }
     } catch (_) {}
+    // The vessel name feeds the Drive folder name ("Year - TechNo - Vessel"),
+    // and this save path writes vessels.name directly (not via updateCaseRefs),
+    // so trigger the folder rename explicitly — otherwise the folder keeps its
+    // old/blank vessel name and causes confusion.
+    await ref
+        .read(caseProvider(widget.caseId).notifier)
+        .syncDriveFolderName();
   }
 
   /// Entry point for the Save button. Checks the typed IMO against the

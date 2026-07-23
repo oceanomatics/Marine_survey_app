@@ -417,6 +417,19 @@ class CaseNotifier extends FamilyAsyncNotifier<CaseModel, String> {
     await _rebuildTitle();
     ref.invalidate(casesProvider);
   }
+
+  /// Re-sync the Drive case-folder name to the current case data (year, file
+  /// no, vessel). Call after changing a field that feeds
+  /// [CaseModel.driveFolderName] from OUTSIDE updateCaseRefs — e.g. the vessel
+  /// name saved from the Vessel Particulars screen (which writes vessels.name
+  /// directly, so it never passes through _rebuildTitle and the folder would
+  /// otherwise keep its old "… - <old vessel>" name).
+  Future<void> syncDriveFolderName() async {
+    final fresh = await _fetch(arg);
+    state = AsyncData(fresh);
+    unawaited(DriveStorageService.syncCaseFolderName(fresh).catchError(
+        (e) => debugPrint('[CaseNotifier] Drive folder rename skipped: $e')));
+  }
 }
 
 // ── Checklist progress ─────────────────────────────────────────────────────

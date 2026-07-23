@@ -203,7 +203,36 @@ investigated/verified against code — triage later.
   `attendances`/`survey_attendances` record is created. **Root theme: extraction
   DETECTS entities but doesn't PERSIST them into their records** (timeline events,
   attendances — check others too). The write-back step of the extraction pipeline
-  is the common gap.
+  is the common gap. **→ Being addressed** (correspondence→structured import, see
+  `docs/correspondence_extraction_spec.md`).
+- **Inbox case-filter too restrictive / not editable.** After importing one
+  email, the case-filtered inbox hides other potentially-relevant emails for the
+  case; the filter isn't adjustable. Make the case-relevance filter editable /
+  loosenable so the surveyor can pull the rest of the thread. *(debug_feedback
+  05:05, 23 Jul.)*
+- **"New case from mail" is misplaced inside a case.** The inbox's new-case action
+  is irrelevant when reached from correspondence *within* a case — creating a case
+  from mail only makes sense from the case-selection screen. Hide/repurpose it in
+  the in-case inbox context. *(debug_feedback 04:56.)*
+- **Correspondence "which field?" clarity + clearer "review extracted data".** On
+  the correspondence card it's unclear which field a value applies to; and the
+  "review extracted data" affordance (chip tap → review sheet) should be more
+  obvious. *(debug_feedback 04:17–04:59. Note: "can't do anything with this data"
+  and "no attendance suggestions" are addressed by the new import build — pull.)*
+- **Correspondence "back" overshoots to the case list.** Pressing back on the
+  correspondence/import screen lands on the case-selection screen, not the case
+  home. Likely the `BackAppBar` fallback (strips one path segment / `context.go`
+  everywhere → `canPop()` false) deriving the wrong parent for the correspondence
+  route. Fix: give the correspondence screen an explicit back target of the case
+  home route.
+- **Duplicate Google Drive folders per case.** *(Diagnosed 23 Jul.)* Two disjoint
+  folder systems: the unified `Cases/<Year-TechNo-Vessel>/` taxonomy
+  (`drive_storage_service.dart`, idempotent, persisted) AND a legacy
+  `Marine Survey Reports/<case title>/` folder created ad-hoc by the report/doc
+  export path (`export_button.dart:240`, `document_vault_screen.dart:273`) — not
+  persisted, named by the mutable title (can spawn a 3rd on title change). Fix:
+  route both export call sites through `DriveStorageService` (unified tree) and
+  delete the `Marine Survey Reports` creation.
 
 ---
 
