@@ -45,6 +45,7 @@ import '../../features/interviews/screens/interview_screen.dart';
 import '../../features/interviews/screens/interview_list_screen.dart';
 import '../../features/cs/screens/cs_inspection_screen.dart';
 import '../../features/cs/screens/cs_recommendations_screen.dart';
+import '../../features/cs/screens/cs_certificate_screen.dart';
 import '../../features/pi/screens/pi_opinion_screen.dart';
 import '../../features/pi/screens/pi_injured_party_screen.dart';
 import '../../features/pi/screens/pi_relied_upon_screen.dart';
@@ -289,6 +290,11 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'cs/recommendations',
               builder: (context, state) => CsRecommendationsScreen(
+                  caseId: state.pathParameters['caseId']!),
+            ),
+            GoRoute(
+              path: 'cs/certificates',
+              builder: (context, state) => CsCertificateScreen(
                   caseId: state.pathParameters['caseId']!),
             ),
             GoRoute(

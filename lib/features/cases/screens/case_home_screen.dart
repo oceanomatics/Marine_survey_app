@@ -41,6 +41,7 @@ import '../../documents/providers/document_provider.dart';
 import '../../cs/models/cs_models.dart';
 import '../../cs/providers/cs_inspection_provider.dart';
 import '../../cs/providers/cs_recommendation_provider.dart';
+import '../../cs/providers/cs_certificate_provider.dart';
 import '../../pi/providers/pi_opinion_provider.dart';
 import '../../pi/providers/pi_injured_party_provider.dart';
 import '../../pi/providers/pi_relied_upon_provider.dart';
@@ -1061,6 +1062,7 @@ class _PseudoReport extends ConsumerWidget {
     final openRecs = recs
         .where((r) => r.status == CsRecommendationStatus.open)
         .length;
+    final certs = ref.watch(csCertificateProvider(caseId)).value ?? const [];
     return [
       _SectionCard(
         accentColor: const Color(0xFF1E6B5A),
@@ -1085,6 +1087,19 @@ class _PseudoReport extends ConsumerWidget {
         child: openRecs == 0
             ? const _SectionEmpty('No open recommendations')
             : Text('$openRecs open',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+      ),
+      _SectionCard(
+        accentColor: AppColors.purple,
+        icon: Icons.verified_outlined,
+        title: 'Certificate Register',
+        countLabel: certs.isEmpty ? null : '${certs.length}',
+        onOpen: () => ctx.go('/cases/$caseId/cs/certificates'),
+        child: certs.isEmpty
+            ? const _SectionEmpty('No certificates recorded')
+            : Text('${certs.length} certificate'
+                '${certs.length == 1 ? '' : 's'}',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.textSecondary)),
       ),
