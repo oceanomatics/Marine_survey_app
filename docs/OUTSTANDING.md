@@ -9,42 +9,63 @@ table lead-ins (the interrupted 22 July session) are now finished and committed
 (`2bd5e21`); migration 063 is live. What follows is everything that is *actually*
 still open.
 
+**Verification pass (23 July):** §1–§2 were re-checked against current source via
+three parallel code reads. Result: the Certificates + Class merge (§1) and the
+Advice Summary (§2.6) were both listed as open but are in fact **already built** —
+corrected below. Only the Equasis PSC deficiency extraction (§1) and the
+cover-page logo (§1.6) survive as genuine report-builder gaps.
+
 ---
 
-## 1. Next up — Certificates + Class & Statutory merge  ⬅ the last request
+## 1. Certificates + Class & Statutory merge — BUILT; residual = Equasis PSC extraction
 
-From `docs/last_entry` (verbatim intent, lightly cleaned):
+**Verified 23 July against current code — the merge from `docs/last_entry` is
+already built.** `lib/features/vessel/screens/vessel_compliance_screen.dart` is a
+single "Certificates & Class" screen (routed from Case Home), containing every
+requested section. Present today:
 
-- **Merge** the Certificates section and the Class & Statutory section into one.
-- **Certificates** — list all certificates with their details, presented like the
-  Document Vault, and add-able inline.
-- **Bottom section** — keep the current Class & Statutory edit content.
-- **Conditions of Class** — make this an *add-item* section type, each item with:
-  reference number · brief 2-line description · expiry date · a tick for "related
-  to an occurrence in this case" · an occurrence select-dropdown (choices = the
-  case's occurrences).
-- **PSC** — list deficiencies (these are in the Equasis report already).
-- **Incident** — display the **primary occurrence** here. Report status as:
-  reported via **ISM** (yes/no) and/or to **Class** (yes/no). Heuristics:
-  a formatted incident report present ⇒ reported via ISM; a Condition of Class
-  issued in relation to the occurrence ⇒ reported to Class.
-- *(The `last_entry` note trails off at "the data extraction is not…" — confirm
-  with the surveyor what the intended data-extraction behaviour was before
-  building that part.)*
+- ✅ Certificates list, Doc-Vault-linked, add inline (`CertificateCard` +
+  `AddCertificateSheet`).
+- ✅ Conditions of Class as an add-item with **all** requested fields — reference
+  number, description, expiry date, "related to an occurrence" tick, occurrence
+  dropdown (choices = case occurrences). Backed by `class_condition_model.dart`
+  (`occurrence_related` / `occurrence_id`).
+- ✅ Incident block — primary occurrence + "reported via ISM" (y/n) + "reported to
+  Class" (y/n), including the CoC-issued ⇒ reported-to-Class heuristic nudge.
+- ✅ PSC deficiency list — UI + storage (`psc_deficiencies` table) exist.
 
-> Relates to open question **Q2** (certificates in their own table vs. denormalised
-> onto the vessel) — resolve that before finalising the merged data model.
+**Residual open items (the only real work left here):**
+
+- **PSC deficiency auto-extraction from the Equasis report** — the deficiency list
+  is **manual entry only**; `equasis_service.dart` returns the ship-folder PDF but
+  parses no deficiencies. The screen itself flags this ("auto-populate is a
+  follow-up"). *This is almost certainly what the `last_entry` note meant by its
+  trailing "the data extraction is not…".* — **largest genuine piece.**
+- **Delete the orphaned `certificates_screen.dart`** — a standalone
+  `CertificatesScreen` still exists but is unreferenced dead code, superseded by
+  the merged screen. Its "Total / Valid / Expiring / Expired" status-summary
+  banner was *not* carried into the merged screen — port that first if the
+  presentation is wanted, then delete.
+- Cosmetic: CoC description is `maxLines: 3`, `last_entry` said "2-line" — trivial.
+
+> Open question **Q2** (certificates in own table vs. denormalised) is effectively
+> **resolved by the build** — certs stayed in their own table.
 
 ---
 
 ## 2. Genuinely missing report-builder features
 
-- **§2.6 Advice Summary editor** — no model, no screen. Auto-populated + editable
-  advice summary is still absent.
-- **§1.6 / scorecard #14 — firm logo on the cover page.** Logo currently embeds
-  only in the body running header; the cover page shows the firm name as text
-  only. (Everything else on the cover — vessel band, status badge, info box,
-  photo — is done.)
+- **§1.6 / scorecard #14 — firm logo on the cover page.** *(Verified 23 July: still
+  open.)* Logo embeds only in the page-2+ running header
+  (`docx_export_service.dart:210-215`); the cover page shows the firm name as
+  centered text only. Everything else on the cover — vessel band, status badge,
+  info box, cover photo — is done.
+
+> **Removed after 23 July verification:** ~~§2.6 Advice Summary editor~~ — this was
+> listed as missing but is in fact **fully built** (model with 16 `advice*` fields,
+> `advice_summary_card.dart`, migration 014, auto-population, AI ✨ drafting,
+> preview + docx render, export-gating, tests). The "missing" label was a stale
+> scorecard row (`TODO.md:1249`) contradicting §2.6's own "Built 3 July" header.
 
 ---
 
