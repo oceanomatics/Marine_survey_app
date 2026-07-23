@@ -183,6 +183,27 @@ investigated/verified against code — triage later.
 - **Auto-generate email summaries.** Correspondence/email summaries should be
   produced automatically (AI), not on manual request. (Check whether the
   existing thread-summary / AI-task pipeline can run on inbound mail on import.)
+- **Trials generated weirdly / not grouped by trial.** *(Term to confirm — likely
+  "trials" = sea trials / the trials & tests area, `trials_tests` table.)* The
+  generated trials output isn't grouped by trial — items appear flat instead of
+  nested under their parent trial, **which makes the (trial) summaries awkward to
+  read.** Fix the grouping key in the trials/tests data model + report/summary
+  rendering. Relates to the DP FMEA / trials module work the dev box is picking up.
+- **Correspondence pollutes the "important" timeline.** Correspondence events
+  should appear only in the **full event log**, not the curated "important"
+  timeline. Check the Timeline relevance filter (§3.16, `timeline_events` /
+  `timeline_event_ratings`) — exclude the correspondence event type from the
+  important view (or default its relevance below the important threshold).
+- **AI extraction finds dates but doesn't create timeline events.** The extraction
+  identifies dates in documents/correspondence but never turns them into
+  `timeline_events`. Wire the extracted dates through to timeline-event creation
+  (the extraction → timeline pipeline is the gap, not the date detection).
+- **AI extraction finds attendance dates but doesn't create attendances.** Same
+  pattern as above — correspondence extraction detects attendance dates but no
+  `attendances`/`survey_attendances` record is created. **Root theme: extraction
+  DETECTS entities but doesn't PERSIST them into their records** (timeline events,
+  attendances — check others too). The write-back step of the extraction pipeline
+  is the common gap.
 
 ---
 
