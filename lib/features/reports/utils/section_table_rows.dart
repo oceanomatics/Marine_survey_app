@@ -32,6 +32,43 @@ String formatSectionDate(String iso) {
   }
 }
 
+/// §4 Brief Technical Description — the always-on vessel one-liner
+/// (docs/house_style.md §4):
+///   The vessel "[NAME]" is a [TYPE] of [GT] GRT, [LOA] metres OAL, built in
+///   [BUILD_PLACE], flagged under [FLAG] and maintained in [CLASS] Class.
+/// Degrades gracefully: any clause whose source field is empty is dropped, so
+/// a sparsely-filled vessel still yields a clean sentence. Returns null only
+/// when there isn't even a name or type to describe (nothing to say).
+String? buildTechnicalDescriptionSentence(Map<String, dynamic> v) {
+  String s(dynamic x) => (x?.toString() ?? '').trim();
+  final name = s(v['name']);
+  final type = s(v['vessel_type']);
+  if (name.isEmpty && type.isEmpty) return null;
+
+  final subject = name.isNotEmpty ? 'The vessel "$name"' : 'The subject vessel';
+  // Trailing descriptor clauses, joined "a, b, c and d".
+  final descriptors = <String>[
+    if (s(v['gross_tonnage']).isNotEmpty) 'of ${s(v['gross_tonnage'])} GRT',
+    if (s(v['length_oa']).isNotEmpty) '${s(v['length_oa'])} metres OAL',
+    if (s(v['build_yard']).isNotEmpty) 'built in ${s(v['build_yard'])}',
+    if (s(v['flag']).isNotEmpty) 'flagged under ${s(v['flag'])}',
+    if (s(v['class_society']).isNotEmpty)
+      'maintained in ${s(v['class_society'])} Class',
+  ];
+
+  final buf = StringBuffer('$subject is a ${type.isNotEmpty ? type : 'vessel'}');
+  if (descriptors.isNotEmpty) {
+    if (descriptors.length == 1) {
+      buf.write(' ${descriptors.single}');
+    } else {
+      buf.write(' ${descriptors.sublist(0, descriptors.length - 1).join(', ')}'
+          ' and ${descriptors.last}');
+    }
+  }
+  buf.write('.');
+  return buf.toString();
+}
+
 /// Vessel's Particulars — spec §3 two-column key:value layout, no header
 /// row. Rows with no data are omitted so Convention-only or DCV-only
 /// fields don't show up as blank for the other vessel type.

@@ -5,7 +5,6 @@
 // the screen renders/reacts to section state correctly, not that the AI
 // drafting or persistence pipeline works (that's Manual/Integ — see
 // TEST_SHEET.md).
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:marine_survey_app/features/reports/providers/report_provider.dart';
 
 class FakeSectionDraftNotifier extends SectionDraftNotifier {

@@ -464,4 +464,50 @@ void main() {
       expect(buildDocumentsOnFileRows(const []), isEmpty);
     });
   });
+
+  group('buildTechnicalDescriptionSentence', () {
+    test('full record renders the house-style §4 one-liner', () {
+      final s = buildTechnicalDescriptionSentence({
+        'name': 'Ocean Trader',
+        'vessel_type': 'bulk carrier',
+        'gross_tonnage': 25000,
+        'length_oa': 180,
+        'build_yard': 'Ulsan, Korea',
+        'flag': 'Panama',
+        'class_society': 'DNV',
+      });
+      expect(
+          s,
+          'The vessel "Ocean Trader" is a bulk carrier of 25000 GRT, '
+          '180 metres OAL, built in Ulsan, Korea, flagged under Panama '
+          'and maintained in DNV Class.');
+    });
+
+    test('missing fields are dropped, sentence stays grammatical', () {
+      final s = buildTechnicalDescriptionSentence({
+        'name': 'Ocean Trader',
+        'vessel_type': 'tug',
+        'flag': 'Australia',
+      });
+      expect(s, 'The vessel "Ocean Trader" is a tug flagged under Australia.');
+    });
+
+    test('single descriptor uses no comma/and', () {
+      final s = buildTechnicalDescriptionSentence(
+          {'name': 'X', 'vessel_type': 'ferry', 'class_society': 'LR'});
+      expect(s, 'The vessel "X" is a ferry maintained in LR Class.');
+    });
+
+    test('no name falls back to "The subject vessel"', () {
+      final s = buildTechnicalDescriptionSentence(
+          {'vessel_type': 'barge', 'flag': 'Vanuatu'});
+      expect(s, 'The subject vessel is a barge flagged under Vanuatu.');
+    });
+
+    test('nothing to describe returns null', () {
+      expect(buildTechnicalDescriptionSentence(const {}), isNull);
+      expect(
+          buildTechnicalDescriptionSentence({'gross_tonnage': 500}), isNull);
+    });
+  });
 }

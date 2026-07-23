@@ -146,7 +146,7 @@ const Map<SectionType, String> sectionPurposeLine = {
   SectionType.attendees:
       'This section records the persons present at the survey and meetings and the party each represented.',
   SectionType.machineryParticulars:
-      'This section describes the particulars of the machinery forming the subject of the claim.',
+      'This section describes the subject vessel and, where relevant, the particulars of the machinery forming the subject of the claim.',
   SectionType.classStatutory:
       'This section evaluates the classification and statutory certification status of the subject vessel.',
   SectionType.informationSources:
@@ -191,6 +191,30 @@ const Map<SectionType, String> sectionPurposeLine = {
 
 /// Purpose line for [type], or null where the section deliberately has none.
 String? purposeLineFor(SectionType type) => sectionPurposeLine[type];
+
+// ── House-style table lead-in sentences (docs/house_style.md) ────────────────
+//
+// The sentence that introduces a table in the report body ("The particulars of
+// the machinery ... are as follows:", "For the guidance of those concerned
+// ..."). These are FORMAT-SPECIFIC wording, so they live in clause_library
+// keyed by (format_type, clause_type) and are resolved at render time via
+// AssembledReportData.tableLeadIn(). The same resolved text is shown in the
+// Editor reference panel, the Preview tab and the Word export, so all three
+// agree. Vessel's Particulars deliberately has NO lead-in (bare table, per
+// house_style.md §3); Attending Representatives' lead-in is built into
+// buildAttendanceBlocks and already renders everywhere.
+//
+// machinery/certificates/conditionsOfClass/damageSchedule are new clauses
+// (migration 063). repairTimes/documentsOnFile reuse the pre-existing clauses
+// that the docx export already rendered — surfacing them in Preview/Editor too.
+class TableLeadIns {
+  static const machinery = 'machinery_lead_in';
+  static const certificates = 'certificates_lead_in';
+  static const conditionsOfClass = 'conditions_of_class_lead_in';
+  static const damageSchedule = 'damage_schedule_lead_in';
+  static const repairTimes = 'repair_times_guidance';
+  static const documentsOnFile = 'documents_on_file_header';
+}
 
 // ── Empty-section negative statements (mods doc §A2, R15/R18/R19) ───────────
 //
@@ -693,6 +717,15 @@ class AssembledReportData {
 
   ClauseModel? clauseByType(String type) =>
       clauses.where((c) => c.clauseType == type).firstOrNull;
+
+  /// House-style lead-in sentence introducing a report table (see
+  /// [TableLeadIns]), resolved for this report's output format. Null when the
+  /// clause is not seeded for the format, so callers render the table with no
+  /// lead-in rather than an empty line.
+  String? tableLeadIn(String clauseType) {
+    final text = clauseByType(clauseType)?.clauseText.trim();
+    return (text == null || text.isEmpty) ? null : text;
+  }
 }
 
 // ── Report provider ────────────────────────────────────────────────────────
@@ -1217,10 +1250,14 @@ class SectionDraftNotifier
       content: _buildVesselText(data),
     );
 
-    // ── §4: Machinery & Equipment (conditional in export) ─────────
+    // ── §4: Brief Technical Description (house_style.md §4) ─────────
+    // Always-on vessel one-liner + optional machinery block. The one-liner is
+    // rendered deterministically from the vessel record by the three renderers
+    // (buildTechnicalDescriptionSentence), so `content` still carries only the
+    // machinery free text.
     sections[SectionType.machineryParticulars] = ReportSection(
       type: SectionType.machineryParticulars,
-      title: 'Machinery & Equipment Particulars',
+      title: 'Brief Technical Description',
       content:
           data.machinery.isNotEmpty ? _buildMachineryText(data.machinery) : '',
     );

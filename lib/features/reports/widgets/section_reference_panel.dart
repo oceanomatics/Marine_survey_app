@@ -84,17 +84,36 @@ class SectionReferencePanel extends StatelessWidget {
         if (certRows.isEmpty && ccRows.isEmpty) return null;
         return _panel('Certificates & conditions of class on file',
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (certRows.isNotEmpty) _RegisterTable(rows: certRows),
+              if (certRows.isNotEmpty) ...[
+                _leadIn(TableLeadIns.certificates),
+                _RegisterTable(rows: certRows),
+              ],
               if (certRows.isNotEmpty && ccRows.isNotEmpty)
                 const SizedBox(height: 10),
-              if (ccRows.isNotEmpty) _RegisterTable(rows: ccRows),
+              if (ccRows.isNotEmpty) ...[
+                _leadIn(TableLeadIns.conditionsOfClass),
+                _RegisterTable(rows: ccRows),
+              ],
             ]));
 
       case SectionType.machineryParticulars:
+        // House-style §4: always-on vessel one-liner + optional machinery block.
+        final techSentence = buildTechnicalDescriptionSentence(
+            assembled.vessel ?? const <String, dynamic>{});
         final blocks = buildMachineryBlocks(assembled.machinery);
-        if (blocks.isEmpty) return null;
-        return _panel('Claim object technical detail on file',
+        if (techSentence == null && blocks.isEmpty) return null;
+        return _panel('Brief technical description',
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (techSentence != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(techSentence,
+                      style: const TextStyle(
+                          fontSize: 10.5,
+                          color: AppColors.textPrimary,
+                          height: 1.4)),
+                ),
+              if (blocks.isNotEmpty) _leadIn(TableLeadIns.machinery),
               for (var i = 0; i < blocks.length; i++) ...[
                 if (i > 0) const SizedBox(height: 10),
                 Text(blocks[i].label,
@@ -233,7 +252,12 @@ class SectionReferencePanel extends StatelessWidget {
       case SectionType.damageDescription:
         final rows = buildDamageScheduleRows(assembled.damageItems);
         if (rows.isEmpty) return null;
-        return _panel('Damage schedule on file', _RegisterTable(rows: rows));
+        return _panel(
+            'Damage schedule on file',
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _leadIn(TableLeadIns.damageSchedule),
+              _RegisterTable(rows: rows),
+            ]));
 
       case SectionType.natureOfRepairs:
         final n = assembled.natureOfRepairs;
@@ -270,12 +294,22 @@ class SectionReferencePanel extends StatelessWidget {
       case SectionType.repairTimes:
         final rows = buildRepairTimesRows(assembled.repairPeriods);
         if (rows.isEmpty) return null;
-        return _panel('Repair times on file', _RegisterTable(rows: rows));
+        return _panel(
+            'Repair times on file',
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _leadIn(TableLeadIns.repairTimes),
+              _RegisterTable(rows: rows),
+            ]));
 
       case SectionType.documentsOnFile:
         final rows = buildDocumentsOnFileRows(assembled.caseDocuments);
         if (rows.isEmpty) return null;
-        return _panel('Documents retained on file', _RegisterTable(rows: rows));
+        return _panel(
+            'Documents retained on file',
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _leadIn(TableLeadIns.documentsOnFile),
+              _RegisterTable(rows: rows),
+            ]));
 
       default:
         return null;
@@ -284,6 +318,20 @@ class SectionReferencePanel extends StatelessWidget {
 
   static const _refStyle =
       TextStyle(fontSize: 10.5, color: AppColors.textSecondary);
+
+  /// House-style lead-in sentence (docs/house_style.md) shown above a table in
+  /// the reference panel, so the Editor previews the sentence that will
+  /// introduce the table in the report. Null when unseeded for the format.
+  Widget _leadIn(String clauseType) {
+    final text = assembled.tableLeadIn(clauseType);
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(text,
+          style: const TextStyle(
+              fontSize: 10.5, color: AppColors.textSecondary, height: 1.4)),
+    );
+  }
 
   Widget _panel(String label, Widget child) {
     return Column(

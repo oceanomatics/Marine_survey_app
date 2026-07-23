@@ -2004,16 +2004,30 @@ List<Widget> _trailingTables(
     widgets.add(const SizedBox(height: 6));
   }
 
+  // House-style lead-in sentence before a table (docs/house_style.md), resolved
+  // from the format-specific clause library (TableLeadIns). No-op when unseeded.
+  void leadIn(String clauseType) {
+    final text = assembled.tableLeadIn(clauseType);
+    if (text == null) return;
+    widgets.add(Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(text,
+          style: TextStyle(fontSize: 9.5, color: brand.bodyText, height: 1.5)),
+    ));
+  }
+
   switch (type) {
     case SectionType.classStatutory:
       final certRows = buildCertificateRows(assembled.certificates);
       if (certRows.isNotEmpty) {
         widgets.add(const SizedBox(height: 10));
+        leadIn(TableLeadIns.certificates);
         widgets.add(_RegisterTable(rows: certRows, brand: brand));
       }
       final ccRows = buildClassConditionRows(assembled.classConditions);
       if (ccRows.isNotEmpty) {
         heading('CONDITIONS OF CLASS');
+        leadIn(TableLeadIns.conditionsOfClass);
         // Matches the docx export's [1800, 5700, 1855] ratio (~1:3:1).
         widgets.add(_RegisterTable(
             rows: ccRows, brand: brand, columnFlex: const [1, 3, 1]));
@@ -2134,6 +2148,24 @@ List<Widget> _trailingTables(
 /// §2.18: appends the section's Remarks (the only free-text field left on
 /// autoPopulatedSectionTypes) below its structured table, omitted entirely
 /// when empty — matches docx_export_service.dart's renderRemarks convention.
+/// Prepends a house-style lead-in sentence above a structured table body
+/// (docs/house_style.md), matching the docx export. No-op when [leadIn] is null
+/// (clause not seeded for the format).
+Widget _withLeadIn(String? leadIn, Widget child, _Brand brand) {
+  if (leadIn == null) return child;
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(leadIn,
+            style: TextStyle(fontSize: 9.5, color: brand.bodyText, height: 1.5)),
+      ),
+      child,
+    ],
+  );
+}
+
 Widget _withRemarks(Widget table, ReportSection section, _Brand brand) {
   final remarks = section.remarks?.trim();
   if (remarks == null || remarks.isEmpty) return table;
@@ -2188,10 +2220,25 @@ class _SectionBody extends StatelessWidget {
       }
     }
     if (section.type == SectionType.machineryParticulars) {
+      // House-style §4: always-on vessel one-liner, then the optional
+      // machinery block below it.
+      final techSentence = buildTechnicalDescriptionSentence(
+          assembled.vessel ?? const <String, dynamic>{});
       final blocks = buildMachineryBlocks(assembled.machinery);
-      if (blocks.isNotEmpty) {
+      if (techSentence != null || blocks.isNotEmpty) {
         return _withRemarks(
-            _MachineryBlocksView(blocks: blocks, brand: brand),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (techSentence != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(techSentence,
+                      style: TextStyle(
+                          fontSize: 9.5, color: brand.bodyText, height: 1.5)),
+                ),
+              if (blocks.isNotEmpty)
+                _withLeadIn(assembled.tableLeadIn(TableLeadIns.machinery),
+                    _MachineryBlocksView(blocks: blocks, brand: brand), brand),
+            ]),
             section,
             brand);
       }
@@ -2219,14 +2266,20 @@ class _SectionBody extends StatelessWidget {
       final rows = buildRepairTimesRows(assembled.repairPeriods);
       if (rows.isNotEmpty) {
         return _withRemarks(
-            _RegisterTable(rows: rows, brand: brand), section, brand);
+            _withLeadIn(assembled.tableLeadIn(TableLeadIns.repairTimes),
+                _RegisterTable(rows: rows, brand: brand), brand),
+            section,
+            brand);
       }
     }
     if (section.type == SectionType.documentsOnFile) {
       final rows = buildDocumentsOnFileRows(assembled.caseDocuments);
       if (rows.isNotEmpty) {
         return _withRemarks(
-            _RegisterTable(rows: rows, brand: brand), section, brand);
+            _withLeadIn(assembled.tableLeadIn(TableLeadIns.documentsOnFile),
+                _RegisterTable(rows: rows, brand: brand), brand),
+            section,
+            brand);
       }
     }
     // §2.18 (10 July 2026): damageDescription previously fell through to
@@ -2242,7 +2295,10 @@ class _SectionBody extends StatelessWidget {
       final rows = buildDamageScheduleRows(assembled.damageItems);
       if (rows.isNotEmpty) {
         return _withRemarks(
-            _RegisterTable(rows: rows, brand: brand), section, brand);
+            _withLeadIn(assembled.tableLeadIn(TableLeadIns.damageSchedule),
+                _RegisterTable(rows: rows, brand: brand), brand),
+            section,
+            brand);
       }
     }
 

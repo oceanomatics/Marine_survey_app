@@ -346,6 +346,14 @@ class DocxExportService {
       doc.addSpacer();
     }
 
+    // House-style lead-in sentence introducing a table (docs/house_style.md),
+    // resolved from the format-specific clause library (see TableLeadIns).
+    // No-op when the clause isn't seeded for this format.
+    void leadIn(String clauseType) {
+      final text = assembled.tableLeadIn(clauseType);
+      if (text != null) doc.addParagraph(text);
+    }
+
     // ── Page 2: title block → Advice Summary → Legal Designations → AI
     // Declaration → Document Control ─────────────────────────────────
     // Per surveyor direction (4 July 2026): the title block renders as an
@@ -501,14 +509,21 @@ class DocxExportService {
       renderRemarks(SectionType.vesselParticulars);
     }
 
-    // ── Section 4: Machinery & Equipment Particulars (if applicable) ──
-    // Spec §5 suggested layout — one bordered key:value block per claim
-    // object, "Not Confirmed" placeholder for any field not yet captured
-    // (never left blank). Shared with the Preview tab via
-    // section_table_rows.dart (gap #11 convention).
+    // ── Section 4: Brief Technical Description (house_style.md §4) ────
+    // Always-on vessel one-liner, then the optional per-claim-object machinery
+    // block (bordered key:value, "Not Confirmed" for uncaptured fields). Shared
+    // with the Preview tab / Editor via section_table_rows.dart.
+    final techSentence = buildTechnicalDescriptionSentence(v);
     final machineryBlocks = buildMachineryBlocks(assembled.machinery);
+    if (techSentence != null || machineryBlocks.isNotEmpty) {
+      doc.addHeading('BRIEF TECHNICAL DESCRIPTION', 2);
+      if (techSentence != null) {
+        doc.addParagraph(techSentence);
+        doc.addSpacer();
+      }
+    }
     if (machineryBlocks.isNotEmpty) {
-      doc.addHeading('MACHINERY & EQUIPMENT PARTICULARS', 2);
+      leadIn(TableLeadIns.machinery);
       for (var i = 0; i < machineryBlocks.length; i++) {
         final block = machineryBlocks[i];
         doc.addParagraph(block.label, bold: true, halfPtSize: 20);
@@ -549,12 +564,14 @@ class DocxExportService {
       doc.addSpacer();
     }
     if (certRows.isNotEmpty) {
+      leadIn(TableLeadIns.certificates);
       doc.addTable(certRows, boldFirstRow: true,
           colWidths: [3000, 3000, 1500, 1855]);
       doc.addSpacer();
     }
     if (ccRows.isNotEmpty) {
       doc.addHeading('CONDITIONS OF CLASS', 2);
+      leadIn(TableLeadIns.conditionsOfClass);
       doc.addTable(ccRows, boldFirstRow: true, colWidths: [1800, 5700, 1855]);
       doc.addSpacer();
     }
@@ -679,6 +696,7 @@ class DocxExportService {
     final dmgRows = buildDamageScheduleRows(assembled.damageItems);
     if (dmgRows.isNotEmpty) {
       doc.addHeading('DAMAGE SCHEDULE', 2);
+      leadIn(TableLeadIns.damageSchedule);
       doc.addTable(dmgRows, boldFirstRow: true,
           colWidths: [2500, 3200, 1700, 1455]);
       doc.addSpacer();
