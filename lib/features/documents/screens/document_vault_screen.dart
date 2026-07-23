@@ -28,6 +28,15 @@ import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/survey/providers/damage_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
+// Correspondence-extras write-back targets (shared extraction pipeline).
+import '../../../features/timeline/providers/timeline_provider.dart';
+import '../../../features/timeline/models/timeline_event_model.dart';
+import '../../../features/attendances/providers/attendances_provider.dart';
+import '../../../features/attendances/models/attendance_model.dart';
+import '../../../features/accounts/providers/accounts_provider.dart';
+import '../../../features/accounts/models/accounts_models.dart';
+import '../../../features/action_items/providers/action_items_provider.dart';
+import '../../../features/background/providers/background_provider.dart';
 import '../../../shared/widgets/context_cues_panel.dart'
     show natureOfContentColor;
 import '../../../features/parties/models/party_model.dart';
@@ -1186,6 +1195,12 @@ class ExtractionReviewSheetState
   late final List<bool> _machinerySelected;
   late final List<bool> _conditionSelected;
   late final Map<String, bool> _vesselSelected;
+  // Correspondence extras (empty for documents).
+  late final List<bool> _keyDatesSelected;
+  late final List<bool> _costsSelected;
+  late final List<bool> _actionsSelected;
+  bool _backgroundSelected = false;
+  bool _caseRefsSelected = false;
   bool _saving = false;
 
   // Merge target per detected item — mutable (not `final`): the fuzzy
@@ -1213,6 +1228,11 @@ class ExtractionReviewSheetState
         List.filled(widget.result.detectedMachinery.length, true);
     _conditionSelected = widget.initialConditionSelected ??
         List.filled(widget.result.detectedClassConditions.length, true);
+    _keyDatesSelected = List.filled(widget.result.keyDates.length, true);
+    _costsSelected = List.filled(widget.result.costEstimates.length, true);
+    _actionsSelected = List.filled(widget.result.actionItems.length, true);
+    _backgroundSelected = widget.result.hasBackground;
+    _caseRefsSelected = widget.result.hasCaseRefs;
 
     _existingOccs =
         ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
@@ -1651,6 +1671,87 @@ class ExtractionReviewSheetState
         }
       }
 
+      // ── Correspondence extras (all empty for documents) ─────────────────
+      final res = widget.result;
+
+      // 6. Case header refs → case + vessel name.
+      if (_caseRefsSelected && res.hasCaseRefs) {
+        final refs = res.caseRefs;
+        await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
+              technicalFileNo: _extStr(refs['technical_file_no']),
+              claimReference: _extStr(refs['claim_reference']),
+              instructionDate: _extDate(refs['instruction_date']),
+            );
+        final vn = _extStr(refs['vessel_name']);
+        if (vn != null) {
+          await ref
+              .read(caseProvider(widget.caseId).notifier)
+              .upsertVesselName(vn);
+        }
+      }
+
+      // 7. Key dates → surveyor attendance (surveyor's own) or timeline event.
+      for (var i = 0; i < res.keyDates.length; i++) {
+        if (!_keyDatesSelected[i]) continue;
+        final k = res.keyDates[i];
+        final date = _extDate(k['date']);
+        final desc = _extStr(k['description']) ?? '';
+        final isAttendance =
+            (_extStr(k['kind']) ?? 'event').toLowerCase() == 'attendance';
+        if (isAttendance) {
+          await ref.read(attendancesProvider(widget.caseId).notifier).add(
+                caseId: widget.caseId,
+                type: AttendanceType.initial,
+                date: date,
+                location: _extStr(k['location']),
+                summary: desc,
+              );
+        } else {
+          await ref
+              .read(timelineProvider(widget.caseId).notifier)
+              .add(TimelineEventModel(
+                eventId: '',
+                caseId: widget.caseId,
+                eventType: TimelineEventType.custom,
+                eventDate: date,
+                title: desc,
+              ));
+        }
+      }
+
+      // 8. Cost estimate lines.
+      for (var i = 0; i < res.costEstimates.length; i++) {
+        if (!_costsSelected[i]) continue;
+        final c = res.costEstimates[i];
+        await ref.read(costEstimateItemsProvider(widget.caseId).notifier).addItem(
+              category: _extCostCategory(_extStr(c['category'])),
+              description: _extStr(c['description']) ?? '',
+              amount: (c['amount'] is num) ? (c['amount'] as num).toDouble() : 0,
+            );
+      }
+
+      // 9. Action items (dedupe by source).
+      if (_actionsSelected.any((b) => b)) {
+        final ai = ref.read(actionItemsProvider(widget.caseId).notifier);
+        for (var i = 0; i < res.actionItems.length; i++) {
+          if (!_actionsSelected[i]) continue;
+          final text = res.actionItems[i];
+          if (!ai.alreadySuggested(res.docId, text)) {
+            await ai.addSuggested(widget.caseId, text, sourceId: res.docId);
+          }
+        }
+      }
+
+      // 10. Background narrative (read-modify-write append).
+      if (_backgroundSelected && res.hasBackground) {
+        final current = await ref.read(backgroundProvider(widget.caseId).future);
+        final existing = current.content;
+        final appended = existing.trim().isEmpty
+            ? res.backgroundText!
+            : '$existing\n\n${res.backgroundText!}';
+        await ref.read(backgroundProvider(widget.caseId).notifier).save(appended);
+      }
+
       // Source-specific post-import hook (e.g. correspondence clears its
       // pending_extraction). No-op for documents.
       if (widget.onImported != null) await widget.onImported!();
@@ -1658,6 +1759,46 @@ class ExtractionReviewSheetState
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  static String? _extStr(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    return (s.isEmpty || s.toLowerCase() == 'null') ? null : s;
+  }
+
+  static DateTime? _extDate(dynamic v) {
+    final s = _extStr(v);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  static CostEstimateCategory _extCostCategory(String? c) {
+    switch ((c ?? '').toLowerCase()) {
+      case 'towage':
+      case 'towing':
+        return CostEstimateCategory.towing;
+      case 'drydock':
+      case 'drydocking':
+      case 'dry_docking':
+        return CostEstimateCategory.dryDocking;
+      case 'survey':
+      case 'survey_fees':
+        return CostEstimateCategory.surveyFees;
+      case 'general_expenses':
+      case 'general':
+        return CostEstimateCategory.generalExpenses;
+      case 'pilotage':
+        return CostEstimateCategory.pilotage;
+      case 'wharfage':
+      case 'agency':
+        return CostEstimateCategory.wharfage;
+      case 'parts':
+        return CostEstimateCategory.parts;
+      case 'labour':
+        return CostEstimateCategory.labour;
+      default:
+        return CostEstimateCategory.other;
     }
   }
 
@@ -2085,6 +2226,87 @@ class ExtractionReviewSheetState
                 ),
               ],
 
+              // ── Correspondence extras (empty for documents) ─────────────
+              if (result.hasCaseRefs) ...[
+                const _SectionHeader('CASE DETAILS', Icons.badge_outlined),
+                _extraCheck(
+                  value: _caseRefsSelected,
+                  onChanged: (v) => setState(() => _caseRefsSelected = v ?? false),
+                  title: 'Apply case header fields',
+                  subtitle: [
+                    if (_extStr(result.caseRefs['technical_file_no']) != null)
+                      'File ${result.caseRefs['technical_file_no']}',
+                    if (_extStr(result.caseRefs['claim_reference']) != null)
+                      'Claim ${result.caseRefs['claim_reference']}',
+                    if (_extStr(result.caseRefs['vessel_name']) != null)
+                      'Vessel ${result.caseRefs['vessel_name']}',
+                    if (_extStr(result.caseRefs['instruction_date']) != null)
+                      'Instructed ${result.caseRefs['instruction_date']}',
+                  ].join(' · '),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (result.hasKeyDates) ...[
+                const _SectionHeader('KEY DATES', Icons.event_outlined,
+                    subtitle: 'timeline events / surveyor attendances'),
+                for (var i = 0; i < result.keyDates.length; i++)
+                  _extraCheck(
+                    value: _keyDatesSelected[i],
+                    onChanged: (v) =>
+                        setState(() => _keyDatesSelected[i] = v ?? false),
+                    title: [
+                      _extStr(result.keyDates[i]['date']),
+                      _extStr(result.keyDates[i]['description']),
+                    ].whereType<String>().join(' — '),
+                    subtitle: (_extStr(result.keyDates[i]['kind']) ?? 'event')
+                                .toLowerCase() ==
+                            'attendance'
+                        ? 'SURVEYOR ATTENDANCE'
+                        : 'timeline event',
+                  ),
+                const SizedBox(height: 8),
+              ],
+              if (result.hasCosts) ...[
+                const _SectionHeader('COST ESTIMATES', Icons.attach_money),
+                for (var i = 0; i < result.costEstimates.length; i++)
+                  _extraCheck(
+                    value: _costsSelected[i],
+                    onChanged: (v) =>
+                        setState(() => _costsSelected[i] = v ?? false),
+                    title: _extStr(result.costEstimates[i]['description']) ?? '',
+                    subtitle: [
+                      if (result.costEstimates[i]['amount'] != null)
+                        '${result.costEstimates[i]['amount']}'
+                            '${_extStr(result.costEstimates[i]['currency']) != null ? ' ${result.costEstimates[i]['currency']}' : ''}',
+                      _extStr(result.costEstimates[i]['category']),
+                    ].whereType<String>().join(' · '),
+                  ),
+                const SizedBox(height: 8),
+              ],
+              if (result.hasActionItems) ...[
+                const _SectionHeader('ACTION ITEMS', Icons.checklist_outlined),
+                for (var i = 0; i < result.actionItems.length; i++)
+                  _extraCheck(
+                    value: _actionsSelected[i],
+                    onChanged: (v) =>
+                        setState(() => _actionsSelected[i] = v ?? false),
+                    title: result.actionItems[i],
+                    subtitle: '',
+                  ),
+                const SizedBox(height: 8),
+              ],
+              if (result.hasBackground) ...[
+                const _SectionHeader('BACKGROUND', Icons.notes_outlined),
+                _extraCheck(
+                  value: _backgroundSelected,
+                  onChanged: (v) =>
+                      setState(() => _backgroundSelected = v ?? false),
+                  title: 'Append to case background',
+                  subtitle: result.backgroundText ?? '',
+                ),
+                const SizedBox(height: 8),
+              ],
+
               const SizedBox(height: 16),
 
               Row(children: [
@@ -2138,6 +2360,38 @@ class ExtractionReviewSheetState
           .split(' ')
           .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
           .join(' ');
+
+  Widget _extraCheck({
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required String title,
+    String? subtitle,
+  }) {
+    return CheckboxListTile(
+      value: value,
+      onChanged: onChanged,
+      activeColor: AppColors.teal,
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: EdgeInsets.zero,
+      tileColor: Colors.transparent,
+      dense: true,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis),
+          if (subtitle != null && subtitle.isNotEmpty)
+            Text(subtitle,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
 
   String _vesselFieldLabel(String key) => switch (key) {
         'vessel_name' => 'Vessel Name',
