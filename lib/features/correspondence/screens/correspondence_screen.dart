@@ -1456,7 +1456,9 @@ class _StatusChip extends StatelessWidget {
 
   Color get _color => switch (status) {
         CorrStatus.pending => AppColors.textTertiary,
-        CorrStatus.processing => AppColors.warning,
+        // Blue, not orange: "Processing…" is a transient status, not a
+        // warning/action-needed (23 July 2026 report).
+        CorrStatus.processing => AppColors.info,
         CorrStatus.completed => AppColors.success,
         CorrStatus.failed => AppColors.error,
       };
@@ -1476,7 +1478,7 @@ class _StatusChip extends StatelessWidget {
     // glance across a long list — the whole point of the report note.
     final bool solid = status == CorrStatus.completed;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
         color: solid ? _color : _color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(5),

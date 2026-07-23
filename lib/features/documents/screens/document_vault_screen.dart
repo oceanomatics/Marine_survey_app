@@ -1306,6 +1306,7 @@ class ExtractionReviewSheetState
 
   Future<void> _apply() async {
     setState(() => _saving = true);
+    final errors = <String>[];
     try {
       // Pre-compute counts from current selection state.
       final appliedFindingsCount = _findingSelected.where((b) => b).length;
@@ -1675,18 +1676,28 @@ class ExtractionReviewSheetState
       final res = widget.result;
 
       // 6. Case header refs → case + vessel name.
+      //
+      // Sections 6-10 are each fault-isolated: a single failing row (a bad
+      // enum, an RLS refusal, a null constraint) must record its error and
+      // let the rest of the import proceed — never abort the whole apply and
+      // leave the surveyor staring at a sheet that won't close.
       if (_caseRefsSelected && res.hasCaseRefs) {
-        final refs = res.caseRefs;
-        await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
-              technicalFileNo: _extStr(refs['technical_file_no']),
-              claimReference: _extStr(refs['claim_reference']),
-              instructionDate: _extDate(refs['instruction_date']),
-            );
-        final vn = _extStr(refs['vessel_name']);
-        if (vn != null) {
-          await ref
-              .read(caseProvider(widget.caseId).notifier)
-              .upsertVesselName(vn);
+        try {
+          final refs = res.caseRefs;
+          await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
+                technicalFileNo: _extStr(refs['technical_file_no']),
+                claimReference: _extStr(refs['claim_reference']),
+                instructionDate: _extDate(refs['instruction_date']),
+              );
+          final vn = _extStr(refs['vessel_name']);
+          if (vn != null) {
+            await ref
+                .read(caseProvider(widget.caseId).notifier)
+                .upsertVesselName(vn);
+          }
+        } catch (e, st) {
+          debugPrint('[APPLY] case details failed: $e\n$st');
+          errors.add('Case details');
         }
       }
 
@@ -1698,24 +1709,29 @@ class ExtractionReviewSheetState
         final desc = _extStr(k['description']) ?? '';
         final isAttendance =
             (_extStr(k['kind']) ?? 'event').toLowerCase() == 'attendance';
-        if (isAttendance) {
-          await ref.read(attendancesProvider(widget.caseId).notifier).add(
-                caseId: widget.caseId,
-                type: AttendanceType.initial,
-                date: date,
-                location: _extStr(k['location']),
-                summary: desc,
-              );
-        } else {
-          await ref
-              .read(timelineProvider(widget.caseId).notifier)
-              .add(TimelineEventModel(
-                eventId: '',
-                caseId: widget.caseId,
-                eventType: TimelineEventType.custom,
-                eventDate: date,
-                title: desc,
-              ));
+        try {
+          if (isAttendance) {
+            await ref.read(attendancesProvider(widget.caseId).notifier).add(
+                  caseId: widget.caseId,
+                  type: AttendanceType.initial,
+                  date: date,
+                  location: _extStr(k['location']),
+                  summary: desc,
+                );
+          } else {
+            await ref
+                .read(timelineProvider(widget.caseId).notifier)
+                .add(TimelineEventModel(
+                  eventId: '',
+                  caseId: widget.caseId,
+                  eventType: TimelineEventType.custom,
+                  eventDate: date,
+                  title: desc,
+                ));
+          }
+        } catch (e, st) {
+          debugPrint('[APPLY] key date "$desc" failed: $e\n$st');
+          errors.add('Date: $desc');
         }
       }
 
@@ -1723,11 +1739,19 @@ class ExtractionReviewSheetState
       for (var i = 0; i < res.costEstimates.length; i++) {
         if (!_costsSelected[i]) continue;
         final c = res.costEstimates[i];
-        await ref.read(costEstimateItemsProvider(widget.caseId).notifier).addItem(
-              category: _extCostCategory(_extStr(c['category'])),
-              description: _extStr(c['description']) ?? '',
-              amount: (c['amount'] is num) ? (c['amount'] as num).toDouble() : 0,
-            );
+        try {
+          await ref
+              .read(costEstimateItemsProvider(widget.caseId).notifier)
+              .addItem(
+                category: _extCostCategory(_extStr(c['category'])),
+                description: _extStr(c['description']) ?? '',
+                amount:
+                    (c['amount'] is num) ? (c['amount'] as num).toDouble() : 0,
+              );
+        } catch (e, st) {
+          debugPrint('[APPLY] cost line failed: $e\n$st');
+          errors.add('Cost: ${_extStr(c['description']) ?? ''}');
+        }
       }
 
       // 9. Action items (dedupe by source).
@@ -1736,29 +1760,62 @@ class ExtractionReviewSheetState
         for (var i = 0; i < res.actionItems.length; i++) {
           if (!_actionsSelected[i]) continue;
           final text = res.actionItems[i];
-          if (!ai.alreadySuggested(res.docId, text)) {
-            await ai.addSuggested(widget.caseId, text, sourceId: res.docId);
+          try {
+            if (!ai.alreadySuggested(res.docId, text)) {
+              await ai.addSuggested(widget.caseId, text, sourceId: res.docId);
+            }
+          } catch (e, st) {
+            debugPrint('[APPLY] action item failed: $e\n$st');
+            errors.add('Action item');
           }
         }
       }
 
       // 10. Background narrative (read-modify-write append).
       if (_backgroundSelected && res.hasBackground) {
-        final current = await ref.read(backgroundProvider(widget.caseId).future);
-        final existing = current.content;
-        final appended = existing.trim().isEmpty
-            ? res.backgroundText!
-            : '$existing\n\n${res.backgroundText!}';
-        await ref.read(backgroundProvider(widget.caseId).notifier).save(appended);
+        try {
+          final current =
+              await ref.read(backgroundProvider(widget.caseId).future);
+          final existing = current.content;
+          final appended = existing.trim().isEmpty
+              ? res.backgroundText!
+              : '$existing\n\n${res.backgroundText!}';
+          await ref
+              .read(backgroundProvider(widget.caseId).notifier)
+              .save(appended);
+        } catch (e, st) {
+          debugPrint('[APPLY] background failed: $e\n$st');
+          errors.add('Background');
+        }
       }
+    } catch (e, st) {
+      // Anything the section-level guards above didn't catch (sections 1-5,
+      // vessel/machinery/certificates). Never leave silently.
+      debugPrint('[APPLY] unexpected failure: $e\n$st');
+      errors.add(e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
 
+    if (!mounted) return;
+
+    if (errors.isEmpty) {
       // Source-specific post-import hook (e.g. correspondence clears its
       // pending_extraction). No-op for documents.
       if (widget.onImported != null) await widget.onImported!();
-
       if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    } else {
+      // Keep the sheet open so the surveyor can retry, and say what failed
+      // instead of the old silent no-op.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: Colors.red.shade700,
+        content: Text(
+          errors.length == 1
+              ? 'Could not import: ${errors.first}'
+              : 'Imported with ${errors.length} problems: ${errors.take(3).join(', ')}'
+                  '${errors.length > 3 ? '…' : ''}',
+        ),
+      ));
     }
   }
 
@@ -1771,6 +1828,16 @@ class ExtractionReviewSheetState
   static DateTime? _extDate(dynamic v) {
     final s = _extStr(v);
     return s == null ? null : DateTime.tryParse(s);
+  }
+
+  /// Display an extracted date as dd/mm/yyyy (AU house format). Falls back to
+  /// the raw string if it doesn't parse (e.g. "Sept/Oct 2025").
+  static String? _extDayMonthYear(dynamic v) {
+    final d = _extDate(v);
+    if (d == null) return _extStr(v);
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year}';
   }
 
   static CostEstimateCategory _extCostCategory(String? c) {
@@ -2255,7 +2322,7 @@ class ExtractionReviewSheetState
                     onChanged: (v) =>
                         setState(() => _keyDatesSelected[i] = v ?? false),
                     title: [
-                      _extStr(result.keyDates[i]['date']),
+                      _extDayMonthYear(result.keyDates[i]['date']),
                       _extStr(result.keyDates[i]['description']),
                     ].whereType<String>().join(' — '),
                     subtitle: (_extStr(result.keyDates[i]['kind']) ?? 'event')
