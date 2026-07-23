@@ -20,7 +20,6 @@ import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/eml_parser.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
-import '../../../features/parties/providers/parties_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
@@ -51,10 +50,19 @@ class CorrespondenceScreen extends ConsumerWidget {
     final newMail = ref.watch(caseNewMailCountProvider(caseId)).value ?? 0;
     final newMailLabel = newMail > 99 ? '99+' : '$newMail';
 
-    return Scaffold(
+    return PopScope(
+      // Correspondence is reachable from Case Home, the Inbox and the new-case
+      // flow, so a plain pop can overshoot to the case list. Force both the
+      // system/gesture back and the AppBar back (below) to Case Home.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) context.go('/cases/$caseId');
+      },
+      child: Scaffold(
       backgroundColor: AppColors.surface,
       appBar: BackAppBar(
         title: const Text('Correspondence'),
+        backRoute: '/cases/$caseId',
         actions: [
           // Extra right padding + an inward badge offset so the count label
           // (esp. "99+") isn't clipped by the IconButton's tight 48px bounds
@@ -118,7 +126,7 @@ class CorrespondenceScreen extends ConsumerWidget {
                 );
               }),
       ),
-    );
+    ));
   }
 
   // ── Bottom sheet: choose PDF or EML ───────────────────────────────────────
@@ -446,33 +454,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
 
   CorrespondenceModel get item => widget.item;
 
-  // ── Add to Parties ────────────────────────────────────────────────────────
-
-  Future<void> _addToParties() async {
-    if (item.parties.isEmpty) return;
-
-    final selected = await showDialog<List<ExtractedParty>>(
-      context: context,
-      builder: (_) => _AddToPartiesDialog(parties: item.parties),
-    );
-    if (selected == null || selected.isEmpty || !mounted) return;
-
-    final added = await ref
-        .read(assuredContactsProvider(widget.caseId).notifier)
-        .addFromExtracted(widget.caseId, selected);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          added == 0
-              ? 'All parties already in the stakeholders list (no new details)'
-              : '$added stakeholder(s) added or updated',
-        ),
-      ));
-    }
-  }
-
-  // ── AI extraction (with case refs confirmation) ───────────────────────────
+  // ── AI extraction (per-item review sheet) ─────────────────────────────────
 
   Future<void> _extract() async {
     CorrExtractionResult? result;
@@ -793,7 +775,7 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
               ),
             ],
 
-            // Parties chips + "Add to Parties" button
+            // Parties chips (import them via the Extracted-data review sheet)
             if (item.parties.isNotEmpty) ...[
               if (item.summary == null)
                 const Divider(height: 1, color: AppColors.border),
@@ -826,19 +808,6 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                                   ),
                                 ))
                             .toList(),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    TextButton.icon(
-                      onPressed: _addToParties,
-                      icon: const Icon(Icons.group_add_outlined, size: 13),
-                      label: const Text('Add to Parties',
-                          style: TextStyle(fontSize: 11)),
-                      style: TextButton.styleFrom(
-                        foregroundColor: _kColor,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
                   ],
@@ -950,7 +919,24 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     );
   }
 
-  void _showExtractionSummary() {
+  Future<void> _showExtractionSummary() async {
+    // One surface for extracted data: if there's a not-yet-imported extraction,
+    // open the actionable review sheet (view + import); once imported/cleared,
+    // fall back to the read-only summary of what was found.
+    final result = await ref
+        .read(correspondenceProvider(widget.caseId).notifier)
+        .pendingExtractionFor(item.id);
+    if (!mounted) return;
+    if (result != null && !result.isEmpty) {
+      await showCorrespondenceReviewSheet(
+        context,
+        caseId: widget.caseId,
+        corrId: item.id,
+        result: result,
+      );
+      return;
+    }
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1119,85 +1105,6 @@ class _GmailReplyDialogState extends State<_GmailReplyDialog> {
 }
 
 
-// ── Add to Parties dialog ──────────────────────────────────────────────────
-
-class _AddToPartiesDialog extends StatefulWidget {
-  const _AddToPartiesDialog({required this.parties});
-  final List<ExtractedParty> parties;
-
-  @override
-  State<_AddToPartiesDialog> createState() => _AddToPartiesDialogState();
-}
-
-class _AddToPartiesDialogState extends State<_AddToPartiesDialog> {
-  late final Map<ExtractedParty, bool> _checked;
-
-  @override
-  void initState() {
-    super.initState();
-    _checked = {for (final p in widget.parties) p: true};
-  }
-
-  int get _count => _checked.values.where((v) => v).length;
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Add to Parties'),
-      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView.separated(
-          shrinkWrap: true,
-          itemCount: widget.parties.length,
-          separatorBuilder: (_, __) => const Divider(height: 1),
-          itemBuilder: (_, i) {
-            final p = widget.parties[i];
-            return CheckboxListTile(
-              value: _checked[p] ?? false,
-              onChanged: (v) => setState(() => _checked[p] = v ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-              activeColor: _kColor,
-              tileColor: Colors.transparent,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              title: Text(p.name,
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                [if (p.company != null) p.company!, if (p.role != null) p.role!]
-                    .join(' · '),
-                style: const TextStyle(
-                    fontSize: 11, color: AppColors.textSecondary),
-              ),
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, <ExtractedParty>[]),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _count == 0
-              ? null
-              : () => Navigator.pop(
-                    context,
-                    _checked.entries
-                        .where((e) => e.value)
-                        .map((e) => e.key)
-                        .toList(),
-                  ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _kColor,
-            foregroundColor: Colors.white,
-          ),
-          child: Text('Add $_count'),
-        ),
-      ],
-    );
-  }
-}
 
 // ── Attachment save dialog ──────────────────────────────────────────────────
 

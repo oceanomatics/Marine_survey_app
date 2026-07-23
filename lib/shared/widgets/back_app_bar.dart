@@ -28,6 +28,7 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.foregroundColor,
     this.elevation,
     this.fallbackRoute,
+    this.backRoute,
     this.automaticallyImplyLeading = true,
     this.titleSpacing,
   });
@@ -39,6 +40,13 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Color? foregroundColor;
   final double? elevation;
   final double? titleSpacing;
+
+  /// Explicit, unconditional back target: when set, the back button always
+  /// `context.go(backRoute)` regardless of the navigation stack. Use this for
+  /// screens reachable via several routes where a plain pop/segment-strip can
+  /// overshoot (e.g. Correspondence, which can be reached from Case Home, the
+  /// Inbox, or the new-case flow — back must always land on Case Home).
+  final String? backRoute;
 
   /// Route to fall back to when there's nothing on the navigation stack to
   /// pop (the common case with go_router's context.go()). Typically the
@@ -84,7 +92,8 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
     final canPop = hasGoRouter ? context.canPop() : Navigator.canPop(context);
     final fallback =
         (canPop || !hasGoRouter) ? null : _derivedFallback(context);
-    final showBack = automaticallyImplyLeading && (canPop || fallback != null);
+    final showBack = automaticallyImplyLeading &&
+        (backRoute != null || canPop || fallback != null);
 
     // Root cause of the "light/barely readable title text" bug (§3.12 item
     // 38, also latent on any other screen overriding backgroundColor away
@@ -123,7 +132,10 @@ class BackAppBar extends StatelessWidget implements PreferredSizeWidget {
               icon: const Icon(Icons.arrow_back),
               tooltip: 'Back',
               onPressed: () {
-                if (canPop) {
+                if (backRoute != null && hasGoRouter) {
+                  // Explicit, unconditional target — never overshoot.
+                  context.go(backRoute!);
+                } else if (canPop) {
                   hasGoRouter ? context.pop() : Navigator.pop(context);
                 } else if (Navigator.canPop(context)) {
                   // Reached via a raw Navigator.push (e.g. a PDF/image viewer
