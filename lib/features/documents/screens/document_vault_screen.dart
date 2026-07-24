@@ -1199,6 +1199,11 @@ class ExtractionReviewSheetState
   late final Map<String, bool> _vesselSelected;
   // Correspondence extras (empty for documents).
   late final List<bool> _keyDatesSelected;
+  // Per-key-date routing: kind (surveyor Attendance vs Timeline event) + the
+  // matching sub-type, AI-seeded and editable.
+  late final List<bool> _keyDateIsAttendance;
+  late final List<AttendanceType> _keyDateAttType;
+  late final List<TimelineEventType> _keyDateEventType;
   late final List<bool> _costsSelected;
   late final List<bool> _actionsSelected;
   bool _backgroundSelected = false;
@@ -1244,6 +1249,19 @@ class ExtractionReviewSheetState
     _conditionSelected = widget.initialConditionSelected ??
         List.filled(widget.result.detectedClassConditions.length, true);
     _keyDatesSelected = List.filled(widget.result.keyDates.length, true);
+    _keyDateIsAttendance = [
+      for (final k in widget.result.keyDates)
+        (_extStr(k['kind']) ?? 'event').toLowerCase() == 'attendance',
+    ];
+    _keyDateAttType = [
+      for (final k in widget.result.keyDates)
+        AttendanceType.fromValue(
+            (_extStr(k['attendance_type']) ?? 'initial')),
+    ];
+    _keyDateEventType = [
+      for (final k in widget.result.keyDates)
+        TimelineEventType.fromValue((_extStr(k['event_type']) ?? 'custom')),
+    ];
     _costsSelected = List.filled(widget.result.costEstimates.length, true);
     _actionsSelected = List.filled(widget.result.actionItems.length, true);
     _backgroundSelected = widget.result.hasBackground;
@@ -1745,13 +1763,11 @@ class ExtractionReviewSheetState
         final k = res.keyDates[i];
         final date = _extDate(k['date']);
         final desc = _extStr(k['description']) ?? '';
-        final isAttendance =
-            (_extStr(k['kind']) ?? 'event').toLowerCase() == 'attendance';
         try {
-          if (isAttendance) {
+          if (_keyDateIsAttendance[i]) {
             await ref.read(attendancesProvider(widget.caseId).notifier).add(
                   caseId: widget.caseId,
-                  type: AttendanceType.initial,
+                  type: _keyDateAttType[i],
                   date: date,
                   location: _extStr(k['location']),
                   summary: desc,
@@ -1762,7 +1778,7 @@ class ExtractionReviewSheetState
                 .add(TimelineEventModel(
                   eventId: '',
                   caseId: widget.caseId,
-                  eventType: TimelineEventType.custom,
+                  eventType: _keyDateEventType[i],
                   eventDate: date,
                   title: desc,
                 ));
@@ -1941,6 +1957,94 @@ class ExtractionReviewSheetState
           for (final p in OccurrencePhase.ordered) _routeLabel(p.shortLabel, color),
         ],
         onChanged: (v) => setState(() => _findingPhase[i] = v),
+      ),
+    );
+  }
+
+  // ── Key-date routing pickers ───────────────────────────────────────────
+  // Kind = the surveyor's OWN attendance vs a timeline event (third-party
+  // visit, vessel movement…), then the matching sub-type.
+
+  Widget _keyDateKindPicker(int i) {
+    final att = _keyDateIsAttendance[i];
+    final color = att ? _kColor : AppColors.textSecondary;
+    return _routeBox(
+      color,
+      DropdownButton<bool>(
+        value: att,
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: const [
+          DropdownMenuItem<bool>(
+              value: true,
+              child:
+                  Text('My attendance', style: TextStyle(fontSize: 12))),
+          DropdownMenuItem<bool>(
+              value: false,
+              child: Text('Timeline event', style: TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          _routeLabel('My attendance', color),
+          _routeLabel('Timeline event', color),
+        ],
+        onChanged: (v) =>
+            setState(() => _keyDateIsAttendance[i] = v ?? false),
+      ),
+    );
+  }
+
+  Widget _keyDateSubTypePicker(int i) {
+    const color = AppColors.textTertiary;
+    if (_keyDateIsAttendance[i]) {
+      return _routeBox(
+        color,
+        DropdownButton<AttendanceType>(
+          value: _keyDateAttType[i],
+          isDense: true,
+          iconSize: 15,
+          iconEnabledColor: color,
+          dropdownColor: Colors.white,
+          focusColor: Colors.transparent,
+          items: [
+            for (final t in AttendanceType.values)
+              if (t != AttendanceType.event)
+                DropdownMenuItem<AttendanceType>(
+                    value: t,
+                    child:
+                        Text(t.label, style: const TextStyle(fontSize: 12))),
+          ],
+          selectedItemBuilder: (_) => [
+            for (final t in AttendanceType.values)
+              if (t != AttendanceType.event) _routeLabel(t.label, color),
+          ],
+          onChanged: (v) => setState(
+              () => _keyDateAttType[i] = v ?? AttendanceType.initial),
+        ),
+      );
+    }
+    return _routeBox(
+      color,
+      DropdownButton<TimelineEventType>(
+        value: _keyDateEventType[i],
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: [
+          for (final t in TimelineEventType.values)
+            DropdownMenuItem<TimelineEventType>(
+                value: t,
+                child: Text(t.label, style: const TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          for (final t in TimelineEventType.values) _routeLabel(t.label, color),
+        ],
+        onChanged: (v) => setState(
+            () => _keyDateEventType[i] = v ?? TimelineEventType.custom),
       ),
     );
   }
@@ -2498,11 +2602,15 @@ class ExtractionReviewSheetState
                       _extDayMonthYear(result.keyDates[i]['date']),
                       _extStr(result.keyDates[i]['description']),
                     ].whereType<String>().join(' — '),
-                    subtitle: (_extStr(result.keyDates[i]['kind']) ?? 'event')
-                                .toLowerCase() ==
-                            'attendance'
-                        ? 'SURVEYOR ATTENDANCE'
-                        : 'timeline event',
+                    footer: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _keyDateKindPicker(i),
+                        _keyDateSubTypePicker(i),
+                      ],
+                    ),
                   ),
                 const SizedBox(height: 8),
               ],
@@ -2606,6 +2714,7 @@ class ExtractionReviewSheetState
     required ValueChanged<bool?> onChanged,
     required String title,
     String? subtitle,
+    Widget? footer,
   }) {
     return CheckboxListTile(
       value: value,
@@ -2628,6 +2737,10 @@ class ExtractionReviewSheetState
                     fontSize: 11, color: AppColors.textSecondary),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis),
+          if (footer != null) ...[
+            const SizedBox(height: 5),
+            footer,
+          ],
         ],
       ),
     );

@@ -2022,7 +2022,7 @@ Rules:
     {"name": "", "company": "", "role": "professional title/function e.g. Chief Engineer, Master, Owner's Representative, Superintendent, Class Surveyor, Loss Adjuster, Underwriter, Broker", "email": "", "phone": ""}
   ],
   "key_dates": [
-    {"date": "YYYY-MM-DD", "description": "what happened on this date", "kind": "event or attendance", "location": "attendance location when kind=attendance, else null"}
+    {"date": "YYYY-MM-DD", "description": "what happened on this date", "kind": "event or attendance", "location": "attendance location when kind=attendance, else null", "attendance_type": "ONLY when kind=attendance (the INSTRUCTED surveyor's own attendance): initial | follow_up | final_inspection | remote_review; null otherwise", "event_type": "ONLY when kind=event: one of vessel_departure | vessel_arrival | drydock_entry | drydock_exit | temp_repair_start | temp_repair_complete | perm_repair_start | perm_repair_complete | surveyor_remark | custom; null otherwise"}
   ],
   "context_findings": [
     {"text": "a noteworthy fact/statement worth recording as a case note", "case_section": "one of: background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire|other", "occurrence_phase": "ONLY when case_section is occurrence: 'before' (conditions/operation just before the event), 'incident' (the event itself), or 'aftermath' (notifications, mitigation, tow to safety, first inspection); null otherwise", "note_category": "short label e.g. instruction, allegation, observation, quote"}
