@@ -269,7 +269,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
       builder: (_) => _NoteEditorSheet(
         caseId: widget.caseId,
         existing: note,
-        onSave: (content, section, priority, weight, origin,
+        onSave: (content, section, phase, priority, weight, origin,
             linkedPeriodId) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
@@ -282,6 +282,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               caseId: widget.caseId,
               content: content,
               caseSection: section,
+              occurrencePhase: phase,
               priority: priority,
               evidentiaryWeight: weight,
               origin: origin,
@@ -293,6 +294,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               note.id,
               content: content,
               caseSection: section,
+              occurrencePhase: phase,
               priority: priority,
               evidentiaryWeight: weight,
               origin: origin,
@@ -837,6 +839,7 @@ class _PriorityBadge extends StatelessWidget {
 typedef _OnSave = Future<void> Function(
   String content,
   CaseSection? section,
+  OccurrencePhase? phase,
   CuePriority priority,
   EvidentiaryWeight? weight,
   CueOrigin? origin,
@@ -862,6 +865,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _ctrl;
   late CuePriority _priority;
   CaseSection? _section;
+  OccurrencePhase? _phase;
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
   String? _periodId;
@@ -873,6 +877,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _ctrl = TextEditingController(text: widget.existing?.content ?? '');
     _priority = widget.existing?.priority ?? CuePriority.normal;
     _section = widget.existing?.caseSection;
+    _phase = widget.existing?.occurrencePhase;
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
     _periodId = widget.existing?.linkedToType == repairPeriodLinkType
@@ -1069,11 +1074,33 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   const SizedBox(height: 6),
                   _SectionChips(
                     value: _section,
-                    onChanged: (s) => setState(() => _section = s),
+                    onChanged: (s) => setState(() {
+                      _section = s;
+                      if (s != CaseSection.occurrence) _phase = null;
+                    }),
                   ),
                 ],
               ),
             ),
+            // Occurrence-phase sub-route — mirrors the extraction sheet so a
+            // cue can be sorted into Before/Incident/Aftermath from the editor
+            // too (24 July 2026 report: "works during extraction, not in the
+            // editor").
+            if (_section == CaseSection.occurrence) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: LabeledCueChipRow<OccurrencePhase>(
+                  label: 'Occurrence phase',
+                  values: OccurrencePhase.ordered,
+                  selected: _phase,
+                  labelOf: (p) => p.label,
+                  colorOf: (_) => const Color(0xFFE05C2A),
+                  onTap: (p) =>
+                      setState(() => _phase = _phase == p ? null : p),
+                ),
+              ),
+            ],
             if (_section?.isRepairPeriodScoped == true) ...[
               const SizedBox(height: 10),
               Padding(
@@ -1166,7 +1193,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     try {
       final linkedPeriodId =
           _section?.isRepairPeriodScoped == true ? _periodId : null;
-      await widget.onSave(content, _section, _priority, _weight,
+      final phase = _section == CaseSection.occurrence ? _phase : null;
+      await widget.onSave(content, _section, phase, _priority, _weight,
           _origin, linkedPeriodId);
       if (mounted) Navigator.pop(context);
     } finally {
