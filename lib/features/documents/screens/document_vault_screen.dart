@@ -1203,6 +1203,7 @@ class ExtractionReviewSheetState
   late final List<bool> _incidentSelected;
   late final List<bool> _machinerySelected;
   late final List<bool> _conditionSelected;
+  late final List<bool> _contactSelected;
   late final Map<String, bool> _vesselSelected;
   // Correspondence extras (empty for documents).
   late final List<bool> _keyDatesSelected;
@@ -1259,6 +1260,7 @@ class ExtractionReviewSheetState
         List.filled(widget.result.detectedMachinery.length, true);
     _conditionSelected = widget.initialConditionSelected ??
         List.filled(widget.result.detectedClassConditions.length, true);
+    _contactSelected = List.filled(widget.result.detectedContacts.length, true);
     _keyDatesSelected = List.filled(widget.result.keyDates.length, true);
     _keyDateIsAttendance = [
       for (final k in widget.result.keyDates)
@@ -1401,12 +1403,16 @@ class ExtractionReviewSheetState
       // from context (Chief Engineer, Class Surveyor, …). Non-destructive:
       // addFromExtractedContacts dedupes by name and only fills blank fields
       // on an existing contact, so re-applying never clobbers surveyor edits.
-      if (widget.result.detectedContacts.isNotEmpty) {
+      final selectedContacts = [
+        for (var i = 0; i < widget.result.detectedContacts.length; i++)
+          if (i >= _contactSelected.length || _contactSelected[i])
+            widget.result.detectedContacts[i]
+      ];
+      if (selectedContacts.isNotEmpty) {
         try {
           await ref
               .read(assuredContactsProvider(widget.caseId).notifier)
-              .addFromExtractedContacts(
-                  widget.caseId, widget.result.detectedContacts);
+              .addFromExtractedContacts(widget.caseId, selectedContacts);
         } catch (_) {
           // A contacts-merge failure must not abort the rest of the apply.
         }
@@ -2431,9 +2437,34 @@ class ExtractionReviewSheetState
                 ),
               ],
 
+              // Detected parties / people → the case Stakeholders list.
+              if (result.hasContacts) ...[
+                if (result.hasFindings)
+                  const Divider(height: 20, color: AppColors.border),
+                const _SectionHeader('DETECTED PARTIES', Icons.people_outline,
+                    subtitle: 'add to the case stakeholders'),
+                const SizedBox(height: 6),
+                for (var i = 0; i < result.detectedContacts.length; i++)
+                  _extraCheck(
+                    value: i < _contactSelected.length && _contactSelected[i],
+                    onChanged: (v) => setState(() {
+                      if (i < _contactSelected.length) {
+                        _contactSelected[i] = v ?? false;
+                      }
+                    }),
+                    title: _extStr(result.detectedContacts[i]['name']) ??
+                        'Unnamed',
+                    subtitle: [
+                      _extStr(result.detectedContacts[i]['role']),
+                      _extStr(result.detectedContacts[i]['company']),
+                    ].whereType<String>().join(' · '),
+                  ),
+                const SizedBox(height: 8),
+              ],
+
               // Vessel particulars (intelligence documents)
               if (result.hasVesselData) ...[
-                if (result.hasFindings)
+                if (result.hasFindings || result.hasContacts)
                   const Divider(height: 20, color: AppColors.border),
                 const _SectionHeader(
                     'VESSEL PARTICULARS', Icons.directions_boat_outlined,
