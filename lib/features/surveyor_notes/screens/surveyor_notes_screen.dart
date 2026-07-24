@@ -18,6 +18,7 @@ import '../../timeline/providers/timeline_provider.dart';
 import '../../timeline/utils/cue_to_event.dart';
 import '../../survey/models/repair_period_model.dart';
 import '../../survey/providers/repair_period_provider.dart';
+import '../../survey/providers/damage_provider.dart';
 import '../../survey/widgets/quick_create_repair_period.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
@@ -270,13 +271,9 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
         caseId: widget.caseId,
         existing: note,
         onSave: (content, section, phase, priority, weight, origin,
-            linkedPeriodId) async {
+            linkedToType, linkedToId) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
-          final linkedToType =
-              section?.isRepairPeriodScoped == true && linkedPeriodId != null
-                  ? repairPeriodLinkType
-                  : null;
           if (note == null) {
             await notifier.add(
               caseId: widget.caseId,
@@ -287,7 +284,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               evidentiaryWeight: weight,
               origin: origin,
               linkedToType: linkedToType,
-              linkedToId: linkedToType != null ? linkedPeriodId : null,
+              linkedToId: linkedToId,
             );
           } else {
             await notifier.editNote(
@@ -299,7 +296,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               evidentiaryWeight: weight,
               origin: origin,
               linkedToType: linkedToType,
-              linkedToId: linkedToType != null ? linkedPeriodId : null,
+              linkedToId: linkedToId,
             );
           }
         },
@@ -843,7 +840,8 @@ typedef _OnSave = Future<void> Function(
   CuePriority priority,
   EvidentiaryWeight? weight,
   CueOrigin? origin,
-  String? linkedPeriodId,
+  String? linkedToType,
+  String? linkedToId,
 );
 
 class _NoteEditorSheet extends ConsumerStatefulWidget {
@@ -869,6 +867,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
   String? _periodId;
+  String? _occurrenceId;
   bool _saving = false;
 
   @override
@@ -881,6 +880,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
     _periodId = widget.existing?.linkedToType == repairPeriodLinkType
+        ? widget.existing?.linkedToId
+        : null;
+    _occurrenceId = widget.existing?.linkedToType == occurrenceLinkType
         ? widget.existing?.linkedToId
         : null;
   }
@@ -1077,6 +1079,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     onChanged: (s) => setState(() {
                       _section = s;
                       if (s != CaseSection.occurrence) _phase = null;
+                      if (s?.isRepairPeriodScoped != true) _periodId = null;
+                      if (s != CaseSection.damage) _occurrenceId = null;
                     }),
                   ),
                 ],
@@ -1119,6 +1123,30 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       caseId: widget.caseId,
                       value: _periodId,
                       onChanged: (id) => setState(() => _periodId = id),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            // Damage cues sub-route to a specific occurrence.
+            if (_section == CaseSection.damage) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('OCCURRENCE',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textTertiary,
+                            letterSpacing: 0.7)),
+                    const SizedBox(height: 6),
+                    _OccurrenceChips(
+                      caseId: widget.caseId,
+                      value: _occurrenceId,
+                      onChanged: (id) => setState(() => _occurrenceId = id),
                     ),
                   ],
                 ),
@@ -1191,11 +1219,19 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (content.isEmpty) return;
     setState(() => _saving = true);
     try {
-      final linkedPeriodId =
-          _section?.isRepairPeriodScoped == true ? _periodId : null;
       final phase = _section == CaseSection.occurrence ? _phase : null;
+      // Sub-route link: repair-scoped → repair period, damage → occurrence.
+      String? linkedToType;
+      String? linkedToId;
+      if (_section?.isRepairPeriodScoped == true && _periodId != null) {
+        linkedToType = repairPeriodLinkType;
+        linkedToId = _periodId;
+      } else if (_section == CaseSection.damage && _occurrenceId != null) {
+        linkedToType = occurrenceLinkType;
+        linkedToId = _occurrenceId;
+      }
       await widget.onSave(content, _section, phase, _priority, _weight,
-          _origin, linkedPeriodId);
+          _origin, linkedToType, linkedToId);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1330,6 +1366,67 @@ class _RepairPeriodChips extends ConsumerWidget {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+// ── Occurrence quick-pick chips (damage cues) ─────────────────────────────
+//
+// Cascading second choice for CaseSection.damage cues — scopes the cue to a
+// specific occurrence (linkedToType == occurrenceLinkType). "Unassigned" is
+// the default; a damage cue doesn't have to be tied to one occurrence.
+
+class _OccurrenceChips extends ConsumerWidget {
+  const _OccurrenceChips({
+    required this.caseId,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String caseId;
+  final String? value;
+  final void Function(String?) onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final occs =
+        ref.watch(damageProvider(caseId)).value?.occurrences ?? const [];
+
+    Widget chip(String label, String? id, Color color) {
+      final selected = value == id;
+      return GestureDetector(
+        onTap: () => onChanged(id),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: 0.18) : AppColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: color.withValues(alpha: selected ? 0.7 : 0.22),
+              width: selected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              color: selected ? color : AppColors.textTertiary,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        chip('Unassigned', null, AppColors.textTertiary),
+        for (final o in occs)
+          chip(o.title ?? 'Occurrence', o.occurrenceId, const Color(0xFFE05C2A)),
       ],
     );
   }
