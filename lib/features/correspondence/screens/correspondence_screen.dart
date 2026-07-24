@@ -21,6 +21,8 @@ import '../../../core/services/google_auth_service.dart';
 import '../../../core/utils/eml_parser.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
+import '../../../features/photos/models/photo_model.dart';
+import '../../../features/photos/providers/photo_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
@@ -491,17 +493,42 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     }
   }
 
-  /// §3.14: attachments saved to Document Vault from this trail item
-  /// (`source_correspondence_id`, migration 036) — the cross-link so a
-  /// filed attachment doesn't read as an orphan back here.
-  int _filedInVaultCount() =>
-      (ref.watch(documentProvider(widget.caseId)).value ?? const [])
-          .where((d) => d.sourceCorrespondenceId == item.id)
-          .length;
+  /// The correspondence ids this card represents: every message in the trail
+  /// (so an attachment filed against an OLDER message in the thread still
+  /// shows here, not just the newest), or just this item when standalone.
+  Set<String> get _corrIds =>
+      widget.thread != null
+          ? {for (final m in widget.thread!.messages) m.id}
+          : {item.id};
+
+  /// §3.14: documents saved to the Vault from this trail
+  /// (`source_correspondence_id`, migration 036).
+  List<DocumentModel> _linkedDocs() {
+    final ids = _corrIds;
+    return (ref.watch(documentProvider(widget.caseId)).valueOrNull ?? const [])
+        .where((d) =>
+            d.sourceCorrespondenceId != null &&
+            ids.contains(d.sourceCorrespondenceId))
+        .toList();
+  }
+
+  /// Image attachments routed to the Photos gallery (linked back via
+  /// [correspondenceAttachmentLink]).
+  List<PhotoModel> _linkedPhotos() {
+    final ids = _corrIds;
+    return (ref.watch(photosProvider(widget.caseId)).valueOrNull ?? const [])
+        .where((p) =>
+            p.linkedToType == correspondenceAttachmentLink &&
+            p.linkedToId != null &&
+            ids.contains(p.linkedToId))
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filedInVault = _filedInVaultCount();
+    final linkedDocs = _linkedDocs();
+    final linkedPhotos = _linkedPhotos();
+    final filedInVault = linkedDocs.length + linkedPhotos.length;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.background,
@@ -735,6 +762,72 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                     ),
                 ]),
               ),
+
+            // Attachments filed to the case (documents → Vault, images →
+            // Photos), listed so a report that came in on the trail is
+            // visible and one tap away (24 July 2026 report).
+            if (linkedDocs.isNotEmpty || linkedPhotos.isNotEmpty) ...[
+              const Divider(height: 1, color: AppColors.border),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.attach_file,
+                          size: 13, color: AppColors.textTertiary),
+                      const SizedBox(width: 5),
+                      Text('Attachments ($filedInVault)',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondary)),
+                    ]),
+                    const SizedBox(height: 2),
+                    for (final d in linkedDocs)
+                      InkWell(
+                        onTap: () => context
+                            .push('/cases/${widget.caseId}/documents'),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(children: [
+                            const Icon(Icons.description_outlined,
+                                size: 15, color: _kColor),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(d.title,
+                                  style: const TextStyle(fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                            const Icon(Icons.chevron_right,
+                                size: 14, color: AppColors.textTertiary),
+                          ]),
+                        ),
+                      ),
+                    for (final p in linkedPhotos)
+                      InkWell(
+                        onTap: () =>
+                            context.push('/cases/${widget.caseId}/photos'),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(children: [
+                            const Icon(Icons.image_outlined,
+                                size: 15, color: AppColors.teal),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(p.caption ?? 'Photo',
+                                  style: const TextStyle(fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                            const Icon(Icons.chevron_right,
+                                size: 14, color: AppColors.textTertiary),
+                          ]),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
 
             // File size
             if (item.fileSizeKb != null)

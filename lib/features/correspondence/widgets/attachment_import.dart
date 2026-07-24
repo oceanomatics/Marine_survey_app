@@ -14,8 +14,14 @@ import '../../../core/utils/eml_parser.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../documents/providers/document_provider.dart';
+import '../../photos/models/photo_model.dart';
+import '../../photos/providers/photo_provider.dart';
 
 const _kColor = Color(0xFF2A6099);
+
+/// `linkedToType` stamped on a photo/document that came in as an email
+/// attachment, so the Correspondence card can list an email's attachments.
+const String correspondenceAttachmentLink = 'correspondence';
 
 /// Shows the attachment filter dialog for [attachments] and uploads the ones
 /// the surveyor keeps into the case Document Vault (category Correspondence),
@@ -35,21 +41,44 @@ Future<void> promptImportAttachments(
   );
   if (selected == null || selected.isEmpty || !context.mounted) return;
   final docNotifier = ref.read(documentProvider(caseId).notifier);
+  final photoNotifier = ref.read(photosProvider(caseId).notifier);
+  var docs = 0;
+  var photos = 0;
   for (final att in selected) {
-    await docNotifier.uploadAndCreate(
-      caseId: caseId,
-      bytes: att.bytes,
-      filename: att.filename,
-      mimeType: att.mimeType,
-      title: att.filename,
-      category: DocCategory.correspondence,
-      willExtract: false,
-      sourceCorrespondenceId: sourceIdFor?.call(att),
-    );
+    // Image attachments belong in the Photos gallery, not the Document Vault
+    // (24 July 2026 report). Everything else (PDF/office/etc.) is a document.
+    if (att.isImage) {
+      await photoNotifier.addPhoto(
+        caseId: caseId,
+        bytes: att.bytes,
+        caption: att.filename,
+        photoSource: PhotoSource.providedByOwner,
+        // Trace back to the source email so the Correspondence card can list
+        // it as one of that email's attachments.
+        linkedToType: correspondenceAttachmentLink,
+        linkedToId: sourceIdFor?.call(att),
+      );
+      photos++;
+    } else {
+      await docNotifier.uploadAndCreate(
+        caseId: caseId,
+        bytes: att.bytes,
+        filename: att.filename,
+        mimeType: att.mimeType,
+        title: att.filename,
+        category: DocCategory.correspondence,
+        willExtract: false,
+        sourceCorrespondenceId: sourceIdFor?.call(att),
+      );
+      docs++;
+    }
   }
   if (context.mounted) {
-    showSavedToast(context,
-        label: '${selected.length} attachment(s) saved to Document Vault');
+    final parts = [
+      if (docs > 0) '$docs to Document Vault',
+      if (photos > 0) '$photos to Photos',
+    ];
+    showSavedToast(context, label: 'Saved ${parts.join(' · ')}');
   }
 }
 
