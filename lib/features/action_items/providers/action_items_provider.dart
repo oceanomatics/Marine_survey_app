@@ -135,11 +135,11 @@ class ActionItemsNotifier
     state = AsyncData([item, ...(state.value ?? [])]);
   }
 
-  /// §3.14/§4.7: creates a pending-review candidate from a correspondence
-  /// item's already-extracted `actions` — the surveyor confirms it via
-  /// [confirm] before it counts as a live task. [sourceId] is the
-  /// correspondence row's id, so the same action string is never offered
-  /// twice (see [alreadySuggested]).
+  /// Adds an action item extracted from a source (correspondence/document) as
+  /// a live, ACTIVE task straight away — the surveyor asked for extracted items
+  /// to be immediately active, no track/pending-review dance (24 July 2026).
+  /// [sourceId] is the source row's id, so the same action string is never
+  /// added twice (see [alreadySuggested]).
   Future<void> addSuggested(
     String caseId,
     String text, {
@@ -152,7 +152,7 @@ class ActionItemsNotifier
           'text': text,
           'source_type': 'correspondence',
           'source_id': sourceId,
-          'pending_review': true,
+          'pending_review': false,
         })
         .select()
         .single();

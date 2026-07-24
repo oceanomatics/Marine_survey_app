@@ -4,11 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:marine_survey_app/features/action_items/providers/action_items_provider.dart';
 import 'package:marine_survey_app/features/action_items/screens/action_items_screen.dart';
-import 'package:marine_survey_app/features/correspondence/models/correspondence_model.dart';
-import 'package:marine_survey_app/features/correspondence/providers/correspondence_provider.dart';
 
 import '../../../support/fakes/fake_action_items_notifier.dart';
-import '../../../support/fakes/fake_correspondence_notifier.dart';
 import '../../../support/pump_with_router.dart';
 
 const _caseId = 'case-1';
@@ -31,27 +28,12 @@ ActionItemModel _item({
       sourceId: sourceId,
     );
 
-CorrespondenceModel _corr({
-  required String id,
-  List<String> actions = const [],
-}) =>
-    CorrespondenceModel(
-      id: id,
-      caseId: _caseId,
-      title: 'Test email',
-      actions: actions,
-      createdAt: DateTime(2026, 1, 1),
-    );
-
 Future<ProviderContainer> _pump(
   WidgetTester tester, {
   List<ActionItemModel> items = const [],
-  List<CorrespondenceModel> correspondence = const [],
 }) async {
   final container = ProviderContainer(overrides: [
     actionItemsProvider.overrideWith(() => FakeActionItemsNotifier(items)),
-    correspondenceProvider
-        .overrideWith(() => FakeCorrespondenceNotifier(correspondence)),
   ]);
   addTearDown(container.dispose);
   await pumpWithRouter(
@@ -139,54 +121,9 @@ void main() {
       expect(find.text('Call the broker'), findsOneWidget); // now in Tasks
     });
 
-    testWidgets(
-        'an un-tracked action string from correspondence shows under '
-        '"New from Correspondence", and tracking it creates a pending-review '
-        'item', (tester) async {
-      await _pump(
-        tester,
-        correspondence: [
-          _corr(id: 'corr-1', actions: ['Confirm crew list with Master']),
-        ],
-      );
-
-      expect(find.text('New from Correspondence'), findsOneWidget);
-      expect(find.text('Confirm crew list with Master'), findsOneWidget);
-
-      await tester.tap(find.text('Track'));
-      await tester.pumpAndSettle();
-
-      // Once tracked it's a pendingReview candidate, not a raw suggestion
-      // anymore.
-      expect(find.text('New from Correspondence'), findsNothing);
-      expect(find.text('Pending Review'), findsOneWidget);
-    });
-
-    testWidgets(
-        'an already-tracked correspondence action is not offered again '
-        'under "New from Correspondence"', (tester) async {
-      await _pump(
-        tester,
-        items: [
-          _item(
-            id: '1',
-            text: 'Confirm crew list with Master',
-            pendingReview: true,
-            sourceType: 'correspondence',
-            sourceId: 'corr-1',
-          ),
-        ],
-        correspondence: [
-          _corr(id: 'corr-1', actions: ['Confirm crew list with Master']),
-        ],
-      );
-
-      // Already tracked (as a pending-review item) — must not also appear
-      // as an untracked suggestion.
-      expect(find.text('New from Correspondence'), findsNothing);
-      expect(find.text('Pending Review'), findsOneWidget);
-      expect(find.text('Confirm crew list with Master'), findsOneWidget);
-    });
+    // Note: the "New from Correspondence" auto-suggestion + Track/pending-
+    // review dance was removed 24 July 2026 — extracted action items now land
+    // as live tasks directly (see action_items_provider.addSuggested).
 
     testWidgets('FAB opens the add-task sheet and submitting adds a manual '
         'task', (tester) async {

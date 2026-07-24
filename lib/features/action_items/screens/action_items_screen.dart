@@ -1,20 +1,17 @@
 // lib/features/action_items/screens/action_items_screen.dart
 //
-// TODO.md §4.7 — case-level Action Items view. Three tiers, top to bottom:
-//   1. "New from Correspondence" — raw action strings already extracted per
-//      email (correspondence.actions_json, §3.14) that haven't been tracked
-//      here yet — one tap turns a raw string into a pendingReview candidate.
-//   2. "Pending Review" — candidates already tracked but not yet confirmed
-//      by a surveyor (human-in-the-loop, never auto-committed).
-//   3. The actual task list, filtered by status (Open / Done / Dismissed).
+// TODO.md §4.7 — case-level Action Items view. Extracted action items land as
+// live tasks straight away (no track/pending-review dance — 24 July 2026), so
+// this is just:
+//   • "Pending Review" — LEGACY candidates from before the change, still
+//     confirmable/dismissable; nothing new lands here.
+//   • The task list, filtered by status (Open / Done / Dismissed).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../providers/action_items_provider.dart';
-import '../../correspondence/models/correspondence_model.dart';
-import '../../correspondence/providers/correspondence_provider.dart';
 import '../../../shared/theme/app_theme.dart';
 import '../../../shared/widgets/loading_widget.dart';
 import '../../../shared/widgets/back_app_bar.dart';
@@ -36,7 +33,6 @@ class _ActionItemsScreenState extends ConsumerState<ActionItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final itemsAsync = ref.watch(actionItemsProvider(widget.caseId));
-    final corrAsync = ref.watch(correspondenceProvider(widget.caseId));
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -52,8 +48,9 @@ class _ActionItemsScreenState extends ConsumerState<ActionItemsScreen> {
         loading: () => const AppLoadingWidget(),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (items) {
-          final suggestions = _uncapturedSuggestions(
-              items, corrAsync.value ?? const []);
+          // Legacy pending-review items (from before extracted items became
+          // active on import) can still be confirmed/dismissed here; nothing
+          // new lands in this state anymore.
           final pendingReview =
               items.where((i) => i.pendingReview).toList();
           final tracked = items
@@ -63,22 +60,6 @@ class _ActionItemsScreenState extends ConsumerState<ActionItemsScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
             children: [
-              if (suggestions.isNotEmpty) ...[
-                const _SectionHeader(
-                  label: 'New from Correspondence',
-                  color: AppColors.teal,
-                  icon: Icons.mark_email_unread_outlined,
-                ),
-                const SizedBox(height: 8),
-                ...suggestions.map((s) => _SuggestionCard(
-                      text: s.text,
-                      onTrack: () => ref
-                          .read(actionItemsProvider(widget.caseId).notifier)
-                          .addSuggested(widget.caseId, s.text,
-                              sourceId: s.correspondenceId),
-                    )),
-                const SizedBox(height: 18),
-              ],
               if (pendingReview.isNotEmpty) ...[
                 const _SectionHeader(
                   label: 'Pending Review',
@@ -156,20 +137,6 @@ class _ActionItemsScreenState extends ConsumerState<ActionItemsScreen> {
     );
   }
 
-  List<_Suggestion> _uncapturedSuggestions(
-      List<ActionItemModel> items, List<CorrespondenceModel> correspondence) {
-    final notifier = ref.read(actionItemsProvider(widget.caseId).notifier);
-    final out = <_Suggestion>[];
-    for (final corr in correspondence) {
-      for (final action in corr.actions) {
-        if (action.trim().isEmpty) continue;
-        if (notifier.alreadySuggested(corr.id, action)) continue;
-        out.add(_Suggestion(text: action, correspondenceId: corr.id));
-      }
-    }
-    return out;
-  }
-
   void _showAddSheet(BuildContext context) {
     final ctrl = TextEditingController();
     showModalBottomSheet<void>(
@@ -228,12 +195,6 @@ class _ActionItemsScreenState extends ConsumerState<ActionItemsScreen> {
   }
 }
 
-class _Suggestion {
-  const _Suggestion({required this.text, required this.correspondenceId});
-  final String text;
-  final String correspondenceId;
-}
-
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader(
       {required this.label, required this.color, required this.icon});
@@ -252,44 +213,6 @@ class _SectionHeader extends StatelessWidget {
                 color: color,
                 letterSpacing: 0.4)),
       ]);
-}
-
-class _SuggestionCard extends StatelessWidget {
-  const _SuggestionCard({required this.text, required this.onTrack});
-  final String text;
-  final VoidCallback onTrack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.teal.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.teal.withValues(alpha: 0.2)),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: Text(text,
-              style: const TextStyle(fontSize: 12.5, color: AppColors.textPrimary)),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: onTrack,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.teal,
-            side: const BorderSide(color: AppColors.teal),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            textStyle: const TextStyle(fontSize: 11.5),
-          ),
-          child: const Text('Track'),
-        ),
-      ]),
-    );
-  }
 }
 
 class _PendingReviewCard extends StatelessWidget {
