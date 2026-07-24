@@ -1391,7 +1391,7 @@ class _OccurrenceChips extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final occs =
-        ref.watch(damageProvider(caseId)).value?.occurrences ?? const [];
+        ref.watch(damageProvider(caseId)).valueOrNull?.occurrences ?? const [];
 
     Widget chip(String label, String? id, Color color) {
       final selected = value == id;
