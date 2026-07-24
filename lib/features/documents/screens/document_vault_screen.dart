@@ -1489,36 +1489,41 @@ class ExtractionReviewSheetState
         final incTitle =
             (inc['title']?.toString() ?? 'Occurrence from ${widget.docTitle}')
                 .trim();
-        final mergeTarget = _incidentMergeMatch[i];
-        if (mergeTarget != null) {
-          final incDate = inc['date'] != null
-              ? DateTime.tryParse(inc['date'].toString())
-              : null;
-          final merged = mergeTarget.copyWith(
-            dateTime: mergeTarget.dateTime ?? incDate,
-            location: mergeTarget.location ?? inc['location']?.toString(),
-            briefDescription: mergeTarget.briefDescription ??
-                inc['description']?.toString(),
-          );
-          if (merged.dateTime != mergeTarget.dateTime ||
-              merged.location != mergeTarget.location ||
-              merged.briefDescription != mergeTarget.briefDescription) {
-            await damageNotifier.updateOccurrence(merged);
+        try {
+          final mergeTarget = _incidentMergeMatch[i];
+          if (mergeTarget != null) {
+            final incDate = inc['date'] != null
+                ? DateTime.tryParse(inc['date'].toString())
+                : null;
+            final merged = mergeTarget.copyWith(
+              dateTime: mergeTarget.dateTime ?? incDate,
+              location: mergeTarget.location ?? inc['location']?.toString(),
+              briefDescription: mergeTarget.briefDescription ??
+                  inc['description']?.toString(),
+            );
+            if (merged.dateTime != mergeTarget.dateTime ||
+                merged.location != mergeTarget.location ||
+                merged.briefDescription != mergeTarget.briefDescription) {
+              await damageNotifier.updateOccurrence(merged);
+            }
+            continue;
           }
-          continue;
+          final isDuplicate = existingOccs.any((o) =>
+              (o.title ?? '').trim().toLowerCase() == incTitle.toLowerCase());
+          if (isDuplicate) continue;
+          await damageNotifier.createOccurrence(
+            caseId: widget.caseId,
+            title: incTitle,
+            dateTime: inc['date'] != null
+                ? DateTime.tryParse(inc['date'].toString())
+                : null,
+            location: inc['location']?.toString(),
+            briefDescription: inc['description']?.toString(),
+          );
+        } catch (e, st) {
+          debugPrint('[APPLY] occurrence "$incTitle" failed: $e\n$st');
+          errors.add('Occurrence: $incTitle');
         }
-        final isDuplicate = existingOccs.any((o) =>
-            (o.title ?? '').trim().toLowerCase() == incTitle.toLowerCase());
-        if (isDuplicate) continue;
-        await damageNotifier.createOccurrence(
-          caseId: widget.caseId,
-          title: incTitle,
-          dateTime: inc['date'] != null
-              ? DateTime.tryParse(inc['date'].toString())
-              : null,
-          location: inc['location']?.toString(),
-          briefDescription: inc['description']?.toString(),
-        );
       }
 
       // 4. Apply vessel data + add machinery.
@@ -1566,40 +1571,46 @@ class ExtractionReviewSheetState
           for (var i = 0; i < widget.result.detectedMachinery.length; i++) {
             if (!_machinerySelected[i]) continue;
             final m = widget.result.detectedMachinery[i];
-            final mergeTarget = _machineryMergeMatch[i];
-            if (mergeTarget != null) {
-              final merged = mergeTarget.copyWith(
-                make: mergeTarget.make ?? m['make']?.toString(),
-                model: mergeTarget.model ?? m['model']?.toString(),
-                serialNumber:
-                    mergeTarget.serialNumber ?? m['serial_number']?.toString(),
-                mcrKw: mergeTarget.mcrKw ?? (m['mcr_kw'] as num?)?.toDouble(),
-                mcrRpm:
-                    mergeTarget.mcrRpm ?? (m['mcr_rpm'] as num?)?.toDouble(),
-                fuelType: mergeTarget.fuelType ?? m['fuel_type']?.toString(),
-              );
-              if (merged.make != mergeTarget.make ||
-                  merged.model != mergeTarget.model ||
-                  merged.serialNumber != mergeTarget.serialNumber ||
-                  merged.mcrKw != mergeTarget.mcrKw ||
-                  merged.mcrRpm != mergeTarget.mcrRpm ||
-                  merged.fuelType != mergeTarget.fuelType) {
-                await machineryNotifier.updateMachinery(merged);
+            try {
+              final mergeTarget = _machineryMergeMatch[i];
+              if (mergeTarget != null) {
+                final merged = mergeTarget.copyWith(
+                  make: mergeTarget.make ?? m['make']?.toString(),
+                  model: mergeTarget.model ?? m['model']?.toString(),
+                  serialNumber: mergeTarget.serialNumber ??
+                      m['serial_number']?.toString(),
+                  mcrKw: mergeTarget.mcrKw ?? (m['mcr_kw'] as num?)?.toDouble(),
+                  mcrRpm:
+                      mergeTarget.mcrRpm ?? (m['mcr_rpm'] as num?)?.toDouble(),
+                  fuelType: mergeTarget.fuelType ?? m['fuel_type']?.toString(),
+                );
+                if (merged.make != mergeTarget.make ||
+                    merged.model != mergeTarget.model ||
+                    merged.serialNumber != mergeTarget.serialNumber ||
+                    merged.mcrKw != mergeTarget.mcrKw ||
+                    merged.mcrRpm != mergeTarget.mcrRpm ||
+                    merged.fuelType != mergeTarget.fuelType) {
+                  await machineryNotifier.updateMachinery(merged);
+                }
+                continue;
               }
-              continue;
+              await machineryNotifier.addMachinery(MachineryModel(
+                machineryId: '',
+                vesselId: vesselId,
+                machineryType: m['machinery_type']?.toString() ?? 'Unknown',
+                role: _extMachineryRole(m['role']),
+                make: m['make']?.toString(),
+                model: m['model']?.toString(),
+                serialNumber: m['serial_number']?.toString(),
+                mcrKw: (m['mcr_kw'] as num?)?.toDouble(),
+                mcrRpm: (m['mcr_rpm'] as num?)?.toDouble(),
+                fuelType: m['fuel_type']?.toString(),
+              ));
+            } catch (e, st) {
+              debugPrint('[APPLY] machinery '
+                  '"${m['machinery_type'] ?? m['role']}" failed: $e\n$st');
+              errors.add('Machinery: ${m['machinery_type'] ?? m['role'] ?? ''}');
             }
-            await machineryNotifier.addMachinery(MachineryModel(
-              machineryId: '',
-              vesselId: vesselId,
-              machineryType: m['machinery_type']?.toString() ?? 'Unknown',
-              role: m['role']?.toString(),
-              make: m['make']?.toString(),
-              model: m['model']?.toString(),
-              serialNumber: m['serial_number']?.toString(),
-              mcrKw: (m['mcr_kw'] as num?)?.toDouble(),
-              mcrRpm: (m['mcr_rpm'] as num?)?.toDouble(),
-              fuelType: m['fuel_type']?.toString(),
-            ));
           }
         }
 
@@ -1612,14 +1623,19 @@ class ExtractionReviewSheetState
               i++) {
             if (!_conditionSelected[i]) continue;
             final c = widget.result.detectedClassConditions[i];
-            await condNotifier.add(
-              vesselId: vesselId,
-              reference: c['reference']?.toString(),
-              description: c['description']?.toString(),
-              expiryDate: c['expiry_date'] != null
-                  ? DateTime.tryParse(c['expiry_date'].toString())
-                  : null,
-            );
+            try {
+              await condNotifier.add(
+                vesselId: vesselId,
+                reference: c['reference']?.toString(),
+                description: c['description']?.toString(),
+                expiryDate: c['expiry_date'] != null
+                    ? DateTime.tryParse(c['expiry_date'].toString())
+                    : null,
+              );
+            } catch (e, st) {
+              debugPrint('[APPLY] class condition failed: $e\n$st');
+              errors.add('Class condition: ${c['reference'] ?? ''}');
+            }
           }
         }
       }
@@ -1630,6 +1646,7 @@ class ExtractionReviewSheetState
       final isCertDoc = docCat == 'certificate' ||
           docType.toLowerCase().contains('certificate');
       if (isCertDoc) {
+       try {
         final certType = _inferCertType(docType);
         final certNum = widget.result.hardFields['document_number']?.toString();
         final existing =
@@ -1669,6 +1686,10 @@ class ExtractionReviewSheetState
               .read(certificatesProvider(widget.caseId).notifier)
               .addCertificate(cert);
         }
+       } catch (e, st) {
+        debugPrint('[APPLY] certificate failed: $e\n$st');
+        errors.add('Certificate');
+       }
       }
 
       // ── Correspondence extras (all empty for documents) ─────────────────
@@ -1841,6 +1862,49 @@ class ExtractionReviewSheetState
     final dd = d.day.toString().padLeft(2, '0');
     final mm = d.month.toString().padLeft(2, '0');
     return '$dd/$mm/${d.year}';
+  }
+
+  /// Map the AI's free-text machinery role onto the DB `machinery_role_enum`
+  /// (main_engine | diesel_generator | thruster | turbocharger | gearbox |
+  /// pump | compressor | crane | other). Anything unrecognised falls back to
+  /// `other` so a novel label ("propulsion", "aux engine") can never blow up
+  /// the whole import with a 22P02 enum error. Returns null for a blank role.
+  static String? _extMachineryRole(dynamic v) {
+    final s = _extStr(v)?.toLowerCase();
+    if (s == null) return null;
+    if (s.contains('turbo')) return 'turbocharger';
+    if (s.contains('thruster') || s.contains('azimuth')) return 'thruster';
+    if (s.contains('gear')) return 'gearbox';
+    if (s.contains('pump')) return 'pump';
+    if (s.contains('compressor')) return 'compressor';
+    if (s.contains('crane')) return 'crane';
+    if (s.contains('generator') ||
+        s.contains('genset') ||
+        s.contains('gen set') ||
+        s.contains('aux') ||
+        s == 'dg') {
+      return 'diesel_generator';
+    }
+    if (s.contains('main engine') ||
+        s.contains('main_engine') ||
+        s.contains('propuls') ||
+        s == 'me' ||
+        s == 'main') {
+      return 'main_engine';
+    }
+    // Already a valid enum value passes straight through.
+    const valid = {
+      'main_engine',
+      'diesel_generator',
+      'thruster',
+      'turbocharger',
+      'gearbox',
+      'pump',
+      'compressor',
+      'crane',
+      'other',
+    };
+    return valid.contains(s) ? s : 'other';
   }
 
   static CostEstimateCategory _extCostCategory(String? c) {
