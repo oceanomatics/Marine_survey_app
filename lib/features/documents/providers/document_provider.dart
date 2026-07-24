@@ -268,7 +268,13 @@ class DocExtractionResult {
     this.actionItems = const [],
     this.backgroundText,
     this.caseRefs = const {},
+    this.sourceDate,
   });
+
+  /// The source document's own date (email sent date / report date) — becomes
+  /// each imported cue's `content_date` so cues read as of the document's
+  /// date, not the import timestamp. Null when the document carries no date.
+  final DateTime? sourceDate;
 
   final String docId;
   final Map<String, dynamic> hardFields;
@@ -400,6 +406,7 @@ class DocExtractionResult {
         'vessel_name': s(raw['vessel_name']),
         'instruction_date': s(raw['instruction_date']),
       },
+      sourceDate: DateTime.tryParse(s(raw['corr_date']) ?? ''),
     );
   }
 
@@ -421,6 +428,7 @@ class DocExtractionResult {
         'actionItems': actionItems,
         'backgroundText': backgroundText,
         'caseRefs': caseRefs,
+        'sourceDate': sourceDate?.toIso8601String(),
       };
 
   factory DocExtractionResult.fromJson(Map<String, dynamic> j) {
@@ -457,6 +465,7 @@ class DocExtractionResult {
               const [],
       backgroundText: j['backgroundText'] as String?,
       caseRefs: (j['caseRefs'] as Map?)?.cast<String, dynamic>() ?? const {},
+      sourceDate: DateTime.tryParse(j['sourceDate']?.toString() ?? ''),
     );
   }
 }
@@ -762,6 +771,9 @@ class DocumentNotifier
       vesselFields: vesselFields,
       suggestedCategory: raw['suggested_category'] as String?,
       documentType: raw['document_type'] as String?,
+      sourceDate: DateTime.tryParse(
+          (hardFields['document_date'] ?? raw['document_date'])?.toString() ??
+              ''),
     );
   }
 

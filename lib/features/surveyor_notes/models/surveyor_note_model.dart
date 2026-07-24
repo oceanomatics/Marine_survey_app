@@ -297,6 +297,7 @@ class SurveyorNote {
     this.linkedToType,
     this.linkedToId,
     this.source,
+    this.contentDate,
     this.pendingReview = false,
     required this.createdAt,
     required this.updatedAt,
@@ -321,6 +322,11 @@ class SurveyorNote {
   final String? linkedToType;
   final String? linkedToId;
   final String? source;
+  /// The date of the SOURCE document this cue came from (email sent date,
+  /// report date…) — distinct from [createdAt], which is when the cue was
+  /// imported. Null for cues typed straight into the app. Displayed in the
+  /// cue register so a cue reads as of the document's date, not today's.
+  final DateTime? contentDate;
   /// True when [caseSection]/[origin] are an unconfirmed AI suggestion from
   /// document extraction (docs/context_cue_system_review.md §3.5) — shown
   /// in the Context Cue Manager's "Suggested" tab and excluded from feeding
@@ -347,6 +353,9 @@ class SurveyorNote {
         linkedToType:      m['linked_to_type'] as String?,
         linkedToId:        m['linked_to_id'] as String?,
         source:            m['source'] as String?,
+        contentDate:       m['content_date'] != null
+            ? DateTime.tryParse(m['content_date'] as String)
+            : null,
         pendingReview:     m['pending_review'] == true || m['pending_review'] == 1,
         createdAt:         DateTime.parse(m['created_at'] as String),
         updatedAt:         DateTime.parse(m['updated_at'] as String),
@@ -369,6 +378,8 @@ class SurveyorNote {
         if (linkedToType != null) 'linked_to_type': linkedToType,
         if (linkedToId != null)   'linked_to_id':   linkedToId,
         if (source != null)       'source':          source,
+        if (contentDate != null)
+          'content_date': contentDate!.toIso8601String(),
         'pending_review':     pendingReview,
         'created_at':         createdAt.toIso8601String(),
         'updated_at':         updatedAt.toIso8601String(),
@@ -386,6 +397,7 @@ class SurveyorNote {
     String? linkedToType,
     String? linkedToId,
     String? source,
+    Object? contentDate = _sentinel,
     bool? pendingReview,
   }) =>
       SurveyorNote(
@@ -412,6 +424,9 @@ class SurveyorNote {
         linkedToType:  linkedToType ?? this.linkedToType,
         linkedToId:    linkedToId ?? this.linkedToId,
         source:        source ?? this.source,
+        contentDate: contentDate == _sentinel
+            ? this.contentDate
+            : contentDate as DateTime?,
         pendingReview: pendingReview ?? this.pendingReview,
         createdAt:     createdAt,
         updatedAt:     DateTime.now(),

@@ -165,13 +165,12 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    // Default priority is Normal, so the Nature/Weight/Origin rows are shown.
+    // Default priority is Normal, so the Weight/Origin rows are shown.
+    // (Nature-of-content was dropped 23 July 2026.)
     final priorityX = tester.getTopLeft(find.text('PRIORITY')).dx;
-    final natureX = tester.getTopLeft(find.text('Nature of content')).dx;
     final weightX = tester.getTopLeft(find.text('Evidentiary weight')).dx;
     final originX = tester.getTopLeft(find.text('Origin')).dx;
 
-    expect(natureX, moreOrLessEquals(priorityX, epsilon: 0.5));
     expect(weightX, moreOrLessEquals(priorityX, epsilon: 0.5));
     expect(originX, moreOrLessEquals(priorityX, epsilon: 0.5));
   });

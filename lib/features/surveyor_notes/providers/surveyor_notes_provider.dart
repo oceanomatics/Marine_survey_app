@@ -106,6 +106,7 @@ class SurveyorNotesNotifier
     String? linkedToType,
     String? linkedToId,
     String? source,
+    DateTime? contentDate,
     bool pendingReview = false,
   }) async {
     final now = DateTime.now();
@@ -125,6 +126,7 @@ class SurveyorNotesNotifier
       linkedToType:      linkedToType,
       linkedToId:        linkedToId,
       source:            source,
+      contentDate:       contentDate,
       pendingReview:     pendingReview,
       createdAt:         now,
       updatedAt:         now,

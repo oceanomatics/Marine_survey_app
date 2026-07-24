@@ -1509,6 +1509,7 @@ class ExtractionReviewSheetState
           caseSection: caseSection,
           occurrencePhase: phase,
           origin: origin,
+          contentDate: widget.result.sourceDate,
           pendingReview: true,
         );
       }
@@ -1838,6 +1839,7 @@ class ExtractionReviewSheetState
                 priority: CuePriority.normal,
                 source: widget.docTitle,
                 caseSection: CaseSection.background,
+                contentDate: res.sourceDate,
                 pendingReview: true,
               );
         } catch (e, st) {

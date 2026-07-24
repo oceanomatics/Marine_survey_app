@@ -623,7 +623,10 @@ class _NoteCard extends StatelessWidget {
                               const SizedBox(height: 6),
                               Row(children: [
                                 Text(
-                                  _formatDate(note.updatedAt),
+                                  // Document's own date when the cue came from
+                                  // one (email/report date), else the edit time.
+                                  _formatDate(
+                                      note.contentDate ?? note.updatedAt),
                                   style: const TextStyle(
                                       fontSize: 10,
                                       color: AppColors.textTertiary),

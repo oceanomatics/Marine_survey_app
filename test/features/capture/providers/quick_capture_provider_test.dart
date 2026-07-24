@@ -29,6 +29,7 @@ class _RecordingSurveyorNotesNotifier extends SurveyorNotesNotifier {
     String? linkedToType,
     String? linkedToId,
     String? source,
+    DateTime? contentDate,
     bool pendingReview = false,
     OccurrencePhase? occurrencePhase,
   }) async {

@@ -29,7 +29,7 @@ class AppDatabase {
     final dbPath = p.join(dir.path, 'marine_survey.db');
     return openDatabase(
       dbPath,
-      version: 16,
+      version: 17,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -100,6 +100,7 @@ class AppDatabase {
         linked_to_type      TEXT,
         linked_to_id        TEXT,
         source              TEXT,
+        content_date        TEXT,
         pending_review      INTEGER NOT NULL DEFAULT 0,
         created_at          TEXT NOT NULL,
         updated_at          TEXT NOT NULL,
@@ -180,6 +181,13 @@ class AppDatabase {
       // every other cue and for occurrence cues not yet sorted.
       await db.execute(
           'ALTER TABLE surveyor_notes ADD COLUMN occurrence_phase TEXT');
+    }
+    if (oldVersion < 17) {
+      // Cue "content date" — the date of the SOURCE document (email sent /
+      // report date), distinct from created_at (when the cue was imported).
+      // Mirrors Supabase migration 066.
+      await db.execute(
+          'ALTER TABLE surveyor_notes ADD COLUMN content_date TEXT');
     }
   }
 }
