@@ -1622,6 +1622,7 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
       "text": "Brief factual statement in English about a finding, condition, observation, or recommendation",
       "note_category": "observation|measurement|technical|operations|previous_works|follow_up|interview|policy|general",
       "case_section": "background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire",
+      "occurrence_phase": "ONLY when case_section is 'occurrence': which phase of the occurrence narrative this belongs to — 'before' (prevailing conditions/operation just before the event), 'incident' (the event itself: first sign, sequence, alarms, loss of function), or 'aftermath' (notifications, mitigation, tow to safety, first inspection). null for every other case_section.",
       "origin": "assured_owner|third_party|surveyor",
       "page": "the page number this finding appears on (integer, first page = 1), or null if the document has no page structure or it can't be determined"
     }
@@ -2024,7 +2025,7 @@ Rules:
     {"date": "YYYY-MM-DD", "description": "what happened on this date", "kind": "event or attendance", "location": "attendance location when kind=attendance, else null"}
   ],
   "context_findings": [
-    {"text": "a noteworthy fact/statement worth recording as a case note", "case_section": "one of: background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire|other", "note_category": "short label e.g. instruction, allegation, observation, quote"}
+    {"text": "a noteworthy fact/statement worth recording as a case note", "case_section": "one of: background|occurrence|attendance|timeline|causation|damage|repairs|repair_times|extra_expenses|general_expenses|not_average|other_matters|previous_works|contractual_hire|other", "occurrence_phase": "ONLY when case_section is occurrence: 'before' (conditions/operation just before the event), 'incident' (the event itself), or 'aftermath' (notifications, mitigation, tow to safety, first inspection); null otherwise", "note_category": "short label e.g. instruction, allegation, observation, quote"}
   ],
   "detected_incidents": [
     {"title": "short incident/occurrence title", "date": "YYYY-MM-DD or null", "location": "", "description": "what happened"}
@@ -2039,7 +2040,7 @@ Rules:
     {"category": "repairs | drydock | towage | agency | survey | general_expenses | other", "description": "what the cost is for", "amount": 0, "currency": "e.g. USD, EUR, or null"}
   ],
   "detected_machinery": [
-    {"machinery_type": "e.g. Main Engine, Auxiliary Engine, Turbocharger, Pump, Generator", "role": "propulsion | auxiliary | other", "make": "", "model": "", "serial_number": "", "mcr_kw": 0, "mcr_rpm": 0, "fuel_type": ""}
+    {"machinery_type": "e.g. Main Engine, Auxiliary Engine, Turbocharger, Pump, Generator", "role": "main_engine | diesel_generator | turbocharger | gearbox | thruster | pump | compressor | crane | other", "make": "", "model": "", "serial_number": "", "mcr_kw": 0, "mcr_rpm": 0, "fuel_type": ""}
   ],
   "detected_class_conditions": [
     {"reference": "condition/recommendation reference", "description": "what it requires", "expiry_date": "YYYY-MM-DD or null"}

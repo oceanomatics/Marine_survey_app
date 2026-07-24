@@ -1189,6 +1189,10 @@ class ExtractionReviewSheetState
     extends ConsumerState<ExtractionReviewSheet> {
   late final Map<String, bool> _hardSelected;
   late final List<bool> _findingSelected;
+  // Per-finding routing (main + sub), seeded by the AI, editable by the
+  // surveyor so a cue lands in exactly the right place at import time.
+  late final List<CaseSection?> _findingSection;
+  late final List<OccurrencePhase?> _findingPhase;
   late final List<bool> _incidentSelected;
   late final List<bool> _machinerySelected;
   late final List<bool> _conditionSelected;
@@ -1218,6 +1222,19 @@ class ExtractionReviewSheetState
     _hardSelected = {for (final k in widget.result.hardFields.keys) k: true};
     _findingSelected = widget.initialFindingSelected ??
         List.filled(widget.result.contextFindings.length, true);
+    _findingSection = [
+      for (var i = 0; i < widget.result.contextFindings.length; i++)
+        i < widget.result.findingCaseSections.length
+            ? CaseSection.fromValue(widget.result.findingCaseSections[i])
+            : null,
+    ];
+    _findingPhase = [
+      for (var i = 0; i < widget.result.contextFindings.length; i++)
+        i < widget.result.findingOccurrencePhases.length
+            ? OccurrencePhase.fromValue(
+                widget.result.findingOccurrencePhases[i])
+            : null,
+    ];
     _incidentSelected = widget.initialIncidentSelected ??
         List.filled(widget.result.detectedIncidents.length, true);
     _vesselSelected = widget.initialVesselSelected ??
@@ -1451,11 +1468,13 @@ class ExtractionReviewSheetState
       // Insert in reverse order so created_at DESC retrieval shows finding 1 at top
       for (var j = total - 1; j >= 0; j--) {
         final origIdx = selectedIndices[j];
-        final sections = widget.result.findingCaseSections;
         final origins = widget.result.findingOrigins;
         final pages = widget.result.findingPages;
-        final caseSection = sections.length > origIdx
-            ? CaseSection.fromValue(sections[origIdx])
+        // Use the surveyor's (AI-seeded, editable) routing choice, not the
+        // raw AI value — main destination + occurrence-phase sub-bucket.
+        final caseSection = _findingSection[origIdx];
+        final phase = caseSection == CaseSection.occurrence
+            ? _findingPhase[origIdx]
             : null;
         final origin = origins.length > origIdx
             ? CueOrigin.fromValue(origins[origIdx])
@@ -1470,6 +1489,7 @@ class ExtractionReviewSheetState
           priority: CuePriority.normal,
           source: '${widget.docTitle} (${j + 1}/$total$pageSuffix)',
           caseSection: caseSection,
+          occurrencePhase: phase,
           origin: origin,
           pendingReview: true,
         );
@@ -1840,6 +1860,91 @@ class ExtractionReviewSheetState
     }
   }
 
+  // ── Per-finding routing pickers ────────────────────────────────────────
+  // Compact chip-styled dropdowns: the main destination (case section) and,
+  // when that's Occurrence, the narrative phase sub-bucket.
+
+  Widget _routeBox(Color color, Widget child) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: DropdownButtonHideUnderline(child: child),
+      );
+
+  Widget _routeLabel(String text, Color color) => Align(
+        alignment: Alignment.centerLeft,
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+      );
+
+  Widget _sectionPicker(int i) {
+    final sel = _findingSection[i];
+    final color = sel != null ? sectionColor(sel) : AppColors.textTertiary;
+    return _routeBox(
+      color,
+      DropdownButton<CaseSection?>(
+        value: sel,
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: [
+          const DropdownMenuItem<CaseSection?>(
+              value: null,
+              child: Text('Unsorted', style: TextStyle(fontSize: 12))),
+          for (final s in CaseSection.ordered)
+            DropdownMenuItem<CaseSection?>(
+                value: s,
+                child: Text(s.label, style: const TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          _routeLabel('→ Unsorted', color),
+          for (final s in CaseSection.ordered)
+            _routeLabel('→ ${s.shortLabel}', color),
+        ],
+        onChanged: (v) => setState(() {
+          _findingSection[i] = v;
+          if (v != CaseSection.occurrence) _findingPhase[i] = null;
+        }),
+      ),
+    );
+  }
+
+  Widget _phasePicker(int i) {
+    final sel = _findingPhase[i];
+    const color = AppColors.coral;
+    return _routeBox(
+      color,
+      DropdownButton<OccurrencePhase?>(
+        value: sel,
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: [
+          const DropdownMenuItem<OccurrencePhase?>(
+              value: null,
+              child: Text('Phase: not set', style: TextStyle(fontSize: 12))),
+          for (final p in OccurrencePhase.ordered)
+            DropdownMenuItem<OccurrencePhase?>(
+                value: p,
+                child: Text(p.label, style: const TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          _routeLabel('Phase?', color),
+          for (final p in OccurrencePhase.ordered) _routeLabel(p.shortLabel, color),
+        ],
+        onChanged: (v) => setState(() => _findingPhase[i] = v),
+      ),
+    );
+  }
+
   static String? _extStr(dynamic v) {
     if (v == null) return null;
     final s = v.toString().trim();
@@ -2052,9 +2157,6 @@ class ExtractionReviewSheetState
                 ...List.generate(
                   result.contextFindings.length,
                   (i) {
-                    final sec = i < result.findingCaseSections.length
-                        ? CaseSection.fromValue(result.findingCaseSections[i])
-                        : null;
                     final page = result.findingPages.length > i
                         ? result.findingPages[i]
                         : null;
@@ -2070,18 +2172,6 @@ class ExtractionReviewSheetState
                       title: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(children: [
-                            _SectionChip(sec),
-                            if (page != null) ...[
-                              const SizedBox(width: 6),
-                              Text('p.$page',
-                                  style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.textTertiary)),
-                            ],
-                          ]),
-                          const SizedBox(height: 3),
                           Text(
                             result.contextFindings[i],
                             style: TextStyle(
@@ -2092,6 +2182,26 @@ class ExtractionReviewSheetState
                                 decoration: _findingSelected[i]
                                     ? null
                                     : TextDecoration.lineThrough),
+                          ),
+                          const SizedBox(height: 5),
+                          // Editable routing: destination section + (for
+                          // occurrence) the narrative phase, so the cue lands
+                          // in exactly the right place at import.
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              _sectionPicker(i),
+                              if (_findingSection[i] == CaseSection.occurrence)
+                                _phasePicker(i),
+                              if (page != null)
+                                Text('p.$page',
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textTertiary)),
+                            ],
                           ),
                         ],
                       ),
@@ -2555,33 +2665,6 @@ class ExtractionReviewSheetState
         'isps_status' => 'ISPS Status',
         _ => _labelFor(key),
       };
-}
-
-/// Shows the case section a context finding will route to (the "main routing"
-/// destination). Replaced the old Nature-of-content chip (23 July 2026: that
-/// axis was dropped as unhelpful).
-class _SectionChip extends StatelessWidget {
-  const _SectionChip(this.section);
-  final CaseSection? section;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = section;
-    final color = s != null ? sectionColor(s) : AppColors.textTertiary;
-    final label = s?.shortLabel ?? 'Unsorted';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        '→ $label',
-        style:
-            TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
-      ),
-    );
-  }
 }
 
 /// Merge-target picker shown under every detected incident/machinery tile

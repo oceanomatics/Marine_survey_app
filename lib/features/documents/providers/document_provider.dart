@@ -254,6 +254,7 @@ class DocExtractionResult {
     required this.findingCategories,
     this.findingCaseSections = const [],
     this.findingOrigins = const [],
+    this.findingOccurrencePhases = const [],
     this.findingPages = const [],
     required this.detectedIncidents,
     required this.detectedMachinery,
@@ -281,6 +282,12 @@ class DocExtractionResult {
 
   /// AI-suggested `CueOrigin.value` per finding, parallel to [contextFindings].
   final List<String?> findingOrigins;
+
+  /// AI-suggested `OccurrencePhase.value` (before/incident/aftermath) per
+  /// finding, parallel to [contextFindings]. Only meaningful when the
+  /// finding's [findingCaseSections] entry is `occurrence`; null otherwise or
+  /// when the extraction didn't offer a guess.
+  final List<String?> findingOccurrencePhases;
 
   /// Source document page number per finding, parallel to [contextFindings];
   /// null entries mean the page couldn't be determined.
@@ -376,6 +383,9 @@ class DocExtractionResult {
         for (final f in findings) s(f['note_category']) ?? 'observation'
       ],
       findingCaseSections: [for (final f in findings) s(f['case_section'])],
+      findingOccurrencePhases: [
+        for (final f in findings) s(f['occurrence_phase'])
+      ],
       detectedIncidents: maps(raw['detected_incidents']),
       detectedMachinery: maps(raw['detected_machinery']),
       detectedClassConditions: maps(raw['detected_class_conditions']),
@@ -400,6 +410,7 @@ class DocExtractionResult {
         'contextFindings': contextFindings,
         'findingCategories': findingCategories,
         'findingCaseSections': findingCaseSections,
+        'findingOccurrencePhases': findingOccurrencePhases,
         'detectedIncidents': detectedIncidents,
         'detectedMachinery': detectedMachinery,
         'detectedClassConditions': detectedClassConditions,
@@ -429,6 +440,10 @@ class DocExtractionResult {
       findingCaseSections:
           (j['findingCaseSections'] as List?)?.map((e) => e as String?).toList() ??
               const [],
+      findingOccurrencePhases: (j['findingOccurrencePhases'] as List?)
+              ?.map((e) => e as String?)
+              .toList() ??
+          const [],
       detectedIncidents: maps(j['detectedIncidents']),
       detectedMachinery: maps(j['detectedMachinery']),
       detectedClassConditions: maps(j['detectedClassConditions']),
@@ -647,6 +662,7 @@ class DocumentNotifier
     final findingCats = <String>[];
     final findingSections = <String?>[];
     final findingOrigins = <String?>[];
+    final findingPhases = <String?>[];
     final findingPages = <int?>[];
     for (final f in raw['context_findings'] as List? ?? []) {
       if (f is Map) {
@@ -656,6 +672,7 @@ class DocumentNotifier
           findingCats.add(f['note_category']?.toString() ?? 'observation');
           findingSections.add(f['case_section']?.toString());
           findingOrigins.add(f['origin']?.toString());
+          findingPhases.add(f['occurrence_phase']?.toString());
           findingPages.add(int.tryParse(f['page']?.toString() ?? ''));
         }
       } else {
@@ -665,6 +682,7 @@ class DocumentNotifier
           findingCats.add('observation');
           findingSections.add(null);
           findingOrigins.add(null);
+          findingPhases.add(null);
           findingPages.add(null);
         }
       }
@@ -685,6 +703,7 @@ class DocumentNotifier
     final orderedCats = [for (final i in order) findingCats[i]];
     final orderedSections = [for (final i in order) findingSections[i]];
     final orderedOrigins = [for (final i in order) findingOrigins[i]];
+    final orderedPhases = [for (final i in order) findingPhases[i]];
     final orderedPages = [for (final i in order) findingPages[i]];
 
     final incidents = (raw['detected_incidents'] as List? ?? [])
@@ -734,6 +753,7 @@ class DocumentNotifier
       findingCategories: orderedCats,
       findingCaseSections: orderedSections,
       findingOrigins: orderedOrigins,
+      findingOccurrencePhases: orderedPhases,
       findingPages: orderedPages,
       detectedIncidents: incidents,
       detectedMachinery: machinery,
