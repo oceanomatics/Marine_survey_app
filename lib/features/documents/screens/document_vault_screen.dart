@@ -36,7 +36,10 @@ import '../../../features/attendances/models/attendance_model.dart';
 import '../../../features/accounts/providers/accounts_provider.dart';
 import '../../../features/accounts/models/accounts_models.dart';
 import '../../../features/action_items/providers/action_items_provider.dart';
-import '../../../shared/widgets/context_cues_panel.dart' show sectionColor;
+import '../../../shared/widgets/context_cues_panel.dart'
+    show sectionColor, repairPeriodLinkType, occurrenceLinkType;
+import '../../../features/survey/providers/repair_period_provider.dart';
+import '../../../features/survey/models/repair_period_model.dart';
 import '../../../features/parties/models/party_model.dart';
 import '../../../features/parties/providers/parties_provider.dart';
 import '../../../features/vessel/providers/certificates_provider.dart';
@@ -1193,6 +1196,10 @@ class ExtractionReviewSheetState
   // surveyor so a cue lands in exactly the right place at import time.
   late final List<CaseSection?> _findingSection;
   late final List<OccurrencePhase?> _findingPhase;
+  // Sub-routing for repair-scoped (→ repair period) and damage (→ occurrence)
+  // findings: the linked record id, chosen by the surveyor at import.
+  late final List<String?> _findingLinkId;
+  late final List<RepairPeriodModel> _existingPeriods;
   late final List<bool> _incidentSelected;
   late final List<bool> _machinerySelected;
   late final List<bool> _conditionSelected;
@@ -1240,6 +1247,10 @@ class ExtractionReviewSheetState
                 widget.result.findingOccurrencePhases[i])
             : null,
     ];
+    _findingLinkId =
+        List.filled(widget.result.contextFindings.length, null);
+    _existingPeriods =
+        ref.read(repairPeriodsProvider(widget.caseId)).value ?? [];
     _incidentSelected = widget.initialIncidentSelected ??
         List.filled(widget.result.detectedIncidents.length, true);
     _vesselSelected = widget.initialVesselSelected ??
@@ -1499,6 +1510,20 @@ class ExtractionReviewSheetState
             : null;
         final page = pages.length > origIdx ? pages[origIdx] : null;
         final pageSuffix = page != null ? ', p.$page' : '';
+        // Sub-routing link: repair-scoped sections → a repair period,
+        // damage → an occurrence (the surveyor's picked record, if any).
+        final linkId = _findingLinkId[origIdx];
+        String? linkedToType;
+        String? linkedToId;
+        if (linkId != null) {
+          if (caseSection?.isRepairPeriodScoped == true) {
+            linkedToType = repairPeriodLinkType;
+            linkedToId = linkId;
+          } else if (caseSection == CaseSection.damage) {
+            linkedToType = occurrenceLinkType;
+            linkedToId = linkId;
+          }
+        }
         await notesNotifier.add(
           caseId: widget.caseId,
           content: widget.result.contextFindings[origIdx],
@@ -1510,6 +1535,8 @@ class ExtractionReviewSheetState
           occurrencePhase: phase,
           origin: origin,
           contentDate: widget.result.sourceDate,
+          linkedToType: linkedToType,
+          linkedToId: linkedToId,
           pendingReview: true,
         );
       }
@@ -1928,7 +1955,90 @@ class ExtractionReviewSheetState
         onChanged: (v) => setState(() {
           _findingSection[i] = v;
           if (v != CaseSection.occurrence) _findingPhase[i] = null;
+          // Sub-link (period/occurrence) only applies to certain sections;
+          // clear it whenever the destination changes.
+          _findingLinkId[i] = null;
         }),
+      ),
+    );
+  }
+
+  Widget _periodPicker(int i) {
+    const color = AppColors.teal;
+    if (_existingPeriods.isEmpty) {
+      return _routeBox(
+          color,
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Text('No repair periods yet',
+                style: TextStyle(fontSize: 10, color: color)),
+          ));
+    }
+    return _routeBox(
+      color,
+      DropdownButton<String?>(
+        value: _findingLinkId[i],
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: [
+          const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('No period', style: TextStyle(fontSize: 12))),
+          for (final p in _existingPeriods)
+            DropdownMenuItem<String?>(
+                value: p.periodId,
+                child: Text(p.title ?? 'Period ${p.periodNo}',
+                    style: const TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          _routeLabel('Period?', color),
+          for (final p in _existingPeriods)
+            _routeLabel('◦ ${p.title ?? 'Period ${p.periodNo}'}', color),
+        ],
+        onChanged: (v) => setState(() => _findingLinkId[i] = v),
+      ),
+    );
+  }
+
+  Widget _occurrencePicker(int i) {
+    const color = Color(0xFFE05C2A);
+    if (_existingOccs.isEmpty) {
+      return _routeBox(
+          color,
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Text('No occurrences yet',
+                style: TextStyle(fontSize: 10, color: color)),
+          ));
+    }
+    return _routeBox(
+      color,
+      DropdownButton<String?>(
+        value: _findingLinkId[i],
+        isDense: true,
+        iconSize: 15,
+        iconEnabledColor: color,
+        dropdownColor: Colors.white,
+        focusColor: Colors.transparent,
+        items: [
+          const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('No occurrence', style: TextStyle(fontSize: 12))),
+          for (final o in _existingOccs)
+            DropdownMenuItem<String?>(
+                value: o.occurrenceId,
+                child: Text(o.title ?? 'Occurrence',
+                    style: const TextStyle(fontSize: 12))),
+        ],
+        selectedItemBuilder: (_) => [
+          _routeLabel('Occurrence?', color),
+          for (final o in _existingOccs)
+            _routeLabel('◦ ${o.title ?? 'Occurrence'}', color),
+        ],
+        onChanged: (v) => setState(() => _findingLinkId[i] = v),
       ),
     );
   }
@@ -2301,6 +2411,11 @@ class ExtractionReviewSheetState
                               _sectionPicker(i),
                               if (_findingSection[i] == CaseSection.occurrence)
                                 _phasePicker(i),
+                              if (_findingSection[i]?.isRepairPeriodScoped ==
+                                  true)
+                                _periodPicker(i),
+                              if (_findingSection[i] == CaseSection.damage)
+                                _occurrencePicker(i),
                               if (page != null)
                                 Text('p.$page',
                                     style: const TextStyle(
