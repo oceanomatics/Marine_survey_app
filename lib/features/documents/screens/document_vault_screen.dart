@@ -1215,8 +1215,18 @@ class ExtractionReviewSheetState
   late final List<bool> _costsSelected;
   late final List<bool> _actionsSelected;
   bool _backgroundSelected = false;
-  bool _caseRefsSelected = false;
+  // Per-hard-field selection so the surveyor sees + controls exactly which
+  // case-header fields get populated (24 July 2026 report).
+  final Map<String, bool> _caseRefSelected = {};
   bool _saving = false;
+
+  // Case-header hard fields, in display order, with their labels.
+  static const _caseRefFields = [
+    ('technical_file_no', 'File / Job No.'),
+    ('claim_reference', 'Claim Reference'),
+    ('vessel_name', 'Vessel Name'),
+    ('instruction_date', 'Instruction Date'),
+  ];
 
   // Merge target per detected item — mutable (not `final`): the fuzzy
   // match seeds the default, but the surveyor can repoint it at any
@@ -1278,7 +1288,11 @@ class ExtractionReviewSheetState
     _costsSelected = List.filled(widget.result.costEstimates.length, true);
     _actionsSelected = List.filled(widget.result.actionItems.length, true);
     _backgroundSelected = widget.result.hasBackground;
-    _caseRefsSelected = widget.result.hasCaseRefs;
+    for (final (key, _) in _caseRefFields) {
+      if (_extStr(widget.result.caseRefs[key]) != null) {
+        _caseRefSelected[key] = true;
+      }
+    }
 
     _existingOccs =
         ref.read(damageProvider(widget.caseId)).value?.occurrences ?? [];
@@ -1771,19 +1785,30 @@ class ExtractionReviewSheetState
       // enum, an RLS refusal, a null constraint) must record its error and
       // let the rest of the import proceed — never abort the whole apply and
       // leave the surveyor staring at a sheet that won't close.
-      if (_caseRefsSelected && res.hasCaseRefs) {
+      final wantFile = _caseRefSelected['technical_file_no'] == true;
+      final wantClaim = _caseRefSelected['claim_reference'] == true;
+      final wantInstr = _caseRefSelected['instruction_date'] == true;
+      final wantVessel = _caseRefSelected['vessel_name'] == true;
+      if (wantFile || wantClaim || wantInstr || wantVessel) {
         try {
           final refs = res.caseRefs;
-          await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
-                technicalFileNo: _extStr(refs['technical_file_no']),
-                claimReference: _extStr(refs['claim_reference']),
-                instructionDate: _extDate(refs['instruction_date']),
-              );
-          final vn = _extStr(refs['vessel_name']);
-          if (vn != null) {
-            await ref
-                .read(caseProvider(widget.caseId).notifier)
-                .upsertVesselName(vn);
+          if (wantFile || wantClaim || wantInstr) {
+            await ref.read(caseProvider(widget.caseId).notifier).updateCaseRefs(
+                  technicalFileNo:
+                      wantFile ? _extStr(refs['technical_file_no']) : null,
+                  claimReference:
+                      wantClaim ? _extStr(refs['claim_reference']) : null,
+                  instructionDate:
+                      wantInstr ? _extDate(refs['instruction_date']) : null,
+                );
+          }
+          if (wantVessel) {
+            final vn = _extStr(refs['vessel_name']);
+            if (vn != null) {
+              await ref
+                  .read(caseProvider(widget.caseId).notifier)
+                  .upsertVesselName(vn);
+            }
           }
         } catch (e, st) {
           debugPrint('[APPLY] case details failed: $e\n$st');
@@ -2719,23 +2744,21 @@ class ExtractionReviewSheetState
               ],
 
               // ── Correspondence extras (empty for documents) ─────────────
+              // Each hard field listed explicitly with its own toggle so the
+              // surveyor sees exactly what will populate (24 July 2026 report).
               if (result.hasCaseRefs) ...[
-                const _SectionHeader('CASE DETAILS', Icons.badge_outlined),
-                _extraCheck(
-                  value: _caseRefsSelected,
-                  onChanged: (v) => setState(() => _caseRefsSelected = v ?? false),
-                  title: 'Apply case header fields',
-                  subtitle: [
-                    if (_extStr(result.caseRefs['technical_file_no']) != null)
-                      'File ${result.caseRefs['technical_file_no']}',
-                    if (_extStr(result.caseRefs['claim_reference']) != null)
-                      'Claim ${result.caseRefs['claim_reference']}',
-                    if (_extStr(result.caseRefs['vessel_name']) != null)
-                      'Vessel ${result.caseRefs['vessel_name']}',
-                    if (_extStr(result.caseRefs['instruction_date']) != null)
-                      'Instructed ${result.caseRefs['instruction_date']}',
-                  ].join(' · '),
-                ),
+                const _SectionHeader('CASE DETAILS', Icons.badge_outlined,
+                    subtitle: 'fields written to the case header'),
+                const SizedBox(height: 6),
+                for (final (key, label) in _caseRefFields)
+                  if (_extStr(result.caseRefs[key]) != null)
+                    _extraCheck(
+                      value: _caseRefSelected[key] == true,
+                      onChanged: (v) =>
+                          setState(() => _caseRefSelected[key] = v ?? false),
+                      title: label,
+                      subtitle: _extStr(result.caseRefs[key]),
+                    ),
                 const SizedBox(height: 8),
               ],
               if (result.hasKeyDates) ...[
