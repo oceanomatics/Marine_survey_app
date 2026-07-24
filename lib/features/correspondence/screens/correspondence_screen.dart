@@ -12,6 +12,7 @@ import 'package:pdfrx/pdfrx.dart';
 import '../models/correspondence_model.dart';
 import '../providers/correspondence_provider.dart';
 import '../utils/correspondence_threads.dart';
+import '../widgets/attachment_import.dart';
 import '../../documents/screens/document_vault_screen.dart'
     show ExtractionReviewSheet;
 import '../../../core/api/claude_api.dart';
@@ -21,7 +22,6 @@ import '../../../core/utils/eml_parser.dart';
 import '../../../features/cases/providers/cases_provider.dart';
 import '../../../features/documents/providers/document_provider.dart';
 import '../../../features/photos/services/google_drive_service.dart';
-import '../../../shared/widgets/app_feedback.dart';
 import '../../../features/surveyor_notes/providers/surveyor_notes_provider.dart';
 import '../../../features/surveyor_notes/models/surveyor_note_model.dart';
 import '../../ai_tasks/providers/ai_tasks_provider.dart';
@@ -99,30 +99,31 @@ class CorrespondenceScreen extends ConsumerWidget {
         data: (items) => items.isEmpty
             ? _EmptyState(onAdd: () => _showAddSheet(context, ref))
             : Builder(builder: (context) {
-                // §3.14: one grouping pass per build, looked up per-card by
-                // id — cheaper than each of N cards re-grouping the same
-                // full list.
-                final threadByItemId = <String, CorrespondenceThread>{
-                  for (final thread in groupCorrespondenceThreads(items))
-                    if (thread.isMultiMessage)
-                      for (final m in thread.messages) m.id: thread,
-                };
+                // One card per TRAIL: emails sharing a subject collapse into a
+                // single thread card whose face is the newest message and
+                // whose "Trail (N)" opens the full exchange — rather than every
+                // message showing as its own card (24 July 2026 report).
+                final threads = groupCorrespondenceThreads(items);
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
-                  itemCount: items.length,
+                  itemCount: threads.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _CorrCard(
-                    key: ValueKey(items[i].id),
-                    item: items[i],
-                    caseId: caseId,
-                    thread: threadByItemId[items[i].id],
-                    onPreview: () => items[i].isEml
-                        ? _openEmailPreview(context, items[i])
-                        : _openPdfPreview(context, ref, items[i]),
-                    onDelete: () => ref
-                        .read(correspondenceProvider(caseId).notifier)
-                        .delete(items[i].id),
-                  ),
+                  itemBuilder: (_, i) {
+                    final thread = threads[i];
+                    final rep = thread.messages.last; // newest
+                    return _CorrCard(
+                      key: ValueKey(rep.id),
+                      item: rep,
+                      caseId: caseId,
+                      thread: thread.isMultiMessage ? thread : null,
+                      onPreview: () => rep.isEml
+                          ? _openEmailPreview(context, rep)
+                          : _openPdfPreview(context, ref, rep),
+                      onDelete: () => ref
+                          .read(correspondenceProvider(caseId).notifier)
+                          .delete(rep.id),
+                    );
+                  },
                 );
               }),
       ),
@@ -259,33 +260,13 @@ class CorrespondenceScreen extends ConsumerWidget {
       return;
     }
 
-    final selected = await showDialog<List<EmlAttachment>>(
-      context: context,
-      builder: (ctx) => _AttachmentDialog(attachments: attachments),
+    await promptImportAttachments(
+      context,
+      ref,
+      caseId: caseId,
+      attachments: attachments,
+      sourceIdFor: (_) => corr.id,
     );
-
-    if (selected != null && selected.isNotEmpty && context.mounted) {
-      final docNotifier = ref.read(documentProvider(caseId).notifier);
-      for (final att in selected) {
-        await docNotifier.uploadAndCreate(
-          caseId: caseId,
-          bytes: att.bytes,
-          filename: att.filename,
-          mimeType: att.mimeType,
-          title: att.filename,
-          category: DocCategory.correspondence,
-          willExtract: false,
-          // §3.14: cross-link back to the trail item so Correspondence can
-          // show "filed in Vault" status instead of the attachment being an
-          // orphan once it lands in Document Vault.
-          sourceCorrespondenceId: corr.id,
-        );
-      }
-      if (context.mounted) {
-        showSavedToast(context,
-            label: '${selected.length} attachment(s) saved to Document Vault');
-      }
-    }
   }
 
   // ── Gmail import ───────────────────────────────────────────────────────────
@@ -341,32 +322,13 @@ class CorrespondenceScreen extends ConsumerWidget {
               '${result.length} message(s) imported — ready for AI extraction')),
     );
 
-    if (allAttachments.isEmpty) return;
-
-    final selected = await showDialog<List<EmlAttachment>>(
-      context: context,
-      builder: (ctx) => _AttachmentDialog(attachments: allAttachments),
+    await promptImportAttachments(
+      context,
+      ref,
+      caseId: caseId,
+      attachments: allAttachments,
+      sourceIdFor: (att) => attachmentCorrId[att],
     );
-
-    if (selected != null && selected.isNotEmpty && context.mounted) {
-      final docNotifier = ref.read(documentProvider(caseId).notifier);
-      for (final att in selected) {
-        await docNotifier.uploadAndCreate(
-          caseId: caseId,
-          bytes: att.bytes,
-          filename: att.filename,
-          mimeType: att.mimeType,
-          title: att.filename,
-          category: DocCategory.correspondence,
-          willExtract: false,
-          sourceCorrespondenceId: attachmentCorrId[att],
-        );
-      }
-      if (context.mounted) {
-        showSavedToast(context,
-            label: '${selected.length} attachment(s) saved to Document Vault');
-      }
-    }
   }
 
   // ── Preview ────────────────────────────────────────────────────────────────
@@ -591,7 +553,14 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 3),
-                        Row(children: [
+                        // Wrap (not Row) so the status chip + date + parties/
+                        // actions/vault/trail badges never overflow a narrow
+                        // card — the always-on date pushed this over on small
+                        // widths (24 July 2026).
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: 4,
+                          children: [
                           item.status == CorrStatus.completed
                               ? GestureDetector(
                                   onTap: _showExtractionSummary,
@@ -1118,238 +1087,6 @@ class _GmailReplyDialogState extends State<_GmailReplyDialog> {
 }
 
 
-
-// ── Attachment save dialog ──────────────────────────────────────────────────
-
-class _AttachmentDialog extends StatefulWidget {
-  const _AttachmentDialog({required this.attachments});
-  final List<EmlAttachment> attachments;
-
-  @override
-  State<_AttachmentDialog> createState() => _AttachmentDialogState();
-}
-
-class _AttachmentDialogState extends State<_AttachmentDialog> {
-  double _minImageKb = 20;
-  late final Map<EmlAttachment, bool> _checked;
-
-  bool get _hasImages => widget.attachments.any((a) => a.isImage);
-  bool _passes(EmlAttachment a) => !a.isImage || a.sizeKb >= _minImageKb;
-
-  @override
-  void initState() {
-    super.initState();
-    _checked = {for (final a in widget.attachments) a: _passes(a)};
-  }
-
-  void _reapplyFilter() {
-    for (final a in widget.attachments) {
-      if (a.isImage) _checked[a] = _passes(a);
-    }
-  }
-
-  List<EmlAttachment> get _visible =>
-      widget.attachments.where(_passes).toList();
-
-  int get _hiddenCount => widget.attachments.where((a) => !_passes(a)).length;
-  int get _selectedCount => _checked.values.where((v) => v).length;
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = _visible;
-
-    return AlertDialog(
-      title: Text('${widget.attachments.length} Attachment(s) Found'),
-      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 420,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_hasImages) ...[
-              Row(children: [
-                const Icon(Icons.filter_alt_outlined,
-                    size: 14, color: AppColors.textTertiary),
-                const SizedBox(width: 6),
-                Text(
-                  'Hide images under ${_minImageKb.round()} KB',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary),
-                ),
-                Expanded(
-                  child: Slider(
-                    value: _minImageKb,
-                    min: 0,
-                    max: 200,
-                    divisions: 20,
-                    activeColor: _kColor,
-                    onChanged: (v) => setState(() {
-                      _minImageKb = v;
-                      _reapplyFilter();
-                    }),
-                  ),
-                ),
-              ]),
-              if (_hiddenCount > 0)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    '$_hiddenCount small image(s) hidden — likely email signatures',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textTertiary,
-                        fontStyle: FontStyle.italic),
-                  ),
-                ),
-              const Divider(height: 1),
-            ],
-            Expanded(
-              child: visible.isEmpty
-                  ? const Center(
-                      child: Text('All attachments hidden by filter.',
-                          style: TextStyle(
-                              fontSize: 13, color: AppColors.textTertiary)))
-                  : ListView.separated(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      itemCount: visible.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final att = visible[i];
-                        return CheckboxListTile(
-                          value: _checked[att] ?? false,
-                          onChanged: (v) =>
-                              setState(() => _checked[att] = v ?? false),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          activeColor: _kColor,
-                          tileColor: Colors.transparent,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 2),
-                          secondary: att.isImage
-                              ? _ImageThumb(
-                                  bytes: att.bytes, filename: att.filename)
-                              : _FileTypeIcon(mimeType: att.mimeType),
-                          title: Text(att.filename,
-                              style: const TextStyle(fontSize: 13),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1),
-                          subtitle: Text(att.displaySize,
-                              style: const TextStyle(
-                                  fontSize: 11, color: AppColors.textTertiary)),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, <EmlAttachment>[]),
-          child: const Text('Skip All'),
-        ),
-        ElevatedButton(
-          onPressed: _selectedCount == 0
-              ? null
-              : () => Navigator.pop(
-                    context,
-                    _checked.entries
-                        .where((e) => e.value)
-                        .map((e) => e.key)
-                        .toList(),
-                  ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _kColor,
-            foregroundColor: Colors.white,
-          ),
-          child: Text('Save Selected ($_selectedCount)'),
-        ),
-      ],
-    );
-  }
-}
-
-// ── Image thumbnail with tap-to-zoom ──────────────────────────────────────
-
-class _ImageThumb extends StatelessWidget {
-  const _ImageThumb({required this.bytes, required this.filename});
-  final Uint8List bytes;
-  final String filename;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => showDialog<void>(
-        context: context,
-        builder: (_) => Dialog(
-          backgroundColor: Colors.black,
-          insetPadding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 4, 0),
-                child: Row(children: [
-                  Expanded(
-                    child: Text(filename,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 12),
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  IconButton(
-                    icon:
-                        const Icon(Icons.close, color: Colors.white, size: 20),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ]),
-              ),
-              InteractiveViewer(
-                  child: Image.memory(bytes, fit: BoxFit.contain)),
-            ],
-          ),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Image.memory(bytes, fit: BoxFit.cover),
-        ),
-      ),
-    );
-  }
-}
-
-// ── File type icon ─────────────────────────────────────────────────────────
-
-class _FileTypeIcon extends StatelessWidget {
-  const _FileTypeIcon({required this.mimeType});
-  final String mimeType;
-
-  @override
-  Widget build(BuildContext context) {
-    final mt = mimeType.toLowerCase();
-    final icon = mt.contains('pdf')
-        ? Icons.picture_as_pdf_outlined
-        : mt.contains('word') ||
-                mt.contains('document') ||
-                mt.contains('msword')
-            ? Icons.description_outlined
-            : mt.contains('excel') || mt.contains('spreadsheet')
-                ? Icons.table_chart_outlined
-                : Icons.attach_file;
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: _kColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Icon(icon, color: _kColor, size: 24),
-    );
-  }
-}
 
 // ── PDF preview screen ─────────────────────────────────────────────────────
 

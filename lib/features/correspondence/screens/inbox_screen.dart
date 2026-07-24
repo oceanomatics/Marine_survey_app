@@ -26,6 +26,7 @@ import '../providers/correspondence_provider.dart';
 import '../providers/inbox_provider.dart';
 import '../providers/case_inbox_provider.dart';
 import '../providers/mail_poll_provider.dart';
+import '../widgets/attachment_import.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2A6099);
@@ -103,13 +104,27 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     setState(() => _busyId = msg.id);
     try {
       final bytes = await GmailService.fetchRawMessage(msg.id);
-      await ref.read(correspondenceProvider(selected.caseId).notifier).importEml(
+      final (corr, attachments) = await ref
+          .read(correspondenceProvider(selected.caseId).notifier)
+          .importEml(
             caseId: selected.caseId,
             bytes: bytes,
             filename: '${msg.subject}.eml',
           );
       if (!mounted) return;
       setState(() => _handled.add(msg.id));
+      // Filing an email must also carry its attachments into the Document
+      // Vault — same filter dialog as the Correspondence import paths, so
+      // they're no longer silently dropped (24 July 2026 report).
+      final caseIdForAtt = selected.caseId;
+      await promptImportAttachments(
+        context,
+        ref,
+        caseId: caseIdForAtt,
+        attachments: attachments,
+        sourceIdFor: (_) => corr.id,
+      );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content:
