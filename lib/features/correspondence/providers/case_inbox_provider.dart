@@ -49,6 +49,18 @@ final caseInboxProvider = Provider.autoDispose
       );
 });
 
+/// Case-scoped inbox as whole conversations (Gmail threads) — a case-relevant
+/// email is a back-and-forth, so this returns every message in each matching
+/// trail, not just the filter-matching few (24 July 2026: "18 in Gmail, only 2
+/// shown"). Interactive path (a sign-in prompt is acceptable).
+final caseInboxThreadsProvider = FutureProvider.autoDispose
+    .family<List<GmailThreadSummary>, String>((ref, caseId) async {
+  final terms = caseSearchTerms(ref.watch(caseProvider(caseId)).value);
+  final query = caseGmailQuery(terms);
+  if (query == null) return const [];
+  return GmailService.listThreads(query: query, maxResults: 40);
+});
+
 /// Background, non-interactive count of new (filtered, not-yet-imported) case
 /// mail — drives the badge on the Case Home Mail rail icon and the
 /// Correspondence app-bar. Yields 0 when there's no silent Gmail session or

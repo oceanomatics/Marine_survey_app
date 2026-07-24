@@ -31,3 +31,22 @@ final inboxSearchProvider = FutureProvider.autoDispose
   if (q.isEmpty) return const [];
   return GmailService.listRecent(query: q, maxResults: 50);
 });
+
+// ── Thread-based (email trail) providers ────────────────────────────────────
+// The Inbox displays whole conversations via Gmail's native threads endpoint,
+// so a trail shows EVERY message (24 July 2026: "18 in Gmail, only 2 shown"),
+// not just the recent/filter-matching few that a flat message list returns.
+
+/// Most-recent inbox conversations (full trails, metadata only).
+final inboxThreadsProvider =
+    FutureProvider.autoDispose<List<GmailThreadSummary>>((ref) async {
+  return GmailService.listThreads(maxResults: 25);
+});
+
+/// Free-text Gmail search returning whole conversations.
+final inboxThreadSearchProvider = FutureProvider.autoDispose
+    .family<List<GmailThreadSummary>, String>((ref, query) async {
+  final q = query.trim();
+  if (q.isEmpty) return const [];
+  return GmailService.listThreads(query: q, maxResults: 40);
+});

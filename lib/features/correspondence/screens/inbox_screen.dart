@@ -26,7 +26,6 @@ import '../providers/correspondence_provider.dart';
 import '../providers/inbox_provider.dart';
 import '../providers/case_inbox_provider.dart';
 import '../providers/mail_poll_provider.dart';
-import '../utils/correspondence_threads.dart';
 import '../widgets/attachment_import.dart';
 import '../../../core/utils/eml_parser.dart';
 import '../../../shared/widgets/back_app_bar.dart';
@@ -89,24 +88,16 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         (_) => ref.read(mailPollProvider.notifier).markSeen());
   }
 
-  /// Groups the flat message list into email trails by normalised subject,
-  /// preserving newest-first order (each group's first entry is its newest).
-  List<List<GmailMessageSummary>> _groupThreads(
-      List<GmailMessageSummary> msgs) {
-    final byKey = <String, List<GmailMessageSummary>>{};
-    final order = <String>[];
-    for (final m in msgs) {
-      final norm = normalizeSubjectForThreading(m.subject);
-      final key = norm.isEmpty ? 'id:${m.id}' : norm;
-      if (!byKey.containsKey(key)) order.add(key);
-      byKey.putIfAbsent(key, () => []).add(m);
-    }
-    return [for (final k in order) byKey[k]!];
+  String _shortDate(String rfc822Date) {
+    // Gmail Date headers are RFC-2822 ("Mon, 21 Oct 2025 14:30:00 +1100"),
+    // which DateTime.parse can't handle — use the lenient parser.
+    final d = EmlParser.parseRfc2822Date(rfc822Date);
+    return d == null ? '' : DateFormat('dd MMM').format(d);
   }
 
-  /// Files an entire trail (every message in the group) to a case in one
+  /// Files an entire trail (every message in the Gmail thread) to a case in one
   /// action, then silently imports the pooled attachments.
-  Future<void> _linkThread(List<GmailMessageSummary> group) async {
+  Future<void> _linkThreadSummary(GmailThreadSummary thread) async {
     CaseModel? selected;
     // In case mode the target is unambiguous — this case — so file directly
     // instead of asking the surveyor to pick it out of a list every time.
@@ -120,18 +111,18 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     );
     if (selected == null || !mounted) return;
 
-    setState(() => _busyId = group.first.id);
+    setState(() => _busyId = thread.id);
     try {
       final notifier =
           ref.read(correspondenceProvider(selected.caseId).notifier);
       final pooled = <EmlAttachment>[];
       final attCorr = <EmlAttachment, String>{};
-      for (final msg in group) {
-        final bytes = await GmailService.fetchRawMessage(msg.id);
+      for (final m in thread.messages) {
+        final bytes = await GmailService.fetchRawMessage(m.id);
         final (corr, atts) = await notifier.importEml(
           caseId: selected.caseId,
           bytes: bytes,
-          filename: '${msg.subject}.eml',
+          filename: '${thread.subject}.eml',
         );
         for (final a in atts) {
           attCorr[a] = corr.id;
@@ -139,7 +130,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         pooled.addAll(atts);
       }
       if (!mounted) return;
-      setState(() => _handled.addAll(group.map((m) => m.id)));
+      setState(() => _handled.addAll(thread.messages.map((m) => m.id)));
       // Silent — attachments are listed on the Correspondence card, no pop-up.
       await autoImportAttachments(
         context,
@@ -149,7 +140,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         sourceIdFor: (a) => attCorr[a],
       );
       if (!mounted) return;
-      final n = group.length;
+      final n = thread.messages.length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -169,33 +160,33 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     }
   }
 
-  void _startNewCase(GmailMessageSummary msg) {
+  void _startNewCase(GmailThreadSummary thread) {
     // Mark handled so it drops out of the triage pass, then hand off to the
     // existing create-case flow. (Pre-filling the new case from the email's
     // sender/subject is a future enhancement — see TODO §3.5.)
-    setState(() => _handled.add(msg.id));
+    setState(() => _handled.addAll(thread.messages.map((m) => m.id)));
     context.go('/cases/new');
   }
 
   void _refresh() {
     if (_searching) {
-      ref.invalidate(inboxSearchProvider(_query.trim()));
+      ref.invalidate(inboxThreadSearchProvider(_query.trim()));
       return;
     }
     if (widget.caseId != null) {
-      ref.invalidate(caseInboxRawProvider(widget.caseId!));
+      ref.invalidate(caseInboxThreadsProvider(widget.caseId!));
     }
-    ref.invalidate(inboxMessagesProvider);
+    ref.invalidate(inboxThreadsProvider);
   }
 
   @override
   Widget build(BuildContext context) {
     final caseMode = _caseMode;
-    final AsyncValue<List<GmailMessageSummary>> async = _searching
-        ? ref.watch(inboxSearchProvider(_query.trim()))
+    final AsyncValue<List<GmailThreadSummary>> async = _searching
+        ? ref.watch(inboxThreadSearchProvider(_query.trim()))
         : caseMode
-            ? ref.watch(caseInboxProvider(widget.caseId!))
-            : ref.watch(inboxMessagesProvider);
+            ? ref.watch(caseInboxThreadsProvider(widget.caseId!))
+            : ref.watch(inboxThreadsProvider);
     return PopScope(
       canPop: widget.caseId == null,
       onPopInvokedWithResult: (didPop, _) {
@@ -246,8 +237,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                 error: e,
                 onRetry: _refresh,
               ),
-              data: (messages) {
-                if (messages.isEmpty) {
+              data: (threads) {
+                if (threads.isEmpty) {
                   return Center(
                     child: Text(
                         _searching
@@ -259,24 +250,23 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                             color: AppColors.textSecondary)),
                   );
                 }
-                final threads = _groupThreads(messages);
                 return ListView.separated(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   itemCount: threads.length,
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1, indent: 16, endIndent: 16),
                   itemBuilder: (_, i) {
-                    final group = threads[i];
-                    return _MessageCard(
-                      msg: group.first, // newest message represents the trail
-                      trailCount: group.length,
-                      handled: group.every((m) => _handled.contains(m.id)),
-                      busy: group.any((m) => _busyId == m.id),
+                    final t = threads[i];
+                    return _ThreadCard(
+                      thread: t,
+                      handled: t.messages.every((m) => _handled.contains(m.id)),
+                      busy: _busyId == t.id,
                       // "New case" only makes sense in the global inbox, not
                       // when already scoped to a case (24 July 2026 report).
                       showNewCase: widget.caseId == null,
-                      onLink: () => _linkThread(group),
-                      onNewCase: () => _startNewCase(group.first),
+                      shortDate: _shortDate,
+                      onLink: () => _linkThreadSummary(t),
+                      onNewCase: () => _startNewCase(t),
                     );
                   },
                 );
@@ -425,87 +415,124 @@ class _ScopeToggle extends StatelessWidget {
   }
 }
 
-class _MessageCard extends StatelessWidget {
-  const _MessageCard({
-    required this.msg,
-    required this.trailCount,
+class _ThreadCard extends StatefulWidget {
+  const _ThreadCard({
+    required this.thread,
     required this.handled,
     required this.busy,
     required this.showNewCase,
+    required this.shortDate,
     required this.onLink,
     required this.onNewCase,
   });
 
-  final GmailMessageSummary msg;
-  final int trailCount;
+  final GmailThreadSummary thread;
   final bool handled;
   final bool busy;
   final bool showNewCase;
+  final String Function(String) shortDate;
   final VoidCallback onLink;
   final VoidCallback onNewCase;
 
   @override
+  State<_ThreadCard> createState() => _ThreadCardState();
+}
+
+class _ThreadCardState extends State<_ThreadCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final t = widget.thread;
+    // Gmail returns a thread oldest-first; the newest message is its face.
+    final latest = t.messages.last;
+    final count = t.messages.length;
+    final dateStr = latest.date != null ? widget.shortDate(latest.date!) : '';
+
     return Opacity(
-      opacity: handled ? 0.5 : 1,
+      opacity: widget.handled ? 0.5 : 1,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 12, 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    msg.subject,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (trailCount > 1) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: _kColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('Trail · $trailCount',
+            // Header — tap anywhere to expand the trail into its messages.
+            InkWell(
+              onTap: count > 1
+                  ? () => setState(() => _expanded = !_expanded)
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                        t.subject,
                         style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: _kColor)),
-                  ),
-                ],
-                if (msg.date != null && _shortDate(msg.date!).isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  Text(_shortDate(msg.date!),
+                            fontSize: 13, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (count > 1) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: _kColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('Trail \u00b7 $count',
+                            style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: _kColor)),
+                      ),
+                    ],
+                    if (dateStr.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(dateStr,
+                          style: const TextStyle(
+                              fontSize: 10, color: AppColors.textTertiary)),
+                    ],
+                    if (count > 1)
+                      Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                          size: 18, color: AppColors.textTertiary),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(latest.from,
                       style: const TextStyle(
-                          fontSize: 10, color: AppColors.textTertiary)),
+                          fontSize: 11.5,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w500),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  if (!_expanded && latest.snippet.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(latest.snippet,
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.textTertiary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                  ],
                 ],
-              ],
+              ),
             ),
-            const SizedBox(height: 2),
-            Text(msg.from,
-                style: const TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w500),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-            if (msg.snippet.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(msg.snippet,
-                  style: const TextStyle(
-                      fontSize: 11.5, color: AppColors.textTertiary),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis),
+
+            // Expanded trail — one node per message, oldest at top.
+            if (_expanded) ...[
+              const SizedBox(height: 6),
+              for (var i = 0; i < t.messages.length; i++)
+                _ThreadNode(
+                  msg: t.messages[i],
+                  isLast: i == t.messages.length - 1,
+                  shortDate: widget.shortDate,
+                ),
             ],
+
             const SizedBox(height: 4),
-            if (handled)
+            if (widget.handled)
               const Row(
                 children: [
                   Icon(Icons.check_circle, size: 14, color: AppColors.success),
@@ -520,7 +547,7 @@ class _MessageCard extends StatelessWidget {
             else
               Row(
                 children: [
-                  if (busy)
+                  if (widget.busy)
                     const Padding(
                       padding: EdgeInsets.only(right: 12),
                       child: SizedBox(
@@ -530,28 +557,27 @@ class _MessageCard extends StatelessWidget {
                     )
                   else ...[
                     TextButton.icon(
-                      onPressed: onLink,
+                      onPressed: widget.onLink,
                       icon: const Icon(Icons.link, size: 16),
-                      label: const Text('Link to case',
-                          style: TextStyle(fontSize: 12)),
+                      label: Text(
+                          count > 1 ? 'Link trail to case' : 'Link to case',
+                          style: const TextStyle(fontSize: 12)),
                       style: TextButton.styleFrom(
                         foregroundColor: _kColor,
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                         minimumSize: const Size(0, 32),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
-                    if (showNewCase)
+                    if (widget.showNewCase)
                       TextButton.icon(
-                        onPressed: onNewCase,
+                        onPressed: widget.onNewCase,
                         icon: const Icon(Icons.add_circle_outline, size: 16),
                         label: const Text('New case',
                             style: TextStyle(fontSize: 12)),
                         style: TextButton.styleFrom(
                           foregroundColor: AppColors.textSecondary,
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           minimumSize: const Size(0, 32),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
@@ -564,12 +590,86 @@ class _MessageCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  String _shortDate(String rfc822Date) {
-    // Gmail Date headers are RFC-2822 ("Mon, 21 Oct 2025 14:30:00 +1100"),
-    // which DateTime.parse can't handle — use the lenient parser.
-    final d = EmlParser.parseRfc2822Date(rfc822Date);
-    return d == null ? '' : DateFormat('dd MMM').format(d);
+/// One message node in an expanded trail — a left rail (dot + connector line)
+/// plus the message's sender, date and snippet, so a trail reads as a tree.
+class _ThreadNode extends StatelessWidget {
+  const _ThreadNode({
+    required this.msg,
+    required this.isLast,
+    required this.shortDate,
+  });
+
+  final GmailThreadMessage msg;
+  final bool isLast;
+  final String Function(String) shortDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = msg.date != null ? shortDate(msg.date!) : '';
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Left rail: dot + connector.
+          Column(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                margin: const EdgeInsets.only(top: 3),
+                decoration: BoxDecoration(
+                  color: _kColor.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 1.5,
+                    color: AppColors.border,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(
+                      child: Text(msg.from,
+                          style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    if (dateStr.isNotEmpty)
+                      Text(dateStr,
+                          style: const TextStyle(
+                              fontSize: 10, color: AppColors.textTertiary)),
+                  ]),
+                  if (msg.snippet.isNotEmpty) ...[
+                    const SizedBox(height: 1),
+                    Text(msg.snippet,
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textTertiary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

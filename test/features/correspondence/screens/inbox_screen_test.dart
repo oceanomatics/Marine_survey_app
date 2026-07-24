@@ -13,18 +13,25 @@ import '../../../support/fakes/fake_cases_notifier.dart';
 import '../../../support/fakes/fake_case_notifier.dart';
 import '../../../support/fakes/fake_mail_poll_notifier.dart';
 
-GmailMessageSummary _msg({
-  String id = 'm1',
+// The Inbox now displays Gmail THREADS (whole trails). Each test thread wraps
+// a single message so existing metadata assertions still hold.
+GmailThreadSummary _thread({
+  String id = 't1',
   String subject = 'Re: MV Surveyor main engine damage',
   String from = 'owner@ship.com',
   String snippet = 'Please find attached the repair quote for review.',
 }) =>
-    GmailMessageSummary(
+    GmailThreadSummary(
       id: id,
       subject: subject,
-      from: from,
-      date: 'Mon, 28 Jun 2026 09:00:00 +1000',
-      snippet: snippet,
+      messages: [
+        GmailThreadMessage(
+          id: '${id}_m1',
+          from: from,
+          date: 'Mon, 28 Jun 2026 09:00:00 +1000',
+          snippet: snippet,
+        ),
+      ],
     );
 
 CaseModel _case({String id = 'case-1', String? title = 'MV Surveyor — H&M'}) =>
@@ -38,16 +45,16 @@ CaseModel _case({String id = 'case-1', String? title = 'MV Surveyor — H&M'}) =
 
 Future<void> _pump(
   WidgetTester tester, {
-  List<GmailMessageSummary>? messages,
+  List<GmailThreadSummary>? threads,
   Object? error,
   List<CaseModel> cases = const [],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        inboxMessagesProvider.overrideWith((ref) async {
+        inboxThreadsProvider.overrideWith((ref) async {
           if (error != null) throw error;
-          return messages ?? const [];
+          return threads ?? const [];
         }),
         casesProvider.overrideWith(() => FakeCasesNotifier(cases)),
         // Real mailPollProvider starts a Timer.periodic and hits the live
@@ -63,20 +70,20 @@ Future<void> _pump(
 void main() {
   group('InboxScreen', () {
     testWidgets('shows the triage banner and message metadata', (tester) async {
-      await _pump(tester, messages: [_msg()]);
+      await _pump(tester, threads: [_thread()]);
 
       expect(find.textContaining('Triage'), findsOneWidget);
       expect(find.text('Re: MV Surveyor main engine damage'), findsOneWidget);
       expect(find.text('owner@ship.com'), findsOneWidget);
       expect(find.textContaining('repair quote'), findsOneWidget);
-      // Per-message triage actions are present.
+      // Triage actions are present (global inbox → New case shown).
       expect(find.text('Link to case'), findsOneWidget);
       expect(find.text('New case'), findsOneWidget);
     });
 
     testWidgets('empty inbox shows the no-messages placeholder',
         (tester) async {
-      await _pump(tester, messages: const []);
+      await _pump(tester, threads: const []);
       expect(find.text('No recent messages.'), findsOneWidget);
     });
 
@@ -90,7 +97,7 @@ void main() {
         (tester) async {
       await _pump(
         tester,
-        messages: [_msg()],
+        threads: [_thread()],
         cases: [_case(), _case(id: 'case-2', title: 'MV Second — C&S')],
       );
 
@@ -109,8 +116,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            inboxMessagesProvider
-                .overrideWith((ref) async => [_msg()]),
+            inboxThreadsProvider.overrideWith((ref) async => [_thread()]),
             casesProvider.overrideWith(() => FakeCasesNotifier(const [])),
             mailPollProvider.overrideWith(() => tracker),
           ],
@@ -126,15 +132,15 @@ void main() {
   group('InboxScreen (case-scoped)', () {
     Future<void> pumpCase(
       WidgetTester tester, {
-      required List<GmailMessageSummary> caseMessages,
-      List<GmailMessageSummary> allMessages = const [],
+      required List<GmailThreadSummary> caseThreads,
+      List<GmailThreadSummary> allThreads = const [],
     }) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            caseInboxProvider.overrideWith(
-                (ref, caseId) => AsyncData(caseMessages)),
-            inboxMessagesProvider.overrideWith((ref) async => allMessages),
+            caseInboxThreadsProvider
+                .overrideWith((ref, caseId) async => caseThreads),
+            inboxThreadsProvider.overrideWith((ref) async => allThreads),
             caseProvider.overrideWith(() => FakeCaseNotifier(_case())),
             casesProvider.overrideWith(() => FakeCasesNotifier(const [])),
             mailPollProvider.overrideWith(FakeMailPollNotifier.new),
@@ -149,8 +155,8 @@ void main() {
         (tester) async {
       await pumpCase(
         tester,
-        caseMessages: [_msg(subject: 'MV Surveyor damage')],
-        allMessages: [_msg(id: 'other', subject: 'Unrelated newsletter')],
+        caseThreads: [_thread(subject: 'MV Surveyor damage')],
+        allThreads: [_thread(id: 'other', subject: 'Unrelated newsletter')],
       );
 
       // Case banner + the case-relevant message, not the unrelated one.
@@ -164,7 +170,7 @@ void main() {
 
     testWidgets('empty case view shows the case-specific placeholder',
         (tester) async {
-      await pumpCase(tester, caseMessages: const []);
+      await pumpCase(tester, caseThreads: const []);
       expect(find.text('No un-filed mail matches this case.'), findsOneWidget);
     });
 
@@ -172,8 +178,8 @@ void main() {
         (tester) async {
       await pumpCase(
         tester,
-        caseMessages: [_msg(subject: 'MV Surveyor damage')],
-        allMessages: [_msg(id: 'other', subject: 'Unrelated newsletter')],
+        caseThreads: [_thread(subject: 'MV Surveyor damage')],
+        allThreads: [_thread(id: 'other', subject: 'Unrelated newsletter')],
       );
 
       await tester.tap(find.text('All mail'));
