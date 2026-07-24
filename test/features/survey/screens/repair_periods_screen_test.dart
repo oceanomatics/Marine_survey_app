@@ -226,7 +226,10 @@ void main() {
         await tester.tap(find.text('Occ. 1 — Grounding'));
         await tester.pumpAndSettle();
 
-        expect(find.textContaining('Repair Times —'), findsOneWidget);
+        // The row editor header — matched exactly so it isn't confused with
+        // the collapsed "Repair Times — Context Cues" unassigned-cue bucket
+        // panel that also renders once a period exists.
+        expect(find.text('Repair Times — Occ. 1 — Grounding'), findsOneWidget);
         await tester.enterText(find.widgetWithText(TextField, '0').first, '3');
         await tester.tap(find.text('Save'));
         await tester.pumpAndSettle();
