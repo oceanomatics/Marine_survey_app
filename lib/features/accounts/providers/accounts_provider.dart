@@ -406,7 +406,6 @@ class RepairDocumentsNotifier
       await notesNotifier.add(
         caseId:          doc.caseId,
         content:         cue['content'] as String,
-        natureOfContent: NatureOfContent.observationFinding,
         priority:        priority,
         linkedToType:    'repair_document',
         linkedToId:      docId,

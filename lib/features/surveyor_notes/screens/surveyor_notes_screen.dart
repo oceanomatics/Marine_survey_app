@@ -269,7 +269,7 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
       builder: (_) => _NoteEditorSheet(
         caseId: widget.caseId,
         existing: note,
-        onSave: (content, section, priority, nature, weight, origin,
+        onSave: (content, section, priority, weight, origin,
             linkedPeriodId) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
@@ -283,7 +283,6 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               content: content,
               caseSection: section,
               priority: priority,
-              natureOfContent: nature,
               evidentiaryWeight: weight,
               origin: origin,
               linkedToType: linkedToType,
@@ -295,7 +294,6 @@ class _SurveyorNotesScreenState extends ConsumerState<SurveyorNotesScreen>
               content: content,
               caseSection: section,
               priority: priority,
-              natureOfContent: nature,
               evidentiaryWeight: weight,
               origin: origin,
               linkedToType: linkedToType,
@@ -408,19 +406,23 @@ class _FlatList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grouped = <NatureOfContent?, List<SurveyorNote>>{};
+    // Grouped by case section (the cue's routing destination) — the
+    // Nature-of-content axis was dropped as unhelpful (23 July 2026).
+    final grouped = <CaseSection?, List<SurveyorNote>>{};
     for (final n in notes) {
-      grouped.putIfAbsent(n.natureOfContent, () => []).add(n);
+      grouped.putIfAbsent(n.caseSection, () => []).add(n);
     }
 
     final items = <Widget>[];
     var first = true;
-    for (final nature in [...NatureOfContent.values, null]) {
-      final list = grouped[nature];
+    for (final section in [...CaseSection.ordered, null]) {
+      final list = grouped[section];
       if (list == null) continue;
       if (!first) items.add(const SizedBox(height: 18));
       first = false;
-      items.add(_NatureHeader(nature: nature, count: list.length));
+      items.add(section != null
+          ? _SectionHeader(section: section, count: list.length)
+          : _UnsortedHeader(count: list.length));
       items.add(const SizedBox(height: 8));
       for (final note in list) {
         items.add(Padding(
@@ -484,27 +486,24 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── Nature-of-content header ───────────────────────────────────────────────
+// ── Unsorted header (cues with no case section yet) ────────────────────────
 
-class _NatureHeader extends StatelessWidget {
-  const _NatureHeader({required this.nature, required this.count});
-  final NatureOfContent? nature;
+class _UnsortedHeader extends StatelessWidget {
+  const _UnsortedHeader({required this.count});
   final int count;
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        nature != null ? natureOfContentColor(nature!) : AppColors.textTertiary;
-    final label = nature?.label ?? 'Unclassified';
+    const color = AppColors.textTertiary;
     return Row(children: [
       Container(
         width: 8,
         height: 8,
         margin: const EdgeInsets.only(right: 7),
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        decoration: const BoxDecoration(color: color, shape: BoxShape.circle),
       ),
-      Text(
-        label.toUpperCase(),
+      const Text(
+        'UNSORTED',
         style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
@@ -519,7 +518,7 @@ class _NatureHeader extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text('$count',
-            style: TextStyle(
+            style: const TextStyle(
                 fontSize: 10, fontWeight: FontWeight.w700, color: color)),
       ),
     ]);
@@ -586,12 +585,6 @@ class _NoteCard extends StatelessWidget {
                                 runSpacing: 4,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  if (note.natureOfContent != null)
-                                    _MetaChip(
-                                      label: note.natureOfContent!.label,
-                                      color: natureOfContentColor(
-                                          note.natureOfContent!),
-                                    ),
                                   if (note.evidentiaryWeight != null)
                                     _MetaChip(
                                       label: note.evidentiaryWeight!.label,
@@ -842,7 +835,6 @@ typedef _OnSave = Future<void> Function(
   String content,
   CaseSection? section,
   CuePriority priority,
-  NatureOfContent? nature,
   EvidentiaryWeight? weight,
   CueOrigin? origin,
   String? linkedPeriodId,
@@ -867,7 +859,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _ctrl;
   late CuePriority _priority;
   CaseSection? _section;
-  NatureOfContent? _nature;
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
   String? _periodId;
@@ -879,7 +870,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _ctrl = TextEditingController(text: widget.existing?.content ?? '');
     _priority = widget.existing?.priority ?? CuePriority.normal;
     _section = widget.existing?.caseSection;
-    _nature = widget.existing?.natureOfContent;
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
     _periodId = widget.existing?.linkedToType == repairPeriodLinkType
@@ -1110,16 +1100,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             // walkthrough): an ignored cue isn't going to be allocated
             // further, so these menus were pointless to fill in regardless.
             if (_priority != CuePriority.ignored) ...[
-              LabeledCueChipRow<NatureOfContent>(
-                label: 'Nature of content',
-                values: NatureOfContent.values,
-                selected: _nature,
-                labelOf: (n) => n.label,
-                colorOf: natureOfContentColor,
-                onTap: (n) =>
-                    setState(() => _nature = _nature == n ? null : n),
-              ),
-              const SizedBox(height: 10),
               LabeledCueChipRow<EvidentiaryWeight>(
                 label: 'Evidentiary weight',
                 values: EvidentiaryWeight.values,
@@ -1183,7 +1163,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     try {
       final linkedPeriodId =
           _section?.isRepairPeriodScoped == true ? _periodId : null;
-      await widget.onSave(content, _section, _priority, _nature, _weight,
+      await widget.onSave(content, _section, _priority, _weight,
           _origin, linkedPeriodId);
       if (mounted) Navigator.pop(context);
     } finally {

@@ -520,7 +520,6 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
     await ref.read(surveyorNotesProvider(widget.caseId).notifier).add(
           caseId: widget.caseId,
           content: action,
-          natureOfContent: NatureOfContent.followUpOpenQuestion,
           priority: CuePriority.important,
         );
     if (mounted) {

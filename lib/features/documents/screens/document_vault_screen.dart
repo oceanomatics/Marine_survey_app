@@ -36,8 +36,7 @@ import '../../../features/attendances/models/attendance_model.dart';
 import '../../../features/accounts/providers/accounts_provider.dart';
 import '../../../features/accounts/models/accounts_models.dart';
 import '../../../features/action_items/providers/action_items_provider.dart';
-import '../../../shared/widgets/context_cues_panel.dart'
-    show natureOfContentColor;
+import '../../../shared/widgets/context_cues_panel.dart' show sectionColor;
 import '../../../features/parties/models/party_model.dart';
 import '../../../features/parties/providers/parties_provider.dart';
 import '../../../features/vessel/providers/certificates_provider.dart';
@@ -1452,8 +1451,6 @@ class ExtractionReviewSheetState
       // Insert in reverse order so created_at DESC retrieval shows finding 1 at top
       for (var j = total - 1; j >= 0; j--) {
         final origIdx = selectedIndices[j];
-        final cats = widget.result.findingCategories;
-        final catStr = cats.length > origIdx ? cats[origIdx] : 'observation';
         final sections = widget.result.findingCaseSections;
         final origins = widget.result.findingOrigins;
         final pages = widget.result.findingPages;
@@ -1468,7 +1465,8 @@ class ExtractionReviewSheetState
         await notesNotifier.add(
           caseId: widget.caseId,
           content: widget.result.contextFindings[origIdx],
-          natureOfContent: _mapExtractedNature(catStr),
+          // Nature-of-content axis dropped (23 July 2026) — cues route by
+          // case section, not by observation/recommendation/etc.
           priority: CuePriority.normal,
           source: '${widget.docTitle} (${j + 1}/$total$pageSuffix)',
           caseSection: caseSection,
@@ -1801,7 +1799,6 @@ class ExtractionReviewSheetState
           await ref.read(surveyorNotesProvider(widget.caseId).notifier).add(
                 caseId: widget.caseId,
                 content: res.backgroundText!,
-                natureOfContent: NatureOfContent.backgroundReference,
                 priority: CuePriority.normal,
                 source: widget.docTitle,
                 caseSection: CaseSection.background,
@@ -2055,10 +2052,9 @@ class ExtractionReviewSheetState
                 ...List.generate(
                   result.contextFindings.length,
                   (i) {
-                    final catStr = result.findingCategories.length > i
-                        ? result.findingCategories[i]
-                        : 'observation';
-                    final cat = _mapExtractedNature(catStr);
+                    final sec = i < result.findingCaseSections.length
+                        ? CaseSection.fromValue(result.findingCaseSections[i])
+                        : null;
                     final page = result.findingPages.length > i
                         ? result.findingPages[i]
                         : null;
@@ -2075,7 +2071,7 @@ class ExtractionReviewSheetState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(children: [
-                            _CatChip(cat),
+                            _SectionChip(sec),
                             if (page != null) ...[
                               const SizedBox(width: 6),
                               Text('p.$page',
@@ -2561,31 +2557,18 @@ class ExtractionReviewSheetState
       };
 }
 
-// Extraction still returns the AI's free-form category guess as a raw
-// string (the extraction prompt hasn't been redesigned for the new
-// NatureOfContent/EvidentiaryWeight/Origin axes yet — see
-// docs/context_cue_system_review.md §3.5, deliberately deferred). This is a
-// lossy compatibility mapping onto the new taxonomy so the review UI still
-// shows a meaningful chip and the imported cue isn't left unclassified.
-NatureOfContent _mapExtractedNature(String raw) => switch (raw) {
-      'observation' => NatureOfContent.observationFinding,
-      'measurement' => NatureOfContent.observationFinding,
-      'technical' => NatureOfContent.observationFinding,
-      'previous_works' => NatureOfContent.observationFinding,
-      'interview' => NatureOfContent.observationFinding,
-      'follow_up' => NatureOfContent.followUpOpenQuestion,
-      'operations' => NatureOfContent.backgroundReference,
-      'policy' => NatureOfContent.backgroundReference,
-      _ => NatureOfContent.backgroundReference,
-    };
-
-class _CatChip extends StatelessWidget {
-  const _CatChip(this.nature);
-  final NatureOfContent nature;
+/// Shows the case section a context finding will route to (the "main routing"
+/// destination). Replaced the old Nature-of-content chip (23 July 2026: that
+/// axis was dropped as unhelpful).
+class _SectionChip extends StatelessWidget {
+  const _SectionChip(this.section);
+  final CaseSection? section;
 
   @override
   Widget build(BuildContext context) {
-    final color = natureOfContentColor(nature);
+    final s = section;
+    final color = s != null ? sectionColor(s) : AppColors.textTertiary;
+    final label = s?.shortLabel ?? 'Unsorted';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -2593,7 +2576,7 @@ class _CatChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        nature.label,
+        '→ $label',
         style:
             TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
       ),

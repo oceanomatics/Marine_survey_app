@@ -615,7 +615,7 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
                 widget.onPromote!(existing);
               },
         onSave:
-            (content, priority, nature, weight, origin, routedId, phase) async {
+            (content, priority, weight, origin, routedId, phase) async {
           final notifier =
               ref.read(surveyorNotesProvider(widget.caseId).notifier);
           final scope = widget.periodScope;
@@ -646,7 +646,6 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               caseId:            widget.caseId,
               content:           content,
               priority:          priority,
-              natureOfContent:   nature,
               evidentiaryWeight: weight,
               origin:            origin,
               caseSection:       widget.section,
@@ -659,7 +658,6 @@ class _ContextCuesPanelState extends ConsumerState<ContextCuesPanel> {
               existing.id,
               content:           content,
               priority:          priority,
-              natureOfContent:   nature,
               evidentiaryWeight: weight,
               origin:            origin,
               caseSection:       widget.section,
@@ -699,9 +697,6 @@ class _CuePanelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final nature = note.natureOfContent;
-    final natureColor = nature != null ? natureOfContentColor(nature) : accent;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
       child: GestureDetector(
@@ -731,24 +726,6 @@ class _CuePanelTile extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 7),
                   child: Row(
                     children: [
-                      if (nature != null) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: natureColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            nature.label,
-                            style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: natureColor),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                      ],
                       Flexible(
                         child: Text(
                           note.content,
@@ -853,7 +830,6 @@ String capitalizeCueContent(String text) {
 typedef _CueSaveCallback = Future<void> Function(
   String content,
   CuePriority priority,
-  NatureOfContent? nature,
   EvidentiaryWeight? weight,
   CueOrigin? origin,
   String? routedId,
@@ -899,7 +875,6 @@ class _CuePanelSheet extends StatefulWidget {
 class _CuePanelSheetState extends State<_CuePanelSheet> {
   late final TextEditingController _ctrl;
   late CuePriority _priority;
-  NatureOfContent? _nature;
   EvidentiaryWeight? _weight;
   CueOrigin? _origin;
   String? _routedId;
@@ -911,7 +886,6 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     super.initState();
     _ctrl = TextEditingController(text: widget.existing?.content ?? '');
     _priority = widget.existing?.priority ?? CuePriority.normal;
-    _nature = widget.existing?.natureOfContent;
     _weight = widget.existing?.evidentiaryWeight;
     _origin = widget.existing?.origin;
     _routedId = widget.initialRoutedId;
@@ -1131,16 +1105,6 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
             // Further classification skipped once Ignored — same reasoning
             // as the standalone Advice-to-Owner editor sheet.
             if (_priority != CuePriority.ignored) ...[
-              LabeledCueChipRow<NatureOfContent>(
-                label: 'Nature of content',
-                values: NatureOfContent.values,
-                selected: _nature,
-                labelOf: (n) => n.label,
-                colorOf: natureOfContentColor,
-                onTap: (n) =>
-                    setState(() => _nature = _nature == n ? null : n),
-              ),
-              const SizedBox(height: 10),
               LabeledCueChipRow<EvidentiaryWeight>(
                 label: 'Evidentiary weight',
                 values: EvidentiaryWeight.values,
@@ -1204,7 +1168,7 @@ class _CuePanelSheetState extends State<_CuePanelSheet> {
     setState(() => _saving = true);
     try {
       await widget.onSave(
-          content, _priority, _nature, _weight, _origin, _routedId, _phase);
+          content, _priority, _weight, _origin, _routedId, _phase);
       if (mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _saving = false);
