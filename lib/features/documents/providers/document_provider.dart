@@ -380,6 +380,15 @@ class DocExtractionResult {
     final findings = maps(raw['context_findings'])
         .where((f) => (s(f['text']) ?? '').isNotEmpty)
         .toList();
+    // Background is just a Background-tagged cue, not a separate section
+    // (24 July 2026 report: "why a full section? this should be a cue with a
+    // background tag"). Fold the AI's background_text into the findings list
+    // so it routes through the same per-finding mechanism (→ Background chip,
+    // editable) instead of its own dedicated section + apply branch.
+    final bg = s(raw['background_text']);
+    if (bg != null) {
+      findings.add({'text': bg, 'case_section': 'background'});
+    }
     return DocExtractionResult(
       docId: sourceId,
       documentType: 'Correspondence',
@@ -399,7 +408,8 @@ class DocExtractionResult {
       keyDates: maps(raw['key_dates']),
       costEstimates: maps(raw['cost_estimates']),
       actionItems: strs(raw['action_items']),
-      backgroundText: s(raw['background_text']),
+      // Folded into findings above — no separate Background section.
+      backgroundText: null,
       caseRefs: {
         'technical_file_no': s(raw['technical_file_no']),
         'claim_reference': s(raw['claim_reference']),
