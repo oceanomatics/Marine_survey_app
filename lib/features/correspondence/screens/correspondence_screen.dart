@@ -254,15 +254,8 @@ class CorrespondenceScreen extends ConsumerWidget {
         .importEml(caseId: caseId, bytes: file.bytes!, filename: file.name);
 
     if (!context.mounted) return;
-
-    if (attachments.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email imported — no attachments found')),
-      );
-      return;
-    }
-
-    await promptImportAttachments(
+    // Silent — no interrupting pop-up; attachments are listed on the card.
+    await autoImportAttachments(
       context,
       ref,
       caseId: caseId,
@@ -324,7 +317,7 @@ class CorrespondenceScreen extends ConsumerWidget {
               '${result.length} message(s) imported — ready for AI extraction')),
     );
 
-    await promptImportAttachments(
+    await autoImportAttachments(
       context,
       ref,
       caseId: caseId,

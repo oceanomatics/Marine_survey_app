@@ -26,7 +26,9 @@ import '../providers/correspondence_provider.dart';
 import '../providers/inbox_provider.dart';
 import '../providers/case_inbox_provider.dart';
 import '../providers/mail_poll_provider.dart';
+import '../utils/correspondence_threads.dart';
 import '../widgets/attachment_import.dart';
+import '../../../core/utils/eml_parser.dart';
 import '../../../shared/widgets/back_app_bar.dart';
 
 const _kColor = Color(0xFF2A6099);
@@ -87,7 +89,24 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         (_) => ref.read(mailPollProvider.notifier).markSeen());
   }
 
-  Future<void> _linkToCase(GmailMessageSummary msg) async {
+  /// Groups the flat message list into email trails by normalised subject,
+  /// preserving newest-first order (each group's first entry is its newest).
+  List<List<GmailMessageSummary>> _groupThreads(
+      List<GmailMessageSummary> msgs) {
+    final byKey = <String, List<GmailMessageSummary>>{};
+    final order = <String>[];
+    for (final m in msgs) {
+      final norm = normalizeSubjectForThreading(m.subject);
+      final key = norm.isEmpty ? 'id:${m.id}' : norm;
+      if (!byKey.containsKey(key)) order.add(key);
+      byKey.putIfAbsent(key, () => []).add(m);
+    }
+    return [for (final k in order) byKey[k]!];
+  }
+
+  /// Files an entire trail (every message in the group) to a case in one
+  /// action, then silently imports the pooled attachments.
+  Future<void> _linkThread(List<GmailMessageSummary> group) async {
     CaseModel? selected;
     // In case mode the target is unambiguous — this case — so file directly
     // instead of asking the surveyor to pick it out of a list every time.
@@ -101,34 +120,40 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     );
     if (selected == null || !mounted) return;
 
-    setState(() => _busyId = msg.id);
+    setState(() => _busyId = group.first.id);
     try {
-      final bytes = await GmailService.fetchRawMessage(msg.id);
-      final (corr, attachments) = await ref
-          .read(correspondenceProvider(selected.caseId).notifier)
-          .importEml(
-            caseId: selected.caseId,
-            bytes: bytes,
-            filename: '${msg.subject}.eml',
-          );
+      final notifier =
+          ref.read(correspondenceProvider(selected.caseId).notifier);
+      final pooled = <EmlAttachment>[];
+      final attCorr = <EmlAttachment, String>{};
+      for (final msg in group) {
+        final bytes = await GmailService.fetchRawMessage(msg.id);
+        final (corr, atts) = await notifier.importEml(
+          caseId: selected.caseId,
+          bytes: bytes,
+          filename: '${msg.subject}.eml',
+        );
+        for (final a in atts) {
+          attCorr[a] = corr.id;
+        }
+        pooled.addAll(atts);
+      }
       if (!mounted) return;
-      setState(() => _handled.add(msg.id));
-      // Filing an email must also carry its attachments into the Document
-      // Vault — same filter dialog as the Correspondence import paths, so
-      // they're no longer silently dropped (24 July 2026 report).
-      final caseIdForAtt = selected.caseId;
-      await promptImportAttachments(
+      setState(() => _handled.addAll(group.map((m) => m.id)));
+      // Silent — attachments are listed on the Correspondence card, no pop-up.
+      await autoImportAttachments(
         context,
         ref,
-        caseId: caseIdForAtt,
-        attachments: attachments,
-        sourceIdFor: (_) => corr.id,
+        caseId: selected.caseId,
+        attachments: pooled,
+        sourceIdFor: (a) => attCorr[a],
       );
       if (!mounted) return;
+      final n = group.length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text('Filed to "${_caseLabel(selected)}" — Correspondence'),
+          content: Text(
+              'Filed ${n > 1 ? '$n messages' : 'email'} to "${_caseLabel(selected)}"'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -234,18 +259,26 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                             color: AppColors.textSecondary)),
                   );
                 }
+                final threads = _groupThreads(messages);
                 return ListView.separated(
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: messages.length,
+                  itemCount: threads.length,
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1, indent: 16, endIndent: 16),
-                  itemBuilder: (_, i) => _MessageCard(
-                    msg: messages[i],
-                    handled: _handled.contains(messages[i].id),
-                    busy: _busyId == messages[i].id,
-                    onLink: () => _linkToCase(messages[i]),
-                    onNewCase: () => _startNewCase(messages[i]),
-                  ),
+                  itemBuilder: (_, i) {
+                    final group = threads[i];
+                    return _MessageCard(
+                      msg: group.first, // newest message represents the trail
+                      trailCount: group.length,
+                      handled: group.every((m) => _handled.contains(m.id)),
+                      busy: group.any((m) => _busyId == m.id),
+                      // "New case" only makes sense in the global inbox, not
+                      // when already scoped to a case (24 July 2026 report).
+                      showNewCase: widget.caseId == null,
+                      onLink: () => _linkThread(group),
+                      onNewCase: () => _startNewCase(group.first),
+                    );
+                  },
                 );
               },
             ),
@@ -395,15 +428,19 @@ class _ScopeToggle extends StatelessWidget {
 class _MessageCard extends StatelessWidget {
   const _MessageCard({
     required this.msg,
+    required this.trailCount,
     required this.handled,
     required this.busy,
+    required this.showNewCase,
     required this.onLink,
     required this.onNewCase,
   });
 
   final GmailMessageSummary msg;
+  final int trailCount;
   final bool handled;
   final bool busy;
+  final bool showNewCase;
   final VoidCallback onLink;
   final VoidCallback onNewCase;
 
@@ -427,10 +464,28 @@ class _MessageCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (msg.date != null)
+                if (trailCount > 1) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: _kColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('Trail · $trailCount',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: _kColor)),
+                  ),
+                ],
+                if (msg.date != null && _shortDate(msg.date!).isNotEmpty) ...[
+                  const SizedBox(width: 6),
                   Text(_shortDate(msg.date!),
                       style: const TextStyle(
                           fontSize: 10, color: AppColors.textTertiary)),
+                ],
               ],
             ),
             const SizedBox(height: 2),
@@ -487,19 +542,20 @@ class _MessageCard extends StatelessWidget {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: onNewCase,
-                      icon: const Icon(Icons.add_circle_outline, size: 16),
-                      label: const Text('New case',
-                          style: TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 32),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    if (showNewCase)
+                      TextButton.icon(
+                        onPressed: onNewCase,
+                        icon: const Icon(Icons.add_circle_outline, size: 16),
+                        label: const Text('New case',
+                            style: TextStyle(fontSize: 12)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.textSecondary,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
-                    ),
                   ],
                 ],
               ),
@@ -510,11 +566,10 @@ class _MessageCard extends StatelessWidget {
   }
 
   String _shortDate(String rfc822Date) {
-    try {
-      return DateFormat('dd MMM').format(DateTime.parse(rfc822Date));
-    } catch (_) {
-      return '';
-    }
+    // Gmail Date headers are RFC-2822 ("Mon, 21 Oct 2025 14:30:00 +1100"),
+    // which DateTime.parse can't handle — use the lenient parser.
+    final d = EmlParser.parseRfc2822Date(rfc822Date);
+    return d == null ? '' : DateFormat('dd MMM').format(d);
   }
 }
 

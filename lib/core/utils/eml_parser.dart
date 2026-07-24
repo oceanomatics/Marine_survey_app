@@ -286,6 +286,10 @@ class EmlParser {
   };
 
   // RFC 2822: "Mon, 23 Jun 2026 10:30:00 +1000" or without day name
+  /// Public, lenient RFC-2822 Date-header parser (reused by the Inbox list —
+  /// DateTime.parse can't handle "Mon, 21 Oct 2025 14:30:00 +1100").
+  static DateTime? parseRfc2822Date(String? dateStr) => _parseRfc2822Date(dateStr);
+
   static DateTime? _parseRfc2822Date(String? dateStr) {
     if (dateStr == null || dateStr.isEmpty) return null;
     try {

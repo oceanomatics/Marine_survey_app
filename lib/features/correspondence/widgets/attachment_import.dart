@@ -23,10 +23,29 @@ const _kColor = Color(0xFF2A6099);
 /// attachment, so the Correspondence card can list an email's attachments.
 const String correspondenceAttachmentLink = 'correspondence';
 
+/// Imports [attachments] SILENTLY (no dialog) into the case — documents to the
+/// Vault, images to the Photos gallery — applying the signature-image filter
+/// (skips images under 20 KB, which are almost always email-signature logos).
+/// Called automatically on import so it never interrupts the surveyor with a
+/// pop-up (24 July 2026 report); attachments are then listed on the
+/// Correspondence card. Shows a summary toast. No-op when nothing qualifies.
+Future<void> autoImportAttachments(
+  BuildContext context,
+  WidgetRef ref, {
+  required String caseId,
+  required List<EmlAttachment> attachments,
+  String? Function(EmlAttachment)? sourceIdFor,
+}) async {
+  final kept = attachments
+      .where((a) => !a.isImage || a.sizeKb >= 20)
+      .toList();
+  if (kept.isEmpty) return;
+  await _uploadAttachments(context, ref,
+      caseId: caseId, selected: kept, sourceIdFor: sourceIdFor);
+}
+
 /// Shows the attachment filter dialog for [attachments] and uploads the ones
-/// the surveyor keeps into the case Document Vault (category Correspondence),
-/// cross-linked to the source correspondence via [sourceIdFor]. No-op when
-/// there are no attachments.
+/// the surveyor keeps. Retained for a deliberate "Import attachments" action.
 Future<void> promptImportAttachments(
   BuildContext context,
   WidgetRef ref, {
@@ -40,6 +59,17 @@ Future<void> promptImportAttachments(
     builder: (_) => AttachmentImportDialog(attachments: attachments),
   );
   if (selected == null || selected.isEmpty || !context.mounted) return;
+  await _uploadAttachments(context, ref,
+      caseId: caseId, selected: selected, sourceIdFor: sourceIdFor);
+}
+
+Future<void> _uploadAttachments(
+  BuildContext context,
+  WidgetRef ref, {
+  required String caseId,
+  required List<EmlAttachment> selected,
+  String? Function(EmlAttachment)? sourceIdFor,
+}) async {
   final docNotifier = ref.read(documentProvider(caseId).notifier);
   final photoNotifier = ref.read(photosProvider(caseId).notifier);
   var docs = 0;
