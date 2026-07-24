@@ -598,14 +598,17 @@ class _CorrCardState extends ConsumerState<_CorrCard> {
                                   child: _StatusChip(status: item.status),
                                 )
                               : _StatusChip(status: item.status),
-                          if (item.corrDate != null) ...[
-                            const SizedBox(width: 6),
-                            Text(
-                              DateFormat('dd MMM yy').format(item.corrDate!),
-                              style: const TextStyle(
-                                  fontSize: 10, color: AppColors.textTertiary),
-                            ),
-                          ],
+                          // Always show a date: the email's own date when
+                          // parsed, else the import date so no item is dateless
+                          // (24 July 2026 — "I want the date of the emails
+                          // appearing").
+                          const SizedBox(width: 6),
+                          Text(
+                            DateFormat('dd MMM yy')
+                                .format(item.corrDate ?? item.createdAt),
+                            style: const TextStyle(
+                                fontSize: 10, color: AppColors.textTertiary),
+                          ),
                           if (!_expanded && item.parties.isNotEmpty) ...[
                             const SizedBox(width: 6),
                             Text(

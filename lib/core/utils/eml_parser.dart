@@ -291,19 +291,23 @@ class EmlParser {
     try {
       // Remove optional "Day, " prefix
       var s = dateStr.replaceFirst(RegExp(r'^[A-Za-z]{3},\s*'), '').trim();
+      // Seconds are optional (some clients send HH:MM), hours may be a single
+      // digit, and the whole time part can be absent (date-only headers) — be
+      // lenient so a slightly non-conforming Date header still yields a date.
       final re = RegExp(
-        r'^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+'
-        r'(\d{2}):(\d{2}):(\d{2})\s*([+-]\d{2}:?\d{2})?',
+        r'^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{2,4})'
+        r'(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*([+-]\d{2}:?\d{2})?',
       );
       final m = re.firstMatch(s);
       if (m == null) return null;
 
       final day = int.parse(m.group(1)!);
-      final month = _months[m.group(2)!.toLowerCase()] ?? 1;
-      final year = int.parse(m.group(3)!);
-      final hour = int.parse(m.group(4)!);
-      final minute = int.parse(m.group(5)!);
-      final second = int.parse(m.group(6)!);
+      final month = _months[m.group(2)!.toLowerCase().substring(0, 3)] ?? 1;
+      var year = int.parse(m.group(3)!);
+      if (year < 100) year += year < 70 ? 2000 : 1900; // 2-digit year
+      final hour = int.parse(m.group(4) ?? '0');
+      final minute = int.parse(m.group(5) ?? '0');
+      final second = int.parse(m.group(6) ?? '0');
 
       int tzOffsetSeconds = 0;
       final tzStr = m.group(7);
