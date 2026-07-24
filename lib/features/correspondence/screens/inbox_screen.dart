@@ -60,7 +60,21 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   // Case mode only: false = filtered to this case (default), true = all mail.
   bool _showAll = false;
 
-  bool get _caseMode => widget.caseId != null && !_showAll;
+  // Free-text Gmail search. When non-empty it OVERRIDES both the case filter
+  // and the All-mail list — the surveyor's way past a filter that was "too
+  // restrictive" (16 & 23 July reports).
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
+
+  bool get _searching => _query.trim().isNotEmpty;
+  // Case scoping only applies when NOT running a free-text search.
+  bool get _caseMode => widget.caseId != null && !_showAll && !_searching;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -124,6 +138,10 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   }
 
   void _refresh() {
+    if (_searching) {
+      ref.invalidate(inboxSearchProvider(_query.trim()));
+      return;
+    }
     if (widget.caseId != null) {
       ref.invalidate(caseInboxRawProvider(widget.caseId!));
     }
@@ -133,9 +151,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   @override
   Widget build(BuildContext context) {
     final caseMode = _caseMode;
-    final AsyncValue<List<GmailMessageSummary>> async = caseMode
-        ? ref.watch(caseInboxProvider(widget.caseId!))
-        : ref.watch(inboxMessagesProvider);
+    final AsyncValue<List<GmailMessageSummary>> async = _searching
+        ? ref.watch(inboxSearchProvider(_query.trim()))
+        : caseMode
+            ? ref.watch(caseInboxProvider(widget.caseId!))
+            : ref.watch(inboxMessagesProvider);
     return PopScope(
       canPop: widget.caseId == null,
       onPopInvokedWithResult: (didPop, _) {
@@ -163,12 +183,21 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
       ),
       body: Column(
         children: [
-          _TriageBanner(
-            caseMode: caseMode,
-            showToggle: widget.caseId != null,
-            showAll: _showAll,
-            onToggle: (v) => setState(() => _showAll = v),
+          _SearchField(
+            controller: _searchCtrl,
+            onSubmitted: (v) => setState(() => _query = v),
+            onClear: () => setState(() {
+              _searchCtrl.clear();
+              _query = '';
+            }),
           ),
+          if (!_searching)
+            _TriageBanner(
+              caseMode: caseMode,
+              showToggle: widget.caseId != null,
+              showAll: _showAll,
+              onToggle: (v) => setState(() => _showAll = v),
+            ),
           Expanded(
             child: async.when(
               loading: () =>
@@ -181,9 +210,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                 if (messages.isEmpty) {
                   return Center(
                     child: Text(
-                        caseMode
-                            ? 'No un-filed mail matches this case.'
-                            : 'No recent messages.',
+                        _searching
+                            ? 'No mail matches "${_query.trim()}".'
+                            : caseMode
+                                ? 'No un-filed mail matches this case.'
+                                : 'No recent messages.',
                         style: const TextStyle(
                             color: AppColors.textSecondary)),
                   );
@@ -206,6 +237,66 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
           ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// Free-text Gmail search bar. Submitting runs a full-mailbox Gmail search
+/// (sender, subject:, quoted phrases, has:attachment…) that overrides the case
+/// filter — the fix for "the inbox filter is too restrictive / not editable".
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.controller,
+    required this.onSubmitted,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onSubmitted;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      child: TextField(
+        controller: controller,
+        textInputAction: TextInputAction.search,
+        onSubmitted: onSubmitted,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search all mail — sender, subject, keyword…',
+          hintStyle:
+              const TextStyle(fontSize: 13, color: AppColors.textTertiary),
+          prefixIcon: const Icon(Icons.search, size: 18, color: _kColor),
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, __) => value.text.isEmpty
+                ? const SizedBox.shrink()
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Clear search',
+                    onPressed: onClear,
+                  ),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          filled: true,
+          fillColor: AppColors.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: _kColor),
+          ),
+        ),
       ),
     );
   }

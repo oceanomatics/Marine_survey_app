@@ -19,3 +19,15 @@ final inboxMessagesProvider =
     FutureProvider.autoDispose<List<GmailMessageSummary>>((ref) async {
   return GmailService.listRecent(maxResults: 25);
 });
+
+/// Free-text Gmail search for the Inbox — the surveyor's escape hatch from the
+/// case-scoped filter, which was "too restrictive / not editable" (16 & 23 July
+/// reports). Keyed by the raw query string (full Gmail search syntax: sender,
+/// subject:, has:attachment, quoted phrases…). Returns empty for a blank query
+/// so the screen falls back to its default (case filter / recent).
+final inboxSearchProvider = FutureProvider.autoDispose
+    .family<List<GmailMessageSummary>, String>((ref, query) async {
+  final q = query.trim();
+  if (q.isEmpty) return const [];
+  return GmailService.listRecent(query: q, maxResults: 50);
+});
