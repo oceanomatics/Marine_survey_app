@@ -328,9 +328,13 @@ class _SurveyNavRail extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final caseModel = ref.watch(caseProvider(caseId)).value;
     final notes = ref.watch(surveyorNotesProvider(caseId)).value ?? [];
+    // Cues "to treat": AI-suggested (pending review) OR not yet allocated to a
+    // section — both need the surveyor's attention. Ignored cues never count
+    // (24 July 2026 report: "I wanted a badge with the new notes to treat").
     final unallocatedCount = notes
         .where((n) =>
-            n.caseSection == null && n.priority != CuePriority.ignored)
+            n.priority != CuePriority.ignored &&
+            (n.pendingReview || n.caseSection == null))
         .length;
     // New (filtered, not-yet-imported) mail matching this case — same count
     // shown on the Correspondence app-bar (16 July 2026 reports).
