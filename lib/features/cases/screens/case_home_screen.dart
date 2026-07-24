@@ -1352,9 +1352,7 @@ class _PseudoReport extends ConsumerWidget {
                   occ.briefDescription!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  occ.briefDescription!.length > 140
-                      ? '${occ.briefDescription!.substring(0, 140)}…'
-                      : occ.briefDescription!,
+                  occ.briefDescription!,
                   style: const TextStyle(
                       fontSize: 11, color: AppColors.textSecondary),
                 ),
@@ -1905,7 +1903,6 @@ class _PseudoReport extends ConsumerWidget {
                       e.$2,
                       style: const TextStyle(
                           fontSize: 11, color: AppColors.textPrimary),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
