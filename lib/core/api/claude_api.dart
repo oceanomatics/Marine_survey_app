@@ -1715,6 +1715,7 @@ Extract ALL information and return ONLY valid JSON with no preamble or markdown:
 Rules:
 - hard_fields: include ONLY fields actually present in the document; omit absent fields entirely; dates MUST be YYYY-MM-DD; numeric values must be numbers not strings
 - context_findings: each item must have a "text" and a "note_category"; choose the most fitting category; translate text to English
+- context_findings splitting: each finding is ONE atomic fact tagged to exactly ONE case_section; never merge unrelated facts into one finding. Keep pre-incident history and prior/previous repair work (case_section "previous_works" or "background") strictly separate from the casualty event itself (case_section "occurrence") — a single finding must not span both
 - context_findings order: list findings in the exact order they appear in the document, reading top to bottom and first page to last — do NOT group or reorder by category or topic
 - context_findings page: give your best reading of the page number the finding was found on; if the document is a single continuous scan/photo with no distinguishable pages, use null
 - context_findings case_section: your best guess at which case section this finding belongs to, from the fixed list given — this is a suggestion only, a human will confirm or correct it, so make your best guess rather than omitting it; omit the field only if truly nothing fits (e.g. a pure hard-field/vessel-data document with no narrative content)
@@ -2063,6 +2064,18 @@ Rules:
       'any THIRD PARTY (class surveyor, OEM/manufacturer service engineer, '
       'specialist, repairer, workshop, crew) is NOT a surveyor attendance — tag '
       'those "event". Everything else is also "event". '
+      // The occurrence carries its own date on detected_incidents.date, so
+      // don't also list it as a key_date/timeline event (that duplicates it).
+      'The incident/casualty date itself belongs ONLY on detected_incidents.date '
+      '— do NOT also emit it as a key_date. key_dates are for OTHER dated '
+      'happenings (vessel movements, drydocking, repairs, surveyor attendances, '
+      'key communications), never the occurrence event itself. '
+      // Cue-split quality: atomic, single-section, don't blend history + event.
+      'Split context_findings so each item is ONE atomic fact tagged to exactly '
+      'ONE case_section; never merge unrelated facts into a single finding. Keep '
+      'pre-incident history and prior/previous repair work (case_section '
+      '"previous_works" or "background") strictly separate from the casualty '
+      'itself (case_section "occurrence") — one finding must not span both. '
       'Only include context_findings for genuinely useful facts, not filler. '
       'Keep every text field concise and in English.';
 
